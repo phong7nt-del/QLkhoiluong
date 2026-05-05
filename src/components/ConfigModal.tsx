@@ -3,13 +3,26 @@ import { DataStore } from '../store/DataStore';
 import { Copy, Check, DownloadCloud, AlertTriangle, X } from 'lucide-react';
 
 const SCRIPT_TEMPLATE = `const SPREADSHEET_ID = '1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ';
-const SHEET_NAME = 'CongTac';
-const SHEET_TRAM = 'Tram';
+
+function getSheetFlexibly(ss, possibleNames) {
+  for (var i=0; i<possibleNames.length; i++) {
+    var sheet = ss.getSheetByName(possibleNames[i]);
+    if (sheet) return sheet;
+  }
+  var sheets = ss.getSheets();
+  for (var s=0; s<sheets.length; s++) {
+    var sn = sheets[s].getName().toLowerCase().trim();
+    for (var p=0; p<possibleNames.length; p++) {
+       if (sn === possibleNames[p].toLowerCase().trim()) return sheets[s];
+    }
+  }
+  return null;
+}
 
 function doGet(e) {
   if (e.parameter.action === 'getData') {
     var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    var sheet = ss.getSheetByName(SHEET_NAME);
+    var sheet = getSheetFlexibly(ss, ['CongTac', 'Cong Tac', 'Công tác', 'Công Tác', 'Con Tác']);
     if (!sheet) return ContentService.createTextOutput(JSON.stringify({error: "Not found sheet CongTac"})).setMimeType(ContentService.MimeType.JSON);
     var data = sheet.getDataRange().getValues();
     
@@ -51,7 +64,7 @@ function doGet(e) {
     
     // Đọc sheet Tram
     var stations = [];
-    var sheetTram = ss.getSheetByName(SHEET_TRAM);
+    var sheetTram = getSheetFlexibly(ss, ['Tram', 'Trạm']);
     if (sheetTram) {
       var tramDataRange = sheetTram.getDataRange();
       var tramData = tramDataRange.getValues();
@@ -152,7 +165,9 @@ function doPost(e) {
   try {
     var payload = JSON.parse(e.postData.contents);
     if (payload.action === 'add_workload') {
-      var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_NAME);
+      var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+      var sheet = getSheetFlexibly(ss, ['CongTac', 'Cong Tac', 'Công tác', 'Công Tác', 'Con Tác']);
+      if (!sheet) return ContentService.createTextOutput(JSON.stringify({status: 'error'})).setMimeType(ContentService.MimeType.JSON);
       var data = payload.data;
       var sheetData = sheet.getDataRange().getValues();
       
