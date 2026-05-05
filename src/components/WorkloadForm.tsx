@@ -3,26 +3,38 @@ import { DataStore } from '../store/DataStore';
 import { PlusCircle, Search } from 'lucide-react';
 import { format } from 'date-fns';
 
-const TEAMS = ['Tổ 1', 'Tổ 2', 'Tổ 3', 'Tổ 4', 'Tổ 5', 'Tổ Điện', 'Tổ Nước', 'Tổ Xây Dựng'];
+const TEAMS = ['Tổ I', 'Tổ II', 'Tổ III', 'Tổ IV', 'Tổ V', 'Tổ VI'];
 const UNITS = ['m', 'm2', 'm3', 'cái', 'bộ', 'cuộn', 'giờ', 'ngày', 'tấn', 'kg'];
 
 export default function WorkloadForm({ onSaved }: { onSaved: () => void }) {
   const [team, setTeam] = useState(TEAMS[0]);
-  const [workGroup, setWorkGroup] = useState('');
+  const [members, setMembers] = useState<string[]>([]);
+  const [memberInput, setMemberInput] = useState('');
   const [content, setContent] = useState('');
-  const [volume, setVolume] = useState<number | ''>('');
-  const [unit, setUnit] = useState(UNITS[0]);
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
 
-  const [recentGroups, setRecentGroups] = useState<string[]>([]);
+  const [recentMembers, setRecentMembers] = useState<string[]>([]);
   const [recentContents, setRecentContents] = useState<string[]>([]);
 
+  const [filteredMembers, setFilteredMembers] = useState<string[]>([]);
   const [filteredContents, setFilteredContents] = useState<string[]>([]);
 
   useEffect(() => {
-    setRecentGroups(DataStore.getUniqueWorkGroups());
+    const unique = DataStore.getUniqueMembers();
+    setRecentMembers(unique);
     setRecentContents(DataStore.getUniqueContents());
   }, []);
+
+  useEffect(() => {
+    if (memberInput.length > 0) {
+      const lowerReq = memberInput.toLowerCase();
+      setFilteredMembers(
+        recentMembers.filter(m => m.toLowerCase().includes(lowerReq) && !members.includes(m))
+      );
+    } else {
+      setFilteredMembers(recentMembers.filter(m => !members.includes(m)));
+    }
+  }, [memberInput, recentMembers, members]);
 
   useEffect(() => {
     if (content.length > 0) {
@@ -35,28 +47,44 @@ export default function WorkloadForm({ onSaved }: { onSaved: () => void }) {
     }
   }, [content, recentContents]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!team || !workGroup || !content || volume === '' || !unit || !date) {
+    if (!team || members.length === 0 || !content || !date) {
       alert("Vui lòng điền đầy đủ thông tin");
       return;
     }
 
-    DataStore.addEntry({
+    setIsSubmitting(true);
+
+    const entry = {
       team,
-      workGroup,
+      members,
       content,
-      volume: Number(volume),
-      unit,
       date
-    });
+    };
+
+    // Add to local store
+    DataStore.addEntry(entry);
+    
+    // Sync to Google Sheet
+    const success = await DataStore.syncToSheet(entry);
+
+    setIsSubmitting(false);
+
+    if (success) {
+      alert("Đã lưu và đồng bộ thành công!");
+    } else {
+      alert("Đã lưu cục bộ nhưng đồng bộ thất bại. Vui lòng thử lại sau.");
+    }
 
     setContent('');
-    setVolume('');
-    setRecentGroups(DataStore.getUniqueWorkGroups());
+    setMembers([]);
+    setMemberInput('');
+    setRecentMembers(prev => Array.from(new Set([...prev, ...members])));
     setRecentContents(DataStore.getUniqueContents());
     
-    alert("Đã lưu thành công!");
     onSaved();
   };
 
@@ -93,19 +121,48 @@ export default function WorkloadForm({ onSaved }: { onSaved: () => void }) {
         </div>
 
         <div className="relative">
-          <label className="block text-[10px] font-mono opacity-50 uppercase mb-2">Nhóm công tác</label>
-          <input 
-            type="text" 
-            list="workGroupList"
-            value={workGroup} 
-            onChange={e => setWorkGroup(e.target.value)}
-            placeholder="VD: Lắp đặt thiết bị chiếu sáng"
-            className="w-full bg-[#E4E3E0] bg-opacity-30 border border-[#141414] p-3 text-sm focus:outline-none font-medium"
-            required
-          />
-          <datalist id="workGroupList">
-            {recentGroups.map(g => <option key={g} value={g} />)}
-          </datalist>
+          <label className="block text-[10px] font-mono opacity-50 uppercase mb-2">Họ và Tên (Nhóm Công Tác)</label>
+          <div className="w-full bg-[#E4E3E0] bg-opacity-30 border border-[#141414] p-2 flex flex-wrap gap-2 min-h-[46px] items-center text-sm font-medium focus-within:ring-2 focus-within:ring-[#141414]">
+             {members.map(m => (
+               <div key={m} className="bg-[#141414] text-[#E4E3E0] px-2 py-1 flex items-center gap-1 text-[10px] uppercase tracking-wider font-bold">
+                  {m}
+                  <button type="button" onClick={() => setMembers(prev => prev.filter(x => x !== m))} className="opacity-50 hover:opacity-100 ml-1">×</button>
+               </div>
+             ))}
+             <input
+               type="text"
+               value={memberInput}
+               onChange={e => setMemberInput(e.target.value)}
+               onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                     e.preventDefault();
+                     if (memberInput.trim() && !members.includes(memberInput.trim())) {
+                        setMembers(prev => [...prev, memberInput.trim()]);
+                        setMemberInput('');
+                     }
+                  }
+               }}
+               placeholder={members.length === 0 ? "Nhập tên và nhấn Enter..." : ""}
+               className="flex-1 min-w-[150px] bg-transparent focus:outline-none placeholder-gray-500"
+             />
+          </div>
+          
+          {memberInput && filteredMembers.length > 0 && (
+            <div className="absolute z-10 left-0 right-0 top-full mt-1 bg-white border border-[#141414] shadow-[4px_4px_0_#141414] max-h-48 overflow-y-auto">
+              {filteredMembers.map((suggestion, idx) => (
+                <div 
+                  key={idx}
+                  className="p-3 text-xs border-b border-[#E4E3E0] hover:bg-[#141414] hover:text-white cursor-pointer font-bold uppercase"
+                  onClick={() => {
+                    setMembers(prev => [...prev, suggestion]);
+                    setMemberInput('');
+                  }}
+                >
+                  {suggestion}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="relative">
@@ -141,38 +198,13 @@ export default function WorkloadForm({ onSaved }: { onSaved: () => void }) {
           )}
         </div>
 
-        <div className="grid grid-cols-2 gap-8">
-          <div className="relative">
-            <label className="block text-[10px] font-mono opacity-50 uppercase mb-2">Khối lượng</label>
-            <input 
-              type="number" 
-              step="any"
-              value={volume} 
-              onChange={e => setVolume(e.target.value !== '' ? Number(e.target.value) : '')}
-              placeholder="0.0"
-              className="w-full bg-transparent border-b border-[#141414] pb-2 font-mono text-xl focus:outline-none"
-              required
-            />
-          </div>
-          <div className="relative">
-            <label className="block text-[10px] font-mono opacity-50 uppercase mb-2">Đơn vị</label>
-            <select 
-              value={unit} 
-              onChange={e => setUnit(e.target.value)}
-              className="w-full bg-transparent border-b border-[#141414] pb-2 font-mono text-xl focus:outline-none"
-              required
-            >
-              {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
-            </select>
-          </div>
-        </div>
-
         <div className="pt-6">
           <button 
             type="submit"
-            className="w-full bg-[#141414] text-white p-4 font-bold uppercase tracking-widest text-sm hover:invert transition-all flex items-center justify-center gap-2"
+            disabled={isSubmitting}
+            className={`w-full bg-[#141414] text-white p-4 font-bold uppercase tracking-widest text-sm hover:invert transition-all flex items-center justify-center gap-2 ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
-            Cập Nhật Lên Hệ Thống [Enter]
+            {isSubmitting ? 'ĐANG ĐỒNG BỘ...' : 'Cập Nhật Lên Hệ Thống [Enter]'}
           </button>
         </div>
       </form>

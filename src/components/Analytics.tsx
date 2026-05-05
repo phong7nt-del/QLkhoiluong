@@ -1,7 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { DataStore, WorkloadEntry } from '../store/DataStore';
+import { DataStore } from '../store/DataStore';
 import { format, parseISO } from 'date-fns';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Filter, Trash2 } from 'lucide-react';
 
 export default function Analytics({ refreshToggle }: { refreshToggle: number }) {
@@ -11,7 +10,7 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
   const entries = useMemo(() => DataStore.getEntries().sort((a, b) => b.timestamp - a.timestamp), [refreshToggle]);
 
   const handleDelete = (id: string) => {
-    if (confirm('Bạn có chắc chắn muốn xóa bản ghi này?')) {
+    if (confirm('Bạn có chắc chắn muốn xóa tác nghiệp này?')) {
       DataStore.deleteEntry(id);
       window.dispatchEvent(new Event('workload_updated')); 
     }
@@ -25,19 +24,24 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
     });
   }, [entries, selectedTeam, selectedDate]);
 
-  const chartData = useMemo(() => {
-    const grouped = filteredEntries.reduce((acc, curr) => {
-      acc[curr.team] = (acc[curr.team] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-    
-    return Object.entries(grouped).map(([name, count]) => ({
-      name,
-      'Số công việc': count
-    }));
+  const uniqueTeams = useMemo(() => Array.from(new Set(entries.map(e => e.team))), [entries]);
+
+  // Compute unique dates for columns
+  const allDates = useMemo(() => {
+    const dates = new Set<string>(filteredEntries.map(e => e.date));
+    return Array.from(dates).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
   }, [filteredEntries]);
 
-  const uniqueTeams = useMemo(() => Array.from(new Set(entries.map(e => e.team))), [entries]);
+  // Compute unique members for rows
+  const allMembers = useMemo(() => {
+    const members = new Set<string>();
+    filteredEntries.forEach(e => {
+      if (e.members && Array.isArray(e.members)) {
+        e.members.forEach(m => members.add(m));
+      }
+    });
+    return Array.from(members).sort();
+  }, [filteredEntries]);
 
   return (
     <div className="space-y-8">
@@ -76,63 +80,57 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
           </div>
         </div>
 
-        {chartData.length > 0 && (
-          <div className="h-[250px] w-full p-6 border-b border-[#141414] bg-[#E4E3E0]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: -20 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#141414" strokeOpacity={0.2} />
-                <XAxis dataKey="name" tick={{fontSize: 10, fontFamily: 'monospace', fill: '#141414'}} stroke="#141414" />
-                <YAxis allowDecimals={false} tick={{fontSize: 10, fontFamily: 'monospace', fill: '#141414'}} stroke="#141414" />
-                <Tooltip cursor={{fill: '#141414', opacity: 0.1}} contentStyle={{backgroundColor: '#141414', color: '#E4E3E0', border: 'none', borderRadius: 0, fontFamily: 'monospace', fontSize: 10}} />
-                <Bar dataKey="Số công việc" fill="#141414" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-
         <div className="overflow-x-auto bg-[#F5F4F2]">
           <table className="w-full text-left border-collapse min-w-[700px]">
             <thead className="bg-[#141414] text-[#E4E3E0]">
               <tr className="text-[10px] font-mono uppercase tracking-tighter text-center">
-                <th className="py-3 px-4 border-r border-[#E4E3E0]/20 w-28">Ngày</th>
-                <th className="py-3 px-4 border-r border-[#E4E3E0]/20 w-32">Tổ</th>
-                <th className="py-3 px-4 border-r border-[#E4E3E0]/20">Nhóm Công Tác</th>
-                <th className="py-3 px-4 border-r border-[#E4E3E0]/20">Nội Dung</th>
-                <th className="py-3 px-4 border-r border-[#E4E3E0]/20 w-32 text-right">Khối Lượng</th>
-                <th className="py-3 px-4 w-16 text-center">Xóa</th>
+                <th className="py-3 px-4 border-r border-[#E4E3E0]/20 w-48 text-left">Họ và Tên</th>
+                {allDates.map(date => (
+                  <th key={date} className="py-3 px-4 border-r border-[#E4E3E0]/20 min-w-[200px]">
+                    {format(parseISO(date), 'dd/MM/yyyy')}
+                  </th>
+                ))}
               </tr>
             </thead>
-            <tbody className="font-mono text-xs">
-              {filteredEntries.length === 0 ? (
+            <tbody className="font-sans text-xs">
+              {allMembers.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-[10px] uppercase opacity-50 italic">
+                  <td colSpan={allDates.length + 1} className="py-8 text-center text-[10px] uppercase opacity-50 italic">
                     Chưa có hoạt động nào được ghi lại.
                   </td>
                 </tr>
               ) : (
-                filteredEntries.map((entry, i) => (
-                  <tr key={entry.id} className={`border-b border-[#141414]/20 hover:bg-white text-center ${i % 2 === 0 ? '' : 'bg-[#E4E3E0]/30'}`}>
-                    <td className="py-3 px-4 opacity-70">
-                      {format(parseISO(entry.date), 'dd/MM/yyyy')}
+                allMembers.map((member, i) => (
+                  <tr key={member} className={`border-b border-[#141414]/20 hover:bg-white ${i % 2 === 0 ? '' : 'bg-[#E4E3E0]/30'}`}>
+                    <td className="py-3 px-4 font-bold border-r border-[#141414]/10">
+                      {member}
                     </td>
-                    <td className="py-3 px-4 font-bold border-r border-l border-[#141414]/10">
-                      {entry.team}
-                    </td>
-                    <td className="py-3 px-4 text-left border-r border-[#141414]/10 opacity-80">{entry.workGroup}</td>
-                    <td className="py-3 px-4 text-left border-r border-[#141414]/10 italic max-w-sm truncate" title={entry.content}>{entry.content}</td>
-                    <td className="py-3 px-4 text-right border-r border-[#141414]/10 shrink-0">
-                      <span className="font-bold text-sm bg-black/5 px-2 py-1">{entry.volume}</span>
-                      <span className="opacity-50 ml-1 text-[10px] uppercase">{entry.unit}</span>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <button 
-                        onClick={() => handleDelete(entry.id)}
-                        className="text-red-700 hover:text-white hover:bg-red-700 px-2 py-1 border border-red-700 transition-colors uppercase text-[9px] font-bold"
-                        title="Xóa"
-                      >
-                        Del
-                      </button>
-                    </td>
+                    {allDates.map(date => {
+                       // Find entries for this member on this date
+                       const cellEntries = filteredEntries.filter(e => e.date === date && e.members?.includes(member));
+                       return (
+                         <td key={date} className="py-2 px-3 border-r border-[#141414]/10 align-top">
+                           {cellEntries.length > 0 ? (
+                             <div className="space-y-2">
+                               {cellEntries.map(e => (
+                                 <div key={e.id} className="bg-white border border-[#141414]/20 p-2 shadow-sm relative group">
+                                   <div className="pr-6 leading-relaxed whitespace-pre-wrap">{e.content}</div>
+                                   <button 
+                                     onClick={() => handleDelete(e.id)}
+                                     title="Xóa"
+                                     className="absolute top-2 right-2 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-1 bg-white border border-red-200 hover:bg-red-50"
+                                   >
+                                     <Trash2 className="w-3 h-3" />
+                                   </button>
+                                 </div>
+                               ))}
+                             </div>
+                           ) : (
+                             <span className="text-[#141414] opacity-10 block text-center">-</span>
+                           )}
+                         </td>
+                       );
+                    })}
                   </tr>
                 ))
               )}

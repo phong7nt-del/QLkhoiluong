@@ -1,15 +1,14 @@
 export interface WorkloadEntry {
   id: string;
   team: string;
-  workGroup: string;
+  members: string[]; // Thay workGroup bằng members
   content: string;
-  volume: number;
-  unit: string;
   date: string; // YYYY-MM-DD
   timestamp: number;
 }
 
 const STORAGE_KEY = 'workload_data_v1';
+const APP_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyDCcu4I8yfT1g2KOHCRoaDtMMb1gLvfxhP4HJkzFYbqNIg1TSXCyi2HS3D7hDYpInVxQ/exec';
 
 export const DataStore = {
   getEntries: (): WorkloadEntry[] => {
@@ -33,6 +32,22 @@ export const DataStore = {
     return newEntry;
   },
 
+  syncToSheet: async (entry: Omit<WorkloadEntry, 'id' | 'timestamp'>) => {
+    try {
+      await fetch(APP_SCRIPT_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8',
+        },
+        body: JSON.stringify({ action: 'add_workload', data: entry }),
+      });
+      return true;
+    } catch (error) {
+      console.error('Error syncing to sheet:', error);
+      return false;
+    }
+  },
+
   deleteEntry: (id: string) => {
     const entries = DataStore.getEntries();
     const filtered = entries.filter((e) => e.id !== id);
@@ -45,9 +60,14 @@ export const DataStore = {
     return Array.from(contents);
   },
   
-  getUniqueWorkGroups: (): string[] => {
+  getUniqueMembers: (): string[] => {
     const entries = DataStore.getEntries();
-    const groups = new Set(entries.map((e) => e.workGroup));
-    return Array.from(groups).filter(Boolean);
+    const membersSet = new Set<string>();
+    entries.forEach(e => {
+      if (e.members && Array.isArray(e.members)) {
+        e.members.forEach(m => membersSet.add(m));
+      }
+    });
+    return Array.from(membersSet).filter(Boolean);
   }
 };
