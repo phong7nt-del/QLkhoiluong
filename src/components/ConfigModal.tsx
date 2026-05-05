@@ -53,20 +53,24 @@ function doGet(e) {
     var stations = [];
     var sheetTram = ss.getSheetByName(SHEET_TRAM);
     if (sheetTram) {
-      var tramData = sheetTram.getDataRange().getValues();
+      var tramDataRange = sheetTram.getDataRange();
+      var tramData = tramDataRange.getValues();
+      var tramBackgrounds = tramDataRange.getBackgrounds();
+      
       var tramHeaderRow = 0;
       var idIdx = -1;
       var nameTIdx = -1;
       var typeIdx = -1;
       var areaIdx = -1;
       
-      for (var r = 0; r < Math.min(5, tramData.length); r++) {
+      // Tìm dòng Tiêu đề dựa vào các Keyword chuyên biệt
+      for (var r = 0; r < Math.min(10, tramData.length); r++) {
         for (var c = 0; c < tramData[r].length; c++) {
           var h = String(tramData[r][c]).toLowerCase().trim();
-          if (h.includes('id cũ') || h.includes('id cu') || h.includes('mã trạm') || h === 'ma tram') idIdx = c;
-          if (h.includes('tên tba') || h.includes('tên trạm') || h === 'ten tram') nameTIdx = c;
-          if (h.includes('loại trạm') || h === 'loai tram' || h.includes('hinh thuc') || h.includes('hình thức')) typeIdx = c;
-          if (h.includes('khu vực') || h === 'khu vuc' || h.includes('tổ') || h.includes('quản lý')) areaIdx = c;
+          if (h.includes('id cũ') || h.includes('id cu') || h === 'mã trạm' || h === 'ma tram') idIdx = c;
+          if (h.includes('tên tba đặt lại') || h.includes('tên trạm') || h === 'ten tram' || h === 'tên tba') nameTIdx = c;
+          if (h.includes('mã loại trạm chi tiết') || h.includes('loại trạm') || h === 'loai tram') typeIdx = c;
+          if (h.includes('khu vực') || h === 'khu vuc' || h.includes('tổ')) areaIdx = c;
         }
         if (idIdx !== -1 || nameTIdx !== -1) {
           tramHeaderRow = r;
@@ -74,22 +78,41 @@ function doGet(e) {
         }
       }
       
+      // Fallback fallback fallback
       if (idIdx === -1) idIdx = 0;
       if (nameTIdx === -1) nameTIdx = 1;
       if (typeIdx === -1) typeIdx = 2;
-      if (areaIdx === -1) areaIdx = 3;
       
       var tramHeaders = tramData[tramHeaderRow] || [];
       var currentFeeder = "Khác";
       
       for (var i = tramHeaderRow + 1; i < tramData.length; i++) {
          var row = tramData[i];
+         var bgRow = tramBackgrounds[i];
          var idVal = String(row[idIdx] || '').trim();
          var nameVal = String(row[nameTIdx] || '').trim();
          
-         if (!idVal && nameVal) {
-             currentFeeder = nameVal;
-             continue;
+         // Kiểm tra xem dòng này có phải là Tuyến Dây không
+         // Dòng tuyến được tô vàng
+         var isFeederRow = false;
+         for (var bc = 0; bc < bgRow.length && bc < 5; bc++) {
+            if (bgRow[bc] === '#ffff00' || bgRow[bc] === '#fff2cc' || bgRow[bc] === '#ffeb3b') {
+               isFeederRow = true;
+               break;
+            }
+         }
+         
+         // Cấu trúc khác: Tuyến dây k có mã trạm, chỉ có Tên TBA
+         if (!idVal && nameVal && nameVal.toLowerCase().indexOf('tuyến') > -1) {
+             isFeederRow = true;
+         }
+         
+         if (isFeederRow) {
+             // Lấy tên tuyến, nếu cột name có thì lấy name, ko thì lấy text đầu tiên tìm thấy
+             if (nameVal) currentFeeder = nameVal;
+             else if (idVal) currentFeeder = idVal;
+             else if (String(row[0]).trim()) currentFeeder = String(row[0]).trim();
+             continue; // Chuyển sang dòng kế tiếp là trạm
          }
          
          if (!idVal && !nameVal) continue;
@@ -99,7 +122,6 @@ function doGet(e) {
             if (tramHeaders[c]) {
                var headerName = String(tramHeaders[c]);
                var cellValue = String(row[c] || '');
-               // Exclude generic/empty headers if needed
                if (headerName.trim() !== '') {
                   details[headerName] = cellValue;
                }
@@ -110,7 +132,7 @@ function doGet(e) {
            id: idVal,
            name: nameVal,
            type: String(row[typeIdx] || '').trim(),
-           area: currentFeeder,
+           area: areaIdx !== -1 && String(row[areaIdx]).trim() ? String(row[areaIdx]).trim() : currentFeeder,
            details: details
          });
       }
@@ -236,15 +258,21 @@ export default function ConfigModal({ onClose }: { onClose: () => void }) {
 
         <div className="p-6 lg:p-10">
           <h2 className="font-serif italic text-2xl mb-6 pr-12">
-             Mã cập nhật App Script để sửa lỗi nối cột ngày
+             Cấu hình Hệ Thống & Google Scripts
           </h2>
           
           <div className="space-y-6 text-sm font-sans">
-            <div className="bg-[#FFF4E5] border border-orange-400 p-4 rounded-none flex gap-3 text-orange-900">
+            <div className="bg-[#FFF4E5] border border-orange-400 p-4 rounded-none flex gap-3 text-orange-900 border-l-[6px] shadow-[4px_4px_0_rgba(0,0,0,0.1)]">
                <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
                <div>
-                  <p className="font-bold mb-1">Cập nhật mã nguồn App Script</p>
-                  <p>Mã mới đã bổ sung format ngày tháng chuẩn xác. Hãy sao chép rồi dán lại vào App Script, sau đó <b>Triển khai lại</b> (Tạo bản mới) &gt; Sao chép Web App URL mới dán xuống ô dưới.</p>
+                  <p className="font-bold mb-1 text-base uppercase">BẮT BUỘC: Cập nhật lại mã nguồn App Script</p>
+                  <p className="mb-2">Mã mới đã bổ sung nhận diện <strong>Danh sách Trạm, tổ công tác</strong> và nhóm ngày tháng chuẩn xác.</p>
+                  <ul className="list-decimal pl-5 space-y-1 mb-2">
+                     <li>Copy toàn bộ mã trong ô màu đen bên dưới.</li>
+                     <li>Dán đè vào <a href="https://script.google.com" target="_blank" rel="noreferrer" className="underline font-bold text-blue-700">Google Apps Script</a> của bạn.</li>
+                     <li>Bấm <strong>Deploy {'->'} New deployment</strong>. (Không được chọn Manage Deployments bản cũ)</li>
+                     <li>Sao chép Web App URL <strong>MỚI NHẤT</strong> và dán vào ô bên dưới rồi TẢI LẠI DỮ LIỆU.</li>
+                  </ul>
                </div>
             </div>
 
