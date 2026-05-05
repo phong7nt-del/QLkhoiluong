@@ -1,3 +1,11 @@
+export interface Station {
+  id: string; // Mã trạm
+  name: string; // Tên trạm
+  type: string; // Loại trạm
+  area: string; // Khu vực (Tổ)
+  details: Record<string, string>; // Tất cả các thông tin khác
+}
+
 export interface WorkloadEntry {
   id: string;
   team: string;
@@ -16,6 +24,7 @@ const STORAGE_KEY = 'workload_data_v1';
 const SCRIPT_URL_KEY = 'app_script_url_v1';
 const TEAMS_KEY = 'sheet_teams_v1';
 const MEMBERS_KEY = 'sheet_members_v1';
+const STATIONS_KEY = 'sheet_stations_v1';
 
 export const DataStore = {
   getAppScriptUrl: () => localStorage.getItem(SCRIPT_URL_KEY) || 'https://script.google.com/macros/s/AKfycbyDCcu4I8yfT1g2KOHCRoaDtMMb1gLvfxhP4HJkzFYbqNIg1TSXCyi2HS3D7hDYpInVxQ/exec',
@@ -68,8 +77,11 @@ export const DataStore = {
       const res = await fetch(`${url}?action=getData`);
       const json = await res.json();
       if (json.status === 'success') {
-         localStorage.setItem(TEAMS_KEY, JSON.stringify(json.teams));
-         localStorage.setItem(MEMBERS_KEY, JSON.stringify(json.members));
+         localStorage.setItem(TEAMS_KEY, JSON.stringify(json.teams || []));
+         localStorage.setItem(MEMBERS_KEY, JSON.stringify(json.members || []));
+         if (json.stations) {
+           localStorage.setItem(STATIONS_KEY, JSON.stringify(json.stations));
+         }
          return true;
       }
     } catch (error) {
@@ -88,6 +100,13 @@ export const DataStore = {
   getMembers: (): SheetMember[] => {
      try {
        const cached = localStorage.getItem(MEMBERS_KEY);
+       return cached ? JSON.parse(cached) : [];
+     } catch { return []; }
+  },
+
+  getStations: (): Station[] => {
+     try {
+       const cached = localStorage.getItem(STATIONS_KEY);
        return cached ? JSON.parse(cached) : [];
      } catch { return []; }
   },

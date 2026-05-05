@@ -1,0 +1,279 @@
+import React, { useState } from 'react';
+import { DataStore } from '../store/DataStore';
+import { Copy, Check, DownloadCloud, AlertTriangle, X } from 'lucide-react';
+
+const SCRIPT_TEMPLATE = `const SPREADSHEET_ID = '1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ';
+const SHEET_NAME = 'CongTac';
+const SHEET_TRAM = 'Tram';
+
+function doGet(e) {
+  if (e.parameter.action === 'getData') {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(SHEET_NAME);
+    if (!sheet) return ContentService.createTextOutput(JSON.stringify({error: "Not found sheet CongTac"})).setMimeType(ContentService.MimeType.JSON);
+    var data = sheet.getDataRange().getValues();
+    
+    var nameIdx = -1;
+    var teamIdx = -1;
+    var startRow = 1;
+
+    for (var r = 0; r < 3 && r < data.length; r++) {
+      for (var c = 0; c < data[r].length; c++) {
+        var val = String(data[r][c]).toLowerCase().trim();
+        if (val.includes('họ và tên') || val === 'họ tên') nameIdx = c;
+        if (val.includes('khu vực') || val === 'khu vuc' || val.includes('tổ công tác')) teamIdx = c;
+      }
+      if (nameIdx !== -1 && teamIdx !== -1) {
+        startRow = r + 1;
+        break;
+      }
+    }
+    
+    if (nameIdx === -1) { nameIdx = 1; startRow = 2; }
+    if (teamIdx === -1) { teamIdx = 2; }
+    
+    var teams = [];
+    var members = [];
+    var currentTeam = "";
+    
+    for (var i = startRow; i < data.length; i++) {
+      var name = String(data[i][nameIdx] || '').trim();
+      var teamVal = String(data[i][teamIdx] || '').trim();
+      
+      if (!name || name.toLowerCase().includes('họ và tên')) continue;
+      
+      if (teamVal && teamVal.toLowerCase() !== 'khu vực') {
+        currentTeam = teamVal;
+        if (teams.indexOf(currentTeam) === -1) {
+          teams.push(currentTeam);
+        }
+      }
+      
+      if (currentTeam) {
+        members.push({ team: currentTeam, name: name });
+      }
+    }
+    
+    // Đọc sheet Tram
+    var stations = [];
+    var sheetTram = ss.getSheetByName(SHEET_TRAM);
+    if (sheetTram) {
+      var tramData = sheetTram.getDataRange().getValues();
+      if (tramData.length > 0) {
+        var tramHeaders = tramData[0];
+        
+        var idIdx = -1;
+        var nameTIdx = -1;
+        var typeIdx = -1;
+        var areaIdx = -1;
+        
+        for (var c = 0; c < tramHeaders.length; c++) {
+          var h = String(tramHeaders[c]).toLowerCase().trim();
+          if (h.includes('mã trạm') || h === 'ma tram' || h.includes('id cũ spc') || h.includes('id cu spc')) idIdx = c;
+          else if (h.includes('tên tba') || h.includes('tên trạm') || h === 'ten tram' || h.includes('tên tba đặt lại')) nameTIdx = c;
+          else if (h.includes('loại trạm') || h === 'loai tram' || h.includes('mã loại trạm chi tiết') || h.includes('ma loai tram')) typeIdx = c;
+          else if (h.includes('khu vực') || h === 'khu vuc' || h.includes('tổ công tác') || h.includes('tổ quản lý')) areaIdx = c;
+        }
+        
+        // Mặc định nến không tìm thấy
+        if (idIdx === -1) idIdx = 0;
+        if (nameTIdx === -1) nameTIdx = 1;
+        if (typeIdx === -1) typeIdx = 2;
+        if (areaIdx === -1) areaIdx = 3;
+        
+        for (var i = 1; i < tramData.length; i++) {
+           var row = tramData[i];
+           if (!row[idIdx] && !row[nameTIdx]) continue;
+           
+           var details = {};
+           for (var c = 0; c < tramHeaders.length; c++) {
+              if (tramHeaders[c]) {
+                 details[String(tramHeaders[c])] = String(row[c] || '');
+              }
+           }
+           
+           stations.push({
+             id: String(row[idIdx] || ''),
+             name: String(row[nameTIdx] || ''),
+             type: String(row[typeIdx] || ''),
+             area: String(row[areaIdx] || ''),
+             details: details
+           });
+        }
+      }
+    }
+    
+    return ContentService.createTextOutput(JSON.stringify({
+      status: 'success',
+      teams: teams,
+      members: members,
+      stations: stations
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+  return ContentService.createTextOutput("Valid Endpoint");
+}
+
+function doPost(e) {
+  try {
+    var payload = JSON.parse(e.postData.contents);
+    if (payload.action === 'add_workload') {
+      var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_NAME);
+      var data = payload.data;
+      var sheetData = sheet.getDataRange().getValues();
+      
+      var nameIdx = -1;
+      var headerRowIndex = 0;
+      for (var r = 0; r < 3 && r < sheetData.length; r++) {
+        for (var c = 0; c < sheetData[r].length; c++) {
+          var val = String(sheetData[r][c]).toLowerCase().trim();
+          if (val.includes('họ và tên') || val === 'họ tên') {
+             nameIdx = c;
+             headerRowIndex = r;
+             break;
+          }
+        }
+        if (nameIdx !== -1) break;
+      }
+      if (nameIdx === -1) { nameIdx = 1; headerRowIndex = 1; }
+      
+      var headers = sheetData[headerRowIndex] || [];
+      var dateParts = data.date.split('-'); // data.date format: YYYY-MM-DD
+      var targetDateStr = dateParts[2] + '/' + dateParts[1] + '/' + dateParts[0]; // DD/MM/YYYY
+      var targetDateStrAlt = dateParts[2] + '/' + dateParts[1]; // DD/MM
+      
+      var dateColIndex = -1;
+      for (var i = 0; i < headers.length; i++) {
+         var h = headers[i];
+         var cellDateStr = '';
+         if (Object.prototype.toString.call(h) === '[object Date]') {
+            cellDateStr = Utilities.formatDate(h, Session.getScriptTimeZone(), "dd/MM/yyyy");
+         } else {
+            cellDateStr = String(h).trim();
+         }
+         
+         if (cellDateStr === targetDateStr || cellDateStr === targetDateStrAlt || cellDateStr === data.date) {
+            dateColIndex = i;
+            break;
+         }
+      }
+      
+      if (dateColIndex === -1) {
+         dateColIndex = headers.length; 
+         sheet.getRange(headerRowIndex + 1, dateColIndex + 1).setValue("'" + targetDateStr);
+      }
+      
+      for (var m = 0; m < data.members.length; m++) {
+        var memberName = data.members[m];
+        var rowIndex = -1;
+        for(var r = headerRowIndex + 1; r < sheetData.length; r++) {
+           if(String(sheetData[r][nameIdx]).trim() === memberName.trim()) {
+              rowIndex = r; break;
+           }
+        }
+        
+        if (rowIndex !== -1) {
+           var cell = sheet.getRange(rowIndex + 1, dateColIndex + 1);
+           var currentVal = String(cell.getValue() || '');
+           var newVal = currentVal ? currentVal + "\\n- " + data.content : "- " + data.content;
+           cell.setValue(newVal);
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({ status: 'success' })).setMimeType(ContentService.MimeType.JSON);
+    }
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: err.toString() })).setMimeType(ContentService.MimeType.JSON);
+  }
+}`;
+
+export default function ConfigModal({ onClose }: { onClose: () => void }) {
+  const [url, setUrl] = useState(DataStore.getAppScriptUrl());
+  const [copied, setCopied] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(SCRIPT_TEMPLATE);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 3000);
+  };
+
+  const handleSaveAndSync = async () => {
+    DataStore.setAppScriptUrl(url);
+    setSyncing(true);
+    setSyncResult(null);
+    const success = await DataStore.syncMasterData();
+    setSyncing(false);
+    if (success) {
+       setSyncResult('success');
+    } else {
+       setSyncResult('error');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-[#E4E3E0]/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-white border-[4px] border-[#141414] shadow-[8px_8px_0_rgba(20,20,20,1)] max-w-4xl w-full max-h-[90vh] overflow-y-auto relative">
+        
+        <button 
+          onClick={onClose}
+          className="absolute top-4 right-4 text-[#141414] hover:bg-[#E4E3E0] p-2 transition-colors z-10"
+        >
+          <X className="w-6 h-6" />
+        </button>
+
+        <div className="p-6 lg:p-10">
+          <h2 className="font-serif italic text-2xl mb-6 pr-12">
+             Mã cập nhật App Script để sửa lỗi nối cột ngày
+          </h2>
+          
+          <div className="space-y-6 text-sm font-sans">
+            <div className="bg-[#FFF4E5] border border-orange-400 p-4 rounded-none flex gap-3 text-orange-900">
+               <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+               <div>
+                  <p className="font-bold mb-1">Cập nhật mã nguồn App Script</p>
+                  <p>Mã mới đã bổ sung format ngày tháng chuẩn xác. Hãy sao chép rồi dán lại vào App Script, sau đó <b>Triển khai lại</b> (Tạo bản mới) &gt; Sao chép Web App URL mới dán xuống ô dưới.</p>
+               </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-[10px] font-mono opacity-50 uppercase font-bold">1. Chép URL App Script Mới cập nhật vào đây (bắt buộc tải lại dữ liệu)</label>
+              <input 
+                type="text" 
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="https://script.google.com/macros/s/..."
+                className="w-full bg-[#E4E3E0] bg-opacity-30 border border-[#141414] p-3 text-sm focus:outline-none focus:ring-1 focus:ring-[#141414] font-mono"
+              />
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+               <button 
+                  onClick={handleSaveAndSync}
+                  disabled={syncing}
+                  className="bg-[#141414] text-[#E4E3E0] px-6 py-3 uppercase font-bold tracking-widest hover:invert transition-all flex items-center gap-2 text-sm disabled:opacity-50"
+               >
+                  <DownloadCloud className="w-4 h-4" />
+                  {syncing ? 'Đang Tải Dữ Liệu...' : 'Lưu URL & Tải Danh Sách Tổ/NV'}
+               </button>
+               {syncResult === 'success' && <div className="text-green-700 font-bold flex items-center bg-green-50 px-3 py-2 border border-green-200">✓ Đã tải dữ liệu Tổ & NV thành công!</div>}
+               {syncResult === 'error' && <div className="text-red-700 font-bold flex items-center bg-red-50 px-3 py-2 border border-red-200">✗ Lỗi tải dữ liệu. Hãy kiểm tra URL hoặc App Script.</div>}
+            </div>
+            
+            <div className="border border-[#141414] mt-8 bg-[#141414] text-[#E4E3E0] shadow-inner">
+              <div className="flex justify-between items-center p-3 border-b border-[#E4E3E0]/20 bg-black">
+                 <span className="text-[10px] font-mono uppercase opacity-50">2. Mã Code Apps Script Mới (Code.gs)</span>
+                 <button onClick={handleCopy} className="text-xs font-mono flex items-center gap-1 hover:text-white transition-colors bg-white/10 px-3 py-1">
+                    {copied ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
+                    {copied ? 'Đã chép' : 'Sao chép mã'}
+                 </button>
+              </div>
+              <pre className="p-4 text-[11px] font-mono overflow-auto max-h-[300px]">
+                 <code>{SCRIPT_TEMPLATE}</code>
+              </pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
