@@ -1,19 +1,30 @@
 import { useState, useEffect } from "react";
-import { ClipboardList, BarChart3, Database, Settings as SettingsIcon } from "lucide-react";
+import { ClipboardList, BarChart3, Database, RefreshCw } from "lucide-react";
 import WorkloadForm from "./components/WorkloadForm";
 import Analytics from "./components/Analytics";
-import Settings from "./components/Settings";
+import { DataStore } from "./store/DataStore";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"input" | "report" | "config">("input");
+  const [activeTab, setActiveTab] = useState<"input" | "report">("input");
   const [refreshToggle, setRefreshToggle] = useState(0);
+  const [isSyncing, setIsSyncing] = useState(false);
 
-  // Expose an event for components to trigger a global refresh
+  // Initial Sync from URL & refresh listener
   useEffect(() => {
     const handleRefresh = () => setRefreshToggle(prev => prev + 1);
     window.addEventListener('workload_updated', handleRefresh);
+    
+    syncData();
+
     return () => window.removeEventListener('workload_updated', handleRefresh);
   }, []);
+
+  const syncData = async () => {
+    setIsSyncing(true);
+    await DataStore.syncMasterData();
+    setIsSyncing(false);
+    setRefreshToggle(prev => prev + 1);
+  };
 
   return (
     <div className="min-h-screen bg-[#E4E3E0] text-[#141414] font-sans p-4 sm:p-8">
@@ -34,6 +45,14 @@ export default function App() {
               ONLINE
             </span>
           </div>
+          <button 
+            onClick={syncData}
+            disabled={isSyncing}
+            className="flex items-center gap-2 px-3 py-2 bg-black text-white text-[10px] font-bold uppercase tracking-widest transition-colors hover:bg-black/80"
+          >
+            <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">{isSyncing ? 'Đang Tải...' : 'Tải Dữ Liệu Sheet'}</span>
+          </button>
         </header>
 
         <main className="flex-1 flex flex-col p-6 lg:p-8">
@@ -61,29 +80,14 @@ export default function App() {
               <BarChart3 className="w-4 h-4" />
               02. Báo cáo
             </button>
-            <div className="w-px bg-[#141414] hidden sm:block"></div>
-            <button
-              onClick={() => setActiveTab("config")}
-              className={`flex items-center gap-2 px-6 py-3 text-sm font-bold uppercase tracking-widest transition-colors ${
-                activeTab === "config"
-                  ? "bg-[#141414] text-[#E4E3E0]"
-                  : "text-[#141414] hover:bg-[#F5F4F2]"
-              }`}
-            >
-              <SettingsIcon className="w-4 h-4" />
-              03. Cấu hình
-            </button>
           </div>
 
           <div className="flex-1">
             {activeTab === "input" && (
-              <WorkloadForm onSaved={() => setRefreshToggle(prev => prev + 1)} />
+              <WorkloadForm onSaved={() => setRefreshToggle(prev => prev + 1)} refreshToggle={refreshToggle} />
             )}
             {activeTab === "report" && (
               <Analytics refreshToggle={refreshToggle} />
-            )}
-            {activeTab === "config" && (
-              <Settings />
             )}
           </div>
         </main>

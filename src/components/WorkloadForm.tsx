@@ -3,7 +3,7 @@ import { DataStore, SheetMember } from '../store/DataStore';
 import { PlusCircle, Search } from 'lucide-react';
 import { format } from 'date-fns';
 
-export default function WorkloadForm({ onSaved }: { onSaved: () => void }) {
+export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () => void, refreshToggle: number }) {
   const [availableTeams, setAvailableTeams] = useState<string[]>([]);
   const [allSheetMembers, setAllSheetMembers] = useState<SheetMember[]>([]);
   
@@ -26,7 +26,7 @@ export default function WorkloadForm({ onSaved }: { onSaved: () => void }) {
       setTeam(teams[0]);
     }
     setRecentContents(DataStore.getUniqueContents());
-  }, []);
+  }, [refreshToggle]);
 
   useEffect(() => {
     const availableMembers = (team ? allSheetMembers.filter(m => m.team === team) : allSheetMembers).map(m => m.name);
