@@ -1,40 +1,44 @@
 import React, { useState, useEffect } from 'react';
-import { DataStore } from '../store/DataStore';
+import { DataStore, SheetMember } from '../store/DataStore';
 import { PlusCircle, Search } from 'lucide-react';
 import { format } from 'date-fns';
 
-const TEAMS = ['Tổ I', 'Tổ II', 'Tổ III', 'Tổ IV', 'Tổ V', 'Tổ VI'];
-const UNITS = ['m', 'm2', 'm3', 'cái', 'bộ', 'cuộn', 'giờ', 'ngày', 'tấn', 'kg'];
-
 export default function WorkloadForm({ onSaved }: { onSaved: () => void }) {
-  const [team, setTeam] = useState(TEAMS[0]);
+  const [availableTeams, setAvailableTeams] = useState<string[]>([]);
+  const [allSheetMembers, setAllSheetMembers] = useState<SheetMember[]>([]);
+  
+  const [team, setTeam] = useState('');
   const [members, setMembers] = useState<string[]>([]);
   const [memberInput, setMemberInput] = useState('');
   const [content, setContent] = useState('');
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
 
-  const [recentMembers, setRecentMembers] = useState<string[]>([]);
   const [recentContents, setRecentContents] = useState<string[]>([]);
-
   const [filteredMembers, setFilteredMembers] = useState<string[]>([]);
   const [filteredContents, setFilteredContents] = useState<string[]>([]);
 
   useEffect(() => {
-    const unique = DataStore.getUniqueMembers();
-    setRecentMembers(unique);
+    const teams = DataStore.getTeams();
+    const sm = DataStore.getMembers();
+    setAvailableTeams(teams);
+    setAllSheetMembers(sm);
+    if (teams.length > 0 && !team) {
+      setTeam(teams[0]);
+    }
     setRecentContents(DataStore.getUniqueContents());
   }, []);
 
   useEffect(() => {
+    const availableMembers = (team ? allSheetMembers.filter(m => m.team === team) : allSheetMembers).map(m => m.name);
     if (memberInput.length > 0) {
       const lowerReq = memberInput.toLowerCase();
       setFilteredMembers(
-        recentMembers.filter(m => m.toLowerCase().includes(lowerReq) && !members.includes(m))
+        availableMembers.filter(m => m.toLowerCase().includes(lowerReq) && !members.includes(m))
       );
     } else {
-      setFilteredMembers(recentMembers.filter(m => !members.includes(m)));
+      setFilteredMembers(availableMembers.filter(m => !members.includes(m)));
     }
-  }, [memberInput, recentMembers, members]);
+  }, [memberInput, team, allSheetMembers, members]);
 
   useEffect(() => {
     if (content.length > 0) {
@@ -82,7 +86,6 @@ export default function WorkloadForm({ onSaved }: { onSaved: () => void }) {
     setContent('');
     setMembers([]);
     setMemberInput('');
-    setRecentMembers(prev => Array.from(new Set([...prev, ...members])));
     setRecentContents(DataStore.getUniqueContents());
     
     onSaved();
@@ -110,12 +113,15 @@ export default function WorkloadForm({ onSaved }: { onSaved: () => void }) {
             <label className="block text-[10px] font-mono opacity-50 uppercase mb-2">Tổ công tác</label>
             <select 
               value={team} 
-              onChange={e => setTeam(e.target.value)}
+              onChange={e => {
+                 setTeam(e.target.value);
+                 setMembers([]); // reset members when team changes
+              }}
               className="w-full bg-transparent border-b border-[#141414] pb-2 font-bold focus:outline-none"
               required
             >
               <option value="" disabled>Chọn tổ...</option>
-              {TEAMS.map(t => <option key={t} value={t}>{t}</option>)}
+              {availableTeams.length > 0 ? availableTeams.map(t => <option key={t} value={t}>{t}</option>) : <option disabled>Chưa có dữ liệu Tổ (Vào Cấu hình tải)</option>}
             </select>
           </div>
         </div>
@@ -136,9 +142,15 @@ export default function WorkloadForm({ onSaved }: { onSaved: () => void }) {
                onKeyDown={e => {
                   if (e.key === 'Enter') {
                      e.preventDefault();
-                     if (memberInput.trim() && !members.includes(memberInput.trim())) {
-                        setMembers(prev => [...prev, memberInput.trim()]);
-                        setMemberInput('');
+                     const val = memberInput.trim();
+                     if (val) {
+                        const exactMatch = allSheetMembers.find(m => m.name.toLowerCase() === val.toLowerCase());
+                        if (exactMatch) {
+                           if (!members.includes(exactMatch.name)) setMembers(prev => [...prev, exactMatch.name]);
+                           setMemberInput('');
+                        } else {
+                           alert(`Lỗi! Tên "${val}" không khớp với danh sách nhân viên trong hệ thống (Sheet CongTac).`);
+                        }
                      }
                   }
                }}

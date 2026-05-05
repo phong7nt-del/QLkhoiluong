@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
-import { ClipboardList, BarChart3, Database } from "lucide-react";
+import { ClipboardList, BarChart3, Database, Settings as SettingsIcon } from "lucide-react";
 import WorkloadForm from "./components/WorkloadForm";
 import Analytics from "./components/Analytics";
+import Settings from "./components/Settings";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"input" | "report">("input");
+  const [activeTab, setActiveTab] = useState<"input" | "report" | "config">("input");
   const [refreshToggle, setRefreshToggle] = useState(0);
 
   // Expose an event for components to trigger a global refresh
@@ -36,7 +37,7 @@ export default function App() {
         </header>
 
         <main className="flex-1 flex flex-col p-6 lg:p-8">
-          <div className="flex border border-[#141414] w-fit mb-8 bg-white overflow-hidden shadow-[4px_4px_0_#141414]">
+          <div className="flex border border-[#141414] w-fit mb-8 bg-white overflow-hidden shadow-[4px_4px_0_#141414] flex-wrap">
             <button
               onClick={() => setActiveTab("input")}
               className={`flex items-center gap-2 px-6 py-3 text-sm font-bold uppercase tracking-widest transition-colors ${
@@ -48,7 +49,7 @@ export default function App() {
               <ClipboardList className="w-4 h-4" />
               01. Cập nhật
             </button>
-            <div className="w-px bg-[#141414]"></div>
+            <div className="w-px bg-[#141414] hidden sm:block"></div>
             <button
               onClick={() => setActiveTab("report")}
               className={`flex items-center gap-2 px-6 py-3 text-sm font-bold uppercase tracking-widest transition-colors ${
@@ -60,13 +61,29 @@ export default function App() {
               <BarChart3 className="w-4 h-4" />
               02. Báo cáo
             </button>
+            <div className="w-px bg-[#141414] hidden sm:block"></div>
+            <button
+              onClick={() => setActiveTab("config")}
+              className={`flex items-center gap-2 px-6 py-3 text-sm font-bold uppercase tracking-widest transition-colors ${
+                activeTab === "config"
+                  ? "bg-[#141414] text-[#E4E3E0]"
+                  : "text-[#141414] hover:bg-[#F5F4F2]"
+              }`}
+            >
+              <SettingsIcon className="w-4 h-4" />
+              03. Cấu hình
+            </button>
           </div>
 
           <div className="flex-1">
-            {activeTab === "input" ? (
+            {activeTab === "input" && (
               <WorkloadForm onSaved={() => setRefreshToggle(prev => prev + 1)} />
-            ) : (
+            )}
+            {activeTab === "report" && (
               <Analytics refreshToggle={refreshToggle} />
+            )}
+            {activeTab === "config" && (
+              <Settings />
             )}
           </div>
         </main>
