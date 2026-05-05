@@ -13,29 +13,39 @@ function doGet(e) {
     if (!sheet) return ContentService.createTextOutput(JSON.stringify({error: "Not found sheet CongTac"})).setMimeType(ContentService.MimeType.JSON);
     var data = sheet.getDataRange().getValues();
     
+    var nameIdx = -1;
+    var teamIdx = -1;
+    var startRow = 1;
+
+    for (var r = 0; r < 5 && r < data.length; r++) {
+      for (var c = 0; c < data[r].length; c++) {
+        var val = String(data[r][c]).toLowerCase().trim();
+        if (val.includes('họ và tên') || val === 'họ tên') nameIdx = c;
+        if (val.includes('khu vực') || val === 'khu vuc' || val.includes('tổ công tác')) teamIdx = c;
+      }
+      if (nameIdx !== -1 && teamIdx !== -1) {
+        startRow = r + 1;
+        break;
+      }
+    }
+    
+    if (nameIdx === -1) { nameIdx = 1; startRow = 2; }
+    if (teamIdx === -1) { teamIdx = 2; }
+    
     var teams = [];
     var members = [];
-    var currentTeam = "";
     
-    for (var i = 1; i < data.length; i++) {
-      var stt = String(data[i][0] || '').trim();
-      var name = String(data[i][1] || '').trim();
+    for (var i = startRow; i < data.length; i++) {
+      var name = String(data[i][nameIdx] || '').trim();
+      var teamVal = String(data[i][teamIdx] || '').trim();
       
       if (!name || name.toLowerCase().includes('họ và tên') || name.toLowerCase() === 'họ tên') continue;
       
-      // Nhận diện dòng chứa tên Tổ 
-      var isTeam = /^[ivxlcdm]+\\./i.test(stt) || /^[ivxlcdm]+\\./i.test(name) || name.toLowerCase().includes('tổ') || name.toLowerCase().includes('đội');
-      
-      if (isTeam) {
-        // Cắt bỏ phần I. II. nếu có
-        currentTeam = name.replace(/^[ivxlcdm]+\\.\\s*/i, '').trim();
-        if (teams.indexOf(currentTeam) === -1) {
-           teams.push(currentTeam);
+      if (teamVal && teamVal.toLowerCase() !== 'khu vực' && teamVal.toLowerCase() !== 'tổ công tác') {
+        if (teams.indexOf(teamVal) === -1) {
+           teams.push(teamVal);
         }
-      } else {
-        if (currentTeam) {
-          members.push({ team: currentTeam, name: name });
-        }
+        members.push({ team: teamVal, name: name });
       }
     }
     
@@ -44,47 +54,65 @@ function doGet(e) {
     var sheetTram = ss.getSheetByName(SHEET_TRAM);
     if (sheetTram) {
       var tramData = sheetTram.getDataRange().getValues();
-      if (tramData.length > 0) {
-        var tramHeaders = tramData[0];
-        
-        var idIdx = -1;
-        var nameTIdx = -1;
-        var typeIdx = -1;
-        var areaIdx = -1;
-        
-        for (var c = 0; c < tramHeaders.length; c++) {
-          var h = String(tramHeaders[c]).toLowerCase().trim();
-          if (h.includes('mã trạm') || h === 'ma tram' || h.includes('id cũ spc') || h.includes('id cu spc')) idIdx = c;
-          else if (h.includes('tên tba') || h.includes('tên trạm') || h === 'ten tram' || h.includes('tên tba đặt lại')) nameTIdx = c;
-          else if (h.includes('loại trạm') || h === 'loai tram' || h.includes('mã loại trạm chi tiết') || h.includes('ma loai tram')) typeIdx = c;
-          else if (h.includes('khu vực') || h === 'khu vuc' || h.includes('tổ công tác') || h.includes('tổ quản lý')) areaIdx = c;
+      var tramHeaderRow = 0;
+      var idIdx = -1;
+      var nameTIdx = -1;
+      var typeIdx = -1;
+      var areaIdx = -1;
+      
+      for (var r = 0; r < Math.min(5, tramData.length); r++) {
+        for (var c = 0; c < tramData[r].length; c++) {
+          var h = String(tramData[r][c]).toLowerCase().trim();
+          if (h.includes('id cũ') || h.includes('id cu') || h.includes('mã trạm') || h === 'ma tram') idIdx = c;
+          if (h.includes('tên tba') || h.includes('tên trạm') || h === 'ten tram') nameTIdx = c;
+          if (h.includes('loại trạm') || h === 'loai tram' || h.includes('hinh thuc') || h.includes('hình thức')) typeIdx = c;
+          if (h.includes('khu vực') || h === 'khu vuc' || h.includes('tổ') || h.includes('quản lý')) areaIdx = c;
         }
-        
-        // Mặc định nến không tìm thấy
-        if (idIdx === -1) idIdx = 0;
-        if (nameTIdx === -1) nameTIdx = 1;
-        if (typeIdx === -1) typeIdx = 2;
-        if (areaIdx === -1) areaIdx = 3;
-        
-        for (var i = 1; i < tramData.length; i++) {
-           var row = tramData[i];
-           if (!row[idIdx] && !row[nameTIdx]) continue;
-           
-           var details = {};
-           for (var c = 0; c < tramHeaders.length; c++) {
-              if (tramHeaders[c]) {
-                 details[String(tramHeaders[c])] = String(row[c] || '');
-              }
-           }
-           
-           stations.push({
-             id: String(row[idIdx] || ''),
-             name: String(row[nameTIdx] || ''),
-             type: String(row[typeIdx] || ''),
-             area: String(row[areaIdx] || ''),
-             details: details
-           });
+        if (idIdx !== -1 || nameTIdx !== -1) {
+          tramHeaderRow = r;
+          break;
         }
+      }
+      
+      if (idIdx === -1) idIdx = 0;
+      if (nameTIdx === -1) nameTIdx = 1;
+      if (typeIdx === -1) typeIdx = 2;
+      if (areaIdx === -1) areaIdx = 3;
+      
+      var tramHeaders = tramData[tramHeaderRow] || [];
+      var currentFeeder = "Khác";
+      
+      for (var i = tramHeaderRow + 1; i < tramData.length; i++) {
+         var row = tramData[i];
+         var idVal = String(row[idIdx] || '').trim();
+         var nameVal = String(row[nameTIdx] || '').trim();
+         
+         if (!idVal && nameVal) {
+             currentFeeder = nameVal;
+             continue;
+         }
+         
+         if (!idVal && !nameVal) continue;
+         
+         var details = {};
+         for (var c = 0; c < tramHeaders.length; c++) {
+            if (tramHeaders[c]) {
+               var headerName = String(tramHeaders[c]);
+               var cellValue = String(row[c] || '');
+               // Exclude generic/empty headers if needed
+               if (headerName.trim() !== '') {
+                  details[headerName] = cellValue;
+               }
+            }
+         }
+         
+         stations.push({
+           id: idVal,
+           name: nameVal,
+           type: String(row[typeIdx] || '').trim(),
+           area: currentFeeder,
+           details: details
+         });
       }
     }
     

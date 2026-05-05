@@ -80,62 +80,108 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
           </div>
         </div>
 
-        <div className="overflow-x-auto bg-[#F5F4F2]">
-          <table className="w-full text-left border-collapse min-w-[700px]">
-            <thead className="bg-[#141414] text-[#E4E3E0]">
-              <tr className="text-[10px] font-mono uppercase tracking-tighter text-center">
-                <th className="py-3 px-4 border-r border-[#E4E3E0]/20 w-48 text-left">Họ và Tên</th>
-                {allDates.map(date => (
-                  <th key={date} className="py-3 px-4 border-r border-[#E4E3E0]/20 min-w-[200px]">
-                    {format(parseISO(date), 'dd/MM/yyyy')}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="font-sans text-xs">
-              {allMembers.length === 0 ? (
-                <tr>
-                  <td colSpan={allDates.length + 1} className="py-8 text-center text-[10px] uppercase opacity-50 italic">
-                    Chưa có hoạt động nào được ghi lại.
-                  </td>
+        <div className="bg-[#F5F4F2]">
+          {/* Desktop Table View */}
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full text-left border-collapse min-w-[700px]">
+              <thead className="bg-[#141414] text-[#E4E3E0]">
+                <tr className="text-[10px] font-mono uppercase tracking-tighter text-center">
+                  <th className="py-3 px-4 border-r border-[#E4E3E0]/20 w-48 text-left">Họ và Tên</th>
+                  {allDates.map(date => (
+                    <th key={date} className="py-3 px-4 border-r border-[#E4E3E0]/20 min-w-[200px]">
+                      {format(parseISO(date), 'dd/MM/yyyy')}
+                    </th>
+                  ))}
                 </tr>
-              ) : (
-                allMembers.map((member, i) => (
-                  <tr key={member} className={`border-b border-[#141414]/20 hover:bg-white ${i % 2 === 0 ? '' : 'bg-[#E4E3E0]/30'}`}>
-                    <td className="py-3 px-4 font-bold border-r border-[#141414]/10">
-                      {member}
+              </thead>
+              <tbody className="font-sans text-xs">
+                {allMembers.length === 0 ? (
+                  <tr>
+                    <td colSpan={allDates.length + 1} className="py-8 text-center text-[10px] uppercase opacity-50 italic">
+                      Chưa có hoạt động nào được ghi lại.
                     </td>
-                    {allDates.map(date => {
-                       // Find entries for this member on this date
-                       const cellEntries = filteredEntries.filter(e => e.date === date && e.members?.includes(member));
-                       return (
-                         <td key={date} className="py-2 px-3 border-r border-[#141414]/10 align-top">
-                           {cellEntries.length > 0 ? (
-                             <div className="space-y-2">
-                               {cellEntries.map(e => (
-                                 <div key={e.id} className="bg-white border border-[#141414]/20 p-2 shadow-sm relative group">
-                                   <div className="pr-6 leading-relaxed whitespace-pre-wrap">{e.content}</div>
-                                   <button 
-                                     onClick={() => handleDelete(e.id)}
-                                     title="Xóa"
-                                     className="absolute top-2 right-2 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-1 bg-white border border-red-200 hover:bg-red-50"
-                                   >
-                                     <Trash2 className="w-3 h-3" />
-                                   </button>
-                                 </div>
-                               ))}
-                             </div>
-                           ) : (
-                             <span className="text-[#141414] opacity-10 block text-center">-</span>
-                           )}
-                         </td>
-                       );
-                    })}
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : (
+                  allMembers.map((member, i) => (
+                    <tr key={member} className={`border-b border-[#141414]/20 hover:bg-white ${i % 2 === 0 ? '' : 'bg-[#E4E3E0]/30'}`}>
+                      <td className="py-3 px-4 font-bold border-r border-[#141414]/10">
+                        {member}
+                      </td>
+                      {allDates.map(date => {
+                         // Find entries for this member on this date
+                         const cellEntries = filteredEntries.filter(e => e.date === date && e.members?.includes(member));
+                         return (
+                           <td key={date} className="py-2 px-3 border-r border-[#141414]/10 align-top">
+                             {cellEntries.length > 0 ? (
+                               <div className="space-y-2">
+                                 {cellEntries.map(e => (
+                                   <div key={e.id} className="bg-white border border-[#141414]/20 p-2 shadow-sm relative group">
+                                     <div className="pr-6 leading-relaxed whitespace-pre-wrap">{e.content}</div>
+                                     <button 
+                                       onClick={() => handleDelete(e.id)}
+                                       title="Xóa"
+                                       className="absolute top-2 right-2 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-1 bg-white border border-red-200 hover:bg-red-50"
+                                     >
+                                       <Trash2 className="w-3 h-3" />
+                                     </button>
+                                   </div>
+                                 ))}
+                               </div>
+                             ) : (
+                               <span className="text-[#141414] opacity-10 block text-center">-</span>
+                             )}
+                           </td>
+                         );
+                      })}
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile Card View */}
+          <div className="md:hidden flex flex-col p-4 gap-6">
+             {allDates.map(date => {
+                const membersWithDataForDate = allMembers.filter(m => filteredEntries.some(e => e.date === date && e.members?.includes(m)));
+                return (
+                  <div key={date} className="bg-white border border-[#141414] shadow-[4px_4px_0_#141414] overflow-hidden mb-4 relative">
+                     <div className="bg-[#141414] text-[#E4E3E0] p-3 text-center font-bold tracking-widest text-sm uppercase sticky top-0 z-10">
+                        Ngày {format(parseISO(date), 'dd/MM/yyyy')}
+                     </div>
+                     <div className="p-0">
+                        {membersWithDataForDate.length > 0 ? (
+                           membersWithDataForDate.map(member => (
+                              <div key={member} className="border-b border-[#141414]/10 last:border-0 p-4">
+                                 <h3 className="font-bold text-sm mb-2 text-[#141414] uppercase bg-[#E4E3E0]/30 px-2 py-1 inline-block">{member}</h3>
+                                 <div className="space-y-3 pl-2 border-l-2 border-[#141414]/20 mt-2">
+                                    {filteredEntries.filter(e => e.date === date && e.members?.includes(member)).map(e => (
+                                       <div key={e.id} className="relative group text-xs text-[#141414]/80 bg-[#F5F4F2] p-3 border border-[#141414]/10">
+                                          <div className="pr-8 whitespace-pre-wrap leading-relaxed">{e.content}</div>
+                                          <button 
+                                             onClick={() => handleDelete(e.id)}
+                                             className="absolute top-2 right-2 text-red-500 opacity-50 p-1 hover:opacity-100 bg-white border border-red-200"
+                                          >
+                                             <Trash2 className="w-4 h-4" />
+                                          </button>
+                                       </div>
+                                    ))}
+                                 </div>
+                              </div>
+                           ))
+                        ) : (
+                           <div className="p-6 text-center text-xs opacity-50 italic">Không có dữ liệu cho ngày này</div>
+                        )}
+                     </div>
+                  </div>
+                );
+             })}
+             {allDates.length === 0 && (
+                <div className="text-center py-12 text-sm opacity-50 italic uppercase bg-white border border-[#141414] shadow-[4px_4px_0_#141414]">
+                   Hệ thống chưa ghi nhận<br/>hoạt động nào.
+                </div>
+             )}
+          </div>
         </div>
       </div>
     </div>
