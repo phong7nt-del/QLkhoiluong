@@ -13,44 +13,29 @@ function doGet(e) {
     if (!sheet) return ContentService.createTextOutput(JSON.stringify({error: "Not found sheet CongTac"})).setMimeType(ContentService.MimeType.JSON);
     var data = sheet.getDataRange().getValues();
     
-    var nameIdx = -1;
-    var teamIdx = -1;
-    var startRow = 1;
-
-    for (var r = 0; r < 3 && r < data.length; r++) {
-      for (var c = 0; c < data[r].length; c++) {
-        var val = String(data[r][c]).toLowerCase().trim();
-        if (val.includes('họ và tên') || val === 'họ tên') nameIdx = c;
-        if (val.includes('khu vực') || val === 'khu vuc' || val.includes('tổ công tác')) teamIdx = c;
-      }
-      if (nameIdx !== -1 && teamIdx !== -1) {
-        startRow = r + 1;
-        break;
-      }
-    }
-    
-    if (nameIdx === -1) { nameIdx = 1; startRow = 2; }
-    if (teamIdx === -1) { teamIdx = 2; }
-    
     var teams = [];
     var members = [];
     var currentTeam = "";
     
-    for (var i = startRow; i < data.length; i++) {
-      var name = String(data[i][nameIdx] || '').trim();
-      var teamVal = String(data[i][teamIdx] || '').trim();
+    for (var i = 1; i < data.length; i++) {
+      var stt = String(data[i][0] || '').trim();
+      var name = String(data[i][1] || '').trim();
       
-      if (!name || name.toLowerCase().includes('họ và tên')) continue;
+      if (!name || name.toLowerCase().includes('họ và tên') || name.toLowerCase() === 'họ tên') continue;
       
-      if (teamVal && teamVal.toLowerCase() !== 'khu vực') {
-        currentTeam = teamVal;
+      // Nhận diện dòng chứa tên Tổ 
+      var isTeam = /^[ivxlcdm]+\\./i.test(stt) || /^[ivxlcdm]+\\./i.test(name) || name.toLowerCase().includes('tổ') || name.toLowerCase().includes('đội');
+      
+      if (isTeam) {
+        // Cắt bỏ phần I. II. nếu có
+        currentTeam = name.replace(/^[ivxlcdm]+\\.\\s*/i, '').trim();
         if (teams.indexOf(currentTeam) === -1) {
-          teams.push(currentTeam);
+           teams.push(currentTeam);
         }
-      }
-      
-      if (currentTeam) {
-        members.push({ team: currentTeam, name: name });
+      } else {
+        if (currentTeam) {
+          members.push({ team: currentTeam, name: name });
+        }
       }
     }
     
