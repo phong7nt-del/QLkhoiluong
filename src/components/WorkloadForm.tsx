@@ -114,7 +114,7 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
   };
 
   return (
-    <div className="bg-white border border-[#141414] p-6 sm:p-10 max-w-3xl shadow-[4px_4px_0_#141414] sm:shadow-[8px_8px_0_#141414]">
+    <div className="bg-white rounded-xl border border-gray-200 p-6 sm:p-10 max-w-3xl shadow-sm">
       <h2 className="text-xl sm:text-2xl font-serif italic mb-8 border-b border-[#141414] pb-4 flex items-center gap-3 text-[#141414]">
         Nhập Ghi Nhận Công Việc
       </h2>
@@ -182,7 +182,7 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
           </div>
           
           {memberInput && filteredMembers.length > 0 && (
-            <div className="absolute z-10 left-0 right-0 top-full mt-1 bg-white border border-[#141414] shadow-[4px_4px_0_#141414] max-h-48 overflow-y-auto">
+            <div className="absolute z-10 left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
               {filteredMembers.map((suggestion, idx) => (
                 <div 
                   key={idx}
