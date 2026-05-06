@@ -1,21 +1,33 @@
 import { useState, useEffect } from "react";
-import { ClipboardList, BarChart3, Database, TrendingUp } from "lucide-react";
+import { ClipboardList, BarChart3, Database, TrendingUp, LogOut, User as UserIcon } from "lucide-react";
 import WorkloadForm from "./components/WorkloadForm";
 import Analytics from "./components/Analytics";
 import Stations from "./components/Stations";
 import AnalysisTab from "./components/AnalysisTab";
-import { DataStore } from "./store/DataStore";
+import Login from "./components/Login";
+import { DataStore, SheetMember } from "./store/DataStore";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<"input" | "report" | "stations" | "analysis">("input");
   const [refreshToggle, setRefreshToggle] = useState(0);
+  const [sessionUser, setSessionUser] = useState<SheetMember | null>(null);
 
   // Initial Sync from URL & refresh listener
   useEffect(() => {
     const handleRefresh = () => setRefreshToggle(prev => prev + 1);
     window.addEventListener('workload_updated', handleRefresh);
     
-    syncData();
+    // Check session
+    const storedUser = sessionStorage.getItem('workload_user_session');
+    if (storedUser) {
+        try {
+            setSessionUser(JSON.parse(storedUser));
+        } catch(e) {}
+    }
+
+    if (storedUser) {
+       syncData(); // Only sink data directly if logged in. Otherwise Login component does it.
+    }
 
     return () => window.removeEventListener('workload_updated', handleRefresh);
   }, []);
@@ -24,6 +36,21 @@ export default function App() {
     await DataStore.syncMasterData();
     setRefreshToggle(prev => prev + 1);
   };
+
+  const handleLogin = (user: SheetMember) => {
+     sessionStorage.setItem('workload_user_session', JSON.stringify(user));
+     setSessionUser(user);
+     setRefreshToggle(prev => prev + 1);
+  };
+
+  const handleLogout = () => {
+     sessionStorage.removeItem('workload_user_session');
+     setSessionUser(null);
+  };
+
+  if (!sessionUser) {
+     return <Login onLoginSuccess={handleLogin} />;
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans flex flex-col items-center">
@@ -51,10 +78,20 @@ export default function App() {
             </h1>
           </div>
           
-          <div className="w-full md:w-1/4 flex justify-center md:justify-end z-10">
-            <div className="bg-slate-100 px-3 py-1.5 rounded-full border border-slate-200">
-               <span className="text-xs font-semibold text-slate-500 tracking-wider">Version 2026.5.1</span>
+          <div className="w-full md:w-1/4 flex flex-col md:flex-row justify-center md:justify-end items-center gap-3 z-10">
+            <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-200">
+               <UserIcon className="w-4 h-4 text-blue-600" />
+               <span className="text-sm font-semibold text-slate-700 whitespace-nowrap">{sessionUser.name}</span>
+               <div className="w-px h-4 bg-slate-300 mx-1"></div>
+               <span className="text-xs font-bold text-slate-500 uppercase">{sessionUser.team}</span>
             </div>
+            <button 
+              onClick={handleLogout}
+              className="text-slate-400 hover:text-red-500 hover:bg-red-50 p-1.5 rounded-full transition-colors"
+              title="Đăng xuất"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
           </div>
         </header>
 
@@ -129,7 +166,9 @@ export default function App() {
           {/* Footer */}
           <footer className="bg-slate-50 border-t border-slate-200 p-4 mt-auto">
             <div className="flex flex-col md:flex-row justify-between items-center text-[11px] font-mono font-medium text-slate-500 uppercase tracking-wider">
-              <div className="md:w-1/3"></div>
+              <div className="md:w-1/3">
+                 Version 2026.5.1
+              </div>
               <div className="md:w-1/3 text-center mb-2 md:mb-0">
                 bản quyền thuộc PCVT @2026
               </div>

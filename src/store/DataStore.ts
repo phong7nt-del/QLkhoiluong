@@ -1,3 +1,5 @@
+import Papa from 'papaparse';
+
 export interface Station {
   id: string; // Mã trạm
   name: string; // Tên trạm
@@ -18,6 +20,7 @@ export interface WorkloadEntry {
 export interface SheetMember {
   team: string;
   name: string;
+  [key: string]: any;
 }
 
 const STORAGE_KEY = 'workload_data_v1';
@@ -78,6 +81,59 @@ export const DataStore = {
       const res = await fetch(`${url}?action=getData`);
       const json = await res.json();
       if (json.status === 'success') {
+         // Lấy MSNV và bổ sung thêm NV từ file CSV
+         try {
+            const cbcnvRes = await fetch("https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:csv&sheet=CBCNV");
+            const csvText = await cbcnvRes.text();
+            const { data } = Papa.parse(csvText, { header: false });
+            
+            const membersMap = new Map<string, any>();
+            
+            // 1. Thêm members từ JSON (App Script) trước
+            if (json.members && Array.isArray(json.members)) {
+               for (const m of json.members) {
+                  const key = String(m.name || '').toLowerCase().replace(/\s+/g, '');
+                  membersMap.set(key, m);
+               }
+            }
+            
+            // 2. Scan CSV để cập nhật hoặc thêm mới NV
+            const startIndex = 1; // Bỏ qua header
+            for (let i = startIndex; i < data.length; i++) {
+               const row = data[i] as string[];
+               // format: Stt[0], MSNV[1], Link[2], Họ tên[3], ... Phòng Đội viết tắt[9],  Phòng Đội[10]
+               if (row && row.length > 3) {
+                  const msnv = String(row[1] || '').trim();
+                  const rawName = String(row[3] || '').trim();
+                  const teamAbbr = String(row[9] || '').trim();
+                  const teamFull = String(row[10] || '').trim();
+                  
+                  if (rawName && msnv) {
+                     const key = rawName.toLowerCase().replace(/\s+/g, '');
+                     if (membersMap.has(key)) {
+                        membersMap.get(key)!.msnv = msnv;
+                     } else {
+                        membersMap.set(key, {
+                           name: rawName,
+                           msnv: msnv,
+                           team: teamAbbr || teamFull || "Không xác định",
+                        });
+                     }
+                  }
+               }
+            }
+            
+            json.members = Array.from(membersMap.values());
+            
+            // Gộp team mới vào json.teams nếu cần (tránh lỗi thiếu team trong filter)
+            const allTeams = new Set<string>((json.teams || []).map((t: string) => t));
+            json.members.forEach((m: any) => allTeams.add(m.team));
+            json.teams = Array.from(allTeams);
+
+         } catch (e) {
+            console.error('Error parsing CBCNV from CSV', e);
+         }
+
          localStorage.setItem(TEAMS_KEY, JSON.stringify(json.teams || []));
          localStorage.setItem(MEMBERS_KEY, JSON.stringify(json.members || []));
          if (json.stations) {
