@@ -1,13 +1,14 @@
 import { useState, useEffect } from "react";
-import { ClipboardList, BarChart3, Settings as SettingsIcon, RefreshCw, Database } from "lucide-react";
+import { ClipboardList, BarChart3, Settings as SettingsIcon, RefreshCw, Database, TrendingUp } from "lucide-react";
 import WorkloadForm from "./components/WorkloadForm";
 import Analytics from "./components/Analytics";
 import Stations from "./components/Stations";
+import AnalysisTab from "./components/AnalysisTab";
 import ConfigModal from "./components/ConfigModal";
 import { DataStore } from "./store/DataStore";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"input" | "report" | "stations">("input");
+  const [activeTab, setActiveTab] = useState<"input" | "report" | "stations" | "analysis">("input");
   const [refreshToggle, setRefreshToggle] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
@@ -106,6 +107,18 @@ export default function App() {
               <Database className="w-4 h-4" />
               03. Trạm BA
             </button>
+            <div className="w-px bg-[#141414] hidden sm:block"></div>
+            <button
+              onClick={() => setActiveTab("analysis")}
+              className={`flex items-center gap-2 px-6 py-3 text-sm font-bold uppercase tracking-widest transition-colors ${
+                activeTab === "analysis"
+                  ? "bg-[#141414] text-[#E4E3E0]"
+                  : "text-[#141414] hover:bg-[#F5F4F2]"
+              }`}
+            >
+              <TrendingUp className="w-4 h-4" />
+              04. Phân tích
+            </button>
           </div>
 
           <div className="flex-1">
@@ -117,6 +130,9 @@ export default function App() {
             )}
             {activeTab === "stations" && (
               <Stations refreshToggle={refreshToggle} />
+            )}
+            {activeTab === "analysis" && (
+              <AnalysisTab refreshToggle={refreshToggle} />
             )}
           </div>
         </main>

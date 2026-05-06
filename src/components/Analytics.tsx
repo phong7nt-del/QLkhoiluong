@@ -129,8 +129,8 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
                                                    <div key={e.id} className="relative group text-[#141414] p-2 bg-[#F5F4F2] border border-[#141414]/10">
                                                       <div className="pr-8 whitespace-pre-wrap leading-relaxed">{e.content}</div>
                                                       <button 
-                                                         onClick={() => handleDelete(e.id)}
-                                                         title="Xóa báo cáo này"
+                                                         onClick={() => alert("Để xóa nội dung tác nghiệp này, vui lòng xóa trực tiếp ô dữ liệu tương ứng trên Google Sheets để đảm bảo nhất quán.")}
+                                                         title="Thông tin xoá"
                                                          className="absolute top-2 right-2 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-1 bg-white border border-red-200 hover:bg-red-50"
                                                       >
                                                          <Trash2 className="w-3 h-3" />

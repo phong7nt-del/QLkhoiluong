@@ -25,6 +25,7 @@ const SCRIPT_URL_KEY = 'app_script_url_v1';
 const TEAMS_KEY = 'sheet_teams_v1';
 const MEMBERS_KEY = 'sheet_members_v1';
 const STATIONS_KEY = 'sheet_stations_v1';
+const DINHMUC_KEY = 'sheet_dinhmuc_v1';
 
 export const DataStore = {
   getAppScriptUrl: () => localStorage.getItem(SCRIPT_URL_KEY) || 'https://script.google.com/macros/s/AKfycbyDCcu4I8yfT1g2KOHCRoaDtMMb1gLvfxhP4HJkzFYbqNIg1TSXCyi2HS3D7hDYpInVxQ/exec',
@@ -82,6 +83,12 @@ export const DataStore = {
          if (json.stations) {
            localStorage.setItem(STATIONS_KEY, JSON.stringify(json.stations));
          }
+         if (json.workloads) {
+           localStorage.setItem(STORAGE_KEY, JSON.stringify(json.workloads));
+         }
+         if (json.dinhMuc) {
+           localStorage.setItem(DINHMUC_KEY, JSON.stringify(json.dinhMuc));
+         }
          return true;
       }
     } catch (error) {
@@ -107,6 +114,13 @@ export const DataStore = {
   getStations: (): Station[] => {
      try {
        const cached = localStorage.getItem(STATIONS_KEY);
+       return cached ? JSON.parse(cached) : [];
+     } catch { return []; }
+  },
+
+  getDinhMuc: (): { name: string; quota: number }[] => {
+     try {
+       const cached = localStorage.getItem(DINHMUC_KEY);
        return cached ? JSON.parse(cached) : [];
      } catch { return []; }
   },

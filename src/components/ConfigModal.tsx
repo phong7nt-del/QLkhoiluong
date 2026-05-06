@@ -47,6 +47,7 @@ function doGet(e) {
     
     var teams = [];
     var members = [];
+    var memberTeamMap = {};
     
     for (var i = startRow; i < data.length; i++) {
       var name = String(data[i][nameIdx] || '').trim();
@@ -59,7 +60,56 @@ function doGet(e) {
            teams.push(teamVal);
         }
         members.push({ team: teamVal, name: name });
+        memberTeamMap[name] = teamVal;
       }
+    }
+    
+    var workloads = [];
+    var dateCols = [];
+    var headerRowIndex = startRow - 1;
+    if (headerRowIndex >= 0) {
+       var headers = data[headerRowIndex] || [];
+       for (var c = nameIdx + 1; c < headers.length; c++) {
+          if (c === teamIdx) continue;
+          var h = headers[c];
+          var dateStr = '';
+          if (Object.prototype.toString.call(h) === '[object Date]') {
+             dateStr = Utilities.formatDate(h, Session.getScriptTimeZone(), "yyyy-MM-dd");
+          } else {
+             var s = String(h).replace(/'/g, '').trim();
+             var p1 = s.split('/');
+             if (p1.length === 3) {
+                dateStr = p1[2] + '-' + (p1[1].length===1?'0'+p1[1]:p1[1]) + '-' + (p1[0].length===1?'0'+p1[0]:p1[0]);
+             } else if (p1.length === 2) {
+                var year = new Date().getFullYear();
+                dateStr = year + '-' + (p1[1].length===1?'0'+p1[1]:p1[1]) + '-' + (p1[0].length===1?'0'+p1[0]:p1[0]);
+             } else if (s.indexOf('-') > -1) {
+                dateStr = s; 
+             }
+          }
+          if (dateStr && dateStr.length >= 8 && dateStr.indexOf('-') > -1) {
+             dateCols.push({ colIdx: c, date: dateStr });
+          }
+       }
+       
+       for (var i = startRow; i < data.length; i++) {
+         var name = String(data[i][nameIdx] || '').trim();
+         if (!name || name.toLowerCase().includes('họ và tên') || name.toLowerCase() === 'họ tên') continue;
+         var foundTeam = memberTeamMap[name] || '';
+         for (var d = 0; d < dateCols.length; d++) {
+            var val = String(data[i][dateCols[d].colIdx] || '').trim();
+            if (val) {
+               workloads.push({
+                  id: 'sheet_' + i + '_' + dateCols[d].colIdx,
+                  team: foundTeam,
+                  members: [name],
+                  content: val,
+                  date: dateCols[d].date,
+                  timestamp: new Date().getTime()
+               });
+            }
+         }
+       }
     }
     
     // Đọc sheet Tram
@@ -106,17 +156,18 @@ function doGet(e) {
          var nameVal = String(row[nameTIdx] || '').trim();
          
          // Kiểm tra xem dòng này có phải là Tuyến Dây không
-         // Dòng tuyến được tô vàng
+         // Dòng tuyến được tô màu, ngoại trừ trắng
          var isFeederRow = false;
          for (var bc = 0; bc < bgRow.length && bc < 5; bc++) {
-            if (bgRow[bc] === '#ffff00' || bgRow[bc] === '#fff2cc' || bgRow[bc] === '#ffeb3b') {
+            var color = bgRow[bc] ? bgRow[bc].toLowerCase() : '#ffffff';
+            if (color !== '#ffffff' && color !== '#000000' && color.startsWith('#')) {
                isFeederRow = true;
                break;
             }
          }
          
          // Cấu trúc khác: Tuyến dây k có mã trạm, chỉ có Tên TBA
-         if (!idVal && nameVal && nameVal.toLowerCase().indexOf('tuyến') > -1) {
+         if (!idVal && nameVal && (nameVal.toLowerCase().indexOf('tuyến') > -1 || nameVal.toLowerCase().indexOf('trục') > -1 || nameVal.toLowerCase().indexOf('nhánh') > -1)) {
              isFeederRow = true;
          }
          
@@ -151,11 +202,44 @@ function doGet(e) {
       }
     }
     
+    // Đọc sheet DinhMuc
+    var dinhMucList = [];
+    var sheetDinhMuc = getSheetFlexibly(ss, ['DinhMuc', 'Định Mức', 'Dinh muc', 'Định mức']);
+    if (sheetDinhMuc) {
+      var dmData = sheetDinhMuc.getDataRange().getValues();
+      var headers = dmData[0] || [];
+      var nameCol = -1;
+      var quotaCol = -1;
+      for (var j = 0; j < headers.length; j++) {
+         var h = String(headers[j]).toLowerCase();
+         if (h.indexOf('nội dung') > -1 || h.indexOf('danh mục') > -1 || h.indexOf('tên') > -1) {
+             if (nameCol === -1) nameCol = j;
+         }
+         if (h.indexOf('định mức') > -1 || h.indexOf('khối lượng') > -1 || h.indexOf('chỉ tiêu') > -1) {
+             quotaCol = j;
+         }
+      }
+      if (nameCol === -1) nameCol = 0;
+      if (quotaCol === -1 && dmData[0].length > 1) quotaCol = 1;
+      
+      for (var d = 1; d < dmData.length; d++) {
+         var val1 = String(dmData[d][nameCol] || '').trim();
+         var val2 = quotaCol > -1 ? Number(dmData[d][quotaCol]) : 0;
+         if (isNaN(val2)) val2 = 0;
+         
+         if (val1 && val1.toLowerCase() !== 'stt') {
+            dinhMucList.push({ name: val1, quota: val2 });
+         }
+      }
+    }
+    
     return ContentService.createTextOutput(JSON.stringify({
       status: 'success',
       teams: teams,
       members: members,
-      stations: stations
+      stations: stations,
+      workloads: workloads,
+      dinhMuc: dinhMucList
     })).setMimeType(ContentService.MimeType.JSON);
   }
   return ContentService.createTextOutput("Valid Endpoint");
@@ -280,9 +364,10 @@ export default function ConfigModal({ onClose }: { onClose: () => void }) {
             <div className="bg-[#FFF4E5] border border-orange-400 p-4 rounded-none flex gap-3 text-orange-900 border-l-[6px] shadow-[4px_4px_0_rgba(0,0,0,0.1)]">
                <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
                <div>
-                  <p className="font-bold mb-1 text-base uppercase">BẮT BUỘC: Cập nhật lại mã nguồn App Script</p>
-                  <p className="mb-2">Mã mới đã bổ sung nhận diện <strong>Danh sách Trạm, tổ công tác</strong> và nhóm ngày tháng chuẩn xác.</p>
+                  <p className="font-bold mb-1 text-base uppercase text-red-600">BẮT BUỘC: Cập nhật lại mã nguồn App Script</p>
+                  <p className="mb-2">Mã mới đã bổ sung nhận diện <strong>Bảng Định Mức công việc</strong> và <strong>Nhật ký công việc</strong> từ Google Sheet.</p>
                   <ul className="list-decimal pl-5 space-y-1 mb-2">
+                     <li>Đảm bảo bạn đã có Sheet <strong>DinhMuc</strong> (Cột A: Tên định mức/nội dung).</li>
                      <li>Copy toàn bộ mã trong ô màu đen bên dưới.</li>
                      <li>Dán đè vào <a href="https://script.google.com" target="_blank" rel="noreferrer" className="underline font-bold text-blue-700">Google Apps Script</a> của bạn.</li>
                      <li>Bấm <strong>Deploy {'->'} New deployment</strong>. (Không được chọn Manage Deployments bản cũ)</li>
