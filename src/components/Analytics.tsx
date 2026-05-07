@@ -1,14 +1,17 @@
 import React, { useState, useMemo } from 'react';
 import { DataStore } from '../store/DataStore';
 import { format, parseISO } from 'date-fns';
-import { Filter, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Filter, Trash2, ChevronDown, ChevronUp, Download } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 export default function Analytics({ refreshToggle }: { refreshToggle: number }) {
   const [selectedTeam, setSelectedTeam] = useState<string>('all');
+  const [selectedMember, setSelectedMember] = useState<string>('all');
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set());
 
   const entries = useMemo(() => DataStore.getEntries().sort((a, b) => b.timestamp - a.timestamp), [refreshToggle]);
+  const dinhMucList = useMemo(() => DataStore.getDinhMuc(), [refreshToggle]);
 
   const handleDelete = (id: string) => {
     if (confirm('Bạn có chắc chắn muốn xóa tác nghiệp này?')) {
@@ -30,16 +33,26 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
     return entries.filter(e => {
       if (selectedTeam !== 'all' && e.team !== selectedTeam) return false;
       if (selectedDate && e.date !== selectedDate) return false;
+      if (selectedMember !== 'all' && (!e.members || !e.members.includes(selectedMember))) return false;
       return true;
     });
-  }, [entries, selectedTeam, selectedDate]);
+  }, [entries, selectedTeam, selectedDate, selectedMember]);
 
   const uniqueTeams = useMemo(() => Array.from(new Set(entries.map(e => e.team))), [entries]);
+  const uniqueMembers = useMemo(() => {
+    const mems = new Set<string>();
+    entries.forEach(e => {
+       if ((selectedTeam === 'all' || e.team === selectedTeam) && e.members) {
+          e.members.forEach(m => mems.add(m));
+       }
+    });
+    return Array.from(mems).sort();
+  }, [entries, selectedTeam]);
 
   // Compute unique dates for columns
   const allDates = useMemo(() => {
     const dates = new Set<string>(filteredEntries.map(e => e.date));
-    return Array.from(dates).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+    return Array.from(dates).sort((a, b) => new Date(b).getTime() - new Date(a).getTime()); // sort descending
   }, [filteredEntries]);
 
   // Compute unique members for rows
@@ -52,6 +65,155 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
     });
     return Array.from(members).sort();
   }, [filteredEntries]);
+
+  const renderContentWithQuota = (content: string, membersCount: number) => {
+    if (!content) return null;
+    const lines = content.split('\n');
+    return lines.map((line, i) => {
+       const match = line.match(/^(.*?):\s*([\d.]+)$/);
+       if (match) {
+          const taskName = match[1].trim();
+          const cleanTaskName = taskName.normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+          const qty = parseFloat(match[2]);
+          
+          let dm = dinhMucList.find(d => {
+             const cleanDName = (d.name || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+             return cleanDName === cleanTaskName;
+          });
+          
+          if (!dm) {
+             dm = dinhMucList.find(d => {
+                const cleanDName = (d.name || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+                return cleanDName.includes(cleanTaskName) || cleanTaskName.includes(cleanDName);
+             });
+          }
+
+          const quotaStr = dm ? String(dm.quota).replace(/,/g, '.') : "0";
+          const quota = parseFloat(quotaStr) || 0;
+          
+          let nsPercent = 0;
+          let quotaDisplay = "";
+
+          const qtyPerMember = qty / (membersCount || 1);
+
+          if (cleanTaskName === 'khác') {
+              nsPercent = (qtyPerMember / 1) * 100;
+              quotaDisplay = "(ĐM: 1)";
+          } else if (quota > 0) {
+              nsPercent = (qtyPerMember / quota) * 100;
+              quotaDisplay = `(ĐM: ${quota})`;
+          } else {
+              nsPercent = (qtyPerMember * 0.05) * 100;
+              quotaDisplay = "(Không có định mức)";
+          }
+
+          return (
+             <div key={i} className="flex justify-between items-center bg-white p-1.5 border border-dashed border-[#141414]/20 mb-1">
+                <div>
+                   <span className="font-bold mr-1">{taskName}:</span>
+                   <span>{qty}</span> <span className="text-[10px] opacity-70">{quotaDisplay}</span>
+                </div>
+                <div className={`text-[10px] uppercase font-bold px-1.5 py-0.5 ${nsPercent >= 100 ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}`}>
+                   {nsPercent.toFixed(1)}% NS
+                </div>
+             </div>
+          );
+       }
+       return <div key={i}>{line}</div>;
+    });
+  };
+
+  const exportToExcel = () => {
+    const exportData: any[] = [];
+    allDates.forEach(date => {
+      let displayDate = date;
+      try {
+        if (date && date.includes('-')) {
+          const [y, m, d] = date.split('-');
+          displayDate = `${d}/${m}/${y}`;
+        }
+      } catch(e) {}
+
+      const dateEntries = filteredEntries.filter(e => e.date === date);
+      const activeMembers = allMembers.filter(m => dateEntries.some(e => e.members?.includes(m)));
+      
+      activeMembers.forEach(member => {
+        const memberEntries = dateEntries.filter(e => e.members?.includes(member));
+        const combinedContent = memberEntries.map(e => {
+           if (!e.content) return "";
+           return e.content.split('\n').map(line => {
+              const match = line.match(/^(.*?):\s*([\d.]+)$/);
+              if (match) {
+                 const taskName = match[1].trim();
+                 const cleanTaskName = taskName.normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+                 const qty = parseFloat(match[2]);
+
+                 let dm = dinhMucList.find(d => {
+                    const cleanDName = (d.name || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+                    return cleanDName === cleanTaskName;
+                 });
+                 if (!dm) {
+                    dm = dinhMucList.find(d => {
+                       const cleanDName = (d.name || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+                       return cleanDName.includes(cleanTaskName) || cleanTaskName.includes(cleanDName);
+                    });
+                 }
+
+                 const quotaStr = dm ? String(dm.quota).replace(/,/g, '.') : "0";
+                 const quota = parseFloat(quotaStr) || 0;
+                 const membersCount = e.members?.length || 1;
+                 const qtyPerMember = qty / membersCount;
+                 
+                 let nsPercent = 0;
+                 let quotaDisplay = "";
+                 if (cleanTaskName === 'khác') {
+                     nsPercent = (qtyPerMember / 1) * 100;
+                     quotaDisplay = "(ĐM: 1)";
+                 } else if (quota > 0) {
+                     nsPercent = (qtyPerMember / quota) * 100;
+                     quotaDisplay = `(ĐM: ${quota})`;
+                 } else {
+                     nsPercent = (qtyPerMember * 0.05) * 100;
+                     quotaDisplay = "(Không có định mức)";
+                 }
+                 return `${taskName}: ${qty} ${quotaDisplay} - ${nsPercent.toFixed(1)}% NS`;
+              }
+              return line;
+           }).join('\n');
+        }).join('\n---\n');
+
+        const team = memberEntries[0]?.team || '';
+
+        exportData.push({
+          "Ngày": displayDate,
+          "Tổ": team,
+          "Họ và Tên": member,
+          "Nội dung công việc": combinedContent
+        });
+      });
+    });
+
+    if (exportData.length === 0) {
+       alert("Không có dữ liệu để xuất");
+       return;
+    }
+
+    const worksheet = XLSX.utils.json_to_sheet(exportData);
+    
+    // Auto-adjust column widths roughly
+    const maxWidths = [
+      { wch: 15 }, // Ngày
+      { wch: 25 }, // Tổ
+      { wch: 30 }, // Họ và Tên
+      { wch: 80 }, // Nội dung công việc
+    ];
+    worksheet['!cols'] = maxWidths;
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "BaoCao");
+    
+    XLSX.writeFile(workbook, "BaoCaoNangSuat.xlsx");
+  };
 
   return (
     <div className="space-y-8">
@@ -81,12 +243,31 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
                 {uniqueTeams.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
-            <button 
-              onClick={() => { setSelectedDate(''); setSelectedTeam('all'); }}
-              className="text-[10px] bg-[#141414] text-white px-3 py-2 uppercase font-bold tracking-widest hover:invert transition-all mt-2 sm:mt-0"
-            >
-              Reset Filters
-            </button>
+            <div>
+              <label className="block text-[10px] font-mono opacity-50 uppercase mb-2">Họ và Tên</label>
+              <select
+                value={selectedMember}
+                onChange={e => setSelectedMember(e.target.value)}
+                className="bg-transparent border-b border-[#141414] pb-1 font-mono text-sm focus:outline-none pr-4 w-full sm:w-auto"
+              >
+                <option value="all">TẤT CẢ</option>
+                {uniqueMembers.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+            <div className="flex gap-2 mt-2 sm:mt-0">
+              <button 
+                onClick={() => { setSelectedDate(''); setSelectedTeam('all'); setSelectedMember('all'); }}
+                className="text-[10px] bg-[#141414] text-white px-3 py-2 uppercase font-bold tracking-widest hover:invert transition-all"
+              >
+                Reset
+              </button>
+              <button 
+                onClick={exportToExcel}
+                className="text-[10px] bg-green-600 text-white px-3 py-2 uppercase font-bold tracking-widest hover:bg-green-700 transition-all flex items-center gap-1.5 border border-green-800"
+              >
+                <Download className="w-3 h-3" /> Xuất Excel
+              </button>
+            </div>
           </div>
         </div>
 
@@ -114,7 +295,7 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
                 return (
                   <div key={date} className="bg-white border border-[#141414] shadow-[4px_4px_0_#141414] overflow-hidden">
                      <div 
-                        className="bg-[#141414] text-[#E4E3E0] p-3 md:p-4 text-center font-bold tracking-widest text-sm uppercase sticky top-0 z-10 flex items-center justify-between cursor-pointer hover:bg-[#2a2a2a] transition-colors"
+                        className="bg-[#141414] text-[#E4E3E0] py-2 px-3 md:px-4 text-center font-bold tracking-widest text-sm uppercase sticky top-0 z-10 flex items-center justify-between cursor-pointer hover:bg-[#2a2a2a] transition-colors"
                         onClick={() => toggleCollapse(date)}
                      >
                         <div className="flex items-center w-8">
@@ -147,7 +328,9 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
                                              <div className="space-y-3">
                                                 {memberEntries.map(e => (
                                                    <div key={e.id} className="relative group text-[#141414] p-2 bg-[#F5F4F2] border border-[#141414]/10">
-                                                      <div className="pr-8 whitespace-pre-wrap leading-relaxed">{e.content}</div>
+                                                      <div className="pr-8 whitespace-pre-wrap leading-relaxed space-y-1">
+                                                         {renderContentWithQuota(e.content, e.members?.length || 1)}
+                                                      </div>
                                                       <button 
                                                          onClick={() => alert("Để xóa nội dung tác nghiệp này, vui lòng xóa trực tiếp ô dữ liệu tương ứng trên Google Sheets để đảm bảo nhất quán.")}
                                                          title="Thông tin xoá"

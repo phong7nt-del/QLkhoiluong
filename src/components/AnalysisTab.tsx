@@ -80,13 +80,20 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
            
            let matchedName = 'Khác';
            
-           // Exactly match in config
-           if (catData[itemContent]) {
-               matchedName = itemContent;
+           const cleanContent = (itemContent || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+
+           let exactDm = dinhMucList.find(d => {
+               const cleanDName = (d.name || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+               return cleanDName === cleanContent;
+           });
+
+           if (exactDm) {
+               matchedName = exactDm.name;
            } else {
-               // Try partial match
-               const text = itemContent.toLowerCase();
-               const foundDm = dinhMucList.find(dm => text.includes(dm.name.toLowerCase()));
+               const foundDm = dinhMucList.find(d => {
+                   const cleanDName = (d.name || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+                   return cleanDName.includes(cleanContent) || cleanContent.includes(cleanDName);
+               });
                if (foundDm) {
                    matchedName = foundDm.name;
                }
@@ -112,54 +119,7 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
      return Math.max(1, uniqueDates.size);
   }, [entries]);
 
-  // Thống kê tổng quan năng suất Tổ
-  const teamOverview = useMemo(() => {
-     const stats: Record<string, { team: string; daysWorked: Set<string>; totalStandardDays: number }> = {};
-     
-     entries.forEach(e => {
-        const teamName = e.team || 'Khác';
-        if (!stats[teamName]) {
-            stats[teamName] = { team: teamName, daysWorked: new Set(), totalStandardDays: 0 };
-        }
-        if (e.date) stats[teamName].daysWorked.add(e.date);
-     });
-
-     categoryStats.forEach(cat => {
-        Object.entries(cat.teams).forEach(([team, rawQty]) => {
-            const qty = Number(rawQty);
-            if (!stats[team]) {
-                stats[team] = { team, daysWorked: new Set(), totalStandardDays: 0 };
-            }
-            if (cat.quota > 0) {
-                stats[team].totalStandardDays += (qty / cat.quota);
-            } else {
-                stats[team].totalStandardDays += (qty * 0.05); // Tiny arbitrary bump for tracking un-quota'd tasks
-            }
-        });
-     });
-     
-     const arr = Object.values(stats).map(t => {
-         const days = t.daysWorked.size || 1;
-         const p = (t.totalStandardDays / days) * 100;
-         return {
-            team: t.team,
-            daysWorkedCount: t.daysWorked.size,
-            totalStandardDays: t.totalStandardDays,
-            productivityPercent: p,
-            total: p
-         };
-     }).sort((a, b) => b.productivityPercent - a.productivityPercent);
-     
-     return arr;
-  }, [categoryStats, entries]);
-
-  const maxProductivity = teamOverview.length > 0 ? Number(teamOverview[0].total) : 0;
-  const minProductivity = teamOverview.length > 0 ? Number(teamOverview[teamOverview.length - 1].total) : 0;
-  const avgProductivity = teamOverview.length > 0 
-    ? teamOverview.reduce((acc, t) => acc + Number(t.total), 0) / teamOverview.length 
-    : 0;
-
-  // Thống kê năng suất Từng người
+  // Thống kê năng suất Từng người (Do first before Team Overview)
   const memberOverview = useMemo(() => {
      const stats: Record<string, { member: string; daysWorked: Set<string>; totalStandardDays: number }> = {};
      
@@ -203,26 +163,44 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
            }
            
            let matchedName = 'Khác';
-           const exactDm = dinhMucList.find(d => d.name === itemContent);
+           const cleanItemContent = (itemContent || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+           
+           let exactDm = dinhMucList.find(d => {
+               const cleanDName = (d.name || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+               return cleanDName === cleanItemContent;
+           });
+           
            if (exactDm) {
                matchedName = exactDm.name;
            } else {
-               const text = itemContent.toLowerCase();
-               const foundDm = dinhMucList.find(dm => text.includes(dm.name.toLowerCase()));
+               const foundDm = dinhMucList.find(d => {
+                   const cleanDName = (d.name || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+                   return cleanDName.includes(cleanItemContent) || cleanItemContent.includes(cleanDName);
+               });
                if (foundDm) matchedName = foundDm.name;
            }
            
-           const dm = dinhMucList.find(d => d.name === matchedName);
-           const quota = dm ? (dm.quota || 0) : 0;
+           const cleanMatchedName = matchedName.normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+           const dm = dinhMucList.find(d => {
+               const cleanDName = (d.name || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+               return cleanDName === cleanMatchedName;
+           });
+           
+           const quotaStr = dm ? String(dm.quota).replace(/,/g, '.') : "0";
+           const quota = parseFloat(quotaStr) || 0;
            
            // Chia đều khối lượng cho các thành viên tham gia
            const qtyPerMember = qty / members.length;
            
            members.forEach(m => {
-               if (quota > 0) {
+               if (cleanMatchedName === 'khác') {
+                   // Khác assumes 1 unit = 1 day (100% per unit)
+                   stats[m].totalStandardDays += (qtyPerMember / 1);
+               } else if (quota > 0) {
+                   // Cộng % năng suất (khối lượng / định mức 1 ngày) của từng việc trong ngày
                    stats[m].totalStandardDays += (qtyPerMember / quota);
                } else {
-                   stats[m].totalStandardDays += (qtyPerMember * 0.05);
+                   stats[m].totalStandardDays += (qtyPerMember * 0.05); // Default tiny amount for un-quota tasks
                }
            });
         });
@@ -239,6 +217,41 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
          };
      }).sort((a, b) => b.productivityPercent - a.productivityPercent);
   }, [entries, dinhMucList]);
+
+  // Thống kê tổng quan năng suất Tổ based on its members
+  const teamOverview = useMemo(() => {
+      const allMembersData = DataStore.getMembers();
+      const tStats: Record<string, { team: string; membersProductivitySum: number; membersCount: number; maxDaysWork: number }> = {};
+      
+      memberOverview.forEach(m => {
+          const findM = allMembersData.find(x => x.name === m.member);
+          const team = findM ? findM.team : 'Khác';
+          
+          if (!tStats[team]) {
+              tStats[team] = { team, membersProductivitySum: 0, membersCount: 0, maxDaysWork: 0 };
+          }
+          tStats[team].membersProductivitySum += m.productivityPercent;
+          tStats[team].membersCount += 1;
+          tStats[team].maxDaysWork = Math.max(tStats[team].maxDaysWork, m.daysWorkedCount);
+      });
+
+      return Object.values(tStats).map(t => {
+          const avgPercent = t.membersCount > 0 ? t.membersProductivitySum / t.membersCount : 0;
+          return {
+             team: t.team,
+             daysWorkedCount: t.maxDaysWork, // Just for display
+             totalStandardDays: 0, // Not strictly applicable anymore
+             productivityPercent: avgPercent,
+             total: avgPercent
+          };
+      }).sort((a, b) => b.productivityPercent - a.productivityPercent);
+  }, [memberOverview]);
+
+  const maxProductivity = teamOverview.length > 0 ? Number(teamOverview[0].total) : 0;
+  const minProductivity = teamOverview.length > 0 ? Number(teamOverview[teamOverview.length - 1].total) : 0;
+  const avgProductivity = teamOverview.length > 0 
+    ? teamOverview.reduce((acc, t) => acc + Number(t.total), 0) / teamOverview.length 
+    : 0;
 
   const avgMemberProductivity = memberOverview.length > 0
     ? memberOverview.reduce((acc, m) => acc + m.productivityPercent, 0) / memberOverview.length
@@ -342,7 +355,6 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
                                     <div className={`text-3xl tracking-tighter font-black ${colorClass}`}>
                                        {t.productivityPercent.toFixed(1)}%
                                     </div>
-                                    <div className="text-xs font-bold opacity-50 mt-1">Đ.Mức Tích Lũy: {t.totalStandardDays.toFixed(1)} ngày</div>
                                  </div>
                               </div>
                               
