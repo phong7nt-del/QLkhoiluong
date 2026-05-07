@@ -201,32 +201,31 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
 
         <div>
            <label className="block text-[10px] font-mono opacity-50 uppercase mb-4">Các Nội Dung Công Việc</label>
-           <div className="space-y-3 bg-[#F5F4F2] p-4 border border-[#141414] max-h-80 overflow-y-auto">
+           <div className="space-y-1 bg-[#F5F4F2] p-2 border border-[#141414] max-h-80 overflow-y-auto">
              {dinhMucList.length > 0 ? (
                dinhMucList.map(dm => {
                  const isChecked = selectedTasks[dm.name]?.selected || false;
                  const qty = selectedTasks[dm.name]?.quantity || 1;
                  
                  return (
-                   <div key={dm.name} className={`flex items-center justify-between p-3 border ${isChecked ? 'bg-white border-[#141414] shadow-[2px_2px_0_#141414]' : 'bg-transparent border-[#141414]/20 hover:border-[#141414]/50 hover:bg-[#E4E3E0]/30'} transition-all`}>
+                   <div key={dm.name} className={`flex items-center justify-between py-1.5 px-3 border ${isChecked ? 'bg-white border-[#141414] shadow-[2px_2px_0_#141414]' : 'bg-transparent border-[#141414]/20 hover:border-[#141414]/50 hover:bg-[#E4E3E0]/30'} transition-all`}>
                       <div 
                          className="flex items-center gap-3 cursor-pointer flex-1"
                          onClick={() => toggleTask(dm.name)}
                       >
                          {isChecked ? (
-                            <CheckSquare className="w-5 h-5 text-[#141414]" />
+                            <CheckSquare className="w-4 h-4 text-[#141414]" />
                          ) : (
-                            <Square className="w-5 h-5 opacity-30" />
+                            <Square className="w-4 h-4 opacity-30" />
                          )}
                          <div>
                             <span className={`text-sm font-bold block ${isChecked ? 'text-[#141414]' : 'text-[#141414]/60'}`}>
                                {dm.name}
                             </span>
-                            <span className="text-[10px] uppercase font-mono opacity-50">Định mức/ngày: {dm.quota}</span>
                          </div>
                       </div>
                       
-                      <div className="w-24">
+                      <div className="w-20">
                          {isChecked && (
                             <input 
                               type="number"
@@ -236,7 +235,7 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
                                  const val = e.target.value;
                                  updateQuantity(dm.name, val === '' ? '' : (parseInt(val) || 1));
                               }}
-                              className="w-full bg-[#141414] text-[#E4E3E0] font-bold p-2 text-center text-sm focus:outline-none"
+                              className="w-full bg-[#141414] text-[#E4E3E0] font-bold p-1 text-center text-sm focus:outline-none"
                               placeholder="K.Lượng"
                             />
                          )}

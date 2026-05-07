@@ -1,12 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import { DataStore } from '../store/DataStore';
 import { format, parseISO } from 'date-fns';
-import { Filter, Trash2 } from 'lucide-react';
+import { Filter, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
 
 export default function Analytics({ refreshToggle }: { refreshToggle: number }) {
   const [selectedTeam, setSelectedTeam] = useState<string>('all');
   const [selectedDate, setSelectedDate] = useState<string>('');
-  
+  const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set());
+
   const entries = useMemo(() => DataStore.getEntries().sort((a, b) => b.timestamp - a.timestamp), [refreshToggle]);
 
   const handleDelete = (id: string) => {
@@ -14,6 +15,15 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
       DataStore.deleteEntry(id);
       window.dispatchEvent(new Event('workload_updated')); 
     }
+  };
+
+  const toggleCollapse = (date: string) => {
+    setCollapsedDates(prev => {
+      const next = new Set(prev);
+      if (next.has(date)) next.delete(date);
+      else next.add(date);
+      return next;
+    });
   };
 
   const filteredEntries = useMemo(() => {
@@ -99,13 +109,23 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
                 const dateEntries = filteredEntries.filter(e => e.date === date);
                 const activeMembers = allMembers.filter(m => dateEntries.some(e => e.members?.includes(m)));
 
+                const isCollapsed = collapsedDates.has(date);
+
                 return (
                   <div key={date} className="bg-white border border-[#141414] shadow-[4px_4px_0_#141414] overflow-hidden">
-                     <div className="bg-[#141414] text-[#E4E3E0] p-3 md:p-4 text-center font-bold tracking-widest text-sm uppercase sticky top-0 z-10 flex items-center justify-between">
-                        <span></span>
-                        <span>Ngày {displayDate}</span>
-                        <span className="text-[10px] opacity-70 bg-white/10 px-2 py-1">{dateEntries.length} công việc</span>
+                     <div 
+                        className="bg-[#141414] text-[#E4E3E0] p-3 md:p-4 text-center font-bold tracking-widest text-sm uppercase sticky top-0 z-10 flex items-center justify-between cursor-pointer hover:bg-[#2a2a2a] transition-colors"
+                        onClick={() => toggleCollapse(date)}
+                     >
+                        <div className="flex items-center w-8">
+                           {isCollapsed ? <ChevronDown className="w-5 h-5" /> : <ChevronUp className="w-5 h-5" />}
+                        </div>
+                        <span className="flex-1 text-center">Ngày {displayDate}</span>
+                        <div className="flex items-center justify-end w-24">
+                           <span className="text-[10px] opacity-70 bg-white/10 px-2 py-1">{dateEntries.length} công việc</span>
+                        </div>
                      </div>
+                     {!isCollapsed && (
                      <div className="p-0 overflow-x-auto">
                         {activeMembers.length > 0 ? (
                            <table className="w-full text-left border-collapse min-w-[500px]">
@@ -148,6 +168,7 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
                            <div className="p-6 text-center text-xs opacity-50 italic">Không có dữ liệu cho tuyến/tổ này trong ngày {displayDate}.</div>
                         )}
                      </div>
+                     )}
                   </div>
                 );
              })
