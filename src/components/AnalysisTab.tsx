@@ -5,24 +5,33 @@ import { TrendingUp, Trophy, ArrowDown, Award, AlignLeft, BarChart3 } from 'luci
 
 export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }) {
   const [timeFilter, setTimeFilter] = useState<'day' | 'week' | 'month' | 'all'>('all');
+  const [selectedDay, setSelectedDay] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
+  const [selectedWeekDate, setSelectedWeekDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
+  const [selectedMonth, setSelectedMonth] = useState<string>(format(new Date(), 'yyyy-MM'));
   
   const rawEntries = useMemo(() => DataStore.getEntries(), [refreshToggle]);
   
   const entries = useMemo(() => {
-    const today = new Date();
     return rawEntries.filter(entry => {
       if (!entry.date) return false;
       try {
-        const d = parseISO(entry.date);
-        if (timeFilter === 'day') return isToday(d);
-        if (timeFilter === 'week') return isSameWeek(d, today, { weekStartsOn: 1 });
-        if (timeFilter === 'month') return isSameMonth(d, today);
+        if (timeFilter === 'day') {
+           return entry.date === selectedDay;
+        }
+        if (timeFilter === 'month') {
+           return entry.date.startsWith(selectedMonth);
+        }
+        if (timeFilter === 'week') {
+           const d = parseISO(entry.date);
+           const ref = parseISO(selectedWeekDate);
+           return isSameWeek(d, ref, { weekStartsOn: 1 });
+        }
         return true;
       } catch (e) {
         return false;
       }
     });
-  }, [rawEntries, timeFilter]);
+  }, [rawEntries, timeFilter, selectedDay, selectedWeekDate, selectedMonth]);
 
   const dinhMucList = useMemo(() => DataStore.getDinhMuc(), [refreshToggle]);
 
@@ -265,31 +274,68 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
           Phân Tích & So Sánh Công Việc
         </h2>
         
-        <div className="flex flex-wrap gap-2 mb-8">
+        <div className="flex flex-wrap gap-2 mb-8 items-center border-b border-[#141414]/10 pb-4">
            <button 
              onClick={() => setTimeFilter('all')}
-             className={`px-4 py-2 text-xs font-bold uppercase tracking-widest border border-[#141414] transition-colors ${timeFilter === 'all' ? 'bg-[#141414] text-white' : 'hover:bg-[#F5F4F2]'}`}
+             className={`px-4 py-2 text-xs font-bold uppercase tracking-widest border border-[#141414] transition-colors ${timeFilter === 'all' ? 'bg-[#141414] text-white' : 'bg-white hover:bg-[#F5F4F2]'}`}
            >
               Tất cả
            </button>
-           <button 
-             onClick={() => setTimeFilter('month')}
-             className={`px-4 py-2 text-xs font-bold uppercase tracking-widest border border-[#141414] transition-colors ${timeFilter === 'month' ? 'bg-[#141414] text-white' : 'hover:bg-[#F5F4F2]'}`}
-           >
-              Tháng này
-           </button>
-           <button 
-             onClick={() => setTimeFilter('week')}
-             className={`px-4 py-2 text-xs font-bold uppercase tracking-widest border border-[#141414] transition-colors ${timeFilter === 'week' ? 'bg-[#141414] text-white' : 'hover:bg-[#F5F4F2]'}`}
-           >
-              Tuần này
-           </button>
-           <button 
-             onClick={() => setTimeFilter('day')}
-             className={`px-4 py-2 text-xs font-bold uppercase tracking-widest border border-[#141414] transition-colors ${timeFilter === 'day' ? 'bg-[#141414] text-white' : 'hover:bg-[#F5F4F2]'}`}
-           >
-              Hôm nay
-           </button>
+
+           <div className="flex items-center gap-2">
+             <button 
+               onClick={() => setTimeFilter('month')}
+               className={`px-4 py-2 text-xs font-bold uppercase tracking-widest border border-[#141414] transition-colors ${timeFilter === 'month' ? 'bg-[#141414] text-white' : 'bg-white hover:bg-[#F5F4F2]'}`}
+             >
+                Tháng
+             </button>
+             {timeFilter === 'month' && (
+                <input 
+                  type="month" 
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(e.target.value)}
+                  className="px-3 py-1.5 text-sm border border-[#141414] focus:outline-none focus:ring-1 focus:ring-[#141414]"
+                />
+             )}
+           </div>
+
+           <div className="flex items-center gap-2">
+             <button 
+               onClick={() => setTimeFilter('week')}
+               className={`px-4 py-2 text-xs font-bold uppercase tracking-widest border border-[#141414] transition-colors ${timeFilter === 'week' ? 'bg-[#141414] text-white' : 'bg-white hover:bg-[#F5F4F2]'}`}
+             >
+                Tuần
+             </button>
+             {timeFilter === 'week' && (
+                <input 
+                  type="date" 
+                  title="Chọn một ngày trong tuần cần xem"
+                  value={selectedWeekDate}
+                  onChange={(e) => setSelectedWeekDate(e.target.value)}
+                  className="px-3 py-1.5 text-sm border border-[#141414] focus:outline-none focus:ring-1 focus:ring-[#141414]"
+                />
+             )}
+             {timeFilter === 'week' && (
+               <span className="text-xs uppercase font-mono opacity-50 px-2">(Chọn 1 ngày trong tuần)</span>
+             )}
+           </div>
+
+           <div className="flex items-center gap-2">
+             <button 
+               onClick={() => setTimeFilter('day')}
+               className={`px-4 py-2 text-xs font-bold uppercase tracking-widest border border-[#141414] transition-colors ${timeFilter === 'day' ? 'bg-[#141414] text-white' : 'bg-white hover:bg-[#F5F4F2]'}`}
+             >
+                Ngày
+             </button>
+             {timeFilter === 'day' && (
+                <input 
+                  type="date" 
+                  value={selectedDay}
+                  onChange={(e) => setSelectedDay(e.target.value)}
+                  className="px-3 py-1.5 text-sm border border-[#141414] focus:outline-none focus:ring-1 focus:ring-[#141414]"
+                />
+             )}
+           </div>
         </div>
         
         {categoryStats.length === 0 ? (

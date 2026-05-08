@@ -96,27 +96,27 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 relative overflow-hidden">
       {/* Decorative Background Elements */}
-      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-500/20 rounded-full blur-[100px] pointer-events-none mix-blend-multiply"></div>
-      <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none mix-blend-multiply"></div>
+      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-[#005B8C]/20 rounded-full blur-[100px] pointer-events-none mix-blend-multiply"></div>
+      <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-[#ED1C24]/10 rounded-full blur-[100px] pointer-events-none mix-blend-multiply"></div>
       
       <div className="max-w-5xl w-full grid md:grid-cols-2 bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100 z-10 relative">
         
         {/* Left Section - Graphic/Branding */}
-        <div className="bg-gradient-to-br from-blue-700 via-blue-800 to-indigo-900 p-10 flex flex-col justify-between text-white relative overflow-hidden">
+        <div className="bg-gradient-to-br from-[#005B8C] via-[#004B73] to-[#003A5A] p-10 flex flex-col justify-between text-white relative overflow-hidden">
            {/* Abstract grid pattern */}
            <div className="absolute inset-0 opacity-[0.03] bg-[linear-gradient(to_right,#fff_1px,transparent_1px),linear-gradient(to_bottom,#fff_1px,transparent_1px)] bg-[size:40px_40px]"></div>
            
            <div className="relative z-10 flex items-center gap-3">
-              <div className="bg-white/10 p-2 rounded-xl backdrop-blur-md border border-white/20">
+              <div className="bg-white p-2 rounded-xl border border-white/20">
                 <img 
                   src="https://upload.wikimedia.org/wikipedia/commons/1/1a/Logo_EVN.svg" 
                   alt="EVN Logo" 
-                  className="w-12 h-12 object-contain filter brightness-0 invert" 
+                  className="w-12 h-12 object-contain" 
                 />
               </div>
               <div>
-                <h1 className="font-bold tracking-wider text-xl">ĐIỆN LỰC VŨNG TÀU</h1>
-                <p className="text-blue-200 text-sm font-medium tracking-widest uppercase">Đội QLHTĐĐ</p>
+                <h1 className="font-bold tracking-wider text-xl text-[#F7941D]">ĐIỆN LỰC VŨNG TÀU</h1>
+                <p className="text-white/80 text-sm font-medium tracking-widest uppercase">Đội QLHTĐĐ</p>
               </div>
            </div>
 
@@ -128,11 +128,11 @@ export default function Login({ onLoginSuccess }: LoginProps) {
               >
                   <h2 className="text-4xl lg:text-5xl font-black leading-tight mb-6">
                      Hệ Thống Quản Lý <br/>
-                     <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-blue-200">
+                     <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#F7941D] to-[#ED1C24]">
                        Năng Suất Của Bạn
                      </span>
                   </h2>
-                  <p className="text-blue-100/80 text-lg max-w-sm leading-relaxed mb-10">
+                  <p className="text-white/80 text-lg max-w-sm leading-relaxed mb-10">
                      Theo dõi, cập nhật và đo lường hiệu suất làm việc hàng ngày một cách trực quan, chính xác nhất.
                   </p>
               </motion.div>
@@ -145,7 +145,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                  ].map((feat, idx) => (
                     <motion.div 
                       key={idx}
-                      className="flex items-center gap-3 text-blue-200 font-medium"
+                      className="flex items-center gap-3 text-white/90 font-medium"
                       initial={{ opacity: 0, x: -20 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ duration: 0.5, delay: 0.5 + (idx * 0.1) }}
@@ -159,13 +159,13 @@ export default function Login({ onLoginSuccess }: LoginProps) {
               </div>
            </div>
 
-           <div className="relative z-10 text-xs font-mono text-blue-300/60 uppercase tracking-widest">
+           <div className="relative z-10 text-xs font-mono text-white/60 uppercase tracking-widest">
               Version 2026.5.1 • Secure Login
            </div>
            
            {/* Animated decorative shapes */}
            <motion.div 
-              className="absolute top-1/4 right-0 w-64 h-64 bg-blue-500/30 rounded-full blur-3xl"
+              className="absolute top-1/4 right-0 w-64 h-64 bg-[#ED1C24]/20 rounded-full blur-3xl"
               animate={{ 
                 x: [0, 50, 0], 
                 y: [0, -50, 0],
@@ -179,7 +179,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         <div className="p-10 lg:p-14 flex flex-col justify-center">
            <div className="max-w-md w-full mx-auto">
               <div className="mb-10 text-center md:text-left">
-                <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mb-6 mx-auto md:mx-0 shadow-sm border border-blue-100">
+                <div className="w-16 h-16 bg-[#005B8C]/10 text-[#005B8C] rounded-2xl flex items-center justify-center mb-6 mx-auto md:mx-0 shadow-sm border border-[#005B8C]/20">
                    <Lock className="w-8 h-8" />
                 </div>
                 <h3 className="text-3xl font-bold text-slate-800 tracking-tight">Đăng nhập</h3>
@@ -200,7 +200,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                           value={username}
                           onChange={(e) => setUsername(e.target.value)}
                           placeholder="Nhập họ tên của bạn..."
-                          className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-slate-700 font-medium placeholder:text-slate-400 placeholder:font-normal"
+                          className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-[#005B8C]/20 focus:border-[#005B8C] transition-all outline-none text-slate-700 font-medium placeholder:text-slate-400 placeholder:font-normal"
                           disabled={isLoading || isInitializing}
                        />
                     </div>
@@ -220,7 +220,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
                           placeholder="Mã số nhân viên (MSNV)"
-                          className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-slate-700 font-medium placeholder:text-slate-400 placeholder:font-normal"
+                          className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-[#005B8C]/20 focus:border-[#005B8C] transition-all outline-none text-slate-700 font-medium placeholder:text-slate-400 placeholder:font-normal"
                           disabled={isLoading || isInitializing}
                        />
                     </div>
@@ -246,7 +246,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                     <button
                        type="submit"
                        disabled={isLoading || isInitializing}
-                       className="relative w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-[0_4px_14px_0_rgba(37,99,235,0.39)] hover:shadow-[0_6px_20px_rgba(37,99,235,0.23)] hover:-translate-y-0.5 transition-all duration-200 flex items-center justify-center gap-2 overflow-hidden disabled:opacity-70 disabled:cursor-not-allowed disabled:hover:translate-y-0"
+                       className="relative w-full bg-[#005B8C] hover:bg-[#004B73] text-white font-bold py-3.5 rounded-xl shadow-[0_4px_14px_0_rgba(0,91,140,0.39)] hover:shadow-[0_6px_20px_rgba(0,91,140,0.23)] hover:-translate-y-0.5 transition-all duration-200 flex items-center justify-center gap-2 overflow-hidden disabled:opacity-70 disabled:cursor-not-allowed disabled:hover:translate-y-0"
                     >
                        {isLoading ? (
                           <div className="flex items-center gap-2">
@@ -270,7 +270,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
 
               <div className="mt-8 pt-6 border-t border-slate-100 flex items-center justify-between">
                  <div className="text-xs text-slate-400 font-medium">Bảo mật thông tin nội bộ</div>
-                 <div className="flex items-center gap-1 text-xs text-blue-600 font-semibold bg-blue-50 px-2 py-1 rounded-md">
+                 <div className="flex items-center gap-1 text-xs text-[#F7941D] font-semibold bg-[#F7941D]/10 px-2 py-1 rounded-md">
                    <Zap className="w-3 h-3 fill-current" />
                    E-Office Sync
                  </div>

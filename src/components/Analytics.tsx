@@ -31,18 +31,24 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
 
   const filteredEntries = useMemo(() => {
     return entries.filter(e => {
-      if (selectedTeam !== 'all' && e.team !== selectedTeam) return false;
+      const eTeamNormalized = (e.team || '').normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
+      const selectedTeamNormalized = selectedTeam.normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
+
+      if (selectedTeam !== 'all' && eTeamNormalized !== selectedTeamNormalized) return false;
       if (selectedDate && e.date !== selectedDate) return false;
       if (selectedMember !== 'all' && (!e.members || !e.members.includes(selectedMember))) return false;
       return true;
     });
   }, [entries, selectedTeam, selectedDate, selectedMember]);
 
-  const uniqueTeams = useMemo(() => Array.from(new Set(entries.map(e => e.team))), [entries]);
+  const uniqueTeams = useMemo(() => DataStore.getTeams(), [refreshToggle]);
   const uniqueMembers = useMemo(() => {
     const mems = new Set<string>();
     entries.forEach(e => {
-       if ((selectedTeam === 'all' || e.team === selectedTeam) && e.members) {
+       const eTeamNormalized = (e.team || '').normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
+       const selectedTeamNormalized = selectedTeam.normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
+       
+       if ((selectedTeam === 'all' || eTeamNormalized === selectedTeamNormalized) && e.members) {
           e.members.forEach(m => mems.add(m));
        }
     });
@@ -76,17 +82,28 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
           const cleanTaskName = taskName.normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
           const qty = parseFloat(match[2]);
           
-          let dm = dinhMucList.find(d => {
+          let exactDm = dinhMucList.find(d => {
              const cleanDName = (d.name || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
              return cleanDName === cleanTaskName;
           });
           
-          if (!dm) {
-             dm = dinhMucList.find(d => {
+          let matchedName = 'Khác';
+          if (exactDm) {
+             matchedName = exactDm.name;
+          } else {
+             let foundDm = dinhMucList.find(d => {
                 const cleanDName = (d.name || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
                 return cleanDName.includes(cleanTaskName) || cleanTaskName.includes(cleanDName);
              });
+             if (foundDm) matchedName = foundDm.name;
           }
+
+          const cleanMatchedName = matchedName.normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+
+          const dm = dinhMucList.find(d => {
+              const cleanDName = (d.name || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+              return cleanDName === cleanMatchedName;
+          });
 
           const quotaStr = dm ? String(dm.quota).replace(/,/g, '.') : "0";
           const quota = parseFloat(quotaStr) || 0;
@@ -96,7 +113,7 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
 
           const qtyPerMember = qty / (membersCount || 1);
 
-          if (cleanTaskName === 'khác') {
+          if (cleanMatchedName === 'khác') {
               nsPercent = (qtyPerMember / 1) * 100;
               quotaDisplay = "(ĐM: 1)";
           } else if (quota > 0) {
@@ -148,16 +165,28 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
                  const cleanTaskName = taskName.normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
                  const qty = parseFloat(match[2]);
 
-                 let dm = dinhMucList.find(d => {
+                 let exactDm = dinhMucList.find(d => {
                     const cleanDName = (d.name || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
                     return cleanDName === cleanTaskName;
                  });
-                 if (!dm) {
-                    dm = dinhMucList.find(d => {
+                 
+                 let matchedName = 'Khác';
+                 if (exactDm) {
+                    matchedName = exactDm.name;
+                 } else {
+                    let foundDm = dinhMucList.find(d => {
                        const cleanDName = (d.name || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
                        return cleanDName.includes(cleanTaskName) || cleanTaskName.includes(cleanDName);
                     });
+                    if (foundDm) matchedName = foundDm.name;
                  }
+
+                 const cleanMatchedName = matchedName.normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+
+                 const dm = dinhMucList.find(d => {
+                     const cleanDName = (d.name || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+                     return cleanDName === cleanMatchedName;
+                 });
 
                  const quotaStr = dm ? String(dm.quota).replace(/,/g, '.') : "0";
                  const quota = parseFloat(quotaStr) || 0;
@@ -166,7 +195,7 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
                  
                  let nsPercent = 0;
                  let quotaDisplay = "";
-                 if (cleanTaskName === 'khác') {
+                 if (cleanMatchedName === 'khác') {
                      nsPercent = (qtyPerMember / 1) * 100;
                      quotaDisplay = "(ĐM: 1)";
                  } else if (quota > 0) {

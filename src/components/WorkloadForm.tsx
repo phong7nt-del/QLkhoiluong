@@ -11,6 +11,7 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
   const [team, setTeam] = useState('');
   const [members, setMembers] = useState<string[]>([]);
   const [memberInput, setMemberInput] = useState('');
+  const [phatHien, setPhatHien] = useState('không có');
   
   const [selectedTasks, setSelectedTasks] = useState<Record<string, {selected: boolean, quantity: number | string}>>({});
   
@@ -65,6 +66,9 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
     setIsSubmitting(true);
 
     const contentLines = selectedList.map(([name, data]) => `${name}: ${(data as any).quantity}`);
+    if (phatHien.trim()) {
+       contentLines.push(`Phát hiện: ${phatHien.trim()}`);
+    }
     const content = contentLines.join('\n');
 
     const entry = {
@@ -90,6 +94,7 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
 
     setMembers([]);
     setMemberInput('');
+    setPhatHien('không có');
     
     // Reset selected tasks
     const rTasks = { ...selectedTasks };
@@ -247,6 +252,16 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
                <div className="text-center italic opacity-50 text-sm py-4">Chưa có Nội dung định mức (Vào Cấu hình tải)</div>
              )}
            </div>
+        </div>
+
+        <div className="pt-4">
+           <label className="block text-[10px] font-mono opacity-50 uppercase mb-2">Nội dung phát hiện</label>
+           <textarea
+             value={phatHien}
+             onChange={(e) => setPhatHien(e.target.value)}
+             className="w-full bg-[#F5F4F2] border border-[#141414] p-3 text-sm focus:outline-none focus:bg-white focus:shadow-[2px_2px_0_#141414] transition-all min-h-[80px]"
+             placeholder="Nhập nội dung phát hiện (mặc định: không có)"
+           />
         </div>
 
         <div className="pt-6">

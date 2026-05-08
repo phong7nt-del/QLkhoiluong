@@ -128,7 +128,33 @@ export const DataStore = {
             // Gộp team mới vào json.teams nếu cần (tránh lỗi thiếu team trong filter)
             const allTeams = new Set<string>((json.teams || []).map((t: string) => t));
             json.members.forEach((m: any) => allTeams.add(m.team));
-            json.teams = Array.from(allTeams);
+            let finalTeams = Array.from(allTeams);
+
+            // Bắt buộc lấy danh sách Tổ công tác từ sheet CongTac (cột số 5 Khu vực)
+            try {
+               const ctRes = await fetch("https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:csv&sheet=CongTac");
+               const ctText = await ctRes.text();
+               const ctData = Papa.parse(ctText, { header: false }).data;
+               const ctTeamsMap = new Map<string, string>();
+               for (let i = 1; i < ctData.length; i++) {
+                  const row = ctData[i] as string[];
+                  if (row && row[5] && row[5].trim()) {
+                     const teamStr = row[5].trim().replace(/\s+/g, ' ');
+                     const normalized = teamStr.normalize('NFC').toLowerCase();
+                     if (!ctTeamsMap.has(normalized)) {
+                        ctTeamsMap.set(normalized, teamStr);
+                     }
+                  }
+               }
+               const ctTeams = Array.from(ctTeamsMap.values());
+               if (ctTeams.length > 0) {
+                  finalTeams = ctTeams; 
+               }
+            } catch (e) {
+               console.error('Error fetching CongTac teams', e);
+            }
+
+            json.teams = finalTeams;
 
          } catch (e) {
             console.error('Error parsing CBCNV from CSV', e);
