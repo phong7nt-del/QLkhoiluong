@@ -372,7 +372,7 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
                     <Award className="w-4 h-4" />
                     Xếp Hạng Năng Suất Các Tổ
                  </h3>
-                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                 <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
                     {teamOverview.map((t, idx) => {
                         let colorClass = 'text-[#141414]';
                         let barColor = 'bg-[#141414]';
@@ -386,30 +386,30 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
                         }
 
                         return (
-                           <div key={t.team} className="border border-[#141414] bg-white p-5 shadow-[4px_4px_0_#141414] flex flex-col justify-between">
-                              <div className="flex items-center justify-between mb-4 pb-4 border-b border-[#141414]/10">
-                                 <div className="flex items-center gap-4">
-                                    <div className={`shrink-0 w-12 h-12 flex items-center justify-center font-black font-mono text-xl border-2 ${idx === 0 ? 'bg-[#FFF4E5] border-orange-400 text-orange-600 shadow-[2px_2px_0_theme(colors.orange.400)]' : idx === 1 ? 'bg-gray-100 border-gray-400 text-gray-600 shadow-[2px_2px_0_theme(colors.gray.400)]' : idx === 2 ? 'bg-yellow-900/10 border-yellow-900/40 text-yellow-900 shadow-[2px_2px_0_rgba(113,63,18,0.4)]' : 'bg-[#F5F4F2] border-[#141414]/20 text-[#141414] shadow-[2px_2px_0_rgba(20,20,20,0.2)]'}`}>
+                           <div key={t.team} className="border border-[#141414] bg-white p-3 shadow-[2px_2px_0_#141414] flex flex-col justify-between">
+                              <div className="flex items-center justify-between mb-2 pb-2 border-b border-[#141414]/10">
+                                 <div className="flex items-center gap-3">
+                                    <div className={`shrink-0 w-8 h-8 flex items-center justify-center font-black font-mono text-sm border-2 ${idx === 0 ? 'bg-[#FFF4E5] border-orange-400 text-orange-600 shadow-[1px_1px_0_theme(colors.orange.400)]' : idx === 1 ? 'bg-gray-100 border-gray-400 text-gray-600 shadow-[1px_1px_0_theme(colors.gray.400)]' : idx === 2 ? 'bg-yellow-900/10 border-yellow-900/40 text-yellow-900 shadow-[1px_1px_0_rgba(113,63,18,0.4)]' : 'bg-[#F5F4F2] border-[#141414]/20 text-[#141414] shadow-[1px_1px_0_rgba(20,20,20,0.2)]'}`}>
                                        {idx + 1}
                                     </div>
                                     <div>
-                                       <div className="font-bold text-lg leading-tight uppercase tracking-wide">{t.team}</div>
-                                       <div className="text-xs font-bold opacity-50 mt-1">Chu kỳ làm việc: {t.daysWorkedCount} ngày</div>
+                                       <div className="font-bold text-sm leading-tight uppercase tracking-wide">{t.team}</div>
+                                       <div className="text-[10px] font-bold opacity-50 mt-0.5">Chu kỳ: {t.daysWorkedCount} ngày</div>
                                     </div>
                                  </div>
-                                 <div className="text-right pl-4">
-                                    <div className={`text-3xl tracking-tighter font-black ${colorClass}`}>
+                                 <div className="text-right pl-2">
+                                    <div className={`text-xl tracking-tighter font-black ${colorClass}`}>
                                        {t.productivityPercent.toFixed(1)}%
                                     </div>
                                  </div>
                               </div>
                               
                               <div>
-                                <div className="flex justify-between text-[10px] uppercase font-bold mb-1 opacity-60">
-                                   <span>Tiến độ đạt định mức</span>
+                                <div className="flex justify-between text-[9px] uppercase font-bold mb-1 opacity-60">
+                                   <span>Tiến độ</span>
                                    <span>{t.productivityPercent.toFixed(1)} / 100%</span>
                                 </div>
-                                <div className="w-full bg-[#141414]/10 h-3 overflow-hidden flex relative">
+                                <div className="w-full bg-[#141414]/10 h-2 overflow-hidden flex relative">
                                    <div 
                                       className={`h-full transition-all duration-1000 ease-out ${barColor}`} 
                                       style={{ width: `${Math.min(t.productivityPercent, 100)}%` }}
@@ -436,61 +436,71 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
                     <Award className="w-4 h-4" />
                     Xếp Hạng Năng Suất Cá Nhân
                  </h3>
-                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {memberOverview.map((m, idx) => {
-                        let colorClass = 'text-[#141414]';
-                        let barColor = 'bg-[#141414]';
-                        
-                        if (m.productivityPercent >= 100) {
-                            colorClass = 'text-green-700';
-                            barColor = 'bg-green-600';
-                        } else if (m.productivityPercent < avgMemberProductivity) {
-                            colorClass = 'text-red-600';
-                            barColor = 'bg-red-500';
-                        }
+                 
+                 <div className="overflow-x-auto border border-[#141414] bg-white shadow-[4px_4px_0_#141414]">
+                    <table className="w-full text-left text-sm whitespace-nowrap">
+                       <thead className="bg-[#141414]/5 border-b border-[#141414] uppercase text-[10px] font-bold tracking-wider">
+                          <tr>
+                             <th className="px-4 py-3 text-center w-16">Hạng</th>
+                             <th className="px-4 py-3">Cá nhân</th>
+                             <th className="px-4 py-3 text-right">Chu kỳ (ngày)</th>
+                             <th className="px-4 py-3 text-right">Định mức</th>
+                             <th className="px-4 py-3 text-right">Năng suất</th>
+                             <th className="px-4 py-3 min-w-[200px]">Tiến độ</th>
+                          </tr>
+                       </thead>
+                       <tbody className="divide-y divide-[#141414]/10">
+                          {memberOverview.map((m, idx) => {
+                             let colorClass = 'text-[#141414]';
+                             let barColor = 'bg-[#141414]';
+                             
+                             if (m.productivityPercent >= 100) {
+                                 colorClass = 'text-green-700 font-bold';
+                                 barColor = 'bg-green-600';
+                             } else if (m.productivityPercent < avgMemberProductivity) {
+                                 colorClass = 'text-red-600 font-bold';
+                                 barColor = 'bg-red-500';
+                             }
 
-                        return (
-                           <div key={m.member} className="border border-[#141414] bg-white p-5 shadow-[4px_4px_0_#141414] flex flex-col justify-between">
-                              <div className="flex items-center justify-between mb-4 pb-4 border-b border-[#141414]/10">
-                                 <div className="flex items-center gap-4">
-                                    <div className={`shrink-0 w-12 h-12 flex items-center justify-center font-black font-mono text-xl border-2 ${idx === 0 ? 'bg-[#FFF4E5] border-orange-400 text-orange-600 shadow-[2px_2px_0_theme(colors.orange.400)]' : idx === 1 ? 'bg-gray-100 border-gray-400 text-gray-600 shadow-[2px_2px_0_theme(colors.gray.400)]' : idx === 2 ? 'bg-yellow-900/10 border-yellow-900/40 text-yellow-900 shadow-[2px_2px_0_rgba(113,63,18,0.4)]' : 'bg-[#F5F4F2] border-[#141414]/20 text-[#141414] shadow-[2px_2px_0_rgba(20,20,20,0.2)]'}`}>
-                                       {idx + 1}
-                                    </div>
-                                    <div>
-                                       <div className="font-bold text-lg leading-tight uppercase tracking-wide">{m.member}</div>
-                                       <div className="text-xs font-bold opacity-50 mt-1">Chu kỳ làm việc: {m.daysWorkedCount} ngày</div>
-                                    </div>
-                                 </div>
-                                 <div className="text-right pl-4">
-                                    <div className={`text-3xl tracking-tighter font-black ${colorClass}`}>
-                                       {m.productivityPercent.toFixed(1)}%
-                                    </div>
-                                    <div className="text-xs font-bold opacity-50 mt-1">Đ.Mức Tích Lũy: {m.totalStandardDays.toFixed(1)} ngày</div>
-                                 </div>
-                              </div>
-                              
-                              <div>
-                                <div className="flex justify-between text-[10px] uppercase font-bold mb-1 opacity-60">
-                                   <span>Tiến độ đạt định mức</span>
-                                   <span>{m.productivityPercent.toFixed(1)} / 100%</span>
-                                </div>
-                                <div className="w-full bg-[#141414]/10 h-3 overflow-hidden flex relative">
-                                   <div 
-                                      className={`h-full transition-all duration-1000 ease-out ${barColor}`} 
-                                      style={{ width: `${Math.min(m.productivityPercent, 100)}%` }}
-                                   ></div>
-                                   {m.productivityPercent > 100 && (
-                                      <div 
-                                        className="bg-yellow-400 h-full transition-all duration-1000"
-                                        style={{ width: `${Math.min(m.productivityPercent - 100, 100)}%` }}
-                                        title={`Vượt mức ${(m.productivityPercent - 100).toFixed(1)}%`}
-                                      ></div>
-                                   )}
-                                </div>
-                              </div>
-                           </div>
-                        );
-                    })}
+                             return (
+                                <tr key={m.member} className="hover:bg-[#141414]/5 transition-colors">
+                                   <td className="px-4 py-3 text-center">
+                                      <div className={`inline-flex w-7 h-7 items-center justify-center font-black font-mono text-xs border-2 ${idx === 0 ? 'bg-[#FFF4E5] border-orange-400 text-orange-600' : idx === 1 ? 'bg-gray-100 border-gray-400 text-gray-600' : idx === 2 ? 'bg-yellow-900/10 border-yellow-900/40 text-yellow-900' : 'bg-transparent border-transparent text-[#141414]'}`}>
+                                         {idx + 1}
+                                      </div>
+                                   </td>
+                                   <td className="px-4 py-3 font-bold text-sm truncate max-w-[200px]" title={m.member}>
+                                      {m.member}
+                                   </td>
+                                   <td className="px-4 py-3 text-right font-mono text-xs">
+                                      {m.daysWorkedCount}
+                                   </td>
+                                   <td className="px-4 py-3 text-right font-mono text-xs">
+                                      {m.totalStandardDays.toFixed(1)}
+                                   </td>
+                                   <td className={`px-4 py-3 text-right font-mono text-base tracking-tight ${colorClass}`}>
+                                      {m.productivityPercent.toFixed(1)}%
+                                   </td>
+                                   <td className="px-4 py-3">
+                                      <div className="w-full bg-[#141414]/10 h-2 overflow-hidden flex relative">
+                                         <div 
+                                            className={`h-full transition-all duration-1000 ease-out ${barColor}`} 
+                                            style={{ width: `${Math.min(m.productivityPercent, 100)}%` }}
+                                         ></div>
+                                         {m.productivityPercent > 100 && (
+                                            <div 
+                                              className="bg-yellow-400 h-full transition-all duration-1000"
+                                              style={{ width: `${Math.min(m.productivityPercent - 100, 100)}%` }}
+                                              title={`Vượt mức ${(m.productivityPercent - 100).toFixed(1)}%`}
+                                            ></div>
+                                         )}
+                                      </div>
+                                   </td>
+                                </tr>
+                             );
+                          })}
+                       </tbody>
+                    </table>
                  </div>
               </div>
 

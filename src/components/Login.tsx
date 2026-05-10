@@ -109,8 +109,8 @@ export default function Login({ onLoginSuccess }: LoginProps) {
            <div className="relative z-10 flex items-center gap-3">
               <div className="bg-white p-2 rounded-xl border border-white/20">
                 <img 
-                  src="https://upload.wikimedia.org/wikipedia/commons/1/1a/Logo_EVN.svg" 
-                  alt="EVN Logo" 
+                  src="https://www.evnhcmc.vn/public/images/EVNHCMC2021.svg" 
+                  alt="EVNHCMC Logo" 
                   className="w-12 h-12 object-contain" 
                 />
               </div>

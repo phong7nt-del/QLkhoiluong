@@ -63,8 +63,8 @@ export default function App() {
           
           <div className="flex flex-col items-center md:items-start gap-1 w-full md:w-1/4 z-10">
             <img 
-              src="https://upload.wikimedia.org/wikipedia/commons/1/1a/Logo_EVN.svg" 
-              alt="EVN Logo" 
+              src="https://www.evnhcmc.vn/public/images/EVNHCMC2021.svg" 
+              alt="EVNHCMC Logo" 
               className="h-10 object-contain drop-shadow-sm" 
             />
             <div className="text-[11px] font-bold text-blue-700 tracking-wide uppercase mt-1">
