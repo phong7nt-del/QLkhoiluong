@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { DataStore, SheetMember } from '../store/DataStore';
-import { PlusCircle, Search, CheckSquare, Square } from 'lucide-react';
+import { PlusCircle, Search, CheckSquare, Square, Mic } from 'lucide-react';
 import { format } from 'date-fns';
 
 export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () => void, refreshToggle: number }) {
@@ -12,6 +12,8 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
   const [members, setMembers] = useState<string[]>([]);
   const [memberInput, setMemberInput] = useState('');
   const [phatHien, setPhatHien] = useState('không có');
+  const [isRecordingPhatHien, setIsRecordingPhatHien] = useState(false);
+  const recognitionRef = useRef<any>(null);
   
   const [selectedTasks, setSelectedTasks] = useState<Record<string, {selected: boolean, quantity: number | string}>>({});
   
@@ -116,6 +118,40 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
         ...prev,
         [name]: { ...prev[name], quantity: val }
      }));
+  };
+
+  const toggleRecordingPhatHien = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+       alert("Trình duyệt không hỗ trợ nhận dạng giọng nói!");
+       return;
+    }
+    
+    if (isRecordingPhatHien && recognitionRef.current) {
+        recognitionRef.current.stop();
+        setIsRecordingPhatHien(false);
+        return;
+    }
+    
+    const recognition = new SpeechRecognition();
+    recognitionRef.current = recognition;
+    recognition.lang = 'vi-VN';
+    recognition.interimResults = true;
+    
+    let baseContent = (phatHien && phatHien !== 'không có') ? phatHien : '';
+    
+    recognition.onstart = () => setIsRecordingPhatHien(true);
+    recognition.onresult = (event: any) => {
+        let currentTranscript = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+            currentTranscript += event.results[i][0].transcript;
+        }
+        setPhatHien(baseContent ? `${baseContent} ${currentTranscript}` : currentTranscript);
+    };
+    recognition.onerror = () => setIsRecordingPhatHien(false);
+    recognition.onend = () => setIsRecordingPhatHien(false);
+    
+    recognition.start();
   };
 
   return (
@@ -256,12 +292,22 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
 
         <div className="pt-4">
            <label className="block text-[10px] font-mono opacity-50 uppercase mb-2">Nội dung phát hiện</label>
-           <textarea
-             value={phatHien}
-             onChange={(e) => setPhatHien(e.target.value)}
-             className="w-full bg-[#F5F4F2] border border-[#141414] p-3 text-sm focus:outline-none focus:bg-white focus:shadow-[2px_2px_0_#141414] transition-all min-h-[80px]"
-             placeholder="Nhập nội dung phát hiện (mặc định: không có)"
-           />
+           <div className="relative">
+               <textarea
+                 value={phatHien}
+                 onChange={(e) => setPhatHien(e.target.value)}
+                 className="w-full bg-[#F5F4F2] border border-[#141414] p-3 pr-10 text-sm focus:outline-none focus:bg-white focus:shadow-[2px_2px_0_#141414] transition-all min-h-[80px]"
+                 placeholder="Nhập nội dung phát hiện (mặc định: không có)"
+               />
+               <button
+                  type="button"
+                  onClick={toggleRecordingPhatHien}
+                  className={`absolute right-2 top-2 p-2 rounded-full transition-colors ${isRecordingPhatHien ? 'bg-red-100 text-red-600 animate-pulse' : 'bg-[#E4E3E0] text-[#141414] hover:bg-[#D4D3D0]'}`}
+                  title="Nhập bằng giọng nói"
+               >
+                  <Mic className="w-4 h-4" />
+               </button>
+           </div>
         </div>
 
         <div className="pt-6">

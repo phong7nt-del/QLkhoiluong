@@ -17,6 +17,16 @@ export interface WorkloadEntry {
   timestamp: number;
 }
 
+export interface TaskProgress {
+  id: string; // TT
+  content: string; // Nội dung
+  reference: string; // căn cứ
+  deadline: string; // ngày hoàn tất (dd/mm/yyyy)
+  assignee: string; // Phân công
+  status: string; // Hoàn tất ('xong' or '')
+  isLocal?: boolean;
+}
+
 export interface SheetMember {
   team: string;
   name: string;
@@ -29,6 +39,8 @@ const TEAMS_KEY = 'sheet_teams_v1';
 const MEMBERS_KEY = 'sheet_members_v1';
 const STATIONS_KEY = 'sheet_stations_v1';
 const DINHMUC_KEY = 'sheet_dinhmuc_v1';
+const PROGRESS_KEY = 'sheet_progress_v1';
+const LOCAL_PROGRESS_UPDATES_KEY = 'local_progress_updates_v1';
 
 export const DataStore = {
   getAppScriptUrl: () => localStorage.getItem(SCRIPT_URL_KEY) || 'https://script.google.com/macros/s/AKfycbyDCcu4I8yfT1g2KOHCRoaDtMMb1gLvfxhP4HJkzFYbqNIg1TSXCyi2HS3D7hDYpInVxQ/exec',
@@ -78,12 +90,12 @@ export const DataStore = {
     try {
       const url = DataStore.getAppScriptUrl();
       if (!url) return false;
-      const res = await fetch(`${url}?action=getData`);
+      const res = await fetch(`${url}?action=getData&_t=${new Date().getTime()}`);
       const json = await res.json();
       if (json.status === 'success') {
          // Lấy MSNV và bổ sung thêm NV từ file CSV
          try {
-            const cbcnvRes = await fetch("https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:csv&sheet=CBCNV");
+            const cbcnvRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:csv&sheet=CBCNV&_t=${new Date().getTime()}`);
             const csvText = await cbcnvRes.text();
             const { data } = Papa.parse(csvText, { header: false });
             
@@ -132,7 +144,7 @@ export const DataStore = {
 
             // Bắt buộc lấy danh sách Tổ công tác từ sheet CongTac (cột số 5 Khu vực)
             try {
-               const ctRes = await fetch("https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:csv&sheet=CongTac");
+               const ctRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:csv&sheet=CongTac&_t=${new Date().getTime()}`);
                const ctText = await ctRes.text();
                const ctData = Papa.parse(ctText, { header: false }).data;
                const ctTeamsMap = new Map<string, string>();
@@ -155,6 +167,29 @@ export const DataStore = {
             }
 
             json.teams = finalTeams;
+
+            // Fetch "Tiến độ" sheet
+            try {
+               const progRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("Tiến độ")}&_t=${new Date().getTime()}`);
+               const progText = await progRes.text();
+               const { data: progData } = Papa.parse(progText, { header: true });
+               const progressList: TaskProgress[] = [];
+               for (const row of progData as any[]) {
+                  if (row['Nội dung'] || row['TT']) {
+                     progressList.push({
+                         id: String(row['TT'] || Math.random().toString(36).substring(7)),
+                         content: String(row['Nội dung'] || ''),
+                         reference: String(row['căn cứ'] || ''),
+                         deadline: String(row['ngày hoàn tất'] || ''),
+                         assignee: String(row['Phân công'] || ''),
+                         status: String(row['Hoàn tất'] || '')
+                     });
+                  }
+               }
+               localStorage.setItem(PROGRESS_KEY, JSON.stringify(progressList));
+            } catch (e) {
+               console.error('Error fetching Progress sheet', e);
+            }
 
          } catch (e) {
             console.error('Error parsing CBCNV from CSV', e);
@@ -205,6 +240,56 @@ export const DataStore = {
        const cached = localStorage.getItem(DINHMUC_KEY);
        return cached ? JSON.parse(cached) : [];
      } catch { return []; }
+  },
+
+  getTasks: (): TaskProgress[] => {
+     try {
+       const cached = localStorage.getItem(PROGRESS_KEY);
+       const remoteTasks: TaskProgress[] = cached ? JSON.parse(cached) : [];
+       
+       const localCached = localStorage.getItem(LOCAL_PROGRESS_UPDATES_KEY);
+       const localTasks: TaskProgress[] = localCached ? JSON.parse(localCached) : [];
+       
+       // Merge: local tasks overwrite remote ones by ID, and new local tasks are appended
+       const remoteMap = new Map(remoteTasks.map(t => [t.id, t]));
+       localTasks.forEach(lt => {
+           remoteMap.set(lt.id, lt);
+       });
+       
+       return Array.from(remoteMap.values());
+     } catch { return []; }
+  },
+
+  addTask: (task: Omit<TaskProgress, 'id'>) => {
+     const localCached = localStorage.getItem(LOCAL_PROGRESS_UPDATES_KEY);
+     const localTasks: TaskProgress[] = localCached ? JSON.parse(localCached) : [];
+     const newTask: TaskProgress = {
+        ...task,
+        id: 'L-' + Math.random().toString(36).substring(2, 9),
+        isLocal: true
+     };
+     localTasks.push(newTask);
+     localStorage.setItem(LOCAL_PROGRESS_UPDATES_KEY, JSON.stringify(localTasks));
+     return newTask;
+  },
+
+  updateTaskStatus: (id: string, status: string) => {
+     const allTasks = DataStore.getTasks();
+     const task = allTasks.find(t => t.id === id);
+     if (!task) return;
+     
+     const updatedTask = { ...task, status, isLocal: true };
+     
+     const localCached = localStorage.getItem(LOCAL_PROGRESS_UPDATES_KEY);
+     const localTasks: TaskProgress[] = localCached ? JSON.parse(localCached) : [];
+     
+     const existingIndex = localTasks.findIndex(t => t.id === id);
+     if (existingIndex >= 0) {
+        localTasks[existingIndex] = updatedTask;
+     } else {
+        localTasks.push(updatedTask);
+     }
+     localStorage.setItem(LOCAL_PROGRESS_UPDATES_KEY, JSON.stringify(localTasks));
   },
 
   deleteEntry: (id: string) => {

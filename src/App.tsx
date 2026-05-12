@@ -1,16 +1,44 @@
 import { useState, useEffect } from "react";
-import { ClipboardList, BarChart3, Database, TrendingUp, LogOut, User as UserIcon } from "lucide-react";
+import { ClipboardList, BarChart3, Database, TrendingUp, LogOut, User as UserIcon, CheckSquare, XSquare } from "lucide-react";
 import WorkloadForm from "./components/WorkloadForm";
 import Analytics from "./components/Analytics";
 import Stations from "./components/Stations";
 import AnalysisTab from "./components/AnalysisTab";
 import Login from "./components/Login";
+import ProgressTab from "./components/ProgressTab";
 import { DataStore, SheetMember } from "./store/DataStore";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"input" | "report" | "stations" | "analysis">("input");
+  const [activeTab, setActiveTab] = useState<"input" | "report" | "stations" | "analysis" | "progress">("input");
   const [refreshToggle, setRefreshToggle] = useState(0);
   const [sessionUser, setSessionUser] = useState<SheetMember | null>(null);
+  const isPhong = sessionUser?.name ? sessionUser.name.normalize('NFC').toLowerCase().replace(/\s+/g, '') === 'nguyễnthànhphong' : false;
+
+  const [taskStats, setTaskStats] = useState({ overdue: 0, warning: 0, ok: 0 });
+
+  useEffect(() => {
+    if (isPhong) {
+      const today = new Date();
+      today.setHours(0,0,0,0);
+      let overdue = 0, warning = 0, ok = 0;
+      const tasks = DataStore.getTasks().filter(t => t.status.toLowerCase() !== 'xong');
+      
+      tasks.forEach(t => {
+          if (!t.deadline) { overdue++; return; }
+          const parts = t.deadline.split('/');
+          if (parts.length === 3) {
+              const dDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+              const diffDays = Math.ceil((dDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+              if (diffDays > 3) ok++;
+              else if (diffDays >= 1) warning++;
+              else overdue++;
+          } else {
+              overdue++;
+          }
+      });
+      setTaskStats({ overdue, warning, ok });
+    }
+  }, [refreshToggle, isPhong]);
 
   // Initial Sync from URL & refresh listener
   useEffect(() => {
@@ -21,7 +49,13 @@ export default function App() {
     const storedUser = sessionStorage.getItem('workload_user_session');
     if (storedUser) {
         try {
-            setSessionUser(JSON.parse(storedUser));
+            const parsedUser = JSON.parse(storedUser);
+            setSessionUser(parsedUser);
+            const _isPhong = parsedUser?.name ? parsedUser.name.normalize('NFC').toLowerCase().replace(/\s+/g, '') === 'nguyễnthànhphong' : false;
+            if (_isPhong && !sessionStorage.getItem('task_stats_shown')) {
+                showTaskAlert();
+                sessionStorage.setItem('task_stats_shown', 'true');
+            }
         } catch(e) {}
     }
 
@@ -37,9 +71,38 @@ export default function App() {
     setRefreshToggle(prev => prev + 1);
   };
 
+  const showTaskAlert = () => {
+      const today = new Date();
+      today.setHours(0,0,0,0);
+      let overdue = 0, warning = 0, ok = 0;
+      const tasks = DataStore.getTasks().filter(t => t.status.toLowerCase() !== 'xong');
+      
+      tasks.forEach(t => {
+          if (!t.deadline) { overdue++; return; }
+          const parts = t.deadline.split('/');
+          if (parts.length === 3) {
+              const dDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+              const diffDays = Math.ceil((dDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+              if (diffDays > 3) ok++;
+              else if (diffDays >= 1) warning++;
+              else overdue++;
+          } else {
+              overdue++;
+          }
+      });
+      setTimeout(() => {
+          alert(`TIẾN ĐỘ CÔNG VIỆC:\n- Số lượng Quá hạn: ${overdue}\n- Sắp quá hạn (1-3 ngày): ${warning}\n- Còn hạn: ${ok}`);
+      }, 500);
+  };
+
   const handleLogin = (user: SheetMember) => {
      sessionStorage.setItem('workload_user_session', JSON.stringify(user));
      setSessionUser(user);
+     const _isPhong = user?.name ? user.name.normalize('NFC').toLowerCase().replace(/\s+/g, '') === 'nguyễnthànhphong' : false;
+     if (_isPhong) {
+         showTaskAlert();
+         sessionStorage.setItem('task_stats_shown', 'true');
+     }
      setRefreshToggle(prev => prev + 1);
   };
 
@@ -96,6 +159,8 @@ export default function App() {
         </header>
 
         <main className="flex-1 flex flex-col relative">
+
+
           
           <div className="bg-slate-50/80 border-b border-gray-200 sticky top-0 z-20 backdrop-blur-md">
             <div className="flex px-4 md:px-8 overflow-x-auto hide-scrollbar">
@@ -143,6 +208,19 @@ export default function App() {
                 <TrendingUp className="w-4 h-4" />
                 Phân tích
               </button>
+              {isPhong && (
+                <button
+                  onClick={() => setActiveTab("progress")}
+                  className={`flex items-center gap-2 px-6 py-4 text-sm font-bold tracking-wide transition-all border-b-2 whitespace-nowrap ${
+                    activeTab === "progress"
+                      ? "text-blue-600 border-blue-600 bg-blue-50/50"
+                      : "text-slate-500 border-transparent hover:text-slate-700 hover:bg-slate-100/50"
+                  }`}
+                >
+                  <CheckSquare className="w-4 h-4" />
+                  Tiến độ CV
+                </button>
+              )}
             </div>
           </div>
 
@@ -159,6 +237,9 @@ export default function App() {
               )}
               {activeTab === "analysis" && (
                 <AnalysisTab refreshToggle={refreshToggle} />
+              )}
+              {activeTab === "progress" && isPhong && (
+                <ProgressTab refreshToggle={refreshToggle} />
               )}
             </div>
           </div>
