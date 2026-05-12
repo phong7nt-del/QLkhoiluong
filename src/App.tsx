@@ -1,23 +1,27 @@
 import { useState, useEffect } from "react";
-import { ClipboardList, BarChart3, Database, TrendingUp, LogOut, User as UserIcon, CheckSquare, XSquare } from "lucide-react";
+import { ClipboardList, BarChart3, Database, TrendingUp, LogOut, User as UserIcon, CheckSquare, XSquare, Settings } from "lucide-react";
 import WorkloadForm from "./components/WorkloadForm";
 import Analytics from "./components/Analytics";
 import Stations from "./components/Stations";
 import AnalysisTab from "./components/AnalysisTab";
 import Login from "./components/Login";
 import ProgressTab from "./components/ProgressTab";
+import ConfigModal from "./components/ConfigModal";
 import { DataStore, SheetMember } from "./store/DataStore";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<"input" | "report" | "stations" | "analysis" | "progress">("input");
   const [refreshToggle, setRefreshToggle] = useState(0);
+  const [showConfig, setShowConfig] = useState(false);
   const [sessionUser, setSessionUser] = useState<SheetMember | null>(null);
-  const isPhong = sessionUser?.name ? sessionUser.name.normalize('NFC').toLowerCase().replace(/\s+/g, '') === 'nguyễnthànhphong' : false;
+  const roleStr = sessionUser?.role ? sessionUser.role.toLowerCase() : '';
+  const isManagement = ['đội trưởng', 'đội phó', 'tổ trưởng', 'tổ phó'].some(r => roleStr.includes(r));
+  const isDoiTruong = roleStr.includes('đội trưởng');
 
   const [taskStats, setTaskStats] = useState({ overdue: 0, warning: 0, ok: 0 });
 
   useEffect(() => {
-    if (isPhong) {
+    if (isManagement) {
       const today = new Date();
       today.setHours(0,0,0,0);
       let overdue = 0, warning = 0, ok = 0;
@@ -38,7 +42,7 @@ export default function App() {
       });
       setTaskStats({ overdue, warning, ok });
     }
-  }, [refreshToggle, isPhong]);
+  }, [refreshToggle, isManagement]);
 
   // Initial Sync from URL & refresh listener
   useEffect(() => {
@@ -51,8 +55,9 @@ export default function App() {
         try {
             const parsedUser = JSON.parse(storedUser);
             setSessionUser(parsedUser);
-            const _isPhong = parsedUser?.name ? parsedUser.name.normalize('NFC').toLowerCase().replace(/\s+/g, '') === 'nguyễnthànhphong' : false;
-            if (_isPhong && !sessionStorage.getItem('task_stats_shown')) {
+            const _roleStr = parsedUser?.role ? parsedUser.role.toLowerCase() : '';
+            const _isManagement = ['đội trưởng', 'đội phó', 'tổ trưởng', 'tổ phó'].some(r => _roleStr.includes(r));
+            if (_isManagement && !sessionStorage.getItem('task_stats_shown')) {
                 showTaskAlert();
                 sessionStorage.setItem('task_stats_shown', 'true');
             }
@@ -98,8 +103,9 @@ export default function App() {
   const handleLogin = (user: SheetMember) => {
      sessionStorage.setItem('workload_user_session', JSON.stringify(user));
      setSessionUser(user);
-     const _isPhong = user?.name ? user.name.normalize('NFC').toLowerCase().replace(/\s+/g, '') === 'nguyễnthànhphong' : false;
-     if (_isPhong) {
+     const _roleStr = user?.role ? user.role.toLowerCase() : '';
+     const _isManagement = ['đội trưởng', 'đội phó', 'tổ trưởng', 'tổ phó'].some(r => _roleStr.includes(r));
+     if (_isManagement) {
          showTaskAlert();
          sessionStorage.setItem('task_stats_shown', 'true');
      }
@@ -116,108 +122,122 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans flex flex-col items-center">
-      <div className="w-full max-w-7xl flex-1 flex flex-col shadow-xl bg-white min-h-screen">
+    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans flex flex-col items-center bg-grid-slate-100">
+      <div className="w-full max-w-7xl flex-1 flex flex-col shadow-xl bg-white/90 backdrop-blur-sm min-h-screen relative">
+        <div className="absolute inset-0 bg-gradient-to-br from-white/80 via-transparent to-transparent pointer-events-none z-0" />
         
         {/* Header */}
-        <header className="bg-white border-b border-gray-100 px-6 py-4 flex flex-col md:flex-row items-center justify-between gap-6 shrink-0 relative overflow-hidden">
+        <header className="bg-white/80 backdrop-blur-md border-b border-gray-200 px-6 py-4 flex flex-col md:flex-row items-center justify-between gap-6 shrink-0 relative z-10">
           {/* Subtle gradient background element */}
-          <div className="absolute top-0 right-0 -translate-y-1/2 translate-x-1/2 w-96 h-96 bg-blue-50/50 rounded-full blur-3xl pointer-events-none"></div>
+          <div className="absolute top-0 right-0 -translate-y-1/2 translate-x-1/2 w-[500px] h-[500px] bg-blue-100/50 rounded-full blur-3xl pointer-events-none"></div>
           
-          <div className="flex flex-col items-center md:items-start gap-1 w-full md:w-1/4 z-10">
+          <div className="flex flex-col items-center md:items-start gap-1 w-full md:w-1/4 z-10 shrink-0">
             <img 
               src="https://www.evnhcmc.vn/public/images/EVNHCMC2021.svg" 
               alt="EVNHCMC Logo" 
               className="h-10 object-contain drop-shadow-sm" 
             />
-            <div className="text-[11px] font-bold text-blue-700 tracking-wide uppercase mt-1">
+            <div className="text-[10px] sm:text-[11px] font-bold text-blue-700 tracking-wider uppercase mt-1">
               Công ty Điện lực Vũng Tàu
             </div>
           </div>
           
-          <div className="flex-1 text-center z-10">
-            <h1 className="text-xl sm:text-2xl font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-blue-700 via-blue-800 to-blue-600 uppercase">
-              Hệ Thống Quản Lý Năng Suất Đội QLHTĐĐ
+          <div className="flex-1 text-center z-10 w-full">
+            <h1 className="text-2xl sm:text-3xl font-display font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-blue-700 via-indigo-700 to-blue-600 uppercase flex flex-col">
+              <span className="leading-tight">Hệ Thống Điều Hành</span>
+              <span className="text-base sm:text-lg font-bold tracking-widest text-slate-500 mt-0.5">& QUẢN TRỊ NĂNG SUẤT</span>
             </h1>
           </div>
           
-          <div className="w-full md:w-1/4 flex flex-col md:flex-row justify-center md:justify-end items-center gap-3 z-10">
-            <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-200">
-               <UserIcon className="w-4 h-4 text-blue-600" />
-               <span className="text-sm font-semibold text-slate-700 whitespace-nowrap">{sessionUser.name}</span>
-               <div className="w-px h-4 bg-slate-300 mx-1"></div>
-               <span className="text-xs font-bold text-slate-500 uppercase">{sessionUser.team}</span>
+          <div className="w-full md:w-1/4 flex flex-row justify-center md:justify-end items-center gap-3 z-10 shrink-0">
+            <div className="flex items-center gap-3 bg-white/60 backdrop-blur-sm px-4 py-2 rounded-full border border-slate-200 shadow-sm transition-all hover:bg-white hover:shadow-md">
+               <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white ring-2 ring-white/50 shadow-sm">
+                  <UserIcon className="w-4 h-4" />
+               </div>
+               <div className="flex flex-col items-start leading-tight">
+                 <span className="text-sm font-bold text-slate-800">{sessionUser.name}</span>
+                 <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">{sessionUser.team}</span>
+               </div>
             </div>
+            {/* {isManagement && (
+              <button 
+                onClick={() => setShowConfig(true)}
+                className="text-slate-400 hover:text-blue-600 hover:bg-blue-50 p-1.5 rounded-full transition-colors"
+                title="Cấu hình hệ thống"
+              >
+                <Settings className="w-4 h-4" />
+              </button>
+            )} */}
             <button 
               onClick={handleLogout}
-              className="text-slate-400 hover:text-red-500 hover:bg-red-50 p-1.5 rounded-full transition-colors"
+              className="text-slate-400 hover:text-red-500 hover:bg-red-50 p-2 rounded-full transition-all hover:scale-105"
               title="Đăng xuất"
             >
-              <LogOut className="w-4 h-4" />
+              <LogOut className="w-5 h-5" />
             </button>
           </div>
         </header>
 
-        <main className="flex-1 flex flex-col relative">
+        <main className="flex-1 flex flex-col relative z-10">
 
 
           
-          <div className="bg-slate-50/80 border-b border-gray-200 sticky top-0 z-20 backdrop-blur-md">
-            <div className="flex px-4 md:px-8 overflow-x-auto hide-scrollbar">
+          <div className="bg-white/70 border-b border-gray-200 sticky top-0 z-20 backdrop-blur-xl shadow-sm">
+            <div className="flex px-4 md:px-8 overflow-x-auto hide-scrollbar gap-2">
               <button
                 onClick={() => setActiveTab("input")}
-                className={`flex items-center gap-2 px-6 py-4 text-sm font-bold tracking-wide transition-all border-b-2 whitespace-nowrap ${
+                className={`flex items-center gap-2 px-6 py-4 text-[13px] font-bold tracking-wide transition-all border-b-2 whitespace-nowrap ${
                   activeTab === "input"
-                    ? "text-blue-600 border-blue-600 bg-blue-50/50"
-                    : "text-slate-500 border-transparent hover:text-slate-700 hover:bg-slate-100/50"
+                    ? "text-blue-700 border-blue-600 bg-blue-50/50"
+                    : "text-slate-500 border-transparent hover:text-slate-800 hover:bg-slate-100"
                 }`}
               >
-                <ClipboardList className="w-4 h-4" />
+                <ClipboardList className={`w-4 h-4 transition-colors ${activeTab === "input" ? "text-blue-600" : "text-slate-400"}`} />
                 Cập nhật
               </button>
               <button
                 onClick={() => setActiveTab("report")}
-                className={`flex items-center gap-2 px-6 py-4 text-sm font-bold tracking-wide transition-all border-b-2 whitespace-nowrap ${
+                className={`flex items-center gap-2 px-6 py-4 text-[13px] font-bold tracking-wide transition-all border-b-2 whitespace-nowrap ${
                   activeTab === "report"
-                    ? "text-blue-600 border-blue-600 bg-blue-50/50"
-                    : "text-slate-500 border-transparent hover:text-slate-700 hover:bg-slate-100/50"
+                    ? "text-blue-700 border-blue-600 bg-blue-50/50"
+                    : "text-slate-500 border-transparent hover:text-slate-800 hover:bg-slate-100"
                 }`}
               >
-                <BarChart3 className="w-4 h-4" />
+                <BarChart3 className={`w-4 h-4 transition-colors ${activeTab === "report" ? "text-blue-600" : "text-slate-400"}`} />
                 Báo cáo
               </button>
               <button
                 onClick={() => setActiveTab("stations")}
-                className={`flex items-center gap-2 px-6 py-4 text-sm font-bold tracking-wide transition-all border-b-2 whitespace-nowrap ${
+                className={`flex items-center gap-2 px-6 py-4 text-[13px] font-bold tracking-wide transition-all border-b-2 whitespace-nowrap ${
                   activeTab === "stations"
-                    ? "text-blue-600 border-blue-600 bg-blue-50/50"
-                    : "text-slate-500 border-transparent hover:text-slate-700 hover:bg-slate-100/50"
+                    ? "text-blue-700 border-blue-600 bg-blue-50/50"
+                    : "text-slate-500 border-transparent hover:text-slate-800 hover:bg-slate-100"
                 }`}
               >
-                <Database className="w-4 h-4" />
+                <Database className={`w-4 h-4 transition-colors ${activeTab === "stations" ? "text-blue-600" : "text-slate-400"}`} />
                 Trạm BA
               </button>
               <button
                 onClick={() => setActiveTab("analysis")}
-                className={`flex items-center gap-2 px-6 py-4 text-sm font-bold tracking-wide transition-all border-b-2 whitespace-nowrap ${
+                className={`flex items-center gap-2 px-6 py-4 text-[13px] font-bold tracking-wide transition-all border-b-2 whitespace-nowrap ${
                   activeTab === "analysis"
-                    ? "text-blue-600 border-blue-600 bg-blue-50/50"
-                    : "text-slate-500 border-transparent hover:text-slate-700 hover:bg-slate-100/50"
+                    ? "text-blue-700 border-blue-600 bg-blue-50/50"
+                    : "text-slate-500 border-transparent hover:text-slate-800 hover:bg-slate-100"
                 }`}
               >
-                <TrendingUp className="w-4 h-4" />
+                <TrendingUp className={`w-4 h-4 transition-colors ${activeTab === "analysis" ? "text-blue-600" : "text-slate-400"}`} />
                 Phân tích
               </button>
-              {isPhong && (
+              {isManagement && (
                 <button
                   onClick={() => setActiveTab("progress")}
-                  className={`flex items-center gap-2 px-6 py-4 text-sm font-bold tracking-wide transition-all border-b-2 whitespace-nowrap ${
+                  className={`flex items-center gap-2 px-6 py-4 text-[13px] font-bold tracking-wide transition-all border-b-2 whitespace-nowrap ${
                     activeTab === "progress"
-                      ? "text-blue-600 border-blue-600 bg-blue-50/50"
-                      : "text-slate-500 border-transparent hover:text-slate-700 hover:bg-slate-100/50"
+                      ? "text-amber-700 border-amber-500 bg-amber-50/50"
+                      : "text-slate-500 border-transparent hover:text-slate-800 hover:bg-slate-100"
                   }`}
                 >
-                  <CheckSquare className="w-4 h-4" />
+                  <CheckSquare className={`w-4 h-4 transition-colors ${activeTab === "progress" ? "text-amber-600" : "text-slate-400"}`} />
                   Tiến độ CV
                 </button>
               )}
@@ -238,11 +258,13 @@ export default function App() {
               {activeTab === "analysis" && (
                 <AnalysisTab refreshToggle={refreshToggle} />
               )}
-              {activeTab === "progress" && isPhong && (
-                <ProgressTab refreshToggle={refreshToggle} />
+              {activeTab === "progress" && isManagement && (
+                <ProgressTab refreshToggle={refreshToggle} sessionUser={sessionUser} />
               )}
             </div>
           </div>
+
+          {showConfig && <ConfigModal onClose={() => setShowConfig(false)} />}
 
           {/* Footer */}
           <footer className="bg-slate-50 border-t border-slate-200 p-4 mt-auto">

@@ -126,10 +126,10 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.8, delay: 0.2 }}
               >
-                  <h2 className="text-4xl lg:text-5xl font-black leading-tight mb-6">
-                     Hệ Thống Quản Lý <br/>
-                     <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#F7941D] to-[#ED1C24]">
-                       Năng Suất Của Bạn
+                  <h2 className="text-4xl lg:text-5xl font-display font-black leading-tight mb-6 tracking-tight">
+                     Hệ Thống Quản Trị <br/>
+                     <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-300 to-indigo-200 drop-shadow-sm">
+                       Công Việc & Năng Suất
                      </span>
                   </h2>
                   <p className="text-white/80 text-lg max-w-sm leading-relaxed mb-10">

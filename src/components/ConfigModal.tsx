@@ -314,6 +314,74 @@ function doPost(e) {
       }
       return ContentService.createTextOutput(JSON.stringify({ status: 'success' })).setMimeType(ContentService.MimeType.JSON);
     }
+    
+    if (payload.action === 'update_progress') {
+       var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+       var sheet = getSheetFlexibly(ss, ['Tiến độ', 'Tien do', 'Tien độ', 'Tiến do']);
+       if (!sheet) return ContentService.createTextOutput(JSON.stringify({status: 'error'})).setMimeType(ContentService.MimeType.JSON);
+       
+       var data = payload.data; // expects: { id (TT), content, reference, assignee, deadline, status, explanation }
+       var sheetData = sheet.getDataRange().getValues();
+       var headers = sheetData[0] || [];
+       
+       // map headers
+       var hm = {};
+       for (var c = 0; c < headers.length; c++) {
+          var h = String(headers[c]).toLowerCase().trim();
+          if (h === 'tt' || h === 'stt') hm.ttCol = c;
+          if (h === 'nội dung' || h === 'noi dung') hm.contentCol = c;
+          if (h === 'căn cứ' || h === 'can cu') hm.refCol = c;
+          if (h === 'phân công' || h === 'phan cong') hm.assignCol = c;
+          if (h === 'ngày hoàn tất' || h === 'ngay hoan tat' || h.includes('hạn')) hm.deadlineCol = c;
+          if (h === 'hoàn tất' || h === 'hoan tat' || h === 'trạng thái') hm.statusCol = c;
+          if (h === 'giải trình' || h === 'giai trinh') hm.expCol = c;
+       }
+       
+       var targetRow = -1;
+       if (data.id) {
+          for (var r = 1; r < sheetData.length; r++) {
+             if (hm.ttCol !== undefined && String(sheetData[r][hm.ttCol]) === String(data.id)) {
+                targetRow = r; break;
+             } else if (hm.ttCol === undefined && hm.contentCol !== undefined && String(sheetData[r][hm.contentCol]) === String(data.content)) {
+                targetRow = r; break;
+             }
+          }
+       }
+       
+       if (targetRow === -1) {
+          // Add new row
+          var maxTt = 0;
+          if (hm.ttCol !== undefined) {
+             for (var r=1; r<sheetData.length; r++) {
+               var tNum = parseInt(sheetData[r][hm.ttCol], 10);
+               if (!isNaN(tNum) && tNum > maxTt) maxTt = tNum;
+             }
+          }
+          var newTt = maxTt + 1;
+          
+          var newRowData = new Array(headers.length).fill('');
+          if (hm.ttCol !== undefined) newRowData[hm.ttCol] = newTt;
+          if (hm.contentCol !== undefined) newRowData[hm.contentCol] = data.content || '';
+          if (hm.refCol !== undefined) newRowData[hm.refCol] = data.reference || '';
+          if (hm.assignCol !== undefined) newRowData[hm.assignCol] = data.assignee || '';
+          if (hm.deadlineCol !== undefined) newRowData[hm.deadlineCol] = data.deadline || '';
+          if (hm.statusCol !== undefined) newRowData[hm.statusCol] = data.status || '';
+          if (hm.expCol !== undefined) newRowData[hm.expCol] = data.explanation || '';
+          
+          sheet.appendRow(newRowData);
+       } else {
+          // Update existing
+          if (hm.contentCol !== undefined && data.content !== undefined) sheet.getRange(targetRow + 1, hm.contentCol + 1).setValue(data.content);
+          if (hm.refCol !== undefined && data.reference !== undefined) sheet.getRange(targetRow + 1, hm.refCol + 1).setValue(data.reference);
+          if (hm.assignCol !== undefined && data.assignee !== undefined) sheet.getRange(targetRow + 1, hm.assignCol + 1).setValue(data.assignee);
+          if (hm.deadlineCol !== undefined && data.deadline !== undefined) sheet.getRange(targetRow + 1, hm.deadlineCol + 1).setValue(data.deadline);
+          if (hm.statusCol !== undefined && data.status !== undefined) sheet.getRange(targetRow + 1, hm.statusCol + 1).setValue(data.status);
+          if (hm.expCol !== undefined && data.explanation !== undefined) sheet.getRange(targetRow + 1, hm.expCol + 1).setValue(data.explanation);
+       }
+       
+       return ContentService.createTextOutput(JSON.stringify({ status: 'success' })).setMimeType(ContentService.MimeType.JSON);
+    }
+    
   } catch (err) {
     return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: err.toString() })).setMimeType(ContentService.MimeType.JSON);
   }

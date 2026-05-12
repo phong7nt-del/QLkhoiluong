@@ -1,9 +1,9 @@
 import React, { useState, useMemo } from 'react';
-import { DataStore, TaskProgress } from '../store/DataStore';
-import { CheckCircle, Clock, AlertCircle, Plus, User as UserIcon, Mic, XCircle, LayoutGrid, List, FileSpreadsheet } from 'lucide-react';
+import { DataStore, TaskProgress, SheetMember } from '../store/DataStore';
+import { CheckCircle, Clock, AlertCircle, Plus, User as UserIcon, Mic, XCircle, LayoutGrid, List, FileSpreadsheet, MessageSquarePlus, Send } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
-export default function ProgressTab({ refreshToggle }: { refreshToggle: number }) {
+export default function ProgressTab({ refreshToggle, sessionUser }: { refreshToggle: number, sessionUser: SheetMember | null }) {
   const [tasks, setTasks] = useState<TaskProgress[]>([]);
   const [members, setMembers] = useState<string[]>([]);
   
@@ -17,6 +17,14 @@ export default function ProgressTab({ refreshToggle }: { refreshToggle: number }
   const [isRecording, setIsRecording] = useState(false);
   const [pendingViewMode, setPendingViewMode] = useState<'grid' | 'table'>('grid');
   const recognitionRef = React.useRef<any>(null);
+
+  // Explanation state
+  const [editingExpId, setEditingExpId] = useState<string | null>(null);
+  const [expInput, setExpInput] = useState('');
+
+  const roleStr = sessionUser?.role ? sessionUser.role.toLowerCase() : '';
+  const isDoiTruong = roleStr.includes('đội trưởng');
+  const isManagement = ['đội trưởng', 'đội phó', 'tổ trưởng', 'tổ phó'].some(r => roleStr.includes(r));
   
   React.useEffect(() => {
      setTasks(DataStore.getTasks());
@@ -27,6 +35,14 @@ export default function ProgressTab({ refreshToggle }: { refreshToggle: number }
   const handleComplete = (id: string) => {
      DataStore.updateTaskStatus(id, 'xong');
      setTasks(DataStore.getTasks());
+  };
+
+  const handleSaveExplanation = (id: string) => {
+     if (!expInput.trim()) return;
+     DataStore.updateTaskExplanation(id, expInput.trim());
+     setTasks(DataStore.getTasks());
+     setEditingExpId(null);
+     setExpInput('');
   };
 
   const handleRevert = (id: string) => {
@@ -217,12 +233,14 @@ export default function ProgressTab({ refreshToggle }: { refreshToggle: number }
              >
                <FileSpreadsheet className="w-4 h-4" /> XUẤT EXCEL
              </button>
-             <button 
-               onClick={() => setShowForm(!showForm)}
-               className="bg-white text-[#141414] px-4 py-2 font-bold text-sm hover:bg-gray-200 transition tracking-wide flex items-center gap-2"
-             >
-               <Plus className="w-4 h-4" /> THÊM CÔNG VIỆC
-             </button>
+             {isDoiTruong && (
+                 <button 
+                   onClick={() => setShowForm(!showForm)}
+                   className="bg-white text-[#141414] px-4 py-2 font-bold text-sm hover:bg-gray-200 transition tracking-wide flex items-center gap-2"
+                 >
+                   <Plus className="w-4 h-4" /> THÊM CÔNG VIỆC
+                 </button>
+             )}
          </div>
       </div>
 
@@ -343,13 +361,15 @@ export default function ProgressTab({ refreshToggle }: { refreshToggle: number }
                                <div className="flex items-center gap-2">
                                   {getStatusBadge(t.deadline)}
                                </div>
-                               <button 
-                                 onClick={() => handleComplete(t.id)}
-                                 title="Đánh dấu hoàn tất"
-                                 className="text-current opacity-60 hover:opacity-100 bg-white/50 hover:bg-white rounded p-1 transition border-none cursor-pointer"
-                               >
-                                  <CheckCircle className="w-5 h-5" />
-                               </button>
+                               {isDoiTruong && (
+                                   <button 
+                                     onClick={() => handleComplete(t.id)}
+                                     title="Đánh dấu hoàn tất"
+                                     className="text-current opacity-60 hover:opacity-100 bg-white/50 hover:bg-white rounded p-1 transition border-none cursor-pointer"
+                                   >
+                                      <CheckCircle className="w-5 h-5" />
+                                   </button>
+                               )}
                             </div>
                             <h4 className="font-bold text-sm mb-1 leading-tight">{t.content}</h4>
                             {t.reference && (
@@ -357,14 +377,53 @@ export default function ProgressTab({ refreshToggle }: { refreshToggle: number }
                                   {t.reference}
                                </div>
                             )}
+                            {t.explanation && (
+                               <div className="mt-2 text-xs font-medium space-y-1 bg-white/40 p-2 rounded border border-current/10">
+                                  {t.explanation.split('\n').map((line, i) => (
+                                      <div key={i} className="text-[10px] leading-tight opacity-90">{line}</div>
+                                  ))}
+                               </div>
+                            )}
                          </div>
-                         <div className="mt-2 pt-2 border-t border-current/20 flex justify-between items-center text-[10px] font-bold">
-                            <div className="opacity-80 truncate max-w-[120px]" title={t.assignee}>
-                               {t.assignee || 'Chưa phân công'}
-                            </div>
-                            <div className="opacity-90 tracking-wide">
-                               Hạn: {t.deadline}
-                            </div>
+                         <div className="mt-3">
+                            {editingExpId === t.id ? (
+                               <div className="flex flex-col gap-2 mt-2 border border-current/20 p-2 bg-white/50 rounded">
+                                  <textarea 
+                                     autoFocus
+                                     value={expInput}
+                                     onChange={e => setExpInput(e.target.value)}
+                                     placeholder="Nhập nội dung giải trình..."
+                                     className="w-full text-xs p-1.5 focus:outline-none resize-none bg-transparent"
+                                     rows={2}
+                                  />
+                                  <div className="flex justify-end gap-2">
+                                     <button onClick={() => setEditingExpId(null)} className="text-[10px] font-bold uppercase opacity-60 hover:opacity-100">Hủy</button>
+                                     <button onClick={() => handleSaveExplanation(t.id)} className="text-[10px] font-bold uppercase bg-blue-600 text-white px-2 py-1 rounded shadow hover:bg-blue-700 flex items-center gap-1">
+                                        <Send className="w-3 h-3" /> Lưu
+                                     </button>
+                                  </div>
+                               </div>
+                            ) : (
+                               <div className="pt-2 border-t border-current/20 flex justify-between items-center text-[10px] font-bold">
+                                  <div className="opacity-80 truncate max-w-[100px]" title={t.assignee}>
+                                     {t.assignee || 'Chưa phân công'}
+                                  </div>
+                                  <div className="flex items-center gap-3">
+                                     {isManagement && (
+                                         <button 
+                                            onClick={() => { setEditingExpId(t.id); setExpInput(''); }} 
+                                            className="opacity-70 hover:opacity-100 flex items-center gap-1"
+                                            title="Cập nhật giải trình"
+                                         >
+                                            <MessageSquarePlus className="w-3 h-3" /> GT
+                                         </button>
+                                     )}
+                                     <div className="opacity-90 tracking-wide">
+                                        Hạn: {t.deadline}
+                                     </div>
+                                  </div>
+                               </div>
+                            )}
                          </div>
                       </div>
                    );
@@ -390,20 +449,53 @@ export default function ProgressTab({ refreshToggle }: { refreshToggle: number }
                          <tr key={t.id || idx} className="hover:bg-[#141414]/5 transition-colors">
                             <td className="px-4 py-3 font-mono text-xs opacity-50 text-center">{idx + 1}</td>
                             <td className="px-4 py-3">{getStatusBadge(t.deadline)}</td>
-                            <td className="px-4 py-3 font-medium truncate max-w-[250px]" title={t.content}>
-                               {t.content}
+                            <td className="px-4 py-3 min-w-[200px]">
+                               <div className="font-medium whitespace-normal">{t.content}</div>
+                               {t.explanation && (
+                                  <div className="mt-2 pl-2 border-l-2 border-blue-500 whitespace-normal">
+                                      {t.explanation.split('\n').map((line, i) => (
+                                          <div key={i} className="text-[10px] text-slate-600 font-medium">{line}</div>
+                                      ))}
+                                  </div>
+                               )}
+                               {editingExpId === t.id && (
+                                   <div className="flex flex-col gap-2 mt-2 bg-slate-50 border p-2 rounded">
+                                      <textarea 
+                                         autoFocus
+                                         value={expInput}
+                                         onChange={e => setExpInput(e.target.value)}
+                                         placeholder="Nhập nội dung giải trình..."
+                                         className="w-full text-xs p-1.5 focus:outline-none resize-none bg-white"
+                                         rows={2}
+                                      />
+                                      <div className="flex justify-start gap-2">
+                                         <button onClick={() => setEditingExpId(null)} className="text-[10px] font-bold uppercase opacity-60 hover:opacity-100">Hủy</button>
+                                         <button onClick={() => handleSaveExplanation(t.id)} className="text-[10px] font-bold uppercase bg-blue-600 text-white px-2 py-1 rounded shadow hover:bg-blue-700 flex items-center gap-1">
+                                            <Send className="w-3 h-3" /> Lưu
+                                         </button>
+                                      </div>
+                                   </div>
+                               )}
                             </td>
-                            <td className="px-4 py-3 font-mono text-xs opacity-70 truncate max-w-[150px]">
+                            <td className="px-4 py-3 font-mono text-xs opacity-70 whitespace-normal max-w-[150px]">
                                {t.reference}
                             </td>
-                            <td className="px-4 py-3">
+                            <td className="px-4 py-3 whitespace-normal">
                                {t.assignee}
                             </td>
-                            <td className="px-4 py-3 text-center">
-                               <button onClick={() => handleComplete(t.id)} title="Đánh dấu hoàn tất" className="inline-flex items-center gap-1 bg-slate-100/50 hover:bg-green-100 text-slate-500 hover:text-green-800 px-2 py-1 text-[10px] font-bold uppercase rounded-sm border border-slate-200 hover:border-green-400 transition-colors cursor-pointer">
-                                  <CheckCircle className="w-3 h-3" />
-                                  Hoàn tất
-                               </button>
+                            <td className="px-4 py-3 text-center space-y-2">
+                               {isDoiTruong && (
+                                   <button onClick={() => handleComplete(t.id)} title="Đánh dấu hoàn tất" className="w-full justify-center inline-flex items-center gap-1 bg-slate-100/50 hover:bg-green-100 text-slate-500 hover:text-green-800 px-2 py-1.5 text-[10px] font-bold uppercase rounded-sm border border-slate-200 hover:border-green-400 transition-colors cursor-pointer">
+                                      <CheckCircle className="w-3 h-3" />
+                                      Hoàn tất
+                                   </button>
+                               )}
+                               {isManagement && (
+                                   <button onClick={() => { setEditingExpId(t.id); setExpInput(''); }} title="Cập nhật giải trình" className="w-full justify-center inline-flex items-center gap-1 bg-slate-100/50 hover:bg-blue-100 text-slate-500 hover:text-blue-800 px-2 py-1.5 text-[10px] font-bold uppercase rounded-sm border border-slate-200 hover:border-blue-400 transition-colors cursor-pointer">
+                                      <MessageSquarePlus className="w-3 h-3" />
+                                      Giải trình
+                                   </button>
+                               )}
                             </td>
                          </tr>
                       ))}

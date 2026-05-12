@@ -24,6 +24,7 @@ export interface TaskProgress {
   deadline: string; // ngày hoàn tất (dd/mm/yyyy)
   assignee: string; // Phân công
   status: string; // Hoàn tất ('xong' or '')
+  explanation?: string; // Giải trình
   isLocal?: boolean;
 }
 
@@ -86,6 +87,25 @@ export const DataStore = {
     }
   },
 
+  syncProgressToSheet: async (task: TaskProgress) => {
+    try {
+      const url = DataStore.getAppScriptUrl();
+      if (!url) throw new Error('No Apps Script URL configured');
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8',
+        },
+        body: JSON.stringify({ action: 'update_progress', data: task }),
+      });
+      const result = await response.json();
+      return result.status === 'success';
+    } catch (error) {
+      console.error('Error syncing progress to sheet:', error);
+      return false;
+    }
+  },
+
   syncMasterData: async () => {
     try {
       const url = DataStore.getAppScriptUrl();
@@ -119,16 +139,19 @@ export const DataStore = {
                   const rawName = String(row[3] || '').trim();
                   const teamAbbr = String(row[9] || '').trim();
                   const teamFull = String(row[10] || '').trim();
+                  const role = String(row[12] || '').trim();
                   
                   if (rawName && msnv) {
                      const key = rawName.toLowerCase().replace(/\s+/g, '');
                      if (membersMap.has(key)) {
                         membersMap.get(key)!.msnv = msnv;
+                        if (role) membersMap.get(key)!.role = role;
                      } else {
                         membersMap.set(key, {
                            name: rawName,
                            msnv: msnv,
                            team: teamAbbr || teamFull || "Không xác định",
+                           role: role,
                         });
                      }
                   }
@@ -182,13 +205,50 @@ export const DataStore = {
                          reference: String(row['căn cứ'] || ''),
                          deadline: String(row['ngày hoàn tất'] || ''),
                          assignee: String(row['Phân công'] || ''),
-                         status: String(row['Hoàn tất'] || '')
+                         status: String(row['Hoàn tất'] || ''),
+                         explanation: String(row['giải trình'] || '')
                      });
                   }
                }
                localStorage.setItem(PROGRESS_KEY, JSON.stringify(progressList));
             } catch (e) {
                console.error('Error fetching Progress sheet', e);
+            }
+
+            // Fetch DinhMuc via CSV
+            try {
+               const dmSheets = ['DinhMuc', 'Định Mức', 'Dinh muc', 'Định mức'];
+               for (const sheetName of dmSheets) {
+                  const dmRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}&_t=${new Date().getTime()}`);
+                  const dmText = await dmRes.text();
+                  if (!dmText.includes('<html') && dmText.trim() && dmText.length > 50) {
+                     const dmData: any[] = Papa.parse(dmText, { header: true }).data as any[];
+                     const newDinhMuc: {name: string, quota: number}[] = [];
+                     if (dmData && dmData.length > 0) {
+                         const firstRow = dmData[0];
+                         const keys = Object.keys(firstRow);
+                         const nameKey = keys.find(k => k.toLowerCase().includes('nội dung') || k.toLowerCase().includes('tên'));
+                         const quotaKey = keys.find(k => k.toLowerCase().includes('định mức') || k.toLowerCase().includes('quota') || k.toLowerCase().includes('điểm'));
+                         
+                         if (nameKey) {
+                             for (const row of dmData) {
+                                 const val1 = String(row[nameKey] || '').trim();
+                                 let val2 = quotaKey ? Number(row[quotaKey]) : 0;
+                                 if (isNaN(val2)) val2 = 0;
+                                 if (val1 && val1.toLowerCase() !== 'stt') {
+                                     newDinhMuc.push({ name: val1, quota: val2 });
+                                 }
+                             }
+                             if (newDinhMuc.length > 0) {
+                                 json.dinhMuc = newDinhMuc;
+                                 break;
+                             }
+                         }
+                     }
+                  }
+               }
+            } catch (e) {
+               console.error('Error fetching DinhMuc', e);
             }
 
          } catch (e) {
@@ -206,6 +266,7 @@ export const DataStore = {
          if (json.dinhMuc) {
            localStorage.setItem(DINHMUC_KEY, JSON.stringify(json.dinhMuc));
          }
+         localStorage.removeItem(LOCAL_PROGRESS_UPDATES_KEY); // Clear local progress cache
          return true;
       }
     } catch (error) {
@@ -265,18 +326,19 @@ export const DataStore = {
      const localTasks: TaskProgress[] = localCached ? JSON.parse(localCached) : [];
      const newTask: TaskProgress = {
         ...task,
-        id: 'L-' + Math.random().toString(36).substring(2, 9),
+        id: '', // Empty ID tells App Script to insert it
         isLocal: true
      };
      localTasks.push(newTask);
      localStorage.setItem(LOCAL_PROGRESS_UPDATES_KEY, JSON.stringify(localTasks));
+     DataStore.syncProgressToSheet(newTask);
      return newTask;
   },
 
   updateTaskStatus: (id: string, status: string) => {
      const allTasks = DataStore.getTasks();
      const task = allTasks.find(t => t.id === id);
-     if (!task) return;
+     if (!task) return null;
      
      const updatedTask = { ...task, status, isLocal: true };
      
@@ -290,6 +352,41 @@ export const DataStore = {
         localTasks.push(updatedTask);
      }
      localStorage.setItem(LOCAL_PROGRESS_UPDATES_KEY, JSON.stringify(localTasks));
+     DataStore.syncProgressToSheet(updatedTask);
+     return updatedTask;
+  },
+
+  updateTaskExplanation: (id: string, newExplanation: string) => {
+     const allTasks = DataStore.getTasks();
+     const task = allTasks.find(t => t.id === id);
+     if (!task) return null;
+     
+     const today = new Date();
+     const dateStr = `${today.getDate().toString().padStart(2, '0')}/${(today.getMonth()+1).toString().padStart(2, '0')}/${today.getFullYear()}`;
+     
+     // Build the string: "(stt)(nội dung giải trình)(ngày)"
+     // First, determine STT by counting existing rows
+     let currentExplanations = task.explanation ? task.explanation.trim() : '';
+     let lines = currentExplanations ? currentExplanations.split('\n') : [];
+     let stt = lines.length + 1;
+     let lineText = `(${stt})(${newExplanation})(${dateStr})`;
+     
+     let updatedExplanation = currentExplanations ? currentExplanations + '\n' + lineText : lineText;
+     
+     const updatedTask = { ...task, explanation: updatedExplanation, isLocal: true };
+     
+     const localCached = localStorage.getItem(LOCAL_PROGRESS_UPDATES_KEY);
+     const localTasks: TaskProgress[] = localCached ? JSON.parse(localCached) : [];
+     
+     const existingIndex = localTasks.findIndex(t => t.id === id);
+     if (existingIndex >= 0) {
+        localTasks[existingIndex] = updatedTask;
+     } else {
+        localTasks.push(updatedTask);
+     }
+     localStorage.setItem(LOCAL_PROGRESS_UPDATES_KEY, JSON.stringify(localTasks));
+     DataStore.syncProgressToSheet(updatedTask);
+     return updatedTask;
   },
 
   deleteEntry: (id: string) => {

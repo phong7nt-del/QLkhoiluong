@@ -155,47 +155,52 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
   };
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-6 sm:p-10 max-w-3xl shadow-sm">
-      <h2 className="text-xl sm:text-2xl font-serif italic mb-8 border-b border-[#141414] pb-4 flex items-center gap-3 text-[#141414]">
+    <div className="bg-white/80 backdrop-blur-xl rounded-2xl border border-slate-200/60 p-6 sm:p-10 max-w-4xl shadow-xl shadow-slate-200/40 relative overflow-hidden">
+      <div className="absolute top-0 right-0 p-32 bg-blue-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
+      
+      <h2 className="text-xl sm:text-2xl font-bold mb-8 border-b border-slate-200 pb-4 flex items-center gap-3 text-slate-800 tracking-tight">
+        <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
+          <ClipboardList className="w-4 h-4" />
+        </div>
         Nhập Ghi Nhận Công Việc
       </h2>
       
       <form onSubmit={handleSubmit} className="space-y-8">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          <div className="relative">
-            <label className="block text-[10px] font-mono opacity-50 uppercase mb-2">Ngày thực hiện</label>
+          <div className="relative group">
+            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Ngày thực hiện</label>
             <input 
               type="date" 
               value={date} 
               onChange={e => setDate(e.target.value)}
-              className="w-full bg-transparent border-b border-[#141414] pb-2 font-bold focus:outline-none"
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5 font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all hover:bg-white"
               required
             />
           </div>
-          <div className="relative">
-            <label className="block text-[10px] font-mono opacity-50 uppercase mb-2">Tổ công tác</label>
+          <div className="relative group">
+            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Tổ công tác</label>
             <select 
               value={team} 
               onChange={e => {
                  setTeam(e.target.value);
                  setMembers([]); // reset members when team changes
               }}
-              className="w-full bg-transparent border-b border-[#141414] pb-2 font-bold focus:outline-none"
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5 font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all hover:bg-white"
               required
             >
               <option value="" disabled>Chọn tổ...</option>
-              {availableTeams.length > 0 ? availableTeams.map(t => <option key={t} value={t}>{t}</option>) : <option disabled>Chưa có dữ liệu Tổ (Vào Cấu hình tải)</option>}
+              {availableTeams.length > 0 ? availableTeams.map(t => <option key={t} value={t}>{t}</option>) : <option disabled>Chưa có dữ liệu Tổ</option>}
             </select>
           </div>
         </div>
 
-        <div className="relative">
-          <label className="block text-[10px] font-mono opacity-50 uppercase mb-2">Họ và Tên (Nhóm Công Tác)</label>
-          <div className="w-full bg-[#E4E3E0] bg-opacity-30 border border-[#141414] p-2 flex flex-wrap gap-2 min-h-[46px] items-center text-sm font-medium focus-within:ring-2 focus-within:ring-[#141414]">
+        <div className="relative group">
+          <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Họ và Tên (Nhóm Công Tác)</label>
+          <div className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 flex flex-wrap gap-2 min-h-[50px] items-center text-sm font-medium focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-500/50 focus-within:border-blue-500 transition-all">
              {members.map(m => (
-               <div key={m} className="bg-[#141414] text-[#E4E3E0] px-2 py-1 flex items-center gap-1 text-[10px] uppercase tracking-wider font-bold">
+               <div key={m} className="bg-blue-100 text-blue-700 px-3 py-1.5 rounded-md flex items-center gap-1.5 text-xs font-bold shadow-sm border border-blue-200">
                   {m}
-                  <button type="button" onClick={() => setMembers(prev => prev.filter(x => x !== m))} className="opacity-50 hover:opacity-100 ml-1">×</button>
+                  <button type="button" onClick={() => setMembers(prev => prev.filter(x => x !== m))} className="opacity-60 hover:opacity-100 hover:text-red-500 transition-colors bg-blue-200/50 rounded-full w-4 h-4 flex items-center justify-center">×</button>
                </div>
              ))}
              <input
@@ -217,17 +222,17 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
                      }
                   }
                }}
-               placeholder={members.length === 0 ? "Nhập tên và nhấn Enter..." : ""}
-               className="flex-1 min-w-[150px] bg-transparent focus:outline-none placeholder-gray-500"
+               placeholder={members.length === 0 ? "Nhập tên và nhấn Enter..." : "Thêm người..."}
+               className="flex-1 min-w-[150px] bg-transparent focus:outline-none placeholder-slate-400 font-medium ml-1"
              />
           </div>
           
           {memberInput && filteredMembers.length > 0 && (
-            <div className="absolute z-10 left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+            <div className="absolute z-10 left-0 right-0 top-full mt-2 bg-white border border-slate-200 rounded-xl shadow-xl max-h-56 overflow-y-auto">
               {filteredMembers.map((suggestion, idx) => (
                 <div 
                   key={idx}
-                  className="p-3 text-xs border-b border-[#E4E3E0] hover:bg-[#141414] hover:text-white cursor-pointer font-bold uppercase"
+                  className="p-3 text-sm border-b border-slate-100 hover:bg-blue-50 hover:text-blue-700 cursor-pointer font-semibold transition-colors"
                   onClick={() => {
                     setMembers(prev => [...prev, suggestion]);
                     setMemberInput('');
@@ -241,8 +246,8 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
         </div>
 
         <div>
-           <label className="block text-[10px] font-mono opacity-50 uppercase mb-4">Các Nội Dung Công Việc</label>
-           <div className="space-y-1 bg-[#F5F4F2] p-2 border border-[#141414] max-h-80 overflow-y-auto">
+           <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-3">Các Nội Dung Công Việc</label>
+           <div className="space-y-1.5 bg-slate-50/50 rounded-xl p-3 border border-slate-200 max-h-[28rem] overflow-y-auto">
              {dinhMucList.length > 0 ? (
                dinhMucList.map(dm => {
                  const isChecked = selectedTasks[dm.name]?.selected || false;
@@ -291,19 +296,19 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
         </div>
 
         <div className="pt-4">
-           <label className="block text-[10px] font-mono opacity-50 uppercase mb-2">Nội dung phát hiện</label>
-           <div className="relative">
+           <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Nội dung phát hiện</label>
+           <div className="relative group">
                <textarea
                  value={phatHien}
                  onChange={(e) => setPhatHien(e.target.value)}
-                 className="w-full bg-[#F5F4F2] border border-[#141414] p-3 pr-10 text-sm focus:outline-none focus:bg-white focus:shadow-[2px_2px_0_#141414] transition-all min-h-[80px]"
+                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 pr-12 min-h-[100px] font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all hover:bg-white resize-y shadow-sm"
                  placeholder="Nhập nội dung phát hiện (mặc định: không có)"
                />
                <button
                   type="button"
                   onClick={toggleRecordingPhatHien}
-                  className={`absolute right-2 top-2 p-2 rounded-full transition-colors ${isRecordingPhatHien ? 'bg-red-100 text-red-600 animate-pulse' : 'bg-[#E4E3E0] text-[#141414] hover:bg-[#D4D3D0]'}`}
-                  title="Nhập bằng giọng nói"
+                  className={`absolute right-3 bottom-4 p-2.5 rounded-full transition-all shadow-sm ${isRecordingPhatHien ? 'bg-red-50 text-red-600 animate-pulse ring-2 ring-red-500/30' : 'bg-white text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 hover:border-blue-200'}`}
+                  title={isRecordingPhatHien ? "Dừng ghi âm" : "Ghi âm bằng giọng nói"}
                >
                   <Mic className="w-4 h-4" />
                </button>
@@ -313,11 +318,14 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
         <div className="pt-6">
           <button 
             type="submit"
-            disabled={isSubmitting}
-            className={`w-full bg-[#141414] text-white p-4 font-bold uppercase tracking-widest text-sm hover:invert transition-all flex items-center justify-center gap-2 ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+            disabled={isSubmitting || members.length === 0}
+            className={`w-full py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold text-lg rounded-xl transition-all shadow-lg shadow-blue-500/30 flex items-center justify-center gap-2 ${isSubmitting ? 'opacity-50 cursor-not-allowed text-white/50' : 'hover:shadow-blue-500/40 hover:-translate-y-0.5 active:translate-y-0'}`}
           >
             {isSubmitting ? 'ĐANG ĐỒNG BỘ...' : 'Cập Nhật Lên Hệ Thống [Enter]'}
           </button>
+          <p className="text-center text-xs font-medium text-slate-400 mt-4 tracking-wide uppercase">
+             Vui lòng kiểm tra kỹ danh sách thành viên trước khi gửi
+          </p>
         </div>
       </form>
     </div>
