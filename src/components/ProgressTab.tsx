@@ -130,12 +130,12 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
 
   const getStatusColor = (deadlineStr: string) => {
      const dDate = parseDate(deadlineStr);
-     if (!dDate) return 'bg-red-50 border-red-400 shadow-[2px_2px_0_theme(colors.red.400)] text-red-900';
+     if (!dDate) return 'bg-red-50 border-red-200 text-red-900 border';
      const diffTime = dDate.getTime() - today.getTime();
      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-     if (diffDays > 3) return 'bg-green-50 border-green-400 shadow-[2px_2px_0_theme(colors.green.400)] text-green-900';
-     if (diffDays >= 1 && diffDays <= 3) return 'bg-yellow-50 border-yellow-400 shadow-[2px_2px_0_theme(colors.yellow.400)] text-yellow-900';
-     return 'bg-red-50 border-red-400 shadow-[2px_2px_0_theme(colors.red.400)] text-red-900';
+     if (diffDays > 3) return 'bg-emerald-50 border-emerald-200 border text-emerald-900';
+     if (diffDays >= 1 && diffDays <= 3) return 'bg-amber-50 border-amber-200 border text-amber-900';
+     return 'bg-red-50 border-red-200 border text-red-900';
   };
 
   let overdueCount = 0;
@@ -154,13 +154,13 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
 
   const getStatusBadge = (deadlineStr: string) => {
      const dDate = parseDate(deadlineStr);
-     if (!dDate) return <span className="bg-red-100 text-red-800 px-2 py-0.5text-[10px] font-bold uppercase">Quá hạn / Lỗi ngày</span>;
+     if (!dDate) return <div className="flex items-center gap-1.5 bg-red-100/80 text-red-700 px-2.5 py-1 rounded-md border border-red-200 text-[10px] font-black uppercase tracking-wider shadow-sm"><span className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)] animate-pulse"></span>Quá hạn / Lỗi ngày</div>;
      const diffTime = dDate.getTime() - today.getTime();
      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-     if (diffDays > 3) return <span className="bg-green-200 text-green-900 px-2 py-0.5 text-[10px] font-bold uppercase">Còn {diffDays} ngày</span>;
-     if (diffDays >= 1 && diffDays <= 3) return <span className="bg-yellow-200 text-yellow-900 px-2 py-0.5 text-[10px] font-bold uppercase">Gần hạn ({diffDays} ngày)</span>;
-     if (diffDays === 0) return <span className="bg-red-200 text-red-900 px-2 py-0.5 text-[10px] font-bold uppercase">Hôm nay</span>;
-     return <span className="bg-red-200 text-red-900 px-2 py-0.5 text-[10px] font-bold uppercase">Quá hạn {Math.abs(diffDays)} ngày</span>;
+     if (diffDays > 3) return <div className="flex items-center gap-1.5 bg-emerald-100/80 text-emerald-700 px-2.5 py-1 rounded-md border border-emerald-200 text-[10px] font-black uppercase tracking-wider shadow-sm"><span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.5)]"></span>Còn {diffDays} ngày</div>;
+     if (diffDays >= 1 && diffDays <= 3) return <div className="flex items-center gap-1.5 bg-amber-100/80 text-amber-700 px-2.5 py-1 rounded-md border border-amber-200 text-[10px] font-black uppercase tracking-wider shadow-sm"><span className="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.6)] animate-pulse"></span>Gần hạn ({diffDays} ngày)</div>;
+     if (diffDays === 0) return <div className="flex items-center gap-1.5 bg-red-100/80 text-red-700 px-2.5 py-1 rounded-md border border-red-200 text-[10px] font-black uppercase tracking-wider shadow-sm"><span className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)] animate-pulse"></span>Hôm nay</div>;
+     return <div className="flex items-center gap-1.5 bg-red-100/80 text-red-700 px-2.5 py-1 rounded-md border border-red-200 text-[10px] font-black uppercase tracking-wider shadow-sm"><span className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)] animate-pulse"></span>Quá hạn {Math.abs(diffDays)} ngày</div>;
   };
 
   const filteredMembers = members.filter(m => m.toLowerCase().includes(searchAssignee.toLowerCase()));
@@ -221,22 +221,24 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
 
   return (
     <div className="space-y-8 pb-12">
-      <div className="flex flex-col md:flex-row md:justify-between md:items-center bg-[#141414] text-white p-4 shadow-[4px_4px_0_rgba(20,20,20,0.2)] gap-4">
-         <h2 className="text-lg font-bold uppercase tracking-widest flex items-center gap-2">
-            <Clock className="w-5 h-5" />
+      <div className="flex flex-col md:flex-row md:justify-between md:items-center bg-white border border-slate-200 rounded-2xl p-5 shadow-[0_8px_30px_rgb(0,0,0,0.04)] gap-4">
+         <h2 className="text-xl font-bold tracking-tight text-slate-800 flex items-center gap-3">
+            <div className="bg-amber-100 text-amber-600 p-2 rounded-xl">
+               <Clock className="w-5 h-5" />
+            </div>
             Quản lý tiến độ công việc
          </h2>
          <div className="flex flex-wrap items-center gap-3">
              <button 
                onClick={exportExcel}
-               className="bg-green-600 text-white px-4 py-2 font-bold text-sm hover:bg-green-500 transition tracking-wide flex items-center gap-2 shadow-[2px_2px_0_#fff]"
+               className="bg-emerald-50 text-emerald-600 border border-emerald-200 px-4 py-2 font-bold text-xs hover:bg-emerald-100 rounded-xl transition-all tracking-wide flex items-center gap-2 shadow-sm"
              >
                <FileSpreadsheet className="w-4 h-4" /> XUẤT EXCEL
              </button>
              {isDoiTruong && (
                  <button 
                    onClick={() => setShowForm(!showForm)}
-                   className="bg-white text-[#141414] px-4 py-2 font-bold text-sm hover:bg-gray-200 transition tracking-wide flex items-center gap-2"
+                   className="bg-blue-600 text-white px-5 py-2 font-bold text-xs hover:bg-blue-700 rounded-xl transition-all shadow-md shadow-blue-500/30 flex items-center gap-2"
                  >
                    <Plus className="w-4 h-4" /> THÊM CÔNG VIỆC
                  </button>
@@ -245,70 +247,73 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
       </div>
 
       {showForm && (
-         <div className="bg-white border-2 border-[#141414] p-6 shadow-[8px_8px_0_#141414] animate-in fade-in slide-in-from-top-4">
-            <h3 className="font-bold uppercase tracking-widest mb-4 border-b-2 border-[#141414] pb-2">Nhập Công Việc Mới</h3>
-            <form onSubmit={handleAddTask} className="space-y-4">
+         <div className="bg-white border text-slate-700 border-slate-200 rounded-2xl p-6 md:p-8 shadow-xl shadow-slate-200/50 animate-in fade-in slide-in-from-top-4 relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-indigo-500"></div>
+            <h3 className="font-bold uppercase tracking-wider mb-6 text-slate-800 flex justify-between items-center">
+               Nhập Công Việc Mới
+            </h3>
+            <form onSubmit={handleAddTask} className="space-y-5">
                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wide opacity-70 mb-1">Nội dung công việc</label>
-                  <div className="relative">
+                  <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-1.5 p-0.5">Nội dung công việc</label>
+                  <div className="relative group">
                       <textarea 
                          required
                          value={newContent}
                          onChange={e => setNewContent(e.target.value)}
-                         className="w-full border-2 border-[#141414] p-3 pr-10 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50 min-h-[80px]"
+                         className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 pr-12 min-h-[100px] font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all hover:bg-white resize-y shadow-sm"
                          placeholder="Ví dụ: Lập báo cáo..."
                       />
                       <button
                          type="button"
                          onClick={toggleRecording}
-                         className={`absolute right-2 top-2 p-2 rounded-full transition-colors ${isRecording ? 'bg-red-100 text-red-600 animate-pulse' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}`}
+                         className={`absolute right-3 bottom-4 p-2.5 rounded-full transition-all shadow-sm ${isRecording ? 'bg-red-50 text-red-600 animate-pulse ring-2 ring-red-500/30' : 'bg-white text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 hover:border-blue-200'}`}
                          title="Nhập bằng giọng nói"
                       >
                          <Mic className="w-4 h-4" />
                       </button>
                   </div>
                </div>
-               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <div>
-                     <label className="block text-xs font-bold uppercase tracking-wide opacity-70 mb-1">Căn cứ</label>
+                     <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-1.5 p-0.5">Căn cứ</label>
                      <input 
                         type="text"
                         value={newRef}
                         onChange={e => setNewRef(e.target.value)}
-                        className="w-full border-2 border-[#141414] p-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all hover:bg-white shadow-sm"
                         placeholder="Số CV..."
                      />
                   </div>
                   <div>
-                     <label className="block text-xs font-bold uppercase tracking-wide opacity-70 mb-1">Ngày hoàn tất</label>
+                     <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-1.5 p-0.5">Ngày hoàn tất</label>
                      <input 
                         type="date"
                         required
                         value={newDeadline}
                         onChange={e => setNewDeadline(e.target.value)}
-                        className="w-full border-2 border-[#141414] p-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all hover:bg-white shadow-sm"
                      />
                   </div>
                </div>
                
                <div className="relative">
-                  <label className="block text-xs font-bold uppercase tracking-wide opacity-70 mb-1">Phân công</label>
-                  <div className="flex items-center border-2 border-[#141414] bg-slate-50 relative">
-                     <UserIcon className="w-4 h-4 ml-3 opacity-50" />
+                  <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-1.5 p-0.5">Phân công</label>
+                  <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl transition-all focus-within:ring-2 focus-within:ring-blue-500/50 focus-within:border-blue-500 focus-within:bg-white shadow-sm relative overflow-hidden group">
+                     <UserIcon className="w-4 h-4 ml-4 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
                      <input 
                         type="text"
                         value={newAssignee}
                         onChange={e => { setNewAssignee(e.target.value); setSearchAssignee(e.target.value); }}
-                        className="w-full p-3 text-sm font-medium focus:outline-none bg-transparent"
+                        className="w-full p-3 font-medium text-slate-700 focus:outline-none bg-transparent"
                         placeholder="Nhập tên người nhận việc..."
                      />
                   </div>
                   {searchAssignee && newAssignee === searchAssignee && filteredMembers.length > 0 && (
-                     <div className="absolute z-10 w-full mt-1 bg-white border-2 border-[#141414] max-h-40 overflow-y-auto shadow-[4px_4px_0_#141414]">
+                     <div className="absolute z-10 w-full mt-2 bg-white border border-slate-200 rounded-xl max-h-48 overflow-y-auto shadow-xl shadow-slate-200/50">
                         {filteredMembers.map(m => (
                            <div 
                               key={m} 
-                              className="px-4 py-2 hover:bg-slate-100 cursor-pointer text-sm font-medium border-b border-[#141414]/10 last:border-0"
+                              className="px-5 py-3 hover:bg-blue-50 cursor-pointer text-sm font-medium border-b border-slate-100 last:border-0 transition-colors text-slate-700"
                               onClick={() => { setNewAssignee(m); setSearchAssignee(''); }}
                            >
                               {m}
@@ -318,11 +323,11 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
                   )}
                </div>
 
-               <div className="flex justify-end pt-2 gap-4">
-                  <button type="button" onClick={handleCancel} className="bg-white border-2 border-[#141414] text-[#141414] font-bold uppercase tracking-widest px-6 py-3 hover:bg-gray-100 transition-colors shadow-[2px_2px_0_rgba(20,20,20,0.2)]">
+               <div className="flex justify-end pt-4 gap-3">
+                  <button type="button" onClick={handleCancel} className="bg-white border border-slate-200 text-slate-600 font-bold px-6 py-3 rounded-xl hover:bg-slate-50 hover:text-slate-800 transition-all shadow-sm">
                      HỦY
                   </button>
-                  <button type="submit" className="bg-[#141414] text-white font-bold uppercase tracking-widest px-8 py-3 hover:bg-blue-600 transition-colors shadow-[4px_4px_0_rgba(20,20,20,0.2)]">
+                  <button type="submit" className="bg-blue-600 text-white font-bold px-8 py-3 rounded-xl hover:bg-blue-700 transition-all shadow-md shadow-blue-500/30">
                      LƯU CÔNG VIỆC
                   </button>
                </div>
@@ -331,33 +336,33 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
       )}
 
       <div>
-         <div className="mb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <h3 className="font-bold text-lg flex items-center gap-2">
-               <AlertCircle className="w-5 h-5 text-red-600" />
-               ĐANG THỰC HIỆN ({pendingTasks.length})
+         <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <h3 className="font-bold text-lg flex items-center gap-2 text-slate-800">
+               <AlertCircle className="w-5 h-5 text-amber-500" />
+               ĐANG THỰC HIỆN <span className="bg-amber-100 text-amber-700 font-black px-2 py-0.5 rounded-full text-sm">{pendingTasks.length}</span>
             </h3>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200/50">
                <button 
                   onClick={() => setPendingViewMode('grid')}
-                  className={`p-2 border-2 border-[#141414] transition-colors ${pendingViewMode === 'grid' ? 'bg-[#141414] text-white' : 'bg-white hover:bg-slate-100'}`}
+                  className={`p-2 rounded-lg transition-all ${pendingViewMode === 'grid' ? 'bg-white text-blue-600 shadow-sm border border-slate-200/50' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-200/50'}`}
                   title="Dạng thẻ"
                ><LayoutGrid className="w-4 h-4" /></button>
                <button 
                   onClick={() => setPendingViewMode('table')}
-                  className={`p-2 border-2 border-[#141414] transition-colors ${pendingViewMode === 'table' ? 'bg-[#141414] text-white' : 'bg-white hover:bg-slate-100'}`}
+                  className={`p-2 rounded-lg transition-all ${pendingViewMode === 'table' ? 'bg-white text-blue-600 shadow-sm border border-slate-200/50' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-200/50'}`}
                   title="Dạng bảng"
                ><List className="w-4 h-4" /></button>
             </div>
          </div>
          
          {pendingViewMode === 'grid' ? (
-             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                 {sortedPendingTasks.map((t, idx) => {
                    const colorClasses = getStatusColor(t.deadline);
                    return (
-                      <div key={t.id || idx} className={`border border-[#141414] p-3 flex flex-col justify-between ${colorClasses}`}>
+                      <div key={t.id || idx} className={`p-5 rounded-2xl flex flex-col justify-between shadow-sm hover:shadow-md transition-all ${colorClasses}`}>
                          <div>
-                            <div className="flex justify-between items-start mb-2">
+                            <div className="flex justify-between items-start mb-3">
                                <div className="flex items-center gap-2">
                                   {getStatusBadge(t.deadline)}
                                </div>
@@ -365,60 +370,61 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
                                    <button 
                                      onClick={() => handleComplete(t.id)}
                                      title="Đánh dấu hoàn tất"
-                                     className="text-current opacity-60 hover:opacity-100 bg-white/50 hover:bg-white rounded p-1 transition border-none cursor-pointer"
+                                     className="text-current opacity-60 hover:opacity-100 bg-white/60 hover:bg-white hover:scale-110 rounded-full p-1.5 transition-all shadow-sm cursor-pointer"
                                    >
                                       <CheckCircle className="w-5 h-5" />
                                    </button>
                                )}
                             </div>
-                            <h4 className="font-bold text-sm mb-1 leading-tight">{t.content}</h4>
+                            <h4 className="font-bold text-base mb-1.5 leading-snug">{t.content}</h4>
                             {t.reference && (
-                               <div className="text-[10px] font-mono opacity-80 mb-1 truncate" title={t.reference}>
+                               <div className="text-[11px] font-medium opacity-80 mb-2 line-clamp-2" title={t.reference}>
                                   {t.reference}
                                </div>
                             )}
                             {t.explanation && (
-                               <div className="mt-2 text-xs font-medium space-y-1 bg-white/40 p-2 rounded border border-current/10">
+                               <div className="mt-3 text-[11px] font-medium space-y-1 bg-white/50 p-2.5 rounded-lg border border-current/10 shadow-inner">
                                   {t.explanation.split('\n').map((line, i) => (
-                                      <div key={i} className="text-[10px] leading-tight opacity-90">{line}</div>
+                                      <div key={i} className="leading-relaxed opacity-90">{line}</div>
                                   ))}
                                </div>
                             )}
                          </div>
-                         <div className="mt-3">
+                         <div className="mt-4 pt-3 border-t border-current/10">
                             {editingExpId === t.id ? (
-                               <div className="flex flex-col gap-2 mt-2 border border-current/20 p-2 bg-white/50 rounded">
+                               <div className="flex flex-col gap-2 bg-white/60 p-2.5 rounded-xl shadow-sm border border-current/10">
                                   <textarea 
                                      autoFocus
                                      value={expInput}
                                      onChange={e => setExpInput(e.target.value)}
                                      placeholder="Nhập nội dung giải trình..."
-                                     className="w-full text-xs p-1.5 focus:outline-none resize-none bg-transparent"
+                                     className="w-full text-xs p-2 rounded-lg focus:outline-none resize-none bg-white font-medium shadow-inner"
                                      rows={2}
                                   />
                                   <div className="flex justify-end gap-2">
-                                     <button onClick={() => setEditingExpId(null)} className="text-[10px] font-bold uppercase opacity-60 hover:opacity-100">Hủy</button>
-                                     <button onClick={() => handleSaveExplanation(t.id)} className="text-[10px] font-bold uppercase bg-blue-600 text-white px-2 py-1 rounded shadow hover:bg-blue-700 flex items-center gap-1">
-                                        <Send className="w-3 h-3" /> Lưu
+                                     <button onClick={() => setEditingExpId(null)} className="text-[10px] font-bold uppercase opacity-60 hover:opacity-100 px-3 py-1.5">Hủy</button>
+                                     <button onClick={() => handleSaveExplanation(t.id)} className="text-[11px] font-bold uppercase bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-3 py-1.5 rounded-lg shadow-md hover:shadow-lg transition-all flex items-center gap-1.5">
+                                        <Send className="w-3.5 h-3.5" /> Lưu
                                      </button>
                                   </div>
                                </div>
                             ) : (
-                               <div className="pt-2 border-t border-current/20 flex justify-between items-center text-[10px] font-bold">
-                                  <div className="opacity-80 truncate max-w-[100px]" title={t.assignee}>
+                               <div className="flex justify-between items-center text-[11px] font-bold">
+                                  <div className="flex items-center gap-1.5 opacity-80 truncate max-w-[120px]" title={t.assignee}>
+                                     <UserIcon className="w-3.5 h-3.5" />
                                      {t.assignee || 'Chưa phân công'}
                                   </div>
                                   <div className="flex items-center gap-3">
                                      {isManagement && (
                                          <button 
                                             onClick={() => { setEditingExpId(t.id); setExpInput(''); }} 
-                                            className="opacity-70 hover:opacity-100 flex items-center gap-1"
+                                            className="opacity-70 hover:opacity-100 flex items-center gap-1 bg-white/50 px-2 py-1 rounded-md transition-all hover:bg-white shadow-sm"
                                             title="Cập nhật giải trình"
                                          >
-                                            <MessageSquarePlus className="w-3 h-3" /> GT
+                                            <MessageSquarePlus className="w-3.5 h-3.5" /> Giải trình
                                          </button>
                                      )}
-                                     <div className="opacity-90 tracking-wide">
+                                     <div className="opacity-90 tracking-wide font-mono bg-white/40 px-2 py-1 rounded-md shadow-sm">
                                         Hạn: {t.deadline}
                                      </div>
                                   </div>
@@ -430,24 +436,24 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
                 })}
              </div>
          ) : (
-             <div className="overflow-x-auto border border-[#141414] bg-white shadow-[4px_4px_0_#141414]">
+             <div className="overflow-x-auto bg-white rounded-2xl shadow-xl shadow-slate-200/50 border border-slate-200">
                 <table className="w-full text-left text-sm whitespace-nowrap">
-                   <thead className="bg-[#141414]/5 border-b border-[#141414] uppercase text-[10px] font-bold tracking-wider">
+                   <thead className="bg-slate-50 border-b border-slate-200 uppercase text-[11px] font-bold tracking-wider text-slate-500">
                       <tr>
-                         <th className="px-4 py-3 text-center">STT</th>
-                         <th className="px-4 py-3">Trạng thái</th>
-                         <th className="px-4 py-3">Nội dung</th>
-                         <th className="px-4 py-3">Căn cứ</th>
-                         <th className="px-4 py-3">Phân công</th>
-                         <th className="px-4 py-3 text-center">Tác vụ</th>
+                         <th className="px-5 py-4 text-center">STT</th>
+                         <th className="px-5 py-4">Trạng thái</th>
+                         <th className="px-5 py-4">Nội dung</th>
+                         <th className="px-5 py-4">Căn cứ</th>
+                         <th className="px-5 py-4">Phân công</th>
+                         <th className="px-5 py-4 text-center">Tác vụ</th>
                       </tr>
                    </thead>
-                   <tbody className="divide-y divide-[#141414]/10">
+                   <tbody className="divide-y divide-slate-100">
                       {sortedPendingTasks.length === 0 ? (
-                         <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-500 italic">Không có công việc nào.</td></tr>
+                         <tr><td colSpan={6} className="px-5 py-12 text-center text-slate-500 font-medium">Không có công việc nào cần xử lý.</td></tr>
                       ) : sortedPendingTasks.map((t, idx) => (
-                         <tr key={t.id || idx} className="hover:bg-[#141414]/5 transition-colors">
-                            <td className="px-4 py-3 font-mono text-xs opacity-50 text-center">{idx + 1}</td>
+                         <tr key={t.id || idx} className="hover:bg-blue-50/50 transition-colors">
+                            <td className="px-5 py-4 font-mono text-[11px] font-bold text-slate-400 text-center">{idx + 1}</td>
                             <td className="px-4 py-3">{getStatusBadge(t.deadline)}</td>
                             <td className="px-4 py-3 min-w-[200px]">
                                <div className="font-medium whitespace-normal">{t.content}</div>
@@ -505,50 +511,53 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
          )}
       </div>
 
-      <div className="w-full h-px bg-[#141414]/10 my-8"></div>
+      <div className="w-full h-px bg-slate-200 my-8"></div>
 
       <div>
-         <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
-            <CheckCircle className="w-5 h-5 text-green-600" />
-            ĐÃ HOÀN TẤT ({completedTasks.length})
+         <h3 className="font-bold text-lg mb-4 flex items-center gap-2 text-slate-800">
+            <CheckCircle className="w-5 h-5 text-emerald-500" />
+            ĐÃ HOÀN TẤT <span className="bg-emerald-100 text-emerald-700 font-black px-2 py-0.5 rounded-full text-sm">{completedTasks.length}</span>
          </h3>
          
-         <div className="overflow-x-auto border border-[#141414] bg-white shadow-[4px_4px_0_#141414]">
+         <div className="overflow-x-auto bg-white rounded-2xl shadow-xl shadow-slate-200/50 border border-slate-200">
             <table className="w-full text-left text-sm whitespace-nowrap">
-               <thead className="bg-[#141414]/5 border-b border-[#141414] uppercase text-[10px] font-bold tracking-wider">
+               <thead className="bg-slate-50 border-b border-slate-200 uppercase text-[11px] font-bold tracking-wider text-slate-500">
                   <tr>
-                     <th className="px-4 py-3 w-10 text-center">STT</th>
-                     <th className="px-4 py-3">Nội dung</th>
-                     <th className="px-4 py-3">Căn cứ</th>
-                     <th className="px-4 py-3">Phân công</th>
-                     <th className="px-4 py-3">Hạn chót</th>
-                     <th className="px-4 py-3 text-center">Trạng thái</th>
+                     <th className="px-5 py-4 w-10 text-center">STT</th>
+                     <th className="px-5 py-4">Nội dung</th>
+                     <th className="px-5 py-4">Căn cứ</th>
+                     <th className="px-5 py-4">Phân công</th>
+                     <th className="px-5 py-4">Hạn chót</th>
+                     <th className="px-5 py-4 text-center">Trạng thái</th>
                   </tr>
                </thead>
-               <tbody className="divide-y divide-[#141414]/10">
+               <tbody className="divide-y divide-slate-100">
                   {completedTasks.length === 0 ? (
-                     <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-500 italic">Chưa có công việc hoàn tất.</td></tr>
+                     <tr><td colSpan={6} className="px-5 py-12 text-center text-slate-500 font-medium">Chưa có công việc hoàn tất.</td></tr>
                   ) : completedTasks.map((t, idx) => (
-                     <tr key={t.id || idx} className="hover:bg-[#141414]/5 transition-colors">
-                        <td className="px-4 py-3 text-center opacity-50 font-mono text-xs">{idx + 1}</td>
-                        <td className="px-4 py-3 font-medium truncate max-w-[250px]" title={t.content}>
+                     <tr key={t.id || idx} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-5 py-4 text-center opacity-50 font-mono text-[11px] font-bold">{idx + 1}</td>
+                        <td className="px-5 py-4 font-medium truncate max-w-[250px] opacity-60 line-through" title={t.content}>
                            {t.content}
                         </td>
-                        <td className="px-4 py-3 font-mono text-xs opacity-70 truncate max-w-[150px]">
+                        <td className="px-5 py-4 font-mono text-[11px] opacity-50 truncate max-w-[150px]">
                            {t.reference}
                         </td>
-                        <td className="px-4 py-3">
-                           {t.assignee}
+                        <td className="px-5 py-4">
+                           <div className="inline-flex items-center gap-1.5 opacity-80 text-xs font-semibold bg-slate-100 px-2.5 py-1 rounded-lg">
+                              <UserIcon className="w-3.5 h-3.5" />
+                              {t.assignee || 'Chưa phân công'}
+                           </div>
                         </td>
-                        <td className="px-4 py-3 font-mono text-xs">
+                        <td className="px-5 py-4 font-mono text-[11px] font-bold opacity-60">
                            {t.deadline}
                         </td>
-                        <td className="px-4 py-3 text-center">
-                           <button onClick={() => handleRevert(t.id)} title="Đánh dấu chưa hoàn tất" className="inline-flex items-center gap-1 bg-green-100 hover:bg-red-100 text-green-800 hover:text-red-800 px-2 py-1 text-[10px] font-bold uppercase rounded-sm border border-transparent hover:border-red-300 transition-colors cursor-pointer group">
-                              <CheckCircle className="w-3 h-3 group-hover:hidden" />
-                              <XCircle className="w-3 h-3 hidden group-hover:block" />
-                              <span className="group-hover:hidden">Xong</span>
-                              <span className="hidden group-hover:inline">Hủy Xong</span>
+                        <td className="px-5 py-4 text-center">
+                           <button onClick={() => handleRevert(t.id)} title="Đánh dấu chưa hoàn tất" className="inline-flex justify-center items-center gap-1 bg-emerald-50 hover:bg-red-50 text-emerald-600 hover:text-red-600 px-3 py-1.5 text-[10px] font-bold uppercase rounded-lg border border-emerald-200 hover:border-red-200 shadow-sm transition-all cursor-pointer group">
+                              <CheckCircle className="w-3.5 h-3.5 group-hover:hidden" />
+                              <XCircle className="w-3.5 h-3.5 hidden group-hover:block" />
+                              <span className="group-hover:hidden">Đã xong</span>
+                              <span className="hidden group-hover:inline">Hủy xong</span>
                            </button>
                         </td>
                      </tr>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { DataStore, SheetMember } from '../store/DataStore';
-import { PlusCircle, Search, CheckSquare, Square, Mic } from 'lucide-react';
+import { PlusCircle, Search, CheckSquare, Square, Mic, ClipboardList } from 'lucide-react';
 import { format } from 'date-fns';
 
 export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () => void, refreshToggle: number }) {
@@ -14,6 +14,14 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
   const [phatHien, setPhatHien] = useState('không có');
   const [isRecordingPhatHien, setIsRecordingPhatHien] = useState(false);
   const recognitionRef = useRef<any>(null);
+  const [isSmartRecording, setIsSmartRecording] = useState(false);
+  const smartRecognitionRef = useRef<any>(null);
+  const smartInitialState = useRef<{
+     selectedTasks: Record<string, {selected: boolean, quantity: number | string}>;
+     members: string[];
+     phatHien: string;
+     team: string;
+  }>({ selectedTasks: {}, members: [], phatHien: 'không có', team: '' });
   
   const [selectedTasks, setSelectedTasks] = useState<Record<string, {selected: boolean, quantity: number | string}>>({});
   
@@ -154,16 +162,220 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
     recognition.start();
   };
 
+  const toggleSmartRecording = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+       alert("Trình duyệt không hỗ trợ nhận dạng giọng nói!");
+       return;
+    }
+    
+    if (isSmartRecording && smartRecognitionRef.current) {
+        smartRecognitionRef.current.stop();
+        setIsSmartRecording(false);
+        return;
+    }
+    
+    smartInitialState.current = {
+        selectedTasks: { ...selectedTasks },
+        members: [...members],
+        phatHien,
+        team
+    };
+    
+    const recognition = new SpeechRecognition();
+    smartRecognitionRef.current = recognition;
+    recognition.lang = 'vi-VN';
+    recognition.interimResults = true;
+    recognition.continuous = true;
+    
+    recognition.onstart = () => setIsSmartRecording(true);
+    recognition.onresult = (event: any) => {
+        let text = '';
+        for (let i = 0; i < event.results.length; ++i) {
+            text += event.results[i][0].transcript + ' ';
+        }
+        
+        let shouldStop = false;
+        if (text.trim().toLowerCase().match(/\bhết\s*[.,]?\s*$/i)) {
+            shouldStop = true;
+            text = text.replace(/\bhết\s*[.,]?\s*$/i, '');
+        }
+        
+        let currentMembers = [...smartInitialState.current.members];
+        let currentPhatHien = smartInitialState.current.phatHien;
+        let currentTeam = smartInitialState.current.team;
+        
+        const nameMatch = text.match(/họ [vl]à tên[:\s]+([^;.,]+)|tên[:\s]+([^;.,]+)/i);
+        if (nameMatch) {
+           const spokenNameMatch = nameMatch[1] || nameMatch[2];
+           const spokenName = spokenNameMatch.trim().toLowerCase();
+           let bestMatch = '';
+           let bestMatchCount = 0;
+           allSheetMembers.forEach(m => {
+              const lowerM = m.name.toLowerCase();
+              if (lowerM.includes(spokenName)) {
+                 bestMatch = m.name;
+              } else {
+                 const spokenWords = spokenName.split(/\s+/);
+                 let matchCount = 0;
+                 spokenWords.forEach(w => {
+                     if (w.length > 2 && lowerM.includes(w)) matchCount++;
+                 });
+                 if (matchCount > bestMatchCount) {
+                    bestMatchCount = matchCount;
+                    bestMatch = m.name;
+                 }
+              }
+           });
+           
+           if (bestMatch && !currentMembers.includes(bestMatch)) {
+              currentMembers.push(bestMatch);
+              const matchedMemberObj = allSheetMembers.find(m => m.name === bestMatch);
+              if (matchedMemberObj && matchedMemberObj.team) {
+                  currentTeam = matchedMemberObj.team;
+              }
+           }
+        }
+        
+        const phatHienMatch = text.match(/phát hiện[:\s]+(.+)$/i);
+        if (phatHienMatch && phatHienMatch[1]) {
+           currentPhatHien = phatHienMatch[1].trim();
+        }
+        
+        let tasksText = text;
+        if (nameMatch) {
+            tasksText = tasksText.substring(tasksText.indexOf(nameMatch[0]) + nameMatch[0].length);
+        }
+        if (phatHienMatch) {
+            const idx = tasksText.toLowerCase().indexOf('phát hiện');
+            if (idx !== -1) {
+                tasksText = tasksText.substring(0, idx);
+            }
+        }
+        
+        const newSelectedTasks = { ...smartInitialState.current.selectedTasks };
+        let tasksTextLower = tasksText.toLowerCase();
+        
+        const taskStrings = tasksTextLower.split(/[,;\.]|\b\s*và\s*\b|\b\s*thêm\s*\b|\b\s*với\s*\b/i).filter((s: string) => s.trim().length > 0);
+        
+        taskStrings.forEach((chunk: string) => {
+            let remainingChunk = chunk;
+            let foundAny = true;
+            let loopCount = 0;
+            const matchedTasksInChunk = new Set<string>();
+            
+            while(foundAny && remainingChunk.trim().length > 2 && loopCount < 10) {
+                foundAny = false;
+                loopCount++;
+                
+                let bestTask: any = null;
+                let maxMatchScore = 0;
+                let bestMatchWords: string[] = [];
+                
+                dinhMucList.forEach(dm => {
+                    if (matchedTasksInChunk.has(dm.name)) return;
+                    if (newSelectedTasks[dm.name]?.selected && !smartInitialState.current.selectedTasks[dm.name]?.selected) return;
+                    
+                    const dmNameLower = dm.name.toLowerCase();
+                    const words = dmNameLower.split(/\s+/).filter((w: string) => w.length > 2 || !isNaN(Number(w)));
+                    if (words.length === 0) return;
+                    
+                    let matches = 0;
+                    let matchedWords: string[] = [];
+                    words.forEach((w: string) => {
+                        if (remainingChunk.includes(w)) {
+                            matches++;
+                            matchedWords.push(w);
+                        }
+                    });
+                    
+                    const score = matches / words.length;
+                    const finalScore = score * words.length; 
+                    
+                    if (score >= 0.5 && finalScore > maxMatchScore) {
+                        maxMatchScore = finalScore;
+                        bestTask = dm;
+                        bestMatchWords = matchedWords;
+                    }
+                });
+                
+                if (bestTask) {
+                    foundAny = true;
+                    matchedTasksInChunk.add(bestTask.name);
+                    
+                    const escapedWords = bestMatchWords.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+                    let regexStr = escapedWords.join('.*?');
+                    
+                    // Regex find a number following the matched words
+                    const followMatch = remainingChunk.match(new RegExp(regexStr + '.{0,20}?(\\d+([.,]\\d+)?)', 'i'));
+                    
+                    let qty = bestTask.quota || 1;
+                    let numberUsed = '';
+                    
+                    if (followMatch && followMatch[1]) {
+                        qty = parseFloat(followMatch[1].replace(',', '.'));
+                        numberUsed = followMatch[1];
+                    } else if (escapedWords.length > 0) {
+                        // Fallback: check if number is before the task
+                        const preMatch = remainingChunk.match(new RegExp('(\\d+([.,]\\d+)?).{0,20}?' + escapedWords[0], 'i'));
+                        if (preMatch && preMatch[1]) {
+                            qty = parseFloat(preMatch[1].replace(',', '.'));
+                            numberUsed = preMatch[1];
+                        }
+                    }
+                    
+                    newSelectedTasks[bestTask.name] = { 
+                        selected: true, 
+                        quantity: qty > 0 ? qty : 1 
+                    };
+                    
+                    bestMatchWords.forEach((w: string) => {
+                        remainingChunk = remainingChunk.replace(w, ' ');
+                    });
+                    if (numberUsed) {
+                        remainingChunk = remainingChunk.replace(numberUsed, ' ');
+                    }
+                }
+            }
+        });
+        
+        setSelectedTasks(newSelectedTasks);
+        setMembers(currentMembers);
+        setPhatHien(currentPhatHien);
+        if (currentTeam) setTeam(currentTeam);
+        
+        if (shouldStop) {
+            recognition.stop();
+            setIsSmartRecording(false);
+        }
+    };
+    recognition.onerror = () => setIsSmartRecording(false);
+    recognition.onend = () => setIsSmartRecording(false);
+    
+    recognition.start();
+  };
+
   return (
     <div className="bg-white/80 backdrop-blur-xl rounded-2xl border border-slate-200/60 p-6 sm:p-10 max-w-4xl shadow-xl shadow-slate-200/40 relative overflow-hidden">
       <div className="absolute top-0 right-0 p-32 bg-blue-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
       
-      <h2 className="text-xl sm:text-2xl font-bold mb-8 border-b border-slate-200 pb-4 flex items-center gap-3 text-slate-800 tracking-tight">
-        <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
-          <ClipboardList className="w-4 h-4" />
-        </div>
-        Nhập Ghi Nhận Công Việc
-      </h2>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 border-b border-slate-200 pb-4 gap-4">
+        <h2 className="text-xl sm:text-2xl font-bold flex items-center gap-3 text-slate-800 tracking-tight">
+          <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
+            <ClipboardList className="w-4 h-4" />
+          </div>
+          Nhập Ghi Nhận Công Việc
+        </h2>
+        
+        <button
+          type="button"
+          onClick={toggleSmartRecording}
+          className={`px-4 py-2.5 rounded-xl font-bold text-sm flex justify-center items-center gap-2 transition-all shadow-sm border ${isSmartRecording ? 'bg-red-50 text-red-600 border-red-200 animate-pulse ring-2 ring-red-500/30' : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100 hover:shadow-md hover:-translate-y-0.5'}`}
+        >
+          <Mic className="w-4 h-4 md:w-5 md:h-5" />
+          {isSmartRecording ? "Đang Nghe (Báo cáo nhanh)..." : "Báo Cáo Nhanh (Giọng Nói)"}
+        </button>
+      </div>
       
       <form onSubmit={handleSubmit} className="space-y-8">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">

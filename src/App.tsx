@@ -145,7 +145,7 @@ export default function App() {
           <div className="flex-1 text-center z-10 w-full">
             <h1 className="text-2xl sm:text-3xl font-display font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-blue-700 via-indigo-700 to-blue-600 uppercase flex flex-col">
               <span className="leading-tight">Hệ Thống Điều Hành</span>
-              <span className="text-base sm:text-lg font-bold tracking-widest text-slate-500 mt-0.5">& QUẢN TRỊ NĂNG SUẤT</span>
+              <span className="text-base sm:text-lg font-bold tracking-widest text-slate-500 mt-0.5">& QUẢN TRỊ NĂNG SUẤT ĐỘI QLHTĐĐ</span>
             </h1>
           </div>
           
@@ -182,65 +182,77 @@ export default function App() {
 
 
           
-          <div className="bg-white/70 border-b border-gray-200 sticky top-0 z-20 backdrop-blur-xl shadow-sm">
-            <div className="flex px-4 md:px-8 overflow-x-auto hide-scrollbar gap-2">
-              <button
-                onClick={() => setActiveTab("input")}
-                className={`flex items-center gap-2 px-6 py-4 text-[13px] font-bold tracking-wide transition-all border-b-2 whitespace-nowrap ${
-                  activeTab === "input"
-                    ? "text-blue-700 border-blue-600 bg-blue-50/50"
-                    : "text-slate-500 border-transparent hover:text-slate-800 hover:bg-slate-100"
-                }`}
-              >
-                <ClipboardList className={`w-4 h-4 transition-colors ${activeTab === "input" ? "text-blue-600" : "text-slate-400"}`} />
-                Cập nhật
-              </button>
-              <button
-                onClick={() => setActiveTab("report")}
-                className={`flex items-center gap-2 px-6 py-4 text-[13px] font-bold tracking-wide transition-all border-b-2 whitespace-nowrap ${
-                  activeTab === "report"
-                    ? "text-blue-700 border-blue-600 bg-blue-50/50"
-                    : "text-slate-500 border-transparent hover:text-slate-800 hover:bg-slate-100"
-                }`}
-              >
-                <BarChart3 className={`w-4 h-4 transition-colors ${activeTab === "report" ? "text-blue-600" : "text-slate-400"}`} />
-                Báo cáo
-              </button>
-              <button
-                onClick={() => setActiveTab("stations")}
-                className={`flex items-center gap-2 px-6 py-4 text-[13px] font-bold tracking-wide transition-all border-b-2 whitespace-nowrap ${
-                  activeTab === "stations"
-                    ? "text-blue-700 border-blue-600 bg-blue-50/50"
-                    : "text-slate-500 border-transparent hover:text-slate-800 hover:bg-slate-100"
-                }`}
-              >
-                <Database className={`w-4 h-4 transition-colors ${activeTab === "stations" ? "text-blue-600" : "text-slate-400"}`} />
-                Trạm BA
-              </button>
-              <button
-                onClick={() => setActiveTab("analysis")}
-                className={`flex items-center gap-2 px-6 py-4 text-[13px] font-bold tracking-wide transition-all border-b-2 whitespace-nowrap ${
-                  activeTab === "analysis"
-                    ? "text-blue-700 border-blue-600 bg-blue-50/50"
-                    : "text-slate-500 border-transparent hover:text-slate-800 hover:bg-slate-100"
-                }`}
-              >
-                <TrendingUp className={`w-4 h-4 transition-colors ${activeTab === "analysis" ? "text-blue-600" : "text-slate-400"}`} />
-                Phân tích
-              </button>
-              {isManagement && (
+          <div className="bg-transparent sticky top-0 z-20 pt-4 pb-2 px-4 md:px-8">
+            <div className="flex overflow-x-auto hide-scrollbar gap-2 justify-start sm:justify-center">
+               <div className="bg-white/80 backdrop-blur-xl p-1.5 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-200/60 flex items-center gap-1">
                 <button
-                  onClick={() => setActiveTab("progress")}
-                  className={`flex items-center gap-2 px-6 py-4 text-[13px] font-bold tracking-wide transition-all border-b-2 whitespace-nowrap ${
-                    activeTab === "progress"
-                      ? "text-amber-700 border-amber-500 bg-amber-50/50"
-                      : "text-slate-500 border-transparent hover:text-slate-800 hover:bg-slate-100"
+                  onClick={() => setActiveTab("input")}
+                  className={`flex items-center gap-2 px-5 py-2.5 text-[13px] font-bold tracking-wide transition-all rounded-xl whitespace-nowrap ${
+                    activeTab === "input"
+                      ? "text-blue-700 bg-blue-50 shadow-sm border border-blue-100/50"
+                      : "text-slate-500 hover:text-slate-800 hover:bg-slate-50 border border-transparent"
                   }`}
                 >
-                  <CheckSquare className={`w-4 h-4 transition-colors ${activeTab === "progress" ? "text-amber-600" : "text-slate-400"}`} />
-                  Tiến độ CV
+                  <ClipboardList className={`w-4 h-4 transition-colors ${activeTab === "input" ? "text-blue-600" : "text-slate-400"}`} />
+                  Cập nhật
                 </button>
-              )}
+                <button
+                  onClick={() => setActiveTab("report")}
+                  className={`flex items-center gap-2 px-5 py-2.5 text-[13px] font-bold tracking-wide transition-all rounded-xl whitespace-nowrap ${
+                    activeTab === "report"
+                      ? "text-blue-700 bg-blue-50 shadow-sm border border-blue-100/50"
+                      : "text-slate-500 hover:text-slate-800 hover:bg-slate-50 border border-transparent"
+                  }`}
+                >
+                  <BarChart3 className={`w-4 h-4 transition-colors ${activeTab === "report" ? "text-blue-600" : "text-slate-400"}`} />
+                  Báo cáo
+                </button>
+                <button
+                  onClick={() => setActiveTab("stations")}
+                  className={`flex items-center gap-2 px-5 py-2.5 text-[13px] font-bold tracking-wide transition-all rounded-xl whitespace-nowrap ${
+                    activeTab === "stations"
+                      ? "text-blue-700 bg-blue-50 shadow-sm border border-blue-100/50"
+                      : "text-slate-500 hover:text-slate-800 hover:bg-slate-50 border border-transparent"
+                  }`}
+                >
+                  <Database className={`w-4 h-4 transition-colors ${activeTab === "stations" ? "text-blue-600" : "text-slate-400"}`} />
+                  Trạm BA
+                </button>
+                <button
+                  onClick={() => setActiveTab("analysis")}
+                  className={`flex items-center gap-2 px-5 py-2.5 text-[13px] font-bold tracking-wide transition-all rounded-xl whitespace-nowrap ${
+                    activeTab === "analysis"
+                      ? "text-blue-700 bg-blue-50 shadow-sm border border-blue-100/50"
+                      : "text-slate-500 hover:text-slate-800 hover:bg-slate-50 border border-transparent"
+                  }`}
+                >
+                  <TrendingUp className={`w-4 h-4 transition-colors ${activeTab === "analysis" ? "text-blue-600" : "text-slate-400"}`} />
+                  Phân tích
+                </button>
+                {isManagement && (
+                  <button
+                    onClick={() => setActiveTab("progress")}
+                    className={`flex items-center gap-1.5 px-5 py-2.5 text-[13px] font-bold tracking-wide transition-all rounded-xl whitespace-nowrap ${
+                      activeTab === "progress"
+                        ? "text-amber-700 bg-amber-50 shadow-sm border border-amber-200/50"
+                        : "text-slate-500 hover:text-slate-800 hover:bg-slate-50 border border-transparent"
+                    }`}
+                  >
+                    <CheckSquare className={`w-4 h-4 mr-0.5 transition-colors ${activeTab === "progress" ? "text-amber-600" : "text-slate-400"}`} />
+                    Tiến độ CV
+                    {taskStats.overdue > 0 && (
+                       <span className="ml-1 inline-flex items-center justify-center px-1.5 py-0.5 text-[10px] font-black bg-red-100 border border-red-200 text-red-700 rounded-md shadow-sm">
+                          {taskStats.overdue}
+                       </span>
+                    )}
+                    {taskStats.warning > 0 && (
+                       <span className={`inline-flex items-center justify-center px-1.5 py-0.5 text-[10px] font-black rounded-md shadow-sm border ${taskStats.overdue > 0 ? 'ml-0.5' : 'ml-1'} bg-amber-100 border-amber-300 text-amber-700`}>
+                          {taskStats.warning}
+                       </span>
+                    )}
+                  </button>
+                )}
+               </div>
             </div>
           </div>
 
