@@ -50,8 +50,26 @@ export const DataStore = {
   getEntries: (): WorkloadEntry[] => {
     try {
       const data = localStorage.getItem(STORAGE_KEY);
-      return data ? JSON.parse(data) : [];
-    } catch {
+      if (data) {
+        const parsed = JSON.parse(data);
+        if (parsed) {
+          const arr = Array.isArray(parsed) ? parsed : Object.values(parsed);
+          return arr.map((item: any) => {
+            if (!item) return item;
+            let members = item.members || item.workGroup || [];
+            if (typeof members === 'string') {
+               members = members.split(',').map((s: string) => s.trim()).filter(Boolean);
+            }
+            return {
+              ...item,
+              members: Array.isArray(members) ? members : []
+            };
+          }).filter(Boolean);
+        }
+      }
+      return [];
+    } catch (e) {
+      console.error("DEBUG DataStore getEntries Error:", e);
       return [];
     }
   },
@@ -164,11 +182,12 @@ export const DataStore = {
             const allTeams = new Set<string>((json.teams || []).map((t: string) => t));
             json.members.forEach((m: any) => allTeams.add(m.team));
             let finalTeams = Array.from(allTeams);
+            let ctText = '';
 
             // Bắt buộc lấy danh sách Tổ công tác từ sheet CongTac (cột số 5 Khu vực)
             try {
                const ctRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:csv&sheet=CongTac&_t=${new Date().getTime()}`);
-               const ctText = await ctRes.text();
+               ctText = await ctRes.text();
                const ctData = Papa.parse(ctText, { header: false }).data;
                const ctTeamsMap = new Map<string, string>();
                for (let i = 1; i < ctData.length; i++) {
@@ -191,6 +210,71 @@ export const DataStore = {
 
             json.teams = finalTeams;
 
+            // Fetch "Nhật ký/CongTac" for workloads directly!
+            try {
+               // We already fetched ctText and ctData above
+               const ctDataForWorkloads = Papa.parse(ctText, { header: false }).data;
+               const newWorkloads: WorkloadEntry[] = [];
+               
+               let headerRowIdx = -1;
+               let nameColIdx = -1;
+               for(let r = 0; r < 5; r++) {
+                   if (!ctDataForWorkloads[r]) continue;
+                   const rData = ctDataForWorkloads[r] as string[];
+                   for(let c = 0; c < rData.length; c++) {
+                       if (rData[c] && String(rData[c]).toLowerCase().includes('họ và tên')) {
+                           headerRowIdx = r;
+                           nameColIdx = c;
+                           break;
+                       }
+                   }
+                   if(headerRowIdx !== -1) break;
+               }
+
+               if(headerRowIdx !== -1) {
+                   const headers = ctDataForWorkloads[headerRowIdx] as string[];
+                   
+                   for(let r = headerRowIdx + 1; r < ctDataForWorkloads.length; r++) {
+                       const row = ctDataForWorkloads[r] as string[];
+                       if (!row || !row[nameColIdx]) continue;
+                       const memberName = row[nameColIdx].trim();
+                       if (!memberName) continue;
+                       
+                       for(let c = 5; c < headers.length; c++) { // dates start after functions/area cols
+                           if (!headers[c]) continue;
+                           const dateStr = headers[c].trim();
+                           // Ensure header looks like a date/has numbers
+                           if (!dateStr.match(/\d+/)) continue;
+
+                           const cellValue = row[c] ? String(row[c]).trim() : '';
+                           if (cellValue) {
+                               const parts = dateStr.split('/');
+                               let formattedDate = dateStr;
+                               if (parts.length >= 2) {
+                                   let day = parts[0];
+                                   let month = parts[1];
+                                   let year = parts[2] || new Date().getFullYear().toString();
+                                   formattedDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+                               }
+
+                               newWorkloads.push({
+                                   id: Math.random().toString(36).substring(2, 9),
+                                   content: cellValue,
+                                   team: row[5] ? String(row[5]).trim() : '',
+                                   members: [memberName],
+                                   timestamp: Date.now(),
+                                   date: formattedDate
+                               });
+                           }
+
+                       }
+                   }
+               }
+               json.workloads = newWorkloads;
+            } catch (e) {
+               console.error('Error parsing CongTac for Workloads', e);
+            }
+
             // Fetch "Tiến độ" sheet
             try {
                const progRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("Tiến độ")}&_t=${new Date().getTime()}`);
@@ -198,15 +282,25 @@ export const DataStore = {
                const { data: progData } = Papa.parse(progText, { header: true });
                const progressList: TaskProgress[] = [];
                for (const row of progData as any[]) {
-                  if (row['Nội dung'] || row['TT']) {
+                  const getVal = (opts: string[]) => {
+                      for (const k of Object.keys(row)) {
+                          if (opts.some(opt => k.toLowerCase().includes(opt))) {
+                              return row[k];
+                          }
+                      }
+                      return '';
+                  };
+                  const content = getVal(['nội dung']);
+                  const tt = getVal(['tt', 'stt']);
+                  if (content || tt) {
                      progressList.push({
-                         id: String(row['TT'] || Math.random().toString(36).substring(7)),
-                         content: String(row['Nội dung'] || ''),
-                         reference: String(row['căn cứ'] || ''),
-                         deadline: String(row['ngày hoàn tất'] || ''),
-                         assignee: String(row['Phân công'] || ''),
-                         status: String(row['Hoàn tất'] || ''),
-                         explanation: String(row['giải trình'] || '')
+                         id: String(tt || Math.random().toString(36).substring(7)),
+                         content: String(content || ''),
+                         reference: String(getVal(['căn cứ'])),
+                         deadline: String(getVal(['ngày hoàn tất'])),
+                         assignee: String(getVal(['phân công'])),
+                         status: String(getVal(['hoàn tất'])),
+                         explanation: String(getVal(['giải trình']))
                      });
                   }
                }

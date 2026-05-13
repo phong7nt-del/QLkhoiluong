@@ -52,30 +52,28 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
         const teamName = e.team || 'Khác';
         
         // Tách các dòng báo cáo
-        const lines = e.content.split(/\n/).map(l => {
+        const lines = (e.content || '').split(/\n/).map(l => {
            let clean = l.trim();
-           if (clean.startsWith('-')) {
-              clean = clean.substring(1).trim();
-           }
+           if (clean.startsWith('-')) clean = clean.substring(1).trim();
            return clean;
-        }).filter(l => l.length > 0);
+        }).filter(l => l.length > 0 && !l.toLowerCase().includes('phát hiện:'));
         
         lines.forEach(line => {
            let qty = 1;
            let itemContent = line;
            
            // Match format: "Task Name: 2"
-           const kvMatch = line.match(/^(.+?):\s*(\d+)$/);
+           const kvMatch = line.match(/^(.+?):\s*([\d.,]+)$/);
            
            // Match old format: "2 Task Name"
-           const qtyMatch = line.match(/^(\d+)\s+(.+)$/);
+           const qtyMatch = line.match(/^([\d.,]+)\s+(.+)$/);
            
            if (kvMatch) {
               itemContent = kvMatch[1].trim();
-              const parsed = parseInt(kvMatch[2], 10);
+              const parsed = parseFloat(kvMatch[2].replace(',', '.'));
               if (!isNaN(parsed) && parsed > 0 && parsed <= 9999) qty = parsed;
            } else if (qtyMatch) {
-              const parsed = parseInt(qtyMatch[1], 10);
+              const parsed = parseFloat(qtyMatch[1].replace(',', '.'));
               if (!isNaN(parsed) && parsed > 0 && parsed <= 9999) qty = parsed;
               itemContent = qtyMatch[2].trim();
            } else {
@@ -128,13 +126,14 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
      return Math.max(1, uniqueDates.size);
   }, [entries]);
 
-  // Thống kê năng suất Từng người (Do first before Team Overview)
+     // Thống kê năng suất Từng người (Do first before Team Overview)
   const memberOverview = useMemo(() => {
      const stats: Record<string, { member: string; daysWorked: Set<string>; totalStandardDays: number }> = {};
      
      entries.forEach(e => {
-        const mbrTokens = e.members || [];
-        const members = mbrTokens.length > 0 ? mbrTokens : ['Khuyết danh'];
+        let mbrTokens = e.members || (e as any).workGroup || [];
+        if (typeof mbrTokens === 'string') mbrTokens = [mbrTokens];
+        const members = (Array.isArray(mbrTokens) && mbrTokens.length > 0) ? mbrTokens : ['Khuyết danh'];
         const date = e.date;
         
         members.forEach(m => {
@@ -144,26 +143,26 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
             if (date) stats[m].daysWorked.add(date);
         });
         
-        const lines = e.content.split(/\n/).map(l => {
+        const lines = (e.content || '').split(/\n/).map(l => {
            let clean = l.trim();
            if (clean.startsWith('-')) clean = clean.substring(1).trim();
            return clean;
-        }).filter(l => l.length > 0);
+        }).filter(l => l.length > 0 && !l.toLowerCase().includes('phát hiện:'));
         
         lines.forEach(line => {
            let qty = 1;
            let itemContent = line;
            
-           const kvMatch = line.match(/^(.+?):\s*(\d+)$/);
-           const qtyMatch = line.match(/^(\d+)\s+(.+)$/);
+           const kvMatch = line.match(/^(.+?):\s*([\d.,]+)$/);
+           const qtyMatch = line.match(/^([\d.,]+)\s+(.+)$/);
            const oldQtyMatch = line.match(/^(\d+)\s+/);
            
            if (kvMatch) {
               itemContent = kvMatch[1].trim();
-              const parsed = parseInt(kvMatch[2], 10);
+              const parsed = parseFloat(kvMatch[2].replace(',', '.'));
               if (!isNaN(parsed) && parsed > 0 && parsed <= 9999) qty = parsed;
            } else if (qtyMatch) {
-              const parsed = parseInt(qtyMatch[1], 10);
+              const parsed = parseFloat(qtyMatch[1].replace(',', '.'));
               if (!isNaN(parsed) && parsed > 0 && parsed <= 9999) qty = parsed;
               itemContent = qtyMatch[2].trim();
            } else if (oldQtyMatch) {
@@ -265,6 +264,8 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
   const avgMemberProductivity = memberOverview.length > 0
     ? memberOverview.reduce((acc, m) => acc + m.productivityPercent, 0) / memberOverview.length
     : 0;
+
+  console.log("AnalysisTab Debug:", { rawEntriesLength: rawEntries.length, entriesLength: entries.length, categoryStatsLength: categoryStats.length, teamOverviewLength: teamOverview.length });
 
   return (
     <div className="space-y-6">

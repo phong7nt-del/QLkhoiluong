@@ -22,6 +22,15 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
      phatHien: string;
      team: string;
   }>({ selectedTasks: {}, members: [], phatHien: 'không có', team: '' });
+
+  const recognitionTimeoutRef = useRef<any>(null);
+
+  const clearVoiceTimeout = () => {
+    if (recognitionTimeoutRef.current) {
+        clearTimeout(recognitionTimeoutRef.current);
+        recognitionTimeoutRef.current = null;
+    }
+  };
   
   const [selectedTasks, setSelectedTasks] = useState<Record<string, {selected: boolean, quantity: number | string}>>({});
   
@@ -150,9 +159,19 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
     
     recognition.onstart = () => setIsRecordingPhatHien(true);
     recognition.onresult = (event: any) => {
+        clearVoiceTimeout();
+        recognitionTimeoutRef.current = setTimeout(() => {
+           recognition.stop();
+        }, 3000);
+
         let currentTranscript = '';
         for (let i = event.resultIndex; i < event.results.length; ++i) {
             currentTranscript += event.results[i][0].transcript;
+        }
+        
+        if (currentTranscript.trim().toLowerCase().match(/\b(hết|kết thúc)\s*[.,]?\s*$/i)) {
+            currentTranscript = currentTranscript.replace(/\b(hết|kết thúc)\s*[.,]?\s*$/i, '');
+            setTimeout(() => recognition.stop(), 500);
         }
         setPhatHien(baseContent ? `${baseContent} ${currentTranscript}` : currentTranscript);
     };
@@ -190,25 +209,32 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
     
     recognition.onstart = () => setIsSmartRecording(true);
     recognition.onresult = (event: any) => {
+        clearVoiceTimeout();
+        recognitionTimeoutRef.current = setTimeout(() => {
+           recognition.stop();
+        }, 3000);
+
         let text = '';
         for (let i = 0; i < event.results.length; ++i) {
             text += event.results[i][0].transcript + ' ';
         }
         
         let shouldStop = false;
-        if (text.trim().toLowerCase().match(/\bhết\s*[.,]?\s*$/i)) {
+        if (text.trim().toLowerCase().match(/\b(hết|kết thúc)\s*[.,]?\s*$/i)) {
             shouldStop = true;
-            text = text.replace(/\bhết\s*[.,]?\s*$/i, '');
+            text = text.replace(/\b(hết|kết thúc)\s*[.,]?\s*$/i, '');
         }
         
         let currentMembers = [...smartInitialState.current.members];
         let currentPhatHien = smartInitialState.current.phatHien;
         let currentTeam = smartInitialState.current.team;
         
-        const nameMatch = text.match(/họ [vl]à tên[:\s]+([^;.,]+)|tên[:\s]+([^;.,]+)/i);
+        const textLower = text.toLowerCase();
+        
+        // Match Họ và tên
+        const nameMatch = text.match(/(họ và tên|họ tên|tên)[\s:]+([^-]+?)(công việc|phát hiện|$)/i);
         if (nameMatch) {
-           const spokenNameMatch = nameMatch[1] || nameMatch[2];
-           const spokenName = spokenNameMatch.trim().toLowerCase();
+           const spokenName = nameMatch[2].replace(/[:,;\.]/g, '').trim().toLowerCase();
            let bestMatch = '';
            let bestMatchCount = 0;
            allSheetMembers.forEach(m => {
@@ -229,7 +255,7 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
            });
            
            if (bestMatch && !currentMembers.includes(bestMatch)) {
-              currentMembers.push(bestMatch);
+              currentMembers = [bestMatch]; // Thay thế hoàn toàn list members
               const matchedMemberObj = allSheetMembers.find(m => m.name === bestMatch);
               if (matchedMemberObj && matchedMemberObj.team) {
                   currentTeam = matchedMemberObj.team;
@@ -237,19 +263,28 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
            }
         }
         
-        const phatHienMatch = text.match(/phát hiện[:\s]+(.+)$/i);
+        // Match Phát hiện
+        const phatHienMatch = text.match(/phát hiện[\s:]+(.+)$/i);
         if (phatHienMatch && phatHienMatch[1]) {
-           currentPhatHien = phatHienMatch[1].trim();
+           let phText = phatHienMatch[1].trim();
+           phText = phText.replace(/\b(hết|kết thúc)\s*[.,]?\s*$/i, '').trim();
+           currentPhatHien = phText;
         }
         
-        let tasksText = text;
-        if (nameMatch) {
-            tasksText = tasksText.substring(tasksText.indexOf(nameMatch[0]) + nameMatch[0].length);
-        }
-        if (phatHienMatch) {
-            const idx = tasksText.toLowerCase().indexOf('phát hiện');
-            if (idx !== -1) {
-                tasksText = tasksText.substring(0, idx);
+        // Match Công việc
+        let tasksText = '';
+        const cvMatch = text.match(/công việc[\s:]+([\s\S]*?)(phát hiện|$)/i);
+        if (cvMatch) {
+            tasksText = cvMatch[1].trim();
+        } else {
+            // Nếu không có chữ Công việc, dùng heuristics như cũ loại phần đầu
+            tasksText = text;
+            if (nameMatch) {
+               tasksText = tasksText.substring(tasksText.indexOf(nameMatch[0]) + nameMatch[0].length);
+            }
+            if (phatHienMatch) {
+               const idx = tasksText.toLowerCase().indexOf('phát hiện');
+               if (idx !== -1) tasksText = tasksText.substring(0, idx);
             }
         }
         

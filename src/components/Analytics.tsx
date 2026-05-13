@@ -72,11 +72,34 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
     return Array.from(members).sort();
   }, [filteredEntries]);
 
+  // Compute total tasks summary
+  const summaryStats = useMemo(() => {
+    const stats: Record<string, number> = {};
+    filteredEntries.forEach(e => {
+        if (!e.content) return;
+        const lines = e.content.split('\n');
+        lines.forEach(line => {
+           let cleanLine = line.trim();
+           if (cleanLine.startsWith('-')) cleanLine = cleanLine.substring(1).trim();
+           const match = cleanLine.match(/^(.*?):\s*([\d.]+)$/);
+           if (match) {
+              const taskName = match[1].trim();
+              const qty = parseFloat(match[2]);
+              stats[taskName] = (stats[taskName] || 0) + qty;
+           }
+        });
+    });
+    return Object.entries(stats).sort((a, b) => b[1] - a[1]);
+  }, [filteredEntries]);
+
   const renderContentWithQuota = (content: string, membersCount: number) => {
     if (!content) return null;
     const lines = content.split('\n');
     return lines.map((line, i) => {
-       const match = line.match(/^(.*?):\s*([\d.]+)$/);
+       let cleanLine = line.trim();
+       if (cleanLine.startsWith('-')) cleanLine = cleanLine.substring(1).trim();
+       
+       const match = cleanLine.match(/^(.*?):\s*([\d.]+)$/);
        if (match) {
           const taskName = match[1].trim();
           const cleanTaskName = taskName.normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -159,7 +182,10 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
         const combinedContent = memberEntries.map(e => {
            if (!e.content) return "";
            return e.content.split('\n').map(line => {
-              const match = line.match(/^(.*?):\s*([\d.]+)$/);
+              let cleanLine = line.trim();
+              if (cleanLine.startsWith('-')) cleanLine = cleanLine.substring(1).trim();
+
+              const match = cleanLine.match(/^(.*?):\s*([\d.]+)$/);
               if (match) {
                  const taskName = match[1].trim();
                  const cleanTaskName = taskName.normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -241,6 +267,17 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "BaoCao");
     
+    // Add summary stats to a second sheet if available
+    if (summaryStats && summaryStats.length > 0) {
+       const summaryData = summaryStats.map(([name, qty]) => ({
+          "Nội dung công việc": name,
+          "Tổng khối lượng": qty
+       }));
+       const summaryWorksheet = XLSX.utils.json_to_sheet(summaryData);
+       summaryWorksheet['!cols'] = [{ wch: 80 }, { wch: 20 }];
+       XLSX.utils.book_append_sheet(workbook, summaryWorksheet, "TongCong");
+    }
+    
     XLSX.writeFile(workbook, "BaoCaoNangSuat.xlsx");
   };
 
@@ -301,6 +338,21 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
         </div>
 
         <div className="bg-[#F5F4F2] space-y-6">
+          {filteredEntries.length > 0 && summaryStats.length > 0 && (
+            <div className="mx-6 mt-6 md:mx-8 bg-white border border-[#141414] shadow-[4px_4px_0_#141414] p-4">
+              <h3 className="font-bold uppercase tracking-widest text-sm border-b border-[#141414]/20 pb-2 mb-3">
+                Tổng Cộng Khối Lượng
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                {summaryStats.map(([name, qty]) => (
+                  <div key={name} className="flex justify-between items-center text-sm border-b border-dashed border-[#141414]/20 pb-1">
+                    <span className="font-medium text-[#141414]/80">{name}</span>
+                    <span className="font-bold">{qty}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {allDates.length === 0 ? (
              <div className="text-center py-12 text-sm opacity-50 italic uppercase bg-white border border-[#141414] shadow-[4px_4px_0_#141414]">
                 Hệ thống chưa ghi nhận<br/>hoạt động nào.

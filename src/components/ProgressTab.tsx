@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { DataStore, TaskProgress, SheetMember } from '../store/DataStore';
-import { CheckCircle, Clock, AlertCircle, Plus, User as UserIcon, Mic, XCircle, LayoutGrid, List, FileSpreadsheet, MessageSquarePlus, Send } from 'lucide-react';
+import { CheckCircle, Clock, AlertCircle, Plus, User as UserIcon, Mic, XCircle, LayoutGrid, List, FileSpreadsheet, MessageSquarePlus, Send, Search } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 export default function ProgressTab({ refreshToggle, sessionUser }: { refreshToggle: number, sessionUser: SheetMember | null }) {
@@ -16,6 +16,8 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
   const [searchAssignee, setSearchAssignee] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [pendingViewMode, setPendingViewMode] = useState<'grid' | 'table'>('grid');
+  const [searchText, setSearchText] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const recognitionRef = React.useRef<any>(null);
 
   // Explanation state
@@ -26,11 +28,28 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
   const isDoiTruong = roleStr.includes('đội trưởng');
   const isManagement = ['đội trưởng', 'đội phó', 'tổ trưởng', 'tổ phó'].some(r => roleStr.includes(r));
   
+  const fetchProgress = async () => {
+    setIsRefreshing(true);
+    await DataStore.syncMasterData();
+    setTasks(DataStore.getTasks());
+    setIsRefreshing(false);
+  };
+
   React.useEffect(() => {
      setTasks(DataStore.getTasks());
      const mems = DataStore.getMembers().map(m => m.name).filter(Boolean);
      setMembers(Array.from(new Set(mems)));
   }, [refreshToggle]);
+
+  React.useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchProgress();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
 
   const handleComplete = (id: string) => {
      DataStore.updateTaskStatus(id, 'xong');
@@ -77,6 +96,15 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
      handleCancel();
   };
 
+  const recognitionTimeoutRef = React.useRef<any>(null);
+
+  const clearVoiceTimeout = () => {
+    if (recognitionTimeoutRef.current) {
+        clearTimeout(recognitionTimeoutRef.current);
+        recognitionTimeoutRef.current = null;
+    }
+  };
+
   const toggleRecording = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
@@ -100,10 +128,21 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
     
     recognition.onstart = () => setIsRecording(true);
     recognition.onresult = (event: any) => {
+        clearVoiceTimeout();
+        recognitionTimeoutRef.current = setTimeout(() => {
+           recognition.stop();
+        }, 3000);
+
         let currentTranscript = '';
         for (let i = event.resultIndex; i < event.results.length; ++i) {
             currentTranscript += event.results[i][0].transcript;
         }
+
+        if (currentTranscript.trim().toLowerCase().match(/\b(hết|kết thúc)\s*[.,]?\s*$/i)) {
+            currentTranscript = currentTranscript.replace(/\b(hết|kết thúc)\s*[.,]?\s*$/i, '');
+            setTimeout(() => recognition.stop(), 500);
+        }
+
         setNewContent(baseContent ? `${baseContent} ${currentTranscript}` : currentTranscript);
     };
     recognition.onerror = () => setIsRecording(false);
@@ -125,8 +164,23 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
   const today = new Date();
   today.setHours(0,0,0,0);
 
-  const pendingTasks = tasks.filter(t => t.status.toLowerCase() !== 'xong');
-  const completedTasks = tasks.filter(t => t.status.toLowerCase() === 'xong');
+  const pendingTasksRaw = tasks.filter(t => t.status.toLowerCase() !== 'xong');
+  const completedTasksRaw = tasks.filter(t => t.status.toLowerCase() === 'xong');
+
+  const removeAccents = (str: string) => {
+    return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  };
+
+  const safeSearch = removeAccents(searchText);
+  const pendingTasks = safeSearch ? pendingTasksRaw.filter(t => 
+       removeAccents(t.content).includes(safeSearch) || 
+       removeAccents(t.assignee).includes(safeSearch)
+  ) : pendingTasksRaw;
+  
+  const completedTasks = safeSearch ? completedTasksRaw.filter(t => 
+       removeAccents(t.content).includes(safeSearch) || 
+       removeAccents(t.assignee).includes(safeSearch)
+  ) : completedTasksRaw;
 
   const getStatusColor = (deadlineStr: string) => {
      const dDate = parseDate(deadlineStr);
@@ -221,6 +275,33 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
 
   return (
     <div className="space-y-8 pb-12">
+       
+      {/* Search and Refresh Bar */}
+      <div className="flex flex-col sm:flex-row gap-3">
+         <div className="relative flex-1">
+            <Search className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
+            <input 
+               type="text" 
+               placeholder="Tìm kiếm nội dung công việc hoặc người nhận..." 
+               value={searchText}
+               onChange={(e) => setSearchText(e.target.value)}
+               className="w-full pl-11 pr-4 py-3 border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium shadow-[0_2px_10px_rgb(0,0,0,0.02)]"
+            />
+            {searchText && (
+               <button onClick={() => setSearchText('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                  <XCircle className="w-5 h-5" />
+               </button>
+            )}
+         </div>
+         <button
+            onClick={fetchProgress}
+            disabled={isRefreshing}
+            className="px-6 py-3 flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-700 rounded-2xl hover:bg-slate-50 transition-all font-bold text-sm shadow-sm disabled:opacity-50 min-w-[140px]"
+         >
+            {isRefreshing ? 'ĐANG TẢI...' : '⟳ LÀM MỚI'}
+         </button>
+      </div>
+
       <div className="flex flex-col md:flex-row md:justify-between md:items-center bg-white border border-slate-200 rounded-2xl p-5 shadow-[0_8px_30px_rgb(0,0,0,0.04)] gap-4">
          <h2 className="text-xl font-bold tracking-tight text-slate-800 flex items-center gap-3">
             <div className="bg-amber-100 text-amber-600 p-2 rounded-xl">
