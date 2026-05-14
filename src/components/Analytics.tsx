@@ -164,105 +164,114 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
   };
 
   const exportToExcel = () => {
-    const exportData: any[] = [];
-    allDates.forEach(date => {
-      let displayDate = date;
-      try {
-        if (date && date.includes('-')) {
-          const [y, m, d] = date.split('-');
-          displayDate = `${d}/${m}/${y}`;
-        }
-      } catch(e) {}
+    const memberDataMap = new Map<string, any>();
+    const dynamicCols: { date: string, taskName: string, colName: string, displayDate: string }[] = [];
 
-      const dateEntries = filteredEntries.filter(e => e.date === date);
-      const activeMembers = allMembers.filter(m => dateEntries.some(e => e.members?.includes(m)));
-      
-      activeMembers.forEach(member => {
-        const memberEntries = dateEntries.filter(e => e.members?.includes(member));
-        const combinedContent = memberEntries.map(e => {
-           if (!e.content) return "";
-           return e.content.split('\n').map(line => {
+    const sortedDates = [...allDates].sort();
+
+    sortedDates.forEach(date => {
+       let displayDate = date;
+       try {
+         if (date && date.includes('-')) {
+           const [y, m, d] = date.split('-');
+           displayDate = `${d}/${m}/${y}`;
+         }
+       } catch(e) {}
+
+       const dateEntries = filteredEntries.filter(e => e.date === date);
+       dateEntries.forEach(e => {
+          if (!e.content) return;
+          const membersCount = e.members?.length || 1;
+          
+          e.content.split('\n').forEach(line => {
               let cleanLine = line.trim();
               if (cleanLine.startsWith('-')) cleanLine = cleanLine.substring(1).trim();
 
+              let taskName = '';
+              let value: any = '';
+
               const match = cleanLine.match(/^(.*?):\s*([\d.]+)$/);
               if (match) {
-                 const taskName = match[1].trim();
-                 const cleanTaskName = taskName.normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
-                 const qty = parseFloat(match[2]);
-
-                 let exactDm = dinhMucList.find(d => {
-                    const cleanDName = (d.name || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
-                    return cleanDName === cleanTaskName;
-                 });
-                 
-                 let matchedName = 'Khác';
-                 if (exactDm) {
-                    matchedName = exactDm.name;
-                 } else {
-                    let foundDm = dinhMucList.find(d => {
-                       const cleanDName = (d.name || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
-                       return cleanDName.includes(cleanTaskName) || cleanTaskName.includes(cleanDName);
-                    });
-                    if (foundDm) matchedName = foundDm.name;
-                 }
-
-                 const cleanMatchedName = matchedName.normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
-
-                 const dm = dinhMucList.find(d => {
-                     const cleanDName = (d.name || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
-                     return cleanDName === cleanMatchedName;
-                 });
-
-                 const quotaStr = dm ? String(dm.quota).replace(/,/g, '.') : "0";
-                 const quota = parseFloat(quotaStr) || 0;
-                 const membersCount = e.members?.length || 1;
-                 const qtyPerMember = qty / membersCount;
-                 
-                 let nsPercent = 0;
-                 let quotaDisplay = "";
-                 if (cleanMatchedName === 'khác') {
-                     nsPercent = (qtyPerMember / 1) * 100;
-                     quotaDisplay = "(ĐM: 1)";
-                 } else if (quota > 0) {
-                     nsPercent = (qtyPerMember / quota) * 100;
-                     quotaDisplay = `(ĐM: ${quota})`;
-                 } else {
-                     nsPercent = (qtyPerMember * 0.05) * 100;
-                     quotaDisplay = "(Không có định mức)";
-                 }
-                 return `${taskName}: ${qty} ${quotaDisplay} - ${nsPercent.toFixed(1)}% NS`;
+                 taskName = match[1].trim();
+                 value = parseFloat(match[2]) / membersCount;
+                 // Round to 2 decimal places to avoid noisy data
+                 value = Math.round(value * 100) / 100;
+              } else if (cleanLine.toLowerCase().startsWith('phát hiện:')) {
+                 taskName = 'Phát hiện';
+                 value = cleanLine.substring('phát hiện:'.length).trim();
+              } else {
+                 return;
               }
-              return line;
-           }).join('\n');
-        }).join('\n---\n');
 
-        const team = memberEntries[0]?.team || '';
+              const colName = `${displayDate} - ${taskName}`;
+              
+              if (!dynamicCols.find(c => c.colName === colName)) {
+                 dynamicCols.push({ date, taskName, colName, displayDate });
+              }
 
-        exportData.push({
-          "Ngày": displayDate,
-          "Tổ": team,
-          "Họ và Tên": member,
-          "Nội dung công việc": combinedContent
-        });
-      });
+              e.members?.forEach(member => {
+                 let memberData = memberDataMap.get(member);
+                 if (!memberData) {
+                    memberData = {
+                       "Họ và Tên": member,
+                       "Khu vực công tác": e.team || ''
+                    };
+                    memberDataMap.set(member, memberData);
+                 }
+                 
+                 if (typeof value === 'number') {
+                    memberData[colName] = (memberData[colName] || 0) + value;
+                 } else {
+                    if (memberData[colName] && memberData[colName] !== 'không có' && memberData[colName] !== '') {
+                        if (value !== 'không có' && value !== '') {
+                            memberData[colName] += ' | ' + value;
+                        }
+                    } else {
+                        memberData[colName] = value;
+                    }
+                 }
+              });
+          });
+       });
     });
 
-    if (exportData.length === 0) {
+    if (memberDataMap.size === 0) {
        alert("Không có dữ liệu để xuất");
        return;
     }
 
+    const exportData: any[] = [];
+    let stt = 1;
+    const sortedMembers = Array.from(memberDataMap.values()).sort((a, b) => {
+       if (a["Khu vực công tác"] === b["Khu vực công tác"]) {
+           return a["Họ và Tên"].localeCompare(b["Họ và Tên"]);
+       }
+       return a["Khu vực công tác"].localeCompare(b["Khu vực công tác"]);
+    });
+
+    sortedMembers.forEach(md => {
+       const row: any = {
+           "STT": stt++,
+           "Họ và Tên": md["Họ và Tên"],
+           "Khu vực công tác": md["Khu vực công tác"]
+       };
+       dynamicCols.forEach(col => {
+           row[col.colName] = md[col.colName] || '';
+       });
+       exportData.push(row);
+    });
+
     const worksheet = XLSX.utils.json_to_sheet(exportData);
     
-    // Auto-adjust column widths roughly
-    const maxWidths = [
-      { wch: 15 }, // Ngày
-      { wch: 25 }, // Tổ
+    const cols = [
+      { wch: 5 }, // STT
       { wch: 30 }, // Họ và Tên
-      { wch: 80 }, // Nội dung công việc
+      { wch: 20 }, // Khu vực
     ];
-    worksheet['!cols'] = maxWidths;
+    dynamicCols.forEach(col => {
+        cols.push({ wch: Math.max(15, col.colName.length) });
+    });
+    worksheet['!cols'] = cols;
 
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "BaoCao");

@@ -194,10 +194,15 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
         return;
     }
     
+    setMembers([]);
+    setMemberInput('');
+    setSelectedTasks({});
+    setPhatHien('không có');
+
     smartInitialState.current = {
-        selectedTasks: { ...selectedTasks },
-        members: [...members],
-        phatHien,
+        selectedTasks: {},
+        members: [],
+        phatHien: 'không có',
         team
     };
     
@@ -290,7 +295,23 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
         
         const newSelectedTasks = { ...smartInitialState.current.selectedTasks };
         let tasksTextLower = tasksText.toLowerCase();
-        
+
+        // Convert Vietnamese numbers to digits
+        const vnNumbers: any = {
+            'mười một': 11, 'mười hai': 12, 'mười ba': 13, 'mười bốn': 14, 'mười lăm': 15, 'mười năm': 15,
+            'mười sáu': 16, 'mười bảy': 17, 'mười tám': 18, 'mười chín': 19, 'hai mươi': 20,
+            'một': 1, 'hai': 2, 'ba': 3, 'bốn': 4, 'năm': 5, 'sáu': 6, 'bảy': 7, 'tám': 8, 'chín': 9, 'mười': 10
+        };
+        const wordsPattern = Object.keys(vnNumbers).join('|');
+        tasksTextLower = tasksTextLower
+            .replace(new RegExp(`\\b(${wordsPattern})\\s+(rưỡi|phẩy năm|chấm năm)\\b`, 'gi'), (match, p1) => {
+                 return vnNumbers[p1.toLowerCase()] + '.5';
+            })
+            .replace(new RegExp(`\\b(${wordsPattern})\\b`, 'gi'), (match) => {
+                 return vnNumbers[match.toLowerCase()];
+            })
+            .replace(/\brưỡi\b/g, '0.5');
+
         const taskStrings = tasksTextLower.split(/[,;\.]|\b\s*và\s*\b|\b\s*thêm\s*\b|\b\s*với\s*\b/i).filter((s: string) => s.trim().length > 0);
         
         taskStrings.forEach((chunk: string) => {

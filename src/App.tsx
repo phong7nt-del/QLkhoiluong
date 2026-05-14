@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { ClipboardList, BarChart3, Database, TrendingUp, LogOut, User as UserIcon, CheckSquare, XSquare, Settings } from "lucide-react";
+import { ClipboardList, BarChart3, Database, TrendingUp, LogOut, User as UserIcon, CheckSquare, XSquare, Settings, Activity } from "lucide-react";
 import WorkloadForm from "./components/WorkloadForm";
 import Analytics from "./components/Analytics";
 import Stations from "./components/Stations";
@@ -7,10 +7,11 @@ import AnalysisTab from "./components/AnalysisTab";
 import Login from "./components/Login";
 import ProgressTab from "./components/ProgressTab";
 import ConfigModal from "./components/ConfigModal";
+import TutiTab from "./components/TutiTab";
 import { DataStore, SheetMember } from "./store/DataStore";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"input" | "report" | "stations" | "analysis" | "progress">("input");
+  const [activeTab, setActiveTab] = useState<"input" | "report" | "stations" | "analysis" | "progress" | "tuti">("input");
   const [refreshToggle, setRefreshToggle] = useState(0);
   const [showConfig, setShowConfig] = useState(false);
   const [sessionUser, setSessionUser] = useState<SheetMember | null>(null);
@@ -159,15 +160,13 @@ export default function App() {
                  <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">{sessionUser.team}</span>
                </div>
             </div>
-            {/* {isManagement && (
-              <button 
-                onClick={() => setShowConfig(true)}
-                className="text-slate-400 hover:text-blue-600 hover:bg-blue-50 p-1.5 rounded-full transition-colors"
-                title="Cấu hình hệ thống"
-              >
-                <Settings className="w-4 h-4" />
-              </button>
-            )} */}
+            <button 
+              onClick={() => setShowConfig(true)}
+              className="text-slate-400 hover:text-blue-600 hover:bg-blue-50 p-1.5 rounded-full transition-colors"
+              title="Cấu hình hệ thống"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
             <button 
               onClick={handleLogout}
               className="text-slate-400 hover:text-red-500 hover:bg-red-50 p-2 rounded-full transition-all hover:scale-105"
@@ -252,6 +251,19 @@ export default function App() {
                     )}
                   </button>
                 )}
+                {isManagement && (
+                  <button
+                    onClick={() => setActiveTab("tuti")}
+                    className={`flex items-center gap-1.5 px-5 py-2.5 text-[13px] font-bold tracking-wide transition-all rounded-xl whitespace-nowrap ${
+                      activeTab === "tuti"
+                        ? "text-indigo-700 bg-indigo-50 shadow-sm border border-indigo-200/50"
+                        : "text-slate-500 hover:text-slate-800 hover:bg-slate-50 border border-transparent"
+                    }`}
+                  >
+                    <Activity className={`w-4 h-4 mr-0.5 transition-colors ${activeTab === "tuti" ? "text-indigo-600" : "text-slate-400"}`} />
+                    Kiểm tra TU - TI
+                  </button>
+                )}
                </div>
             </div>
           </div>
@@ -272,6 +284,9 @@ export default function App() {
               )}
               {activeTab === "progress" && isManagement && (
                 <ProgressTab refreshToggle={refreshToggle} sessionUser={sessionUser} />
+              )}
+              {activeTab === "tuti" && isManagement && (
+                <TutiTab refreshToggle={refreshToggle} sessionUser={sessionUser} />
               )}
             </div>
           </div>

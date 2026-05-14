@@ -445,6 +445,7 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
                          <div>
                             <div className="flex justify-between items-start mb-3">
                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-xs font-bold px-2 py-0.5 rounded-full bg-slate-900 text-white shadow-sm border border-slate-700">#{idx + 1}</span>
                                   {getStatusBadge(t.deadline)}
                                </div>
                                {isDoiTruong && (

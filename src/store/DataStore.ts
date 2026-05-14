@@ -26,12 +26,28 @@ export interface TaskProgress {
   status: string; // Hoàn tất ('xong' or '')
   explanation?: string; // Giải trình
   isLocal?: boolean;
+  timestamp?: number;
 }
 
 export interface SheetMember {
   team: string;
   name: string;
   [key: string]: any;
+}
+
+export interface TutiEntry {
+  id: string;
+  maTram: string; // Mã trạm
+  tenDiemDo: string; // Tên điểm đo
+  thongSoTU: string; // Thông số TU
+  thongSoTI: string; // Thông số TI
+  kiemTraTU: string; // Kiểm tra TU
+  kiemTraTI: string; // Kiểm tra TI
+  khac: string; // Khác
+  ketLuan: string; // Kết luận ('Đúng' | 'Sai' | '')
+  ngayCapNhat: string; // Ngày cập nhật (dd/mm/yyyy)
+  ngayDuaLen: string; // Ngày đưa lên (dd/mm/yyyy)
+  isLocal?: boolean;
 }
 
 const STORAGE_KEY = 'workload_data_v1';
@@ -42,6 +58,8 @@ const STATIONS_KEY = 'sheet_stations_v1';
 const DINHMUC_KEY = 'sheet_dinhmuc_v1';
 const PROGRESS_KEY = 'sheet_progress_v1';
 const LOCAL_PROGRESS_UPDATES_KEY = 'local_progress_updates_v1';
+const TUTI_KEY = 'sheet_tuti_v1';
+const LOCAL_TUTI_UPDATES_KEY = 'local_tuti_updates_v1';
 
 export const DataStore = {
   getAppScriptUrl: () => localStorage.getItem(SCRIPT_URL_KEY) || 'https://script.google.com/macros/s/AKfycbyDCcu4I8yfT1g2KOHCRoaDtMMb1gLvfxhP4HJkzFYbqNIg1TSXCyi2HS3D7hDYpInVxQ/exec',
@@ -126,10 +144,20 @@ export const DataStore = {
 
   syncMasterData: async () => {
     try {
-      const url = DataStore.getAppScriptUrl();
-      if (!url) return false;
-      const res = await fetch(`${url}?action=getData&_t=${new Date().getTime()}`);
-      const json = await res.json();
+      let json: any = { status: 'success', members: [], teams: [] };
+      try {
+        const url = DataStore.getAppScriptUrl();
+        if (url) {
+          const res = await fetch(`${url}?action=getData&_t=${new Date().getTime()}`);
+          const fetchedJson = await res.json();
+          if (fetchedJson && fetchedJson.status === 'success') {
+            json = fetchedJson;
+          }
+        }
+      } catch(e) {
+        console.warn("Could not fetch from App Script. Proceeding with CSV fallback.", e);
+      }
+
       if (json.status === 'success') {
          // Lấy MSNV và bổ sung thêm NV từ file CSV
          try {
@@ -345,6 +373,48 @@ export const DataStore = {
                console.error('Error fetching DinhMuc', e);
             }
 
+            // Fetch TUTI via CSV
+            try {
+               const tutiRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("TUTI")}&_t=${new Date().getTime()}`);
+               const tutiText = await tutiRes.text();
+               if (!tutiText.includes('<html') && tutiText.trim()) {
+                   const { data: tutiData } = Papa.parse(tutiText, { header: true });
+                   const tutiList: TutiEntry[] = [];
+                   for (const row of tutiData as any[]) {
+                       if (!row || Object.keys(row).length === 0) continue;
+                       const getVal = (opts: string[]) => {
+                           for (const k of Object.keys(row)) {
+                               if (opts.some(opt => k.toLowerCase().includes(opt))) {
+                                   return row[k] ? String(row[k]) : '';
+                               }
+                           }
+                           return '';
+                       };
+                       
+                       const maTram = getVal(['mã trạm']);
+                       const tenDiemDo = getVal(['tên điểm đo']);
+                       if (maTram || tenDiemDo) {
+                          tutiList.push({
+                              id: String(Math.random().toString(36).substring(2)),
+                              maTram: maTram,
+                              tenDiemDo: tenDiemDo,
+                              thongSoTU: getVal(['thông số tu']),
+                              thongSoTI: getVal(['thông số ti']),
+                              kiemTraTU: getVal(['kiểm tra tu']),
+                              kiemTraTI: getVal(['kiểm tra ti']),
+                              khac: getVal(['khác']),
+                              ketLuan: getVal(['kết luận']),
+                              ngayCapNhat: getVal(['ngày cập nhật']),
+                              ngayDuaLen: getVal(['ngày đưa lên']),
+                          });
+                       }
+                   }
+                   localStorage.setItem(TUTI_KEY, JSON.stringify(tutiList));
+               }
+            } catch (e) {
+               console.error('Error fetching TUTI', e);
+            }
+
          } catch (e) {
             console.error('Error parsing CBCNV from CSV', e);
          }
@@ -360,7 +430,18 @@ export const DataStore = {
          if (json.dinhMuc) {
            localStorage.setItem(DINHMUC_KEY, JSON.stringify(json.dinhMuc));
          }
-         localStorage.removeItem(LOCAL_PROGRESS_UPDATES_KEY); // Clear local progress cache
+         
+         const localCached = localStorage.getItem(LOCAL_PROGRESS_UPDATES_KEY);
+         if (localCached) {
+             const localTasks: TaskProgress[] = JSON.parse(localCached);
+             const now = Date.now();
+             const validLocal = localTasks.filter(t => t.timestamp && (now - t.timestamp) < 5 * 60 * 1000);
+             if (validLocal.length > 0) {
+                 localStorage.setItem(LOCAL_PROGRESS_UPDATES_KEY, JSON.stringify(validLocal));
+             } else {
+                 localStorage.removeItem(LOCAL_PROGRESS_UPDATES_KEY);
+             }
+         }
          return true;
       }
     } catch (error) {
@@ -421,7 +502,8 @@ export const DataStore = {
      const newTask: TaskProgress = {
         ...task,
         id: '', // Empty ID tells App Script to insert it
-        isLocal: true
+        isLocal: true,
+        timestamp: Date.now()
      };
      localTasks.push(newTask);
      localStorage.setItem(LOCAL_PROGRESS_UPDATES_KEY, JSON.stringify(localTasks));
@@ -434,7 +516,7 @@ export const DataStore = {
      const task = allTasks.find(t => t.id === id);
      if (!task) return null;
      
-     const updatedTask = { ...task, status, isLocal: true };
+     const updatedTask = { ...task, status, isLocal: true, timestamp: Date.now() };
      
      const localCached = localStorage.getItem(LOCAL_PROGRESS_UPDATES_KEY);
      const localTasks: TaskProgress[] = localCached ? JSON.parse(localCached) : [];
@@ -467,7 +549,7 @@ export const DataStore = {
      
      let updatedExplanation = currentExplanations ? currentExplanations + '\n' + lineText : lineText;
      
-     const updatedTask = { ...task, explanation: updatedExplanation, isLocal: true };
+     const updatedTask = { ...task, explanation: updatedExplanation, isLocal: true, timestamp: Date.now() };
      
      const localCached = localStorage.getItem(LOCAL_PROGRESS_UPDATES_KEY);
      const localTasks: TaskProgress[] = localCached ? JSON.parse(localCached) : [];
@@ -481,6 +563,76 @@ export const DataStore = {
      localStorage.setItem(LOCAL_PROGRESS_UPDATES_KEY, JSON.stringify(localTasks));
      DataStore.syncProgressToSheet(updatedTask);
      return updatedTask;
+  },
+
+  syncTutiToSheet: async (entry: TutiEntry) => {
+    try {
+      const url = DataStore.getAppScriptUrl();
+      if (!url) return false;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8',
+        },
+        body: JSON.stringify({ action: 'update_tuti', data: entry }),
+      });
+      const result = await response.json();
+      return result.status === 'success';
+    } catch (error) {
+      console.error('Error syncing TUTI to sheet:', error);
+      return false;
+    }
+  },
+
+  getTutiEntries: (): TutiEntry[] => {
+     try {
+       const cached = localStorage.getItem(TUTI_KEY);
+       const remoteTasks: TutiEntry[] = cached ? JSON.parse(cached) : [];
+       
+       const localCached = localStorage.getItem(LOCAL_TUTI_UPDATES_KEY);
+       const localTasks: TutiEntry[] = localCached ? JSON.parse(localCached) : [];
+       
+       // Priority to local tasks
+       const mergedMap = new Map(remoteTasks.map(t => [t.id, t]));
+       localTasks.forEach(lt => mergedMap.set(lt.id, lt));
+       
+       return Array.from(mergedMap.values());
+     } catch { return []; }
+  },
+
+  addTutiEntry: (entry: Omit<TutiEntry, 'id'>) => {
+     const localCached = localStorage.getItem(LOCAL_TUTI_UPDATES_KEY);
+     const localTasks: TutiEntry[] = localCached ? JSON.parse(localCached) : [];
+     const newEntry: TutiEntry = {
+        ...entry,
+        id: Math.random().toString(36).substring(2, 9),
+        isLocal: true
+     };
+     localTasks.push(newEntry);
+     localStorage.setItem(LOCAL_TUTI_UPDATES_KEY, JSON.stringify(localTasks));
+     DataStore.syncTutiToSheet(newEntry);
+     return newEntry;
+  },
+
+  updateTutiEntry: (id: string, updates: Partial<TutiEntry>) => {
+     const allEntries = DataStore.getTutiEntries();
+     const entry = allEntries.find(t => t.id === id);
+     if (!entry) return null;
+     
+     const updatedEntry = { ...entry, ...updates, isLocal: true };
+     
+     const localCached = localStorage.getItem(LOCAL_TUTI_UPDATES_KEY);
+     const localTasks: TutiEntry[] = localCached ? JSON.parse(localCached) : [];
+     
+     const existingIndex = localTasks.findIndex(t => t.id === id);
+     if (existingIndex >= 0) {
+        localTasks[existingIndex] = updatedEntry;
+     } else {
+        localTasks.push(updatedEntry);
+     }
+     localStorage.setItem(LOCAL_TUTI_UPDATES_KEY, JSON.stringify(localTasks));
+     DataStore.syncTutiToSheet(updatedEntry);
+     return updatedEntry;
   },
 
   deleteEntry: (id: string) => {
