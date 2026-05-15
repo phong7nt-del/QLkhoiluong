@@ -22,6 +22,18 @@ export default function App() {
   const [taskStats, setTaskStats] = useState({ overdue: 0, warning: 0, ok: 0 });
 
   useEffect(() => {
+    if (sessionUser) {
+       const members = DataStore.getMembers();
+       const freshMember = members.find(m => m.name === sessionUser.name);
+       if (freshMember && freshMember.role !== sessionUser.role) {
+           const updated = { ...sessionUser, ...freshMember };
+           sessionStorage.setItem('workload_user_session', JSON.stringify(updated));
+           setSessionUser(updated);
+       }
+    }
+  }, [refreshToggle, sessionUser?.name]);
+
+  useEffect(() => {
     if (isManagement) {
       const today = new Date();
       today.setHours(0,0,0,0);
@@ -54,7 +66,15 @@ export default function App() {
     const storedUser = sessionStorage.getItem('workload_user_session');
     if (storedUser) {
         try {
-            const parsedUser = JSON.parse(storedUser);
+            let parsedUser = JSON.parse(storedUser);
+            // Re-sync with DataStore in case role was updated
+            const members = DataStore.getMembers();
+            const freshMember = members.find(m => m.name === parsedUser.name);
+            if (freshMember && freshMember.role !== parsedUser.role) {
+                parsedUser = { ...parsedUser, ...freshMember };
+                sessionStorage.setItem('workload_user_session', JSON.stringify(parsedUser));
+            }
+
             setSessionUser(parsedUser);
             const _roleStr = parsedUser?.role ? parsedUser.role.toLowerCase() : '';
             const _isManagement = ['đội trưởng', 'đội phó', 'tổ trưởng', 'tổ phó'].some(r => _roleStr.includes(r));

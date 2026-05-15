@@ -180,7 +180,7 @@ export const DataStore = {
                                headRow = r;
                            }
                            if (val.includes('họ và tên') || val === 'họ tên') nameCol = c;
-                           if (val.includes('chức danh') || val.includes('công việc')) roleCol = c;
+                           if (val.includes('chức danh') || val.includes('công việc') || val.includes('chức vụ')) roleCol = c;
                        }
                        if (headRow !== -1) break;
                    }
