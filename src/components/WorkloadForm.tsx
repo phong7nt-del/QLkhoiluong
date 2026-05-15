@@ -45,9 +45,6 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
     setAvailableTeams(teams);
     setAllSheetMembers(sm);
     setDinhMucList(dm);
-    if (teams.length > 0 && !team) {
-      setTeam(teams[0]);
-    }
     
     // Initialize task selection state
     const tTasks: Record<string, {selected: boolean, quantity: number | string}> = {};
@@ -482,7 +479,12 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
                      if (val) {
                         const exactMatch = allSheetMembers.find(m => m.name.toLowerCase() === val.toLowerCase());
                         if (exactMatch) {
-                           if (!members.includes(exactMatch.name)) setMembers(prev => [...prev, exactMatch.name]);
+                           if (!members.includes(exactMatch.name)) {
+                               setMembers(prev => [...prev, exactMatch.name]);
+                           }
+                           if (!team && exactMatch.team) {
+                               setTeam(exactMatch.team);
+                           }
                            setMemberInput('');
                         } else {
                            alert(`Lỗi! Tên "${val}" không khớp với danh sách nhân viên trong hệ thống (Sheet CongTac).`);
@@ -502,7 +504,13 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
                   key={idx}
                   className="p-3 text-sm border-b border-slate-100 hover:bg-blue-50 hover:text-blue-700 cursor-pointer font-semibold transition-colors"
                   onClick={() => {
-                    setMembers(prev => [...prev, suggestion]);
+                    if (!members.includes(suggestion)) {
+                        setMembers(prev => [...prev, suggestion]);
+                    }
+                    if (!team) {
+                        const mObj = allSheetMembers.find(x => x.name === suggestion);
+                        if (mObj && mObj.team) setTeam(mObj.team);
+                    }
                     setMemberInput('');
                   }}
                 >

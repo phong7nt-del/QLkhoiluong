@@ -2,7 +2,10 @@ import React, { useState } from 'react';
 import { DataStore } from '../store/DataStore';
 import { Copy, Check, DownloadCloud, AlertTriangle, X } from 'lucide-react';
 
-const SCRIPT_TEMPLATE = `const SPREADSHEET_ID = '1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ';
+const SCRIPT_TEMPLATE = `// XÓA TẤT CẢ MÃ CŨ (XÓA function myFunction() { ... })
+// CHỈ DÁN ĐOẠN MÃ DƯỚI ĐÂY VÀO:
+
+var SPREADSHEET_ID = '1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ';
 
 function getSheetFlexibly(ss, possibleNames) {
   for (var i=0; i<possibleNames.length; i++) {
@@ -48,19 +51,26 @@ function doGet(e) {
     var teams = [];
     var members = [];
     var memberTeamMap = {};
+    var currentTeam = '';
     
     for (var i = startRow; i < data.length; i++) {
       var name = String(data[i][nameIdx] || '').trim();
       var teamVal = String(data[i][teamIdx] || '').trim();
       
+      if (teamVal && teamVal.toLowerCase() !== 'khu vực' && teamVal.toLowerCase() !== 'tổ công tác') {
+          currentTeam = teamVal;
+      }
+      
       if (!name || name.toLowerCase().includes('họ và tên') || name.toLowerCase() === 'họ tên') continue;
       
-      if (teamVal && teamVal.toLowerCase() !== 'khu vực' && teamVal.toLowerCase() !== 'tổ công tác') {
-        if (teams.indexOf(teamVal) === -1) {
-           teams.push(teamVal);
+      var assignTeam = currentTeam || 'Không xác định';
+      
+      if (assignTeam && assignTeam.toLowerCase() !== 'khu vực' && assignTeam.toLowerCase() !== 'tổ công tác') {
+        if (teams.indexOf(assignTeam) === -1) {
+           teams.push(assignTeam);
         }
-        members.push({ team: teamVal, name: name });
-        memberTeamMap[name] = teamVal;
+        members.push({ team: assignTeam, name: name });
+        memberTeamMap[name] = assignTeam;
       }
     }
     

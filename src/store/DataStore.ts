@@ -159,84 +159,134 @@ export const DataStore = {
       }
 
       if (json.status === 'success') {
-         // Lấy MSNV và bổ sung thêm NV từ file CSV
+         // Lấy MSNV và Nhóm từ CSV
          try {
-            const cbcnvRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:csv&sheet=CBCNV&_t=${new Date().getTime()}`);
-            const csvText = await cbcnvRes.text();
-            const { data } = Papa.parse(csvText, { header: false });
-            
-            const membersMap = new Map<string, any>();
-            
-            // 1. Thêm members từ JSON (App Script) trước
-            if (json.members && Array.isArray(json.members)) {
-               for (const m of json.members) {
-                  const key = String(m.name || '').toLowerCase().replace(/\s+/g, '');
-                  membersMap.set(key, m);
-               }
-            }
-            
-            // 2. Scan CSV để cập nhật hoặc thêm mới NV
-            const startIndex = 1; // Bỏ qua header
-            for (let i = startIndex; i < data.length; i++) {
-               const row = data[i] as string[];
-               // format: Stt[0], MSNV[1], Link[2], Họ tên[3], ... Phòng Đội viết tắt[9],  Phòng Đội[10]
-               if (row && row.length > 3) {
-                  const msnv = String(row[1] || '').trim();
-                  const rawName = String(row[3] || '').trim();
-                  const teamAbbr = String(row[9] || '').trim();
-                  const teamFull = String(row[10] || '').trim();
-                  const role = String(row[12] || '').trim();
-                  
-                  if (rawName && msnv) {
-                     const key = rawName.toLowerCase().replace(/\s+/g, '');
-                     if (membersMap.has(key)) {
-                        membersMap.get(key)!.msnv = msnv;
-                        if (role) membersMap.get(key)!.role = role;
-                     } else {
-                        membersMap.set(key, {
-                           name: rawName,
-                           msnv: msnv,
-                           team: teamAbbr || teamFull || "Không xác định",
-                           role: role,
-                        });
-                     }
-                  }
-               }
-            }
-            
-            json.members = Array.from(membersMap.values());
-            
-            // Gộp team mới vào json.teams nếu cần (tránh lỗi thiếu team trong filter)
-            const allTeams = new Set<string>((json.teams || []).map((t: string) => t));
-            json.members.forEach((m: any) => allTeams.add(m.team));
-            let finalTeams = Array.from(allTeams);
-            let ctText = '';
-
-            // Bắt buộc lấy danh sách Tổ công tác từ sheet CongTac (cột số 5 Khu vực)
+            let cbcnvMap = new Map<string, {msnv: string, role: string}>();
             try {
-               const ctRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:csv&sheet=CongTac&_t=${new Date().getTime()}`);
-               ctText = await ctRes.text();
-               const ctData = Papa.parse(ctText, { header: false }).data;
-               const ctTeamsMap = new Map<string, string>();
-               for (let i = 1; i < ctData.length; i++) {
-                  const row = ctData[i] as string[];
-                  if (row && row[5] && row[5].trim()) {
-                     const teamStr = row[5].trim().replace(/\s+/g, ' ');
-                     const normalized = teamStr.normalize('NFC').toLowerCase();
-                     if (!ctTeamsMap.has(normalized)) {
-                        ctTeamsMap.set(normalized, teamStr);
-                     }
-                  }
-               }
-               const ctTeams = Array.from(ctTeamsMap.values());
-               if (ctTeams.length > 0) {
-                  finalTeams = ctTeams; 
+               const cbcnvRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/export?format=csv&sheet=${encodeURIComponent('Tiến độ')}`);
+               const csvText = await cbcnvRes.text();
+               if (!csvText.includes('<html')) {
+                   const { data } = Papa.parse(csvText, { header: false });
+                   let headRow = -1;
+                   let msnvCol = -1, nameCol = -1, roleCol = -1;
+
+                   for (let r = 0; r < 5; r++) {
+                       if (!data[r]) continue;
+                       const rowData = data[r] as string[];
+                       for (let c = 0; c < rowData.length; c++) {
+                           const val = String(rowData[c] || '').toLowerCase().trim();
+                           if (val.includes('mã nhân viên') || val.includes('msnv')) {
+                               msnvCol = c;
+                               headRow = r;
+                           }
+                           if (val.includes('họ và tên') || val === 'họ tên') nameCol = c;
+                           if (val.includes('chức danh') || val.includes('công việc')) roleCol = c;
+                       }
+                       if (headRow !== -1) break;
+                   }
+
+                   if (headRow !== -1 && msnvCol !== -1 && nameCol !== -1) {
+                       for (let i = headRow + 1; i < data.length; i++) {
+                          const row = data[i] as string[];
+                          if (row && row.length > Math.max(msnvCol, nameCol)) {
+                             const msnv = String(row[msnvCol] || '').trim();
+                             const rawName = String(row[nameCol] || '').trim();
+                             const role = roleCol !== -1 ? String(row[roleCol] || '').trim() : '';
+                             if (rawName && msnv) {
+                                const key = rawName.toLowerCase().replace(/\s+/g, '');
+                                cbcnvMap.set(key, { msnv, role });
+                             }
+                          }
+                       }
+                   }
                }
             } catch (e) {
-               console.error('Error fetching CongTac teams', e);
+               console.error("Error reading Tien do sheet for MSNV", e);
             }
 
-            json.teams = finalTeams;
+            let ctText = '';
+            let newMembers: any[] = [];
+            let newTeams = new Set<string>();
+
+            // Bắt buộc lấy danh sách tên, nhóm từ sheet CongTac
+            try {
+               const ctSheets = ['CongTac', 'Cong Tac', 'Công tác', 'Công Tác', 'Con Tác'];
+               for (const sheetName of ctSheets) {
+                   const ctRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/export?format=csv&sheet=${encodeURIComponent(sheetName)}`);
+                   const tempText = await ctRes.text();
+                   if (!tempText.includes('<html') && tempText.trim() && tempText.length > 50) {
+                      ctText = tempText;
+                      break;
+                   }
+               }
+               
+               if (ctText) {
+                   const ctData = Papa.parse(ctText, { header: false }).data;
+                   let headerRowIdx = -1;
+                   let nameColIdx = -1;
+                   let teamColIdx = 5;
+                   
+                   for(let r=0; r<5; r++) {
+                       if(ctData[r]) {
+                           const rowData = ctData[r] as string[];
+                           for(let c=0; c<rowData.length; c++) {
+                               const val = String(rowData[c] || '').toLowerCase().trim();
+                               if (val.includes('họ và tên') || val === 'họ tên') {
+                                   headerRowIdx = r;
+                                   nameColIdx = c;
+                               }
+                               if(val.includes('khu vực') || val.includes('khu vuc') || val === 'tổ công tác') {
+                                   teamColIdx = c;
+                               }
+                           }
+                       }
+                       if(headerRowIdx !== -1) break;
+                   }
+
+                   if(headerRowIdx !== -1) {
+                       let currentTeam = '';
+                       for (let i = headerRowIdx + 1; i < ctData.length; i++) {
+                          const row = ctData[i] as string[];
+                          
+                          let teamStr = row[teamColIdx] ? row[teamColIdx].trim().replace(/\s+/g, ' ') : '';
+                          if (teamStr && teamStr.toLowerCase() !== 'khu vực' && teamStr.toLowerCase() !== 'tổ công tác') {
+                              currentTeam = teamStr;
+                          }
+                          
+                          if (!row || !row[nameColIdx]) continue;
+                          const rawName = row[nameColIdx].trim();
+                          if (!rawName) continue;
+                          
+                          let finalTeam = currentTeam || 'Không xác định';
+
+                          if (finalTeam && finalTeam.toLowerCase() !== 'khu vực' && finalTeam.toLowerCase() !== 'tổ công tác') {
+                              newTeams.add(finalTeam);
+                          } else {
+                              finalTeam = 'Không xác định';
+                          }
+
+                          const key = rawName.toLowerCase().replace(/\s+/g, '');
+                          const cbcnvInfo = cbcnvMap.get(key) || { msnv: '', role: '' };
+
+                          newMembers.push({
+                              name: rawName,
+                              team: finalTeam,
+                              msnv: cbcnvInfo.msnv,
+                              role: cbcnvInfo.role
+                          });
+                       }
+                   }
+               }
+            } catch (e) {
+               console.error('Error fetching CongTac config', e);
+            }
+
+            if (newMembers.length > 0) {
+                json.members = newMembers;
+            }
+            if (newTeams.size > 0) {
+                json.teams = Array.from(newTeams).filter(t => t && t !== 'Không xác định' && t !== 'Tổ công tác' && t !== 'Khu vực');
+            }
 
             // Fetch "Nhật ký/CongTac" for workloads directly!
             try {
@@ -246,14 +296,18 @@ export const DataStore = {
                
                let headerRowIdx = -1;
                let nameColIdx = -1;
+               let teamColIdx = 5; // default fallback
                for(let r = 0; r < 5; r++) {
                    if (!ctDataForWorkloads[r]) continue;
                    const rData = ctDataForWorkloads[r] as string[];
                    for(let c = 0; c < rData.length; c++) {
-                       if (rData[c] && String(rData[c]).toLowerCase().includes('họ và tên')) {
+                       const val = String(rData[c] || '').toLowerCase().trim();
+                       if (val.includes('họ và tên') || val === 'họ tên') {
                            headerRowIdx = r;
                            nameColIdx = c;
-                           break;
+                       }
+                       if (val.includes('khu vực') || val.includes('khu vuc') || val.includes('tổ công tác') || val.includes('đội')) {
+                           teamColIdx = c;
                        }
                    }
                    if(headerRowIdx !== -1) break;
@@ -261,18 +315,27 @@ export const DataStore = {
 
                if(headerRowIdx !== -1) {
                    const headers = ctDataForWorkloads[headerRowIdx] as string[];
+                   let currentTeamWkt = '';
                    
                    for(let r = headerRowIdx + 1; r < ctDataForWorkloads.length; r++) {
                        const row = ctDataForWorkloads[r] as string[];
+                       
+                       let teamStr = row[teamColIdx] ? String(row[teamColIdx]).trim() : '';
+                       if (teamStr && teamStr.toLowerCase() !== 'khu vực' && teamStr.toLowerCase() !== 'tổ công tác') {
+                           currentTeamWkt = teamStr;
+                       }
+                       
                        if (!row || !row[nameColIdx]) continue;
                        const memberName = row[nameColIdx].trim();
                        if (!memberName) continue;
                        
-                       for(let c = 5; c < headers.length; c++) { // dates start after functions/area cols
+                       let finalTeam = currentTeamWkt || 'Không xác định';
+                       
+                       for(let c = 0; c < headers.length; c++) { // dates start wherever a date-like header is found
                            if (!headers[c]) continue;
                            const dateStr = headers[c].trim();
                            // Ensure header looks like a date/has numbers
-                           if (!dateStr.match(/\d+/)) continue;
+                           if (!dateStr.match(/\d+\/\d+/)) continue;
 
                            const cellValue = row[c] ? String(row[c]).trim() : '';
                            if (cellValue) {
@@ -288,7 +351,7 @@ export const DataStore = {
                                newWorkloads.push({
                                    id: Math.random().toString(36).substring(2, 9),
                                    content: cellValue,
-                                   team: row[5] ? String(row[5]).trim() : '',
+                                   team: finalTeam,
                                    members: [memberName],
                                    timestamp: Date.now(),
                                    date: formattedDate
@@ -305,7 +368,7 @@ export const DataStore = {
 
             // Fetch "Tiến độ" sheet
             try {
-               const progRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("Tiến độ")}&_t=${new Date().getTime()}`);
+               const progRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/export?format=csv&sheet=${encodeURIComponent("Tiến độ")}&_t=${new Date().getTime()}`);
                const progText = await progRes.text();
                const { data: progData } = Papa.parse(progText, { header: true });
                const progressList: TaskProgress[] = [];
@@ -341,7 +404,7 @@ export const DataStore = {
             try {
                const dmSheets = ['DinhMuc', 'Định Mức', 'Dinh muc', 'Định mức'];
                for (const sheetName of dmSheets) {
-                  const dmRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}&_t=${new Date().getTime()}`);
+                  const dmRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/export?format=csv&sheet=${encodeURIComponent(sheetName)}&_t=${new Date().getTime()}`);
                   const dmText = await dmRes.text();
                   if (!dmText.includes('<html') && dmText.trim() && dmText.length > 50) {
                      const dmData: any[] = Papa.parse(dmText, { header: true }).data as any[];
@@ -375,7 +438,7 @@ export const DataStore = {
 
             // Fetch TUTI via CSV
             try {
-               const tutiRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("TUTI")}&_t=${new Date().getTime()}`);
+               const tutiRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/export?format=csv&sheet=${encodeURIComponent("TUTI")}&_t=${new Date().getTime()}`);
                const tutiText = await tutiRes.text();
                if (!tutiText.includes('<html') && tutiText.trim()) {
                    const { data: tutiData } = Papa.parse(tutiText, { header: true });
@@ -419,9 +482,13 @@ export const DataStore = {
             console.error('Error parsing CBCNV from CSV', e);
          }
 
-         localStorage.setItem(TEAMS_KEY, JSON.stringify(json.teams || []));
-         localStorage.setItem(MEMBERS_KEY, JSON.stringify(json.members || []));
-         if (json.stations) {
+         if (json.teams && json.teams.length > 0) {
+           localStorage.setItem(TEAMS_KEY, JSON.stringify(json.teams));
+         }
+         if (json.members && json.members.length > 0) {
+           localStorage.setItem(MEMBERS_KEY, JSON.stringify(json.members));
+         }
+         if (json.stations && json.stations.length > 0) {
            localStorage.setItem(STATIONS_KEY, JSON.stringify(json.stations));
          }
          if (json.workloads) {
@@ -453,7 +520,17 @@ export const DataStore = {
   getTeams: (): string[] => {
     try {
        const cached = localStorage.getItem(TEAMS_KEY);
-       return cached ? JSON.parse(cached) : [];
+       let teams = cached ? JSON.parse(cached) : [];
+       if (!teams || teams.length === 0) {
+           const membersCached = localStorage.getItem(MEMBERS_KEY);
+           if (membersCached) {
+               const members = JSON.parse(membersCached);
+               const teamSet = new Set<string>();
+               members.forEach((m: any) => m && m.team && teamSet.add(m.team));
+               teams = Array.from(teamSet);
+           }
+       }
+       return teams.filter((t: string) => t && t !== 'Không xác định' && t !== 'Tổ công tác' && t !== 'Khu vực');
     } catch { return []; }
   },
 
