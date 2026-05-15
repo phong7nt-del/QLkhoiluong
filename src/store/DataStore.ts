@@ -163,7 +163,7 @@ export const DataStore = {
          try {
             let cbcnvMap = new Map<string, {msnv: string, role: string}>();
             try {
-               const cbcnvRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/export?format=csv&sheet=${encodeURIComponent('Tiến độ')}`);
+               const cbcnvRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('CBCNV')}`);
                const csvText = await cbcnvRes.text();
                if (!csvText.includes('<html')) {
                    const { data } = Papa.parse(csvText, { header: false });
@@ -201,7 +201,7 @@ export const DataStore = {
                    }
                }
             } catch (e) {
-               console.error("Error reading Tien do sheet for MSNV", e);
+               console.error("Error reading CBCNV sheet for MSNV", e);
             }
 
             let ctText = '';
@@ -212,7 +212,7 @@ export const DataStore = {
             try {
                const ctSheets = ['CongTac', 'Cong Tac', 'Công tác', 'Công Tác', 'Con Tác'];
                for (const sheetName of ctSheets) {
-                   const ctRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/export?format=csv&sheet=${encodeURIComponent(sheetName)}`);
+                   const ctRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`);
                    const tempText = await ctRes.text();
                    if (!tempText.includes('<html') && tempText.trim() && tempText.length > 50) {
                       ctText = tempText;
@@ -368,14 +368,27 @@ export const DataStore = {
 
             // Fetch "Tiến độ" sheet
             try {
-               const progRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/export?format=csv&sheet=${encodeURIComponent("Tiến độ")}&_t=${new Date().getTime()}`);
+               const progRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("Tiến độ")}&_t=${new Date().getTime()}`);
                const progText = await progRes.text();
                const { data: progData } = Papa.parse(progText, { header: true });
                const progressList: TaskProgress[] = [];
                for (const row of progData as any[]) {
                   const getVal = (opts: string[]) => {
                       for (const k of Object.keys(row)) {
-                          if (opts.some(opt => k.toLowerCase().includes(opt))) {
+                          const normalizedK = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+                          if (opts.some(opt => {
+                              const normalizedOpt = opt.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+                              return normalizedK === normalizedOpt;
+                          })) {
+                              return row[k];
+                          }
+                      }
+                      for (const k of Object.keys(row)) {
+                          const normalizedK = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+                          if (opts.some(opt => {
+                              const normalizedOpt = opt.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+                              return normalizedK.includes(normalizedOpt);
+                          })) {
                               return row[k];
                           }
                       }
@@ -404,7 +417,7 @@ export const DataStore = {
             try {
                const dmSheets = ['DinhMuc', 'Định Mức', 'Dinh muc', 'Định mức'];
                for (const sheetName of dmSheets) {
-                  const dmRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/export?format=csv&sheet=${encodeURIComponent(sheetName)}&_t=${new Date().getTime()}`);
+                  const dmRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}&_t=${new Date().getTime()}`);
                   const dmText = await dmRes.text();
                   if (!dmText.includes('<html') && dmText.trim() && dmText.length > 50) {
                      const dmData: any[] = Papa.parse(dmText, { header: true }).data as any[];
@@ -438,7 +451,7 @@ export const DataStore = {
 
             // Fetch TUTI via CSV
             try {
-               const tutiRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/export?format=csv&sheet=${encodeURIComponent("TUTI")}&_t=${new Date().getTime()}`);
+               const tutiRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("TUTI")}&_t=${new Date().getTime()}`);
                const tutiText = await tutiRes.text();
                if (!tutiText.includes('<html') && tutiText.trim()) {
                    const { data: tutiData } = Papa.parse(tutiText, { header: true });
@@ -447,7 +460,20 @@ export const DataStore = {
                        if (!row || Object.keys(row).length === 0) continue;
                        const getVal = (opts: string[]) => {
                            for (const k of Object.keys(row)) {
-                               if (opts.some(opt => k.toLowerCase().includes(opt))) {
+                               const normalizedK = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+                               if (opts.some(opt => {
+                                   const normalizedOpt = opt.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+                                   return normalizedK === normalizedOpt;
+                               })) {
+                                   return row[k] ? String(row[k]) : '';
+                               }
+                           }
+                           for (const k of Object.keys(row)) {
+                               const normalizedK = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+                               if (opts.some(opt => {
+                                   const normalizedOpt = opt.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+                                   return normalizedK.includes(normalizedOpt);
+                               })) {
                                    return row[k] ? String(row[k]) : '';
                                }
                            }
@@ -502,7 +528,7 @@ export const DataStore = {
          if (localCached) {
              const localTasks: TaskProgress[] = JSON.parse(localCached);
              const now = Date.now();
-             const validLocal = localTasks.filter(t => t.timestamp && (now - t.timestamp) < 5 * 60 * 1000);
+             const validLocal = localTasks.filter(t => t.timestamp && (now - t.timestamp) < 30 * 24 * 60 * 60 * 1000);
              if (validLocal.length > 0) {
                  localStorage.setItem(LOCAL_PROGRESS_UPDATES_KEY, JSON.stringify(validLocal));
              } else {

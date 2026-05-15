@@ -164,8 +164,8 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
   const today = new Date();
   today.setHours(0,0,0,0);
 
-  const pendingTasksRaw = tasks.filter(t => t.status.toLowerCase() !== 'xong');
-  const completedTasksRaw = tasks.filter(t => t.status.toLowerCase() === 'xong');
+  const pendingTasksRaw = tasks.filter(t => t.status.trim().toLowerCase() !== 'xong');
+  const completedTasksRaw = tasks.filter(t => t.status.trim().toLowerCase() === 'xong');
 
   const removeAccents = (str: string) => {
     return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
