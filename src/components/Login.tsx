@@ -94,20 +94,21 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 relative overflow-hidden">
+    <div className="min-h-screen bg-[#F5F4F2] flex items-center justify-center p-4 relative overflow-hidden font-sans">
       {/* Decorative Background Elements */}
-      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-[#005B8C]/20 rounded-full blur-[100px] pointer-events-none mix-blend-multiply"></div>
-      <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-[#ED1C24]/10 rounded-full blur-[100px] pointer-events-none mix-blend-multiply"></div>
+      <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[60%] bg-[#005B8C]/10 rounded-full blur-[120px] pointer-events-none mix-blend-multiply"></div>
+      <div className="absolute bottom-[-20%] right-[-10%] w-[60%] h-[60%] bg-[#F7941D]/10 rounded-full blur-[120px] pointer-events-none mix-blend-multiply"></div>
       
-      <div className="max-w-5xl w-full grid md:grid-cols-2 bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100 z-10 relative">
+      <div className="max-w-6xl w-full grid md:grid-cols-2 bg-white/80 rounded-[32px] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.1),0_0_20px_rgba(0,0,0,0.02)] overflow-hidden border border-white backdrop-blur-xl z-10 relative">
         
         {/* Left Section - Graphic/Branding */}
-        <div className="bg-gradient-to-br from-[#005B8C] via-[#004B73] to-[#003A5A] p-10 flex flex-col justify-between text-white relative overflow-hidden">
+        <div className="bg-[#141414] p-12 flex flex-col justify-between text-white relative overflow-hidden">
            {/* Abstract grid pattern */}
-           <div className="absolute inset-0 opacity-[0.03] bg-[linear-gradient(to_right,#fff_1px,transparent_1px),linear-gradient(to_bottom,#fff_1px,transparent_1px)] bg-[size:40px_40px]"></div>
+           <div className="absolute inset-0 opacity-10 bg-[linear-gradient(to_right,#fff_1px,transparent_1px),linear-gradient(to_bottom,#fff_1px,transparent_1px)] bg-[size:48px_48px]"></div>
+           <div className="absolute inset-0 bg-gradient-to-t from-[#141414] to-transparent"></div>
            
-           <div className="relative z-10 flex items-center gap-3">
-              <div className="bg-white p-2 rounded-xl border border-white/20">
+           <div className="relative z-10 flex items-center gap-4">
+              <div className="bg-white p-2.5 rounded-2xl">
                 <img 
                   src="https://www.evnhcmc.vn/public/images/EVNHCMC2021.svg" 
                   alt="EVNHCMC Logo" 
@@ -115,24 +116,24 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                 />
               </div>
               <div>
-                <h1 className="font-bold tracking-wider text-xl text-[#F7941D]">ĐIỆN LỰC VŨNG TÀU</h1>
-                <p className="text-white/80 text-sm font-medium tracking-widest uppercase">Đội QLHTĐĐ</p>
+                <h1 className="font-bold tracking-widest text-lg md:text-xl text-white uppercase drop-shadow-sm">CÔNG TY ĐIỆN LỰC VŨNG TÀU</h1>
+                <p className="text-[#F7941D] text-sm font-bold tracking-[0.2em] uppercase mt-0.5">Đội QLHTĐĐ</p>
               </div>
            </div>
 
-           <div className="relative z-10 mt-12 mb-8">
+           <div className="relative z-10 mt-16 mb-8">
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.8, delay: 0.2 }}
               >
-                  <h2 className="text-4xl lg:text-5xl font-display font-black leading-tight mb-6 tracking-tight">
-                     Hệ Thống Quản Trị <br/>
-                     <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-300 to-indigo-200 drop-shadow-sm">
-                       Công Việc & Năng Suất
+                  <h2 className="text-4xl lg:text-5xl font-black leading-tight mb-6 tracking-tight font-sans">
+                     Hệ Thống<br />
+                     <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-200 via-white to-gray-400 drop-shadow-sm italic">
+                       Quản Trị Tác Nghiệp
                      </span>
                   </h2>
-                  <p className="text-white/80 text-lg max-w-sm leading-relaxed mb-10">
+                  <p className="text-[#E4E3E0] opacity-80 text-lg max-w-md leading-relaxed mb-12">
                      Theo dõi, cập nhật và đo lường hiệu suất làm việc hàng ngày một cách trực quan, chính xác nhất.
                   </p>
               </motion.div>
@@ -176,23 +177,23 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         </div>
 
         {/* Right Section - Login Form */}
-        <div className="p-10 lg:p-14 flex flex-col justify-center">
+        <div className="p-10 lg:p-14 flex flex-col justify-center bg-white/50 backdrop-blur-md">
            <div className="max-w-md w-full mx-auto">
               <div className="mb-10 text-center md:text-left">
-                <div className="w-16 h-16 bg-[#005B8C]/10 text-[#005B8C] rounded-2xl flex items-center justify-center mb-6 mx-auto md:mx-0 shadow-sm border border-[#005B8C]/20">
+                <div className="w-16 h-16 bg-[#141414] text-white rounded-2xl flex items-center justify-center mb-6 mx-auto md:mx-0 shadow-[4px_4px_0_#F7941D] border-2 border-[#141414]">
                    <Lock className="w-8 h-8" />
                 </div>
-                <h3 className="text-3xl font-bold text-slate-800 tracking-tight">Đăng nhập</h3>
-                <p className="text-slate-500 mt-2">Vui lòng nhập thông tin để truy cập hệ thống</p>
+                <h3 className="text-3xl font-black text-[#141414] font-sans tracking-tight">Đăng nhập</h3>
+                <p className="text-slate-500 mt-2 font-medium">Vui lòng nhập thông tin để truy cập hệ thống</p>
               </div>
 
               <form onSubmit={handleLogin} className="space-y-5">
                  <div className="space-y-1.5">
-                    <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                    <label className="text-xs font-bold tracking-widest text-[#141414]/70 uppercase flex items-center gap-2">
                        Họ và tên
                     </label>
                     <div className="relative">
-                       <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                       <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
                           <User className="w-5 h-5" />
                        </div>
                        <input
@@ -200,19 +201,19 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                           value={username}
                           onChange={(e) => setUsername(e.target.value)}
                           placeholder="Nhập họ tên của bạn..."
-                          className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-[#005B8C]/20 focus:border-[#005B8C] transition-all outline-none text-slate-700 font-medium placeholder:text-slate-400 placeholder:font-normal"
+                          className="w-full pl-12 pr-4 py-3.5 bg-white border-2 border-slate-200 rounded-xl focus:bg-white focus:ring-0 focus:border-[#141414] transition-all outline-none text-[#141414] font-bold placeholder:text-slate-400 placeholder:font-medium shadow-sm hover:border-slate-300"
                           disabled={isLoading || isInitializing}
                        />
                     </div>
-                    <p className="text-[11px] text-slate-500 pl-1">Không phân biệt hoa thường, khoảng trắng</p>
+                    <p className="text-[11px] text-slate-500 pl-1 font-medium">Không phân biệt hoa thường, khoảng trắng</p>
                  </div>
 
                  <div className="space-y-1.5">
-                    <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                    <label className="text-xs font-bold tracking-widest text-[#141414]/70 uppercase flex items-center gap-2">
                        Mật khẩu
                     </label>
                     <div className="relative">
-                       <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                       <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
                           <KeyRound className="w-5 h-5" />
                        </div>
                        <input
@@ -220,7 +221,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
                           placeholder="Mã số nhân viên (MSNV)"
-                          className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-[#005B8C]/20 focus:border-[#005B8C] transition-all outline-none text-slate-700 font-medium placeholder:text-slate-400 placeholder:font-normal"
+                          className="w-full pl-12 pr-4 py-3.5 bg-white border-2 border-slate-200 rounded-xl focus:bg-white focus:ring-0 focus:border-[#141414] transition-all outline-none text-[#141414] font-bold tracking-widest placeholder:text-slate-400 placeholder:font-medium placeholder:tracking-normal shadow-sm hover:border-slate-300"
                           disabled={isLoading || isInitializing}
                        />
                     </div>
@@ -234,8 +235,8 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                          exit={{ opacity: 0, height: 0, y: -10 }}
                          className="overflow-hidden"
                        >
-                          <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm font-medium flex items-center gap-2 border border-red-100 mt-2">
-                             <AlertCircle className="w-4 h-4 shrink-0" />
+                          <div className="bg-red-50 text-red-600 p-3 rounded-xl text-sm font-bold flex items-center gap-2.5 border-2 border-red-100 mt-2">
+                             <AlertCircle className="w-5 h-5 shrink-0" />
                              {error}
                           </div>
                        </motion.div>
@@ -246,7 +247,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                     <button
                        type="submit"
                        disabled={isLoading || isInitializing}
-                       className="relative w-full bg-[#005B8C] hover:bg-[#004B73] text-white font-bold py-3.5 rounded-xl shadow-[0_4px_14px_0_rgba(0,91,140,0.39)] hover:shadow-[0_6px_20px_rgba(0,91,140,0.23)] hover:-translate-y-0.5 transition-all duration-200 flex items-center justify-center gap-2 overflow-hidden disabled:opacity-70 disabled:cursor-not-allowed disabled:hover:translate-y-0"
+                       className="relative w-full bg-[#141414] hover:bg-[#2a2a2a] text-white uppercase text-sm tracking-widest font-bold py-4 rounded-xl shadow-[4px_4px_0_#F7941D] hover:shadow-[2px_2px_0_#F7941D] hover:-translate-y-0 hover:translate-x-[2px] transition-all duration-200 flex items-center justify-center gap-2 overflow-hidden disabled:opacity-70 disabled:cursor-not-allowed"
                     >
                        {isLoading ? (
                           <div className="flex items-center gap-2">

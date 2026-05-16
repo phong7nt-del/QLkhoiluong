@@ -397,8 +397,9 @@ export const DataStore = {
                   const content = getVal(['nội dung']);
                   const tt = getVal(['tt', 'stt']);
                   if (content || tt) {
+                     const fallbackId = (String(content) + '-' + String(getVal(['phân công'])) + '-' + String(getVal(['ngày hoàn tất']))).replace(/\s/g, '');
                      progressList.push({
-                         id: String(tt || Math.random().toString(36).substring(7)),
+                         id: String(tt || fallbackId),
                          content: String(content || ''),
                          reference: String(getVal(['căn cứ'])),
                          deadline: String(getVal(['ngày hoàn tất'])),
@@ -425,13 +426,20 @@ export const DataStore = {
                      if (dmData && dmData.length > 0) {
                          const firstRow = dmData[0];
                          const keys = Object.keys(firstRow);
-                         const nameKey = keys.find(k => k.toLowerCase().includes('nội dung') || k.toLowerCase().includes('tên'));
-                         const quotaKey = keys.find(k => k.toLowerCase().includes('định mức') || k.toLowerCase().includes('quota') || k.toLowerCase().includes('điểm'));
+                         const nameKey = keys.find(k => {
+                             const nk = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+                             return nk.includes('noi dung') || nk.includes('ten');
+                         });
+                         const quotaKey = keys.find(k => {
+                             const nk = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+                             return nk.includes('dinh muc') || nk.includes('quota') || nk.includes('diem');
+                         });
                          
                          if (nameKey) {
                              for (const row of dmData) {
                                  const val1 = String(row[nameKey] || '').trim();
-                                 let val2 = quotaKey ? Number(row[quotaKey]) : 0;
+                                 let quotaStr = String(row[quotaKey] || '0').replace(/,/g, '.');
+                                 let val2 = parseFloat(quotaStr);
                                  if (isNaN(val2)) val2 = 0;
                                  if (val1 && val1.toLowerCase() !== 'stt') {
                                      newDinhMuc.push({ name: val1, quota: val2 });
@@ -604,13 +612,13 @@ export const DataStore = {
      const localTasks: TaskProgress[] = localCached ? JSON.parse(localCached) : [];
      const newTask: TaskProgress = {
         ...task,
-        id: '', // Empty ID tells App Script to insert it
+        id: 'local-' + Date.now() + Math.random().toString(36).substring(7),
         isLocal: true,
         timestamp: Date.now()
      };
      localTasks.push(newTask);
      localStorage.setItem(LOCAL_PROGRESS_UPDATES_KEY, JSON.stringify(localTasks));
-     DataStore.syncProgressToSheet(newTask);
+     DataStore.syncProgressToSheet({...newTask, id: ''});
      return newTask;
   },
 

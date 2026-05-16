@@ -9,6 +9,7 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
   const [selectedMember, setSelectedMember] = useState<string>('all');
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set());
+  const [detailViewMode, setDetailViewMode] = useState<'grouped' | 'list'>('grouped');
 
   const entries = useMemo(() => DataStore.getEntries().sort((a, b) => b.timestamp - a.timestamp), [refreshToggle]);
   const dinhMucList = useMemo(() => DataStore.getDinhMuc(), [refreshToggle]);
@@ -102,31 +103,26 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
        const match = cleanLine.match(/^(.*?):\s*([\d.]+)$/);
        if (match) {
           const taskName = match[1].trim();
-          const cleanTaskName = taskName.normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+          const normalize = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+          const cleanTaskName = normalize(taskName);
           const qty = parseFloat(match[2]);
           
-          let exactDm = dinhMucList.find(d => {
-             const cleanDName = (d.name || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
-             return cleanDName === cleanTaskName;
-          });
+          let exactDm = dinhMucList.find(d => normalize(d.name || '') === cleanTaskName);
           
           let matchedName = 'Khác';
           if (exactDm) {
              matchedName = exactDm.name;
           } else {
              let foundDm = dinhMucList.find(d => {
-                const cleanDName = (d.name || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+                const cleanDName = normalize(d.name || '');
                 return cleanDName.includes(cleanTaskName) || cleanTaskName.includes(cleanDName);
              });
              if (foundDm) matchedName = foundDm.name;
           }
 
-          const cleanMatchedName = matchedName.normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+          const cleanMatchedName = normalize(matchedName);
 
-          const dm = dinhMucList.find(d => {
-              const cleanDName = (d.name || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
-              return cleanDName === cleanMatchedName;
-          });
+          const dm = dinhMucList.find(d => normalize(d.name || '') === cleanMatchedName);
 
           const quotaStr = dm ? String(dm.quota).replace(/,/g, '.') : "0";
           const quota = parseFloat(quotaStr) || 0;
@@ -362,9 +358,66 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
               </div>
             </div>
           )}
+
+          <div className="mx-6 mt-6 md:mx-8 flex justify-between items-center border-b border-[#141414]/20 pb-2">
+             <h3 className="font-bold uppercase tracking-widest text-sm">
+                Chi tiết báo cáo
+             </h3>
+             <div className="flex gap-2">
+                <button 
+                  onClick={() => setDetailViewMode('grouped')}
+                  className={`text-[10px] px-3 py-1.5 uppercase font-bold tracking-widest transition-all border ${detailViewMode === 'grouped' ? 'bg-[#141414] text-white border-[#141414]' : 'bg-white text-[#141414] border-[#141414]/20 hover:border-[#141414]'}`}
+                >
+                  Dạng nhóm
+                </button>
+                <button 
+                  onClick={() => setDetailViewMode('list')}
+                  className={`text-[10px] px-3 py-1.5 uppercase font-bold tracking-widest transition-all border ${detailViewMode === 'list' ? 'bg-[#141414] text-white border-[#141414]' : 'bg-white text-[#141414] border-[#141414]/20 hover:border-[#141414]'}`}
+                >
+                  Dạng bảng
+                </button>
+             </div>
+          </div>
+
+          <div className="mx-6 mt-6 md:mx-8 mb-12">
           {allDates.length === 0 ? (
              <div className="text-center py-12 text-sm opacity-50 italic uppercase bg-white border border-[#141414] shadow-[4px_4px_0_#141414]">
                 Hệ thống chưa ghi nhận<br/>hoạt động nào.
+             </div>
+          ) : detailViewMode === 'list' ? (
+             <div className="bg-white border border-[#141414] shadow-[4px_4px_0_#141414] overflow-x-auto">
+                <table className="w-full text-left border-collapse min-w-[800px]">
+                   <thead className="bg-[#141414] text-[#E4E3E0]">
+                      <tr className="text-[10px] font-mono uppercase tracking-widest">
+                         <th className="py-3 px-4 border-b border-[#141414] whitespace-nowrap">Ngày</th>
+                         <th className="py-3 px-4 border-b border-[#141414]">Họ và Tên</th>
+                         <th className="py-3 px-4 border-b border-[#141414]">Khu vực / Tổ</th>
+                         <th className="py-3 px-4 border-b border-[#141414]">Nội dung công việc</th>
+                      </tr>
+                   </thead>
+                   <tbody className="font-sans text-xs">
+                      {filteredEntries.flatMap(e => {
+                         const displayDate = e.date.includes('-') ? e.date.split('-').reverse().join('/') : e.date;
+                         const teamInfo = e.team || '';
+                         if (!e.members || e.members.length === 0) {
+                             return [{ member: '', date: displayDate, team: teamInfo, content: e.content, entry: e }];
+                         }
+                         return e.members.map(m => ({ member: m, date: displayDate, team: teamInfo, content: e.content, entry: e }));
+                      }).sort((a, b) => b.entry.timestamp - a.entry.timestamp)
+                        .map((row, i) => (
+                         <tr key={`${row.entry.id}-${row.member}-${i}`} className="border-b border-[#141414]/10 hover:bg-[#E4E3E0]/30 transition-colors">
+                            <td className="py-3 px-4 border-r border-[#141414]/10 align-top whitespace-nowrap font-mono">{row.date}</td>
+                            <td className="py-3 px-4 border-r border-[#141414]/10 align-top font-bold">{row.member}</td>
+                            <td className="py-3 px-4 border-r border-[#141414]/10 align-top opacity-70">{row.team}</td>
+                            <td className="py-3 px-4 align-top">
+                               <div className="whitespace-pre-wrap leading-relaxed space-y-1">
+                                  {renderContentWithQuota(row.content, row.entry.members?.length || 1)}
+                               </div>
+                            </td>
+                         </tr>
+                      ))}
+                   </tbody>
+                </table>
              </div>
           ) : (
              allDates.map(date => {
@@ -448,6 +501,7 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
           )}
         </div>
       </div>
+    </div>
     </div>
   );
 }

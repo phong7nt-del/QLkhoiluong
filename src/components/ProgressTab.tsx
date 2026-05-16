@@ -16,6 +16,7 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
   const [searchAssignee, setSearchAssignee] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [pendingViewMode, setPendingViewMode] = useState<'grid' | 'table'>('grid');
+  const [filterState, setFilterState] = useState({ ok: true, warning: true, overdue: true });
   const [searchText, setSearchText] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const recognitionRef = React.useRef<any>(null);
@@ -226,7 +227,13 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
      return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   };
 
-  const sortedPendingTasks = [...pendingTasks].sort((a, b) => {
+  const sortedPendingTasks = [...pendingTasks].filter(t => {
+      const dDays = getDiffDays(t.deadline);
+      if (dDays > 3 && !filterState.ok) return false;
+      if (dDays >= 1 && dDays <= 3 && !filterState.warning) return false;
+      if (dDays <= 0 && !filterState.overdue) return false;
+      return true;
+  }).sort((a, b) => {
       return getDiffDays(a.deadline) - getDiffDays(b.deadline);
   });
 
@@ -422,17 +429,35 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
                <AlertCircle className="w-5 h-5 text-amber-500" />
                ĐANG THỰC HIỆN <span className="bg-amber-100 text-amber-700 font-black px-2 py-0.5 rounded-full text-sm">{pendingTasks.length}</span>
             </h3>
-            <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200/50">
-               <button 
-                  onClick={() => setPendingViewMode('grid')}
-                  className={`p-2 rounded-lg transition-all ${pendingViewMode === 'grid' ? 'bg-white text-blue-600 shadow-sm border border-slate-200/50' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-200/50'}`}
-                  title="Dạng thẻ"
-               ><LayoutGrid className="w-4 h-4" /></button>
-               <button 
-                  onClick={() => setPendingViewMode('table')}
-                  className={`p-2 rounded-lg transition-all ${pendingViewMode === 'table' ? 'bg-white text-blue-600 shadow-sm border border-slate-200/50' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-200/50'}`}
-                  title="Dạng bảng"
-               ><List className="w-4 h-4" /></button>
+            
+            <div className="flex flex-wrap items-center gap-3">
+               <div className="flex items-center gap-3 bg-white px-3 py-1.5 rounded-xl border border-slate-200/50 shadow-sm text-xs font-bold text-slate-600">
+                  <label className="flex items-center gap-1.5 cursor-pointer hover:text-emerald-600">
+                     <input type="checkbox" checked={filterState.ok} onChange={e => setFilterState(s => ({...s, ok: e.target.checked}))} className="rounded text-emerald-500 focus:ring-emerald-500" />
+                     Còn hạn
+                  </label>
+                  <label className="flex items-center gap-1.5 cursor-pointer hover:text-amber-600">
+                     <input type="checkbox" checked={filterState.warning} onChange={e => setFilterState(s => ({...s, warning: e.target.checked}))} className="rounded text-amber-500 focus:ring-amber-500" />
+                     Sắp đến hạn
+                  </label>
+                  <label className="flex items-center gap-1.5 cursor-pointer hover:text-red-600">
+                     <input type="checkbox" checked={filterState.overdue} onChange={e => setFilterState(s => ({...s, overdue: e.target.checked}))} className="rounded text-red-500 focus:ring-red-500" />
+                     Quá hạn
+                  </label>
+               </div>
+
+               <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200/50">
+                  <button 
+                     onClick={() => setPendingViewMode('grid')}
+                     className={`p-2 rounded-lg transition-all ${pendingViewMode === 'grid' ? 'bg-white text-blue-600 shadow-sm border border-slate-200/50' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-200/50'}`}
+                     title="Dạng thẻ"
+                  ><LayoutGrid className="w-4 h-4" /></button>
+                  <button 
+                     onClick={() => setPendingViewMode('table')}
+                     className={`p-2 rounded-lg transition-all ${pendingViewMode === 'table' ? 'bg-white text-blue-600 shadow-sm border border-slate-200/50' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-200/50'}`}
+                     title="Dạng bảng"
+                  ><List className="w-4 h-4" /></button>
+               </div>
             </div>
          </div>
          
