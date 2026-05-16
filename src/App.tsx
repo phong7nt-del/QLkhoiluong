@@ -195,7 +195,7 @@ export default function App() {
             </div>
             <button 
               onClick={() => setShowConfig(true)}
-              className="text-slate-400 hover:text-blue-600 hover:bg-blue-50 p-1.5 rounded-full transition-colors"
+              className="hidden text-slate-400 hover:text-blue-600 hover:bg-blue-50 p-1.5 rounded-full transition-colors"
               title="Cấu hình hệ thống"
             >
               <Settings className="w-4 h-4 md:w-5 md:h-5" />
