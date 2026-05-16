@@ -427,11 +427,11 @@ export const DataStore = {
                          const firstRow = dmData[0];
                          const keys = Object.keys(firstRow);
                          const nameKey = keys.find(k => {
-                             const nk = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+                             const nk = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
                              return nk.includes('noi dung') || nk.includes('ten');
                          });
                          const quotaKey = keys.find(k => {
-                             const nk = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+                             const nk = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
                              return nk.includes('dinh muc') || nk.includes('quota') || nk.includes('diem');
                          });
                          
@@ -595,10 +595,25 @@ export const DataStore = {
        const remoteTasks: TaskProgress[] = cached ? JSON.parse(cached) : [];
        
        const localCached = localStorage.getItem(LOCAL_PROGRESS_UPDATES_KEY);
-       const localTasks: TaskProgress[] = localCached ? JSON.parse(localCached) : [];
+       let localTasks: TaskProgress[] = localCached ? JSON.parse(localCached) : [];
        
-       // Merge: local tasks overwrite remote ones by ID, and new local tasks are appended
-       const remoteMap = new Map(remoteTasks.map(t => [t.id, t]));
+       const remoteMap = new Map();
+       const remoteHashes = new Set();
+       
+       remoteTasks.forEach(t => {
+           remoteMap.set(t.id, t);
+           const hash = `${t.content}-${t.assignee}-${t.deadline}`.replace(/\s/g, '').toLowerCase();
+           remoteHashes.add(hash);
+       });
+       
+       // Filter out local-only tasks that already exist in remote data
+       localTasks = localTasks.filter(lt => {
+           if (!lt.id.startsWith('local-')) return true;
+           const hash = `${lt.content}-${lt.assignee}-${lt.deadline}`.replace(/\s/g, '').toLowerCase();
+           return !remoteHashes.has(hash);
+       });
+       
+       // Merge remaining local tasks (updates to existing tasks, or truly new local tasks)
        localTasks.forEach(lt => {
            remoteMap.set(lt.id, lt);
        });

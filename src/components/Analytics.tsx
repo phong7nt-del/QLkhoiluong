@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { DataStore } from '../store/DataStore';
 import { format, parseISO } from 'date-fns';
 import { Filter, Trash2, ChevronDown, ChevronUp, Download } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 
 export default function Analytics({ refreshToggle }: { refreshToggle: number }) {
   const [selectedTeam, setSelectedTeam] = useState<string>('all');
@@ -103,7 +103,7 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
        const match = cleanLine.match(/^(.*?):\s*([\d.]+)$/);
        if (match) {
           const taskName = match[1].trim();
-          const normalize = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+          const normalize = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase().trim();
           const cleanTaskName = normalize(taskName);
           const qty = parseFloat(match[2]);
           
@@ -160,128 +160,217 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
   };
 
   const exportToExcel = () => {
-    const memberDataMap = new Map<string, any>();
-    const dynamicCols: { date: string, taskName: string, colName: string, displayDate: string }[] = [];
-
-    const sortedDates = [...allDates].sort();
-
-    sortedDates.forEach(date => {
-       let displayDate = date;
-       try {
-         if (date && date.includes('-')) {
-           const [y, m, d] = date.split('-');
-           displayDate = `${d}/${m}/${y}`;
-         }
-       } catch(e) {}
-
-       const dateEntries = filteredEntries.filter(e => e.date === date);
-       dateEntries.forEach(e => {
-          if (!e.content) return;
-          const membersCount = e.members?.length || 1;
-          
-          e.content.split('\n').forEach(line => {
-              let cleanLine = line.trim();
-              if (cleanLine.startsWith('-')) cleanLine = cleanLine.substring(1).trim();
-
-              let taskName = '';
-              let value: any = '';
-
-              const match = cleanLine.match(/^(.*?):\s*([\d.]+)$/);
-              if (match) {
-                 taskName = match[1].trim();
-                 value = parseFloat(match[2]) / membersCount;
-                 // Round to 2 decimal places to avoid noisy data
-                 value = Math.round(value * 100) / 100;
-              } else if (cleanLine.toLowerCase().startsWith('phát hiện:')) {
-                 taskName = 'Phát hiện';
-                 value = cleanLine.substring('phát hiện:'.length).trim();
-              } else {
-                 return;
-              }
-
-              const colName = `${displayDate} - ${taskName}`;
-              
-              if (!dynamicCols.find(c => c.colName === colName)) {
-                 dynamicCols.push({ date, taskName, colName, displayDate });
-              }
-
-              e.members?.forEach(member => {
-                 let memberData = memberDataMap.get(member);
-                 if (!memberData) {
-                    memberData = {
-                       "Họ và Tên": member,
-                       "Khu vực công tác": e.team || ''
-                    };
-                    memberDataMap.set(member, memberData);
-                 }
-                 
-                 if (typeof value === 'number') {
-                    memberData[colName] = (memberData[colName] || 0) + value;
-                 } else {
-                    if (memberData[colName] && memberData[colName] !== 'không có' && memberData[colName] !== '') {
-                        if (value !== 'không có' && value !== '') {
-                            memberData[colName] += ' | ' + value;
-                        }
-                    } else {
-                        memberData[colName] = value;
-                    }
-                 }
-              });
-          });
-       });
-    });
-
-    if (memberDataMap.size === 0) {
+    if (filteredEntries.length === 0) {
        alert("Không có dữ liệu để xuất");
        return;
     }
 
+    const processContentForExcel = (content: string, membersCount: number) => {
+        // We will replace this with new logic inside below
+        return content;
+    };
+
+    const normalize = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase().trim();
+
+    const getQuotaDisplay = (cleanTaskName: string) => {
+        let exactDm = dinhMucList.find(d => normalize(d.name || '') === cleanTaskName);
+        let matchedName = 'Khác';
+        if (exactDm) {
+            matchedName = exactDm.name;
+        } else {
+            let foundDm = dinhMucList.find(d => {
+                const cleanDName = normalize(d.name || '');
+                return cleanDName.includes(cleanTaskName) || cleanTaskName.includes(cleanDName);
+            });
+            if (foundDm) matchedName = foundDm.name;
+        }
+        const cleanMatchedName = normalize(matchedName);
+        const dm = dinhMucList.find(d => normalize(d.name || '') === cleanMatchedName);
+        const quotaStr = dm ? String(dm.quota).replace(/,/g, '.') : "0";
+        const quota = parseFloat(quotaStr) || 0;
+        
+        let quotaDisplay = "";
+        if (cleanMatchedName === 'khác') {
+            quotaDisplay = "(ĐM: 1)";
+        } else if (quota > 0) {
+            quotaDisplay = `(ĐM: ${quota})`;
+        } else {
+            quotaDisplay = "(Không có ĐM)";
+        }
+        return quotaDisplay;
+    };
+
+    const processContentLines = (content: string, membersCount: number) => {
+        if (!content) return [];
+        const lines = content.split('\n');
+        return lines.map(line => {
+            let cleanLine = line.trim();
+            if (cleanLine.startsWith('-')) cleanLine = cleanLine.substring(1).trim();
+            
+            const match = cleanLine.match(/^(.*?):\s*([\d.]+)$/);
+            if (match) {
+                const taskName = match[1].trim();
+                const cleanTaskName = normalize(taskName);
+                const totalQty = parseFloat(match[2]);
+                const qtyPerMember = totalQty / membersCount;
+                return { isTask: true, taskName, cleanTaskName, qty: qtyPerMember, rawLine: cleanLine };
+            }
+            return { isTask: false, text: cleanLine, rawLine: cleanLine };
+        });
+    };
+
+    const memberDataMap = new Map<string, any>();
+    
+    // Gather all unique dates
+    const sortedDates = Array.from(new Set(filteredEntries.map(e => e.date))).sort();
+    const dateCols = sortedDates.map(date => {
+        const displayDate = date.includes('-') ? date.split('-').reverse().join('/') : date;
+        return {
+            date,
+            colName: `Nội dung công việc của ngày ${displayDate}`
+        };
+    });
+
+    filteredEntries.forEach(e => {
+        const membersCount = e.members?.length || 1;
+        const dateColDef = dateCols.find(dc => dc.date === e.date);
+        if (!dateColDef) return;
+        
+        const members = e.members && e.members.length > 0 ? e.members : ['Chưa phân công'];
+        
+        members.forEach(m => {
+            if (!memberDataMap.has(m)) {
+                memberDataMap.set(m, {
+                    team: e.team || '',
+                    dailyContent: {},
+                    taskTotals: {}
+                });
+            }
+            
+            const memberObj = memberDataMap.get(m);
+            if (!memberObj.dailyContent[dateColDef.colName]) {
+                memberObj.dailyContent[dateColDef.colName] = [];
+            }
+            
+            const parsedLines = processContentLines(e.content, membersCount);
+            parsedLines.forEach(item => {
+                if (item.isTask) {
+                    const quotaDisplay = getQuotaDisplay(item.cleanTaskName);
+                    const formattedQty = Math.round(item.qty * 100) / 100;
+                    memberObj.dailyContent[dateColDef.colName].push(`- ${item.taskName}: ${formattedQty} ${quotaDisplay}`);
+                    
+                    if (!memberObj.taskTotals[item.cleanTaskName]) {
+                        memberObj.taskTotals[item.cleanTaskName] = { originalName: item.taskName, totalQty: 0, cleanName: item.cleanTaskName };
+                    }
+                    memberObj.taskTotals[item.cleanTaskName].totalQty += item.qty;
+                } else {
+                    if (item.text) {
+                        memberObj.dailyContent[dateColDef.colName].push(`- ${item.text}`);
+                    }
+                }
+            });
+        });
+    });
+
     const exportData: any[] = [];
     let stt = 1;
-    const sortedMembers = Array.from(memberDataMap.values()).sort((a, b) => {
-       if (a["Khu vực công tác"] === b["Khu vực công tác"]) {
-           return a["Họ và Tên"].localeCompare(b["Họ và Tên"]);
-       }
-       return a["Khu vực công tác"].localeCompare(b["Khu vực công tác"]);
-    });
-
-    sortedMembers.forEach(md => {
-       const row: any = {
-           "STT": stt++,
-           "Họ và Tên": md["Họ và Tên"],
-           "Khu vực công tác": md["Khu vực công tác"]
-       };
-       dynamicCols.forEach(col => {
-           row[col.colName] = md[col.colName] || '';
-       });
-       exportData.push(row);
-    });
-
-    const worksheet = XLSX.utils.json_to_sheet(exportData);
     
-    const cols = [
-      { wch: 5 }, // STT
-      { wch: 30 }, // Họ và Tên
-      { wch: 20 }, // Khu vực
-    ];
-    dynamicCols.forEach(col => {
-        cols.push({ wch: Math.max(15, col.colName.length) });
+    // Sort members by team then name
+    const sortedMembers = Array.from(memberDataMap.entries()).sort((a, b) => {
+        const teamA = a[1].team;
+        const teamB = b[1].team;
+        if (teamA === teamB) return a[0].localeCompare(b[0]);
+        return teamA.localeCompare(teamB);
     });
-    worksheet['!cols'] = cols;
+
+    sortedMembers.forEach(([memberName, data]) => {
+        const row: any = {
+            "STT": stt++,
+            "Họ và Tên": memberName,
+            "Khu vực / Tổ": data.team,
+        };
+        
+        dateCols.forEach(dc => {
+            const arr = data.dailyContent[dc.colName];
+            row[dc.colName] = arr && arr.length > 0 ? arr.join('\r\n') : '';
+        });
+        
+        const totalsContent: string[] = [];
+        Object.values(data.taskTotals).forEach((t: any) => {
+            const quotaDisplay = getQuotaDisplay(t.cleanName);
+            const formattedTotal = Math.round(t.totalQty * 100) / 100;
+            totalsContent.push(`- ${t.originalName}: ${formattedTotal} ${quotaDisplay}`);
+        });
+        
+        row["Tổng cộng"] = totalsContent.length > 0 ? totalsContent.join('\r\n') : '';
+        
+        exportData.push(row);
+    });
 
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "BaoCao");
-    
-    // Add summary stats to a second sheet if available
+
+    // 1. Summary Sheet
     if (summaryStats && summaryStats.length > 0) {
        const summaryData = summaryStats.map(([name, qty]) => ({
           "Nội dung công việc": name,
           "Tổng khối lượng": qty
        }));
        const summaryWorksheet = XLSX.utils.json_to_sheet(summaryData);
-       summaryWorksheet['!cols'] = [{ wch: 80 }, { wch: 20 }];
+       summaryWorksheet['!cols'] = [{ wch: 50 }, { wch: 20 }];
        XLSX.utils.book_append_sheet(workbook, summaryWorksheet, "TongCong");
     }
+
+    // 2. Details Sheet
+    const detailsWorksheet = XLSX.utils.json_to_sheet(exportData);
+    
+    const detailsCols = [
+        { wch: 5 }, // STT
+        { wch: 30 }, // Họ và Tên
+        { wch: 20 }, // Khu vực
+    ];
+    dateCols.forEach(() => {
+        detailsCols.push({ wch: 60 });
+    });
+    detailsCols.push({ wch: 60 }); // Tổng cộng
+    detailsWorksheet['!cols'] = detailsCols;
+    
+    // Formating using xlsx-js-style
+    Object.keys(detailsWorksheet).forEach(address => {
+       if (address === '!ref' || address === '!cols' || address === '!rows') return;
+       const cell = detailsWorksheet[address];
+       if (!cell) return;
+       
+       if (!cell.s) cell.s = {};
+       
+       // Header row (row 1)
+       if (address.match(/^[A-Z]+1$/)) {
+           cell.s = {
+               font: { bold: true, color: { rgb: "FFFFFF" } },
+               fill: { fgColor: { rgb: "333333" } },
+               alignment: { horizontal: "center", vertical: "center" }
+           };
+       } else {
+           // Body cells
+           cell.s = {
+               alignment: { vertical: "top" }
+           };
+           // Wrap text in Content columns (D and upwards)
+           const colChar = address.replace(/[0-9]+$/, '');
+           if (colChar !== 'A' && colChar !== 'B' && colChar !== 'C') {
+               cell.s.alignment.wrapText = true;
+           }
+       }
+       
+       // Add borders to all cells
+       cell.s.border = {
+           top: { style: "thin", color: { auto: 1 } },
+           bottom: { style: "thin", color: { auto: 1 } },
+           left: { style: "thin", color: { auto: 1 } },
+           right: { style: "thin", color: { auto: 1 } }
+       };
+    });
+
+    XLSX.utils.book_append_sheet(workbook, detailsWorksheet, "ChiTiet");
     
     XLSX.writeFile(workbook, "BaoCaoNangSuat.xlsx");
   };
