@@ -28,16 +28,37 @@ export default function Login({ onLoginSuccess }: LoginProps) {
     initData();
   }, []);
 
-  const normalizeStr = (str: string) => str.toLowerCase().replace(/\s+/g, '');
+  const normalizeStr = (str: string) => {
+    if (!str) return '';
+    return str.normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/đ/g, 'd').replace(/Đ/g, 'd')
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, '');
+  };
 
   const getMsnv = (member: any): string | null => {
     if (!member) return null;
+    
+    const exactMatches = ['msnv', 'manv', 'manhanvien', 'password', 'pass', 'matkhau'];
+    
+    // Pass 1: exact matches
     for (const key of Object.keys(member)) {
       const k = normalizeStr(key);
-      if (k.includes('msnv') || k.includes('manv') || k.includes('mãnv') || k.includes('mãnhânviên') || k.includes('manhanvien') || k === 'password' || k === 'pass') {
+      if (exactMatches.includes(k)) {
         return member[key]?.toString().trim();
       }
     }
+    
+    // Pass 2: partial matches
+    for (const key of Object.keys(member)) {
+      const k = normalizeStr(key);
+      if (k.includes('msnv') || k.includes('manv') || k.includes('manhanvien') || k.includes('password') || k.includes('pass')) {
+        return member[key]?.toString().trim();
+      }
+    }
+    
     return null;
   };
 
@@ -64,11 +85,20 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         const mName = normalizeStr(m.name);
         if (mName !== normalizedInputName) return false;
         
-        const mMsnv = getMsnv(m);
+        const mMsnv: string | null = getMsnv(m);
         // If MSNV exists, it must match. If it doesn't exist, we fallback to comparing it against a default or reject it.
         // Wait, what if the data from sheet doesn't have MSNV yet? Let's check strictly.
         if (mMsnv) {
-          return mMsnv.toLowerCase() === normalizedInputPass;
+          const cleanMsnv = mMsnv.toLowerCase().replace(/^0+/, '');
+          const cleanInputPass = normalizedInputPass.replace(/^0+/, '');
+          
+          if (cleanMsnv === cleanInputPass || mMsnv.toLowerCase() === normalizedInputPass) return true;
+          
+          const digitsMsnv = mMsnv.replace(/\D/g, '');
+          const digitsInput = normalizedInputPass.replace(/\D/g, '');
+          if (digitsMsnv && digitsInput && digitsMsnv.replace(/^0+/, '') === digitsInput.replace(/^0+/, '')) return true;
+          
+          return false;
         }
 
         // If sheet doesn't have an explicit MSNV field, we might fail. Let's just fail them with a specific message.
