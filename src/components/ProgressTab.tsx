@@ -466,7 +466,7 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
                 {sortedPendingTasks.map((t, idx) => {
                    const colorClasses = getStatusColor(t.deadline);
                    return (
-                      <div key={t.id || idx} className={`p-5 rounded-2xl flex flex-col justify-between shadow-sm hover:shadow-md transition-all ${colorClasses}`}>
+                      <div key={`${t.id || 't'}-${idx}`} className={`p-5 rounded-2xl flex flex-col justify-between shadow-sm hover:shadow-md transition-all ${colorClasses}`}>
                          <div>
                             <div className="flex justify-between items-start mb-3">
                                <div className="flex items-center gap-2">
@@ -559,7 +559,7 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
                       {sortedPendingTasks.length === 0 ? (
                          <tr><td colSpan={6} className="px-5 py-12 text-center text-slate-500 font-medium">Không có công việc nào cần xử lý.</td></tr>
                       ) : sortedPendingTasks.map((t, idx) => (
-                         <tr key={t.id || idx} className="hover:bg-blue-50/50 transition-colors">
+                         <tr key={`${t.id || 't'}-${idx}`} className="hover:bg-blue-50/50 transition-colors">
                             <td className="px-5 py-4 font-mono text-[11px] font-bold text-slate-400 text-center">{idx + 1}</td>
                             <td className="px-4 py-3">{getStatusBadge(t.deadline)}</td>
                             <td className="px-4 py-3 min-w-[200px]">
@@ -642,7 +642,7 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
                   {completedTasks.length === 0 ? (
                      <tr><td colSpan={6} className="px-5 py-12 text-center text-slate-500 font-medium">Chưa có công việc hoàn tất.</td></tr>
                   ) : completedTasks.map((t, idx) => (
-                     <tr key={t.id || idx} className="hover:bg-slate-50 transition-colors">
+                     <tr key={`${t.id || 'tc'}-${idx}`} className="hover:bg-slate-50 transition-colors">
                         <td className="px-5 py-4 text-center opacity-50 font-mono text-[11px] font-bold">{idx + 1}</td>
                         <td className="px-5 py-4 font-medium truncate max-w-[250px] opacity-60 line-through" title={t.content}>
                            {t.content}

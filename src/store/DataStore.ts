@@ -397,16 +397,38 @@ export const DataStore = {
                   const content = getVal(['nội dung']);
                   const tt = getVal(['tt', 'stt']);
                   if (content || tt) {
-                     const fallbackId = (String(content) + '-' + String(getVal(['phân công'])) + '-' + String(getVal(['ngày hoàn tất']))).replace(/\s/g, '');
-                     progressList.push({
-                         id: String(tt || fallbackId),
-                         content: String(content || ''),
-                         reference: String(getVal(['căn cứ'])),
-                         deadline: String(getVal(['ngày hoàn tất'])),
-                         assignee: String(getVal(['phân công'])),
-                         status: String(getVal(['hoàn tất'])),
-                         explanation: String(getVal(['giải trình']))
+                     const fallbackId = (String(content) + '-' + String(getVal(['phân công'])) + '-' + String(getVal(['ngày hoàn tất']))).replace(/\s/g, '').toLowerCase();
+                     
+                     const existingTaskIndex = progressList.findIndex(t => {
+                         const existingFallbackId = (String(t.content) + '-' + String(t.assignee) + '-' + String(t.deadline)).replace(/\s/g, '').toLowerCase();
+                         return existingFallbackId === fallbackId;
                      });
+
+                     if (existingTaskIndex >= 0) {
+                         // Merge with existing
+                         const existingTask = progressList[existingTaskIndex];
+                         const newExplanation = String(getVal(['giải trình']));
+                         if (newExplanation.length > (existingTask.explanation || '').length) {
+                             existingTask.explanation = newExplanation;
+                         }
+                         const newStatus = String(getVal(['hoàn tất', 'trạng thái', 'kết quả']));
+                         if (newStatus.toLowerCase() === 'xong') {
+                             existingTask.status = newStatus;
+                         }
+                         if (tt) {
+                             existingTask.id = String(tt);
+                         }
+                     } else {
+                         progressList.push({
+                             id: String(tt || fallbackId),
+                             content: String(content || ''),
+                             reference: String(getVal(['căn cứ'])),
+                             deadline: String(getVal(['ngày hoàn tất'])),
+                             assignee: String(getVal(['phân công'])),
+                             status: String(getVal(['hoàn tất', 'trạng thái', 'kết quả'])),
+                             explanation: String(getVal(['giải trình']))
+                         });
+                     }
                   }
                }
                localStorage.setItem(PROGRESS_KEY, JSON.stringify(progressList));
