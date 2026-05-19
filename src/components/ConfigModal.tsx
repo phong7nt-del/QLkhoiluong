@@ -39,7 +39,7 @@ function doGet(e) {
       for (var c = 0; c < data[r].length; c++) {
         var val = String(data[r][c]).toLowerCase().trim();
         if (val.includes('họ và tên') || val === 'họ tên') nameIdx = c;
-        if (val.includes('khu vực') || val === 'khu vuc' || val.includes('tổ công tác')) teamIdx = c;
+        if (val.includes('khu vực') || val === 'khu vuc' || val.includes('tổ công tác') || val.includes('bộ phận công tác')) teamIdx = c;
       }
       if (nameIdx !== -1 && teamIdx !== -1) {
         startRow = r + 1;
@@ -59,7 +59,7 @@ function doGet(e) {
       var name = String(data[i][nameIdx] || '').trim();
       var teamVal = String(data[i][teamIdx] || '').trim();
       
-      if (teamVal && teamVal.toLowerCase() !== 'khu vực' && teamVal.toLowerCase() !== 'tổ công tác') {
+      if (teamVal && teamVal.toLowerCase() !== 'khu vực' && teamVal.toLowerCase() !== 'tổ công tác' && teamVal.toLowerCase() !== 'bộ phận công tác') {
           currentTeam = teamVal;
       }
       
@@ -67,7 +67,7 @@ function doGet(e) {
       
       var assignTeam = currentTeam || 'Không xác định';
       
-      if (assignTeam && assignTeam.toLowerCase() !== 'khu vực' && assignTeam.toLowerCase() !== 'tổ công tác') {
+      if (assignTeam && assignTeam.toLowerCase() !== 'khu vực' && assignTeam.toLowerCase() !== 'tổ công tác' && assignTeam.toLowerCase() !== 'bộ phận công tác') {
         if (teams.indexOf(assignTeam) === -1) {
            teams.push(assignTeam);
         }

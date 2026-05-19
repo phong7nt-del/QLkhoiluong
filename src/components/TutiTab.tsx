@@ -94,6 +94,29 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
         setEditingId(null);
     };
 
+    const formatDate = (dStr: string) => {
+        if (!dStr) return '';
+        if (dStr.match(/^\d{2}\/\d{2}\/\d{4}$/)) return dStr;
+        const d = new Date(dStr);
+        if (!isNaN(d.getTime())) {
+            return [
+                d.getDate().toString().padStart(2, '0'),
+                (d.getMonth() + 1).toString().padStart(2, '0'),
+                d.getFullYear()
+            ].join('/');
+        }
+        if (dStr.includes('T')) {
+             const [datePart] = dStr.split('T');
+             const p = datePart.split('-');
+             if (p.length === 3) return `${p[2]}/${p[1]}/${p[0]}`;
+        }
+        const parts = dStr.split('-');
+        if (parts.length === 3 && parts[0].length === 4) {
+             return `${parts[2]}/${parts[1]}/${parts[0]}`;
+        }
+        return dStr;
+    };
+
     const unprocessed = entries.filter(e => !e.ketLuan || (e.ketLuan !== 'Đúng' && e.ketLuan !== 'Sai'));
     const processed = entries.filter(e => e.ketLuan === 'Đúng' || e.ketLuan === 'Sai');
     
@@ -243,7 +266,7 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                                             )}
                                         </td>
                                         <td className="px-4 py-2 text-xs font-medium text-slate-500 whitespace-nowrap">
-                                            {t.ngayDuaLen}
+                                            {formatDate(t.ngayDuaLen)}
                                         </td>
                                         <td className="px-4 py-2 text-center">
                                             {isEditing ? (
@@ -323,11 +346,11 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                                         </span>
                                     </td>
                                     <td className="px-4 py-2 text-right text-xs font-medium text-slate-500 whitespace-nowrap">
-                                        {t.ngayDuaLen}
+                                        {formatDate(t.ngayDuaLen)}
                                     </td>
                                     <td className="px-4 py-2 text-right text-xs font-medium text-slate-500 whitespace-nowrap flex justify-end items-center gap-1.5">
                                         <Calendar className="w-3.5 h-3.5 opacity-70" />
-                                        {t.ngayCapNhat}
+                                        {formatDate(t.ngayCapNhat)}
                                     </td>
                                 </tr>
                             ))}

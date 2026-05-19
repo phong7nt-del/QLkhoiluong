@@ -75,22 +75,42 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
 
   // Compute total tasks summary
   const summaryStats = useMemo(() => {
-    const stats: Record<string, number> = {};
+    const sumToDivide: Record<string, number> = {};
+    const sumNotToDivide: Record<string, number> = {};
+    
     filteredEntries.forEach(e => {
         if (!e.content) return;
+        const teamName = e.team || 'Khác';
+        const isTongHop = teamName.toLowerCase().includes('tổng hợp') || teamName.toLowerCase().includes('bộ phận công tác');
+        
         const lines = e.content.split('\n');
         lines.forEach(line => {
            let cleanLine = line.trim();
            if (cleanLine.startsWith('-')) cleanLine = cleanLine.substring(1).trim();
-           const match = cleanLine.match(/^(.*?):\s*([\d.]+)$/);
+           const match = cleanLine.match(/^(.*?):\s*([\d.,]+)$/);
            if (match) {
               const taskName = match[1].trim();
-              const qty = parseFloat(match[2]);
-              stats[taskName] = (stats[taskName] || 0) + qty;
+              const qty = parseFloat(match[2].replace(',', '.'));
+              if (!isNaN(qty)) {
+                  if (isTongHop) {
+                      sumNotToDivide[taskName] = (sumNotToDivide[taskName] || 0) + qty;
+                  } else {
+                      sumToDivide[taskName] = (sumToDivide[taskName] || 0) + qty;
+                  }
+              }
            }
         });
     });
-    return Object.entries(stats).sort((a, b) => b[1] - a[1]);
+    
+    const finalStats: Record<string, number> = {};
+    Object.keys(sumToDivide).forEach(k => {
+         finalStats[k] = Math.ceil(sumToDivide[k] / 2);
+    });
+    Object.keys(sumNotToDivide).forEach(k => {
+         finalStats[k] = (finalStats[k] || 0) + sumNotToDivide[k];
+    });
+
+    return Object.entries(finalStats).sort((a, b) => b[1] - a[1]);
   }, [filteredEntries]);
 
   const renderContentWithQuota = (content: string, membersCount: number) => {
@@ -100,12 +120,12 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
        let cleanLine = line.trim();
        if (cleanLine.startsWith('-')) cleanLine = cleanLine.substring(1).trim();
        
-       const match = cleanLine.match(/^(.*?):\s*([\d.]+)$/);
+       const match = cleanLine.match(/^(.*?):\s*([\d.,]+)$/);
        if (match) {
           const taskName = match[1].trim();
           const normalize = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase().trim();
           const cleanTaskName = normalize(taskName);
-          const qty = parseFloat(match[2]);
+          const qty = parseFloat(match[2].replace(',', '.'));
           
           let exactDm = dinhMucList.find(d => normalize(d.name || '') === cleanTaskName);
           
@@ -130,7 +150,7 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
           let nsPercent = 0;
           let quotaDisplay = "";
 
-          const qtyPerMember = qty / (membersCount || 1);
+          const qtyPerMember = qty; // Tính trực tiếp theo yêu cầu "số liệu làm cho 1 nhóm đều tính cho từng người"
 
           if (cleanMatchedName === 'khác') {
               nsPercent = (qtyPerMember / 1) * 100;
@@ -207,12 +227,12 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
             let cleanLine = line.trim();
             if (cleanLine.startsWith('-')) cleanLine = cleanLine.substring(1).trim();
             
-            const match = cleanLine.match(/^(.*?):\s*([\d.]+)$/);
+            const match = cleanLine.match(/^(.*?):\s*([\d.,]+)$/);
             if (match) {
                 const taskName = match[1].trim();
                 const cleanTaskName = normalize(taskName);
-                const totalQty = parseFloat(match[2]);
-                const qtyPerMember = totalQty / membersCount;
+                const totalQty = parseFloat(match[2].replace(',', '.'));
+                const qtyPerMember = totalQty; // Tính trực tiếp
                 return { isTask: true, taskName, cleanTaskName, qty: qtyPerMember, rawLine: cleanLine };
             }
             return { isTask: false, text: cleanLine, rawLine: cleanLine };

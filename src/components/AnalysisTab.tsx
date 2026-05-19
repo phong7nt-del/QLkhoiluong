@@ -117,6 +117,19 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
         });
      });
      
+     // Tính tổng: chia 2 các tổ khối lượng (trừ tổ tổng hợp)
+     Object.values(catData).forEach(cat => {
+         let newTotal = 0;
+         Object.keys(cat.teams).forEach(team => {
+             if (!team.toLowerCase().includes('tổng hợp') && !team.toLowerCase().includes('bộ phận công tác')) {
+                 newTotal += Math.ceil(cat.teams[team] / 2);
+             } else {
+                 newTotal += cat.teams[team];
+             }
+         });
+         cat.total = newTotal;
+     });
+     
      // Loại bỏ các nhóm không có dữ liệu
      return Object.values(catData).filter(c => c.total > 0).sort((a, b) => b.total - a.total);
   }, [entries, dinhMucList]);
@@ -197,8 +210,8 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
            const quotaStr = dm ? String(dm.quota).replace(/,/g, '.') : "0";
            const quota = parseFloat(quotaStr) || 0;
            
-           // Chia đều khối lượng cho các thành viên tham gia
-           const qtyPerMember = qty / members.length;
+           // Số liệu làm cho 1 nhóm đều tính cho từng người
+           const qtyPerMember = qty;
            
            members.forEach(m => {
                if (cleanMatchedName === 'khác') {
