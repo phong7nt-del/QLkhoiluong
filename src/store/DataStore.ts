@@ -572,6 +572,9 @@ export const DataStore = {
             // Wipe stuck local tuti entries when fetching new master data
             localStorage.removeItem(LOCAL_TUTI_UPDATES_KEY);
          }
+         if (json.matKetNoi) {
+            localStorage.setItem('sheet_matketnoi_v1', JSON.stringify(json.matKetNoi));
+         }
          
          const localCached = localStorage.getItem(LOCAL_PROGRESS_UPDATES_KEY);
          if (localCached) {
@@ -619,6 +622,13 @@ export const DataStore = {
   getStations: (): Station[] => {
      try {
        const cached = localStorage.getItem(STATIONS_KEY);
+       return cached ? JSON.parse(cached) : [];
+     } catch { return []; }
+  },
+
+  getMatKetNoi: (): { maDiemDo: string }[] => {
+     try {
+       const cached = localStorage.getItem('sheet_matketnoi_v1');
        return cached ? JSON.parse(cached) : [];
      } catch { return []; }
   },

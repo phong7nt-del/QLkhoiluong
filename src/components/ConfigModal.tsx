@@ -286,6 +286,30 @@ function doGet(e) {
        }
     }
     
+    // Đọc sheet MatKetNoi
+    var matKetNoiList = [];
+    var sheetMatKetNoi = getSheetFlexibly(ss, ['MatKetNoi', 'Mat Ket Noi', 'Mất Kết Nối', 'Mất kết nối', 'matketnoi']);
+    if (sheetMatKetNoi) {
+       var mknData = sheetMatKetNoi.getDataRange().getValues();
+       var mknHeaders = mknData[0] || [];
+       var maDiemDoCol = -1;
+       for (var c = 0; c < mknHeaders.length; c++) {
+           var h = String(mknHeaders[c]).toLowerCase().trim();
+           if (h === 'mã điểm đo' || h === 'ma diem do' || h.indexOf('mã điểm đo') > -1) {
+               maDiemDoCol = c;
+           }
+       }
+       
+       if (maDiemDoCol !== -1) {
+           for (var t = 1; t < mknData.length; t++) {
+               var val = String(mknData[t][maDiemDoCol] || '').trim();
+               if (val) {
+                   matKetNoiList.push({ maDiemDo: val });
+               }
+           }
+       }
+    }
+    
     return ContentService.createTextOutput(JSON.stringify({
       status: 'success',
       teams: teams,
@@ -293,7 +317,8 @@ function doGet(e) {
       stations: stations,
       workloads: workloads,
       dinhMuc: dinhMucList,
-      tuti: tutiList
+      tuti: tutiList,
+      matKetNoi: matKetNoiList
     })).setMimeType(ContentService.MimeType.JSON);
   }
   return ContentService.createTextOutput("Valid Endpoint");

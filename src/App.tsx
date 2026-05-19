@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { ClipboardList, BarChart3, Database, TrendingUp, LogOut, User as UserIcon, CheckSquare, Settings, Activity, Menu } from "lucide-react";
+import { ClipboardList, BarChart3, Database, TrendingUp, LogOut, User as UserIcon, CheckSquare, Settings, Activity, Menu, WifiOff } from "lucide-react";
 import WorkloadForm from "./components/WorkloadForm";
 import Analytics from "./components/Analytics";
 import Stations from "./components/Stations";
@@ -8,10 +8,11 @@ import Login from "./components/Login";
 import ProgressTab from "./components/ProgressTab";
 import ConfigModal from "./components/ConfigModal";
 import TutiTab from "./components/TutiTab";
+import DisconnectRateTab from "./components/DisconnectRateTab";
 import { DataStore, SheetMember } from "./store/DataStore";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"input" | "report" | "stations" | "analysis" | "progress" | "tuti">("input");
+  const [activeTab, setActiveTab] = useState<"input" | "report" | "stations" | "analysis" | "progress" | "tuti" | "disconnect">("input");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [refreshToggle, setRefreshToggle] = useState(0);
   const [showConfig, setShowConfig] = useState(false);
@@ -154,6 +155,7 @@ export default function App() {
     { id: "report", icon: BarChart3, label: "Báo cáo", color: "blue" },
     { id: "stations", icon: Database, label: "Trạm BA", color: "blue" },
     { id: "analysis", icon: TrendingUp, label: "Phân tích", color: "blue" },
+    { id: "disconnect", icon: WifiOff, label: "Tỷ lệ mất kết nối", color: "red" },
   ];
 
   if (isManagement) {
@@ -307,6 +309,9 @@ export default function App() {
                 )}
                 {activeTab === "tuti" && isManagement && (
                   <TutiTab refreshToggle={refreshToggle} sessionUser={sessionUser} />
+                )}
+                {activeTab === "disconnect" && (
+                  <DisconnectRateTab />
                 )}
               </div>
             </div>
