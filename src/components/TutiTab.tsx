@@ -5,6 +5,7 @@ import { DataStore, TutiEntry, SheetMember } from '../store/DataStore';
 export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle: number, sessionUser: SheetMember | null }) {
     const [entries, setEntries] = useState<TutiEntry[]>([]);
     const [showForm, setShowForm] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
     
     // Form state
     const [maTram, setMaTram] = useState('');
@@ -23,11 +24,13 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
         setEntries(DataStore.getTutiEntries());
     }, [refreshToggle]);
 
-    const handleSaveNew = () => {
+    const handleSaveNew = async () => {
         if (!maTram || !tenDiemDo) {
             alert("Mã trạm và Tên điểm đo không được để trống!");
             return;
         }
+        
+        setIsSubmitting(true);
         
         const now = new Date();
         const dateStr = [
@@ -49,9 +52,11 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
             ngayDuaLen: dateStr
         };
         
-        DataStore.addTutiEntry(newEntry);
+        await DataStore.addTutiEntry(newEntry);
         setEntries(DataStore.getTutiEntries());
+        window.dispatchEvent(new Event('workload_updated'));
         
+        setIsSubmitting(false);
         // Reset and hide
         setMaTram('');
         setTenDiemDo('');
@@ -70,7 +75,7 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
         });
     };
 
-    const handleSaveEdit = (id: string) => {
+    const handleSaveEdit = async (id: string) => {
         let finalUpdates = { ...editData };
         
         if (finalUpdates.ketLuan === 'Đúng' || finalUpdates.ketLuan === 'Sai') {
@@ -83,8 +88,9 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
             finalUpdates.ngayCapNhat = dateStr;
         }
 
-        DataStore.updateTutiEntry(id, finalUpdates);
+        await DataStore.updateTutiEntry(id, finalUpdates);
         setEntries(DataStore.getTutiEntries());
+        window.dispatchEvent(new Event('workload_updated'));
         setEditingId(null);
     };
 
@@ -92,7 +98,7 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
     const processed = entries.filter(e => e.ketLuan === 'Đúng' || e.ketLuan === 'Sai');
     
     // Sort unprocessed ascending
-    unprocessed.sort((a, b) => a.maTram.localeCompare(b.maTram));
+    unprocessed.sort((a, b) => (a.maTram || '').localeCompare(b.maTram || ''));
 
     // Filter processed
     const filteredProcessed = processed.filter(e => {
@@ -154,9 +160,9 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                         <button onClick={() => setShowForm(false)} className="px-5 py-2 text-sm font-bold text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors">
                             Hủy
                         </button>
-                        <button onClick={handleSaveNew} className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm">
+                        <button onClick={handleSaveNew} disabled={isSubmitting} className={`bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}>
                             <Save className="w-4 h-4" />
-                            Lưu thông tin
+                            {isSubmitting ? 'Đang lưu...' : 'Lưu thông tin'}
                         </button>
                     </div>
                 </div>

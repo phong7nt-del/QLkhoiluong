@@ -514,7 +514,7 @@ export const DataStore = {
                        const tenDiemDo = getVal(['tên điểm đo']);
                        if (maTram || tenDiemDo) {
                           tutiList.push({
-                              id: String(Math.random().toString(36).substring(2)),
+                              id: `${maTram.trim()}-${tenDiemDo.trim()}`.replace(/\s+/g, '-').toLowerCase(),
                               maTram: maTram,
                               tenDiemDo: tenDiemDo,
                               thongSoTU: getVal(['thông số tu']),
@@ -528,6 +528,7 @@ export const DataStore = {
                           });
                        }
                    }
+                   console.log('TUTI CSV Fetched successfully, rows:', tutiList.length);
                    localStorage.setItem(TUTI_KEY, JSON.stringify(tutiList));
                }
             } catch (e) {
@@ -552,6 +553,24 @@ export const DataStore = {
          }
          if (json.dinhMuc) {
            localStorage.setItem(DINHMUC_KEY, JSON.stringify(json.dinhMuc));
+         }
+         if (json.tuti && json.tuti.length > 0) {
+            const formattedTuti = json.tuti.map((item: any) => ({
+                id: `${String(item.maTram || '').trim()}-${String(item.tenDiemDo || '').trim()}`.replace(/\s+/g, '-').toLowerCase(),
+                maTram: String(item.maTram || ''),
+                tenDiemDo: String(item.tenDiemDo || ''),
+                thongSoTU: String(item.thongSoTU || ''),
+                thongSoTI: String(item.thongSoTI || ''),
+                kiemTraTU: String(item.kiemTraTU || ''),
+                kiemTraTI: String(item.kiemTraTI || ''),
+                khac: String(item.khac || ''),
+                ketLuan: String(item.ketLuan || ''),
+                ngayCapNhat: String(item.ngayCapNhat || ''),
+                ngayDuaLen: String(item.ngayDuaLen || '')
+            }));
+            localStorage.setItem(TUTI_KEY, JSON.stringify(formattedTuti));
+            // Wipe stuck local tuti entries when fetching new master data
+            localStorage.removeItem(LOCAL_TUTI_UPDATES_KEY);
          }
          
          const localCached = localStorage.getItem(LOCAL_PROGRESS_UPDATES_KEY);
@@ -738,7 +757,22 @@ export const DataStore = {
        const remoteTasks: TutiEntry[] = cached ? JSON.parse(cached) : [];
        
        const localCached = localStorage.getItem(LOCAL_TUTI_UPDATES_KEY);
-       const localTasks: TutiEntry[] = localCached ? JSON.parse(localCached) : [];
+       let localTasks: TutiEntry[] = [];
+       if (localCached) {
+           try {
+               localTasks = JSON.parse(localCached);
+               if (!Array.isArray(localTasks)) localTasks = [];
+           } catch(e) {
+               localTasks = [];
+           }
+       }
+       
+       // Migration: remove any local tasks that use old random IDs (length < 15 and no hyphens)
+       const originalLength = localTasks.length;
+       localTasks = localTasks.filter(t => t && t.id && String(t.id).includes('-'));
+       if (localTasks.length !== originalLength) {
+           localStorage.setItem(LOCAL_TUTI_UPDATES_KEY, JSON.stringify(localTasks));
+       }
        
        // Priority to local tasks
        const mergedMap = new Map(remoteTasks.map(t => [t.id, t]));
@@ -748,21 +782,62 @@ export const DataStore = {
      } catch { return []; }
   },
 
-  addTutiEntry: (entry: Omit<TutiEntry, 'id'>) => {
+  addTutiToSheet: async (entry: TutiEntry) => {
+    try {
+      const url = DataStore.getAppScriptUrl();
+      if (!url) return false;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8',
+        },
+        body: JSON.stringify({ action: 'add_tuti', data: entry }),
+      });
+      const result = await response.json();
+      return result.status === 'success';
+    } catch (error) {
+      console.error('Error adding TUTI to sheet:', error);
+      return false;
+    }
+  },
+
+  addTutiEntry: async (entry: Omit<TutiEntry, 'id'>) => {
      const localCached = localStorage.getItem(LOCAL_TUTI_UPDATES_KEY);
-     const localTasks: TutiEntry[] = localCached ? JSON.parse(localCached) : [];
+     let localTasks: TutiEntry[] = [];
+     if(localCached) {
+         try {
+             localTasks = JSON.parse(localCached);
+             if (!Array.isArray(localTasks)) localTasks = [];
+         } catch(e) {
+             localTasks = [];
+         }
+     }
      const newEntry: TutiEntry = {
         ...entry,
-        id: Math.random().toString(36).substring(2, 9),
+        id: `${entry.maTram.trim()}-${entry.tenDiemDo.trim()}`.replace(/\s+/g, '-').toLowerCase(),
         isLocal: true
      };
      localTasks.push(newEntry);
      localStorage.setItem(LOCAL_TUTI_UPDATES_KEY, JSON.stringify(localTasks));
-     DataStore.syncTutiToSheet(newEntry);
+     const success = await DataStore.addTutiToSheet(newEntry);
+     if (success) {
+         // remove from local tasks if sync succeeds
+         const currentLocal = localStorage.getItem(LOCAL_TUTI_UPDATES_KEY);
+         let lt: TutiEntry[] = [];
+         if (currentLocal) {
+             try {
+                 lt = JSON.parse(currentLocal);
+                 if (!Array.isArray(lt)) lt = [];
+             } catch(e) { lt = []; }
+         }
+         lt = lt.filter(t => t.id !== newEntry.id);
+         localStorage.setItem(LOCAL_TUTI_UPDATES_KEY, JSON.stringify(lt));
+         await DataStore.syncMasterData(); // refresh to get it correctly
+     }
      return newEntry;
   },
 
-  updateTutiEntry: (id: string, updates: Partial<TutiEntry>) => {
+  updateTutiEntry: async (id: string, updates: Partial<TutiEntry>) => {
      const allEntries = DataStore.getTutiEntries();
      const entry = allEntries.find(t => t.id === id);
      if (!entry) return null;
@@ -770,7 +845,15 @@ export const DataStore = {
      const updatedEntry = { ...entry, ...updates, isLocal: true };
      
      const localCached = localStorage.getItem(LOCAL_TUTI_UPDATES_KEY);
-     const localTasks: TutiEntry[] = localCached ? JSON.parse(localCached) : [];
+     let localTasks: TutiEntry[] = [];
+     if(localCached) {
+         try {
+             localTasks = JSON.parse(localCached);
+             if (!Array.isArray(localTasks)) localTasks = [];
+         } catch(e) {
+             localTasks = [];
+         }
+     }
      
      const existingIndex = localTasks.findIndex(t => t.id === id);
      if (existingIndex >= 0) {
@@ -779,7 +862,21 @@ export const DataStore = {
         localTasks.push(updatedEntry);
      }
      localStorage.setItem(LOCAL_TUTI_UPDATES_KEY, JSON.stringify(localTasks));
-     DataStore.syncTutiToSheet(updatedEntry);
+     const success = await DataStore.syncTutiToSheet(updatedEntry);
+     if (success) {
+         // remove from local tasks if sync succeeds
+         const currentLocal = localStorage.getItem(LOCAL_TUTI_UPDATES_KEY);
+         let lt: TutiEntry[] = [];
+         if (currentLocal) {
+             try {
+                 lt = JSON.parse(currentLocal);
+                 if (!Array.isArray(lt)) lt = [];
+             } catch(e) { lt = []; }
+         }
+         lt = lt.filter(t => t.id !== updatedEntry.id);
+         localStorage.setItem(LOCAL_TUTI_UPDATES_KEY, JSON.stringify(lt));
+         await DataStore.syncMasterData();
+     }
      return updatedEntry;
   },
 

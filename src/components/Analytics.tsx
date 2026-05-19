@@ -224,7 +224,8 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
     // Gather all unique dates
     const sortedDates = Array.from(new Set(filteredEntries.map(e => e.date))).sort();
     const dateCols = sortedDates.map(date => {
-        const displayDate = date.includes('-') ? date.split('-').reverse().join('/') : date;
+        const dateStr = String(date || '');
+        const displayDate = dateStr.includes('-') ? dateStr.split('-').reverse().join('/') : dateStr;
         return {
             date,
             colName: `Nội dung công việc của ngày ${displayDate}`

@@ -21,6 +21,7 @@ export default function App() {
   const isDoiTruong = roleStr.includes('đội trưởng');
 
   const [taskStats, setTaskStats] = useState({ overdue: 0, warning: 0, ok: 0 });
+  const [tutiUnprocessedCount, setTutiUnprocessedCount] = useState(0);
 
   useEffect(() => {
     if (sessionUser) {
@@ -55,6 +56,11 @@ export default function App() {
           }
       });
       setTaskStats({ overdue, warning, ok });
+      
+      // Calculate tuti stats
+      const tutiEntries = DataStore.getTutiEntries();
+      const unprocessed = tutiEntries.filter(e => !e.ketLuan || (e.ketLuan !== 'Đúng' && e.ketLuan !== 'Sai'));
+      setTutiUnprocessedCount(unprocessed.length);
     }
   }, [refreshToggle, isManagement]);
 
@@ -195,7 +201,7 @@ export default function App() {
             </div>
             <button 
               onClick={() => setShowConfig(true)}
-              className="hidden text-slate-400 hover:text-blue-600 hover:bg-blue-50 p-1.5 rounded-full transition-colors"
+              className="text-slate-400 hover:text-blue-600 hover:bg-blue-50 p-1.5 rounded-full transition-colors"
               title="Cấu hình hệ thống"
             >
               <Settings className="w-4 h-4 md:w-5 md:h-5" />
@@ -262,6 +268,16 @@ export default function App() {
                          {tab.id === 'progress' && taskStats.overdue > 0 && !sidebarOpen && (
                             <span className="absolute top-1 right-1 flex items-center justify-center w-4 h-4 text-[9px] font-black bg-red-500 text-white rounded-full shadow-sm">
                                {taskStats.overdue}
+                            </span>
+                         )}
+                         {tab.id === 'tuti' && tutiUnprocessedCount > 0 && sidebarOpen && (
+                            <span className="ml-auto inline-flex items-center justify-center w-5 h-5 text-[10px] font-black bg-red-100 border border-red-200 text-red-700 rounded-md shadow-sm">
+                               {tutiUnprocessedCount}
+                            </span>
+                         )}
+                         {tab.id === 'tuti' && tutiUnprocessedCount > 0 && !sidebarOpen && (
+                            <span className="absolute top-1 right-1 flex items-center justify-center w-4 h-4 text-[9px] font-black bg-red-500 text-white rounded-full shadow-sm">
+                               {tutiUnprocessedCount}
                             </span>
                          )}
                       </button>

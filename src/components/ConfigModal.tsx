@@ -8,11 +8,13 @@ const SCRIPT_TEMPLATE = `// XÓA TẤT CẢ MÃ CŨ (XÓA function myFunction() 
 var SPREADSHEET_ID = '1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ';
 
 function getSheetFlexibly(ss, possibleNames) {
+  if (!ss || !possibleNames || !possibleNames.length) return null;
   for (var i=0; i<possibleNames.length; i++) {
     var sheet = ss.getSheetByName(possibleNames[i]);
     if (sheet) return sheet;
   }
   var sheets = ss.getSheets();
+  if (!sheets) return null;
   for (var s=0; s<sheets.length; s++) {
     var sn = sheets[s].getName().toLowerCase().trim();
     for (var p=0; p<possibleNames.length; p++) {
@@ -243,13 +245,55 @@ function doGet(e) {
       }
     }
     
+    // Đọc sheet TUTI
+    var tutiList = [];
+    var sheetTuti = getSheetFlexibly(ss, ['TUTI', 'Tuti', 'TuTi', 'tu ti']);
+    if (sheetTuti) {
+       var tData = sheetTuti.getDataRange().getValues();
+       var tHeaders = tData[0] || [];
+       var thm = {};
+       for (var c = 0; c < tHeaders.length; c++) {
+          var h = String(tHeaders[c]).toLowerCase().trim();
+          if (h === 'mã trạm' || h === 'ma tram') thm.maTramCol = c;
+          if (h === 'tên điểm đo' || h === 'ten diem do' || h === 'tên trạm') thm.tenDiemDoCol = c;
+          if (h.indexOf('thông số tu') > -1 || h.indexOf('thong so tu') > -1 || h === 'tu') thm.tuCol = c;
+          if (h.indexOf('thông số ti') > -1 || h.indexOf('thong so ti') > -1 || h === 'ti') thm.tiCol = c;
+          if (h.indexOf('kiểm tra tu') > -1 || h.indexOf('kiem tra tu') > -1) thm.ktTuCol = c;
+          if (h.indexOf('kiểm tra ti') > -1 || h.indexOf('kiem tra ti') > -1) thm.ktTiCol = c;
+          if (h === 'khác' || h === 'khac') thm.khacCol = c;
+          if (h === 'kết luận' || h === 'ket luan') thm.ketLuanCol = c;
+          if (h.indexOf('ngày cập nhật') > -1 || h.indexOf('ngày kiểm tra') > -1 || h.indexOf('ngay kiem tra') > -1) thm.ngayKiemTraCol = c;
+          if (h.indexOf('ngày đưa lên') > -1 || h.indexOf('ngay dua len') > -1) thm.ngayDuaLenCol = c;
+       }
+       
+       for (var t = 1; t < tData.length; t++) {
+           var mTram = thm.maTramCol !== undefined ? String(tData[t][thm.maTramCol] || '') : '';
+           var tDiem = thm.tenDiemDoCol !== undefined ? String(tData[t][thm.tenDiemDoCol] || '') : '';
+           if (mTram || tDiem) {
+               tutiList.push({
+                   maTram: mTram,
+                   tenDiemDo: tDiem,
+                   thongSoTU: thm.tuCol !== undefined ? String(tData[t][thm.tuCol] || '') : '',
+                   thongSoTI: thm.tiCol !== undefined ? String(tData[t][thm.tiCol] || '') : '',
+                   kiemTraTU: thm.ktTuCol !== undefined ? String(tData[t][thm.ktTuCol] || '') : '',
+                   kiemTraTI: thm.ktTiCol !== undefined ? String(tData[t][thm.ktTiCol] || '') : '',
+                   khac: thm.khacCol !== undefined ? String(tData[t][thm.khacCol] || '') : '',
+                   ketLuan: thm.ketLuanCol !== undefined ? String(tData[t][thm.ketLuanCol] || '') : '',
+                   ngayCapNhat: thm.ngayKiemTraCol !== undefined ? String(tData[t][thm.ngayKiemTraCol] || '') : '',
+                   ngayDuaLen: thm.ngayDuaLenCol !== undefined ? String(tData[t][thm.ngayDuaLenCol] || '') : ''
+               });
+           }
+       }
+    }
+    
     return ContentService.createTextOutput(JSON.stringify({
       status: 'success',
       teams: teams,
       members: members,
       stations: stations,
       workloads: workloads,
-      dinhMuc: dinhMucList
+      dinhMuc: dinhMucList,
+      tuti: tutiList
     })).setMimeType(ContentService.MimeType.JSON);
   }
   return ContentService.createTextOutput("Valid Endpoint");
@@ -387,6 +431,80 @@ function doPost(e) {
           if (hm.deadlineCol !== undefined && data.deadline !== undefined) sheet.getRange(targetRow + 1, hm.deadlineCol + 1).setValue(data.deadline);
           if (hm.statusCol !== undefined && data.status !== undefined) sheet.getRange(targetRow + 1, hm.statusCol + 1).setValue(data.status);
           if (hm.expCol !== undefined && data.explanation !== undefined) sheet.getRange(targetRow + 1, hm.expCol + 1).setValue(data.explanation);
+       }
+       
+       return ContentService.createTextOutput(JSON.stringify({ status: 'success' })).setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    if (payload.action === 'add_tuti' || payload.action === 'update_tuti') {
+       var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+       var sheet = getSheetFlexibly(ss, ['TUTI', 'Tuti', 'TuTi', 'tu ti']);
+       if (!sheet) return ContentService.createTextOutput(JSON.stringify({status: 'error'})).setMimeType(ContentService.MimeType.JSON);
+       
+       var data = payload.data;
+       var sheetData = sheet.getDataRange().getValues();
+       var headers = sheetData[0] || [];
+       
+       var hm = {};
+       for (var c = 0; c < headers.length; c++) {
+          var h = String(headers[c]).toLowerCase().trim();
+          if (h === 'tt' || h === 'stt') hm.ttCol = c;
+          if (h === 'mã trạm' || h === 'ma tram') hm.maTramCol = c;
+          if (h === 'tên điểm đo' || h === 'ten diem do' || h === 'tên trạm') hm.tenDiemDoCol = c;
+          if (h.indexOf('thông số tu') > -1 || h.indexOf('thong so tu') > -1 || h === 'tu') hm.tuCol = c;
+          if (h.indexOf('thông số ti') > -1 || h.indexOf('thong so ti') > -1 || h === 'ti') hm.tiCol = c;
+          if (h.indexOf('kiểm tra tu') > -1 || h.indexOf('kiem tra tu') > -1) hm.ktTuCol = c;
+          if (h.indexOf('kiểm tra ti') > -1 || h.indexOf('kiem tra ti') > -1) hm.ktTiCol = c;
+          if (h === 'khác' || h === 'khac') hm.khacCol = c;
+          if (h === 'kết luận' || h === 'ket luan') hm.ketLuanCol = c;
+          if (h.indexOf('ngày cập nhật') > -1 || h.indexOf('ngày kiểm tra') > -1 || h.indexOf('ngay kiem tra') > -1) hm.ngayKiemTraCol = c;
+          if (h.indexOf('ngày đưa lên') > -1 || h.indexOf('ngay dua len') > -1) hm.ngayDuaLenCol = c;
+       }
+       
+       var targetRow = -1;
+       if (payload.action === 'update_tuti' && data.maTram && data.tenDiemDo) {
+          for (var r = 1; r < sheetData.length; r++) {
+             if (hm.maTramCol !== undefined && hm.tenDiemDoCol !== undefined &&
+                 String(sheetData[r][hm.maTramCol]).trim() === String(data.maTram).trim() &&
+                 String(sheetData[r][hm.tenDiemDoCol]).trim() === String(data.tenDiemDo).trim()) {
+                 targetRow = r; break;
+             }
+          }
+       }
+       
+       if (targetRow === -1) {
+          var maxTt = 0;
+          if (hm.ttCol !== undefined) {
+             for (var r=1; r<sheetData.length; r++) {
+               var tNum = parseInt(sheetData[r][hm.ttCol], 10);
+               if (!isNaN(tNum) && tNum > maxTt) maxTt = tNum;
+             }
+          }
+          var newTt = maxTt + 1;
+          
+          var newRowData = new Array(headers.length).fill('');
+          if (hm.ttCol !== undefined) newRowData[hm.ttCol] = newTt;
+          if (hm.maTramCol !== undefined) newRowData[hm.maTramCol] = data.maTram || '';
+          if (hm.tenDiemDoCol !== undefined) newRowData[hm.tenDiemDoCol] = data.tenDiemDo || '';
+          if (hm.tuCol !== undefined) newRowData[hm.tuCol] = data.thongSoTU || '';
+          if (hm.tiCol !== undefined) newRowData[hm.tiCol] = data.thongSoTI || '';
+          if (hm.ktTuCol !== undefined) newRowData[hm.ktTuCol] = data.kiemTraTU || '';
+          if (hm.ktTiCol !== undefined) newRowData[hm.ktTiCol] = data.kiemTraTI || '';
+          if (hm.khacCol !== undefined) newRowData[hm.khacCol] = data.khac || '';
+          if (hm.ketLuanCol !== undefined) newRowData[hm.ketLuanCol] = data.ketLuan || '';
+          if (hm.ngayKiemTraCol !== undefined) newRowData[hm.ngayKiemTraCol] = data.ngayCapNhat || '';
+          if (hm.ngayDuaLenCol !== undefined) newRowData[hm.ngayDuaLenCol] = data.ngayDuaLen || '';
+          
+          sheet.appendRow(newRowData);
+       } else {
+          if (hm.tuCol !== undefined && data.thongSoTU !== undefined) sheet.getRange(targetRow + 1, hm.tuCol + 1).setValue(data.thongSoTU);
+          if (hm.tiCol !== undefined && data.thongSoTI !== undefined) sheet.getRange(targetRow + 1, hm.tiCol + 1).setValue(data.thongSoTI);
+          if (hm.ktTuCol !== undefined && data.kiemTraTU !== undefined) sheet.getRange(targetRow + 1, hm.ktTuCol + 1).setValue(data.kiemTraTU);
+          if (hm.ktTiCol !== undefined && data.kiemTraTI !== undefined) sheet.getRange(targetRow + 1, hm.ktTiCol + 1).setValue(data.kiemTraTI);
+          if (hm.khacCol !== undefined && data.khac !== undefined) sheet.getRange(targetRow + 1, hm.khacCol + 1).setValue(data.khac);
+          if (hm.ketLuanCol !== undefined && data.ketLuan !== undefined) sheet.getRange(targetRow + 1, hm.ketLuanCol + 1).setValue(data.ketLuan);
+          if (hm.ngayKiemTraCol !== undefined && data.ngayCapNhat !== undefined) sheet.getRange(targetRow + 1, hm.ngayKiemTraCol + 1).setValue(data.ngayCapNhat);
+          if (hm.ngayDuaLenCol !== undefined && data.ngayDuaLen !== undefined) sheet.getRange(targetRow + 1, hm.ngayDuaLenCol + 1).setValue(data.ngayDuaLen);
        }
        
        return ContentService.createTextOutput(JSON.stringify({ status: 'success' })).setMimeType(ContentService.MimeType.JSON);
