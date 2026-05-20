@@ -499,6 +499,7 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
                 <table className="w-full text-left border-collapse min-w-[800px]">
                    <thead className="bg-[#141414] text-[#E4E3E0]">
                       <tr className="text-[10px] font-mono uppercase tracking-widest">
+                         <th className="py-3 px-4 border-b border-[#141414] whitespace-nowrap w-12 text-center">STT</th>
                          <th className="py-3 px-4 border-b border-[#141414] whitespace-nowrap">Ngày</th>
                          <th className="py-3 px-4 border-b border-[#141414]">Họ và Tên</th>
                          <th className="py-3 px-4 border-b border-[#141414]">Khu vực / Tổ</th>
@@ -516,6 +517,7 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
                       }).sort((a, b) => b.entry.timestamp - a.entry.timestamp)
                         .map((row, i) => (
                          <tr key={`${row.entry.id}-${row.member}-${i}`} className="border-b border-[#141414]/10 hover:bg-[#E4E3E0]/30 transition-colors">
+                            <td className="py-3 px-4 border-r border-[#141414]/10 align-top text-center font-bold opacity-60">{i + 1}</td>
                             <td className="py-3 px-4 border-r border-[#141414]/10 align-top whitespace-nowrap font-mono">{row.date}</td>
                             <td className="py-3 px-4 border-r border-[#141414]/10 align-top font-bold">{row.member}</td>
                             <td className="py-3 px-4 border-r border-[#141414]/10 align-top opacity-70">{row.team}</td>
@@ -565,6 +567,7 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
                            <table className="w-full text-left border-collapse min-w-[500px]">
                               <thead className="bg-[#F5F4F2] text-[#141414]">
                                  <tr className="text-[10px] font-mono uppercase tracking-widest">
+                                    <th className="py-3 px-4 border-b border-r border-[#141414]/20 w-12 font-bold text-center">STT</th>
                                     <th className="py-3 px-4 border-b border-r border-[#141414]/20 w-48 font-bold">Họ và Tên</th>
                                     <th className="py-3 px-4 border-b border-[#141414]/20 font-bold">Nội dung công việc</th>
                                  </tr>
@@ -574,6 +577,7 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
                                     const memberEntries = dateEntries.filter(e => e.members?.includes(member));
                                     return (
                                        <tr key={member} className={`border-b border-[#141414]/10 hover:bg-[#E4E3E0]/30 transition-colors ${i % 2 === 0 ? 'bg-white' : 'bg-[#F9F9F9]'}`}>
+                                          <td className="py-3 px-4 text-center font-bold opacity-60 border-r border-[#141414]/10 align-top">{i + 1}</td>
                                           <td className="py-3 px-4 font-bold border-r border-[#141414]/10 align-top">
                                              {member}
                                           </td>

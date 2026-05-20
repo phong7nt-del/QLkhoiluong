@@ -153,7 +153,7 @@ export default function App() {
   const tabs: any[] = [
     { id: "input", icon: ClipboardList, label: "Cập nhật", color: "blue" },
     { id: "report", icon: BarChart3, label: "Báo cáo", color: "blue" },
-    { id: "stations", icon: Database, label: "Trạm BA", color: "blue" },
+    { id: "stations", icon: Database, label: "Trạm và Xử lý đấu tắt", color: "blue" },
     { id: "analysis", icon: TrendingUp, label: "Phân tích", color: "blue" },
     { id: "disconnect", icon: WifiOff, label: "Tỷ lệ mất kết nối", color: "red" },
   ];
