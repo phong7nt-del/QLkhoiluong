@@ -61,6 +61,9 @@ const LOCAL_PROGRESS_UPDATES_KEY = 'local_progress_updates_v1';
 const TUTI_KEY = 'sheet_tuti_v1';
 const LOCAL_TUTI_UPDATES_KEY = 'local_tuti_updates_v1';
 
+let memCacheKhuVucList: any[] | null = null;
+let memCacheMatKetNoiList: any[] | null = null;
+
 export const DataStore = {
   getAppScriptUrl: () => localStorage.getItem(SCRIPT_URL_KEY) || 'https://script.google.com/macros/s/AKfycbyDCcu4I8yfT1g2KOHCRoaDtMMb1gLvfxhP4HJkzFYbqNIg1TSXCyi2HS3D7hDYpInVxQ/exec',
   setAppScriptUrl: (url: string) => localStorage.setItem(SCRIPT_URL_KEY, url),
@@ -535,6 +538,74 @@ export const DataStore = {
                console.error('Error fetching TUTI', e);
             }
 
+            // Fetch MatKetNoi
+            try {
+               const mknRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("MatKetNoi")}&_t=${new Date().getTime()}`);
+               const mknText = await mknRes.text();
+               if (!mknText.includes('<html')) {
+                   const { data, meta } = Papa.parse(mknText, { header: true, skipEmptyLines: true });
+                   const keys = meta.fields || [];
+                   
+                   const normalizeCol = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[\s_]+/g, '');
+                   const docKey = keys.find(k => normalizeCol(k).includes('madiemdo') || normalizeCol(k).includes('maddo'));
+                   const actualKey = docKey || keys[0];
+                   
+                   if (actualKey) {
+                       const matKetNoiList = data.map((row: any) => ({
+                           maDiemDo: String(row[actualKey] || '').trim()
+                       })).filter(r => r.maDiemDo);
+                       memCacheMatKetNoiList = matKetNoiList;
+                       try {
+                           localStorage.setItem('sheet_matketnoi_v1', JSON.stringify(matKetNoiList));
+                       } catch(e) {
+                           console.warn("localStorage quota exceeded for MatKetNoi");
+                       }
+                   }
+               }
+            } catch (e) {
+               console.error('Error fetching MatKetNoi:', e);
+            }
+
+            // Fetch KhuVuc
+            try {
+               const kvRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("KhuVuc")}&_t=${new Date().getTime()}`);
+               const kvText = await kvRes.text();
+               if (!kvText.includes('<html')) {
+                   const { data, meta } = Papa.parse(kvText, { header: true, skipEmptyLines: true });
+                   const keys = meta.fields || [];
+                   
+                   const normalizeCol = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[\s_]+/g, '');
+                   
+                   const kMaDdo = keys.find(k => {
+                       const nk = normalizeCol(k);
+                       return nk.includes('maddo') || nk.includes('madiemdo');
+                   });
+                   
+                   const kTql = keys.find(k => {
+                        const nk = normalizeCol(k);
+                        return nk.includes('khuvuc') || nk.includes('toql') || nk.includes('to') || nk.includes('to');
+                   });
+
+                   const actualMaDdo = kMaDdo || keys[0];
+                   const actualTql = kTql || keys[1];
+                   
+                   if (actualMaDdo) {
+                       const khuVucList = data.map((row: any) => ({
+                           MA_DDO: String(row[actualMaDdo] || '').trim(),
+                           TO_QL: String(row[actualTql] || '').trim() || 'Khác',
+                       })).filter(r => r.MA_DDO);
+                       memCacheKhuVucList = khuVucList;
+                       try {
+                           localStorage.setItem('sheet_khuvuc_v1', JSON.stringify(khuVucList));
+                       } catch(e) {
+                           console.warn("localStorage quota exceeded for KhuVuc");
+                       }
+                   }
+               }
+            } catch(e) {
+               console.error('Error fetching KhuVuc:', e);
+            }
+
          } catch (e) {
             console.error('Error parsing CBCNV from CSV', e);
          }
@@ -627,8 +698,17 @@ export const DataStore = {
   },
 
   getMatKetNoi: (): { maDiemDo: string }[] => {
+     if (memCacheMatKetNoiList) return memCacheMatKetNoiList;
      try {
        const cached = localStorage.getItem('sheet_matketnoi_v1');
+       return cached ? JSON.parse(cached) : [];
+     } catch { return []; }
+  },
+
+  getKhuVuc: (): { MA_DDO: string; TO_QL: string }[] => {
+     if (memCacheKhuVucList) return memCacheKhuVucList;
+     try {
+       const cached = localStorage.getItem('sheet_khuvuc_v1');
        return cached ? JSON.parse(cached) : [];
      } catch { return []; }
   },

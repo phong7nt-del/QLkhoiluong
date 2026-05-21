@@ -3,18 +3,15 @@ import Papa from 'papaparse';
 import { DataStore } from '../store/DataStore';
 import { RefreshCw, AlertCircle, WifiOff, Users } from 'lucide-react';
 import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
+  PieChart,
+  Pie,
   Tooltip as RechartsTooltip,
+  Cell,
   Legend,
-  ResponsiveContainer,
-  Cell
+  ResponsiveContainer
 } from 'recharts';
 
-export default function DisconnectRateTab() {
+export default function DisconnectRateTab({ refreshToggle }: { refreshToggle?: number }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [stats, setStats] = useState<any>(null);
@@ -22,60 +19,42 @@ export default function DisconnectRateTab() {
   const fetchData = async () => {
     setLoading(true);
     setError('');
+    
     try {
-      // 1. Fetch KhuVuc mapping
-      const khuVucRes = await fetch('https://docs.google.com/spreadsheets/d/1ORxFm7PvaDSRvSoNCC5ksBKjk9BEwEfrrOkGIapl9H4/export?format=csv&gid=1261602420');
-      const khuVucText = await khuVucRes.text();
-      const nhomToKhuVuc: Record<string, string> = {};
-      Papa.parse(khuVucText, {
-        header: true,
-        skipEmptyLines: true,
-        complete: (results) => {
-          results.data.forEach((row: any) => {
-            const nhom = String(row['Nhóm'] || '').trim();
-            const khuVuc = String(row['Khu vực'] || '').trim();
-            if (nhom && khuVuc) {
-               nhomToKhuVuc[nhom] = khuVuc;
-            }
-          });
-        }
-      });
-
-      // 2. Fetch ChiaNhom mapping & count customers
-      const chiaNhomRes = await fetch('https://docs.google.com/spreadsheets/d/1ORxFm7PvaDSRvSoNCC5ksBKjk9BEwEfrrOkGIapl9H4/export?format=csv&gid=1685016121');
-      const chiaNhomText = await chiaNhomRes.text();
+      await DataStore.syncMasterData(); 
+      const khuVucList = DataStore.getKhuVuc();
+      const missingList = DataStore.getMatKetNoi();
+      
       const maKhangToKhuVuc: Record<string, string> = {};
       const totalCustomersByArea: Record<string, number> = {};
       let totalCustomers = 0;
-
-      Papa.parse(chiaNhomText, {
-        header: true,
-        skipEmptyLines: true,
-        complete: (results) => {
-          results.data.forEach((row: any) => {
-            const maKhang = String(row['MA_KHANG'] || '').trim();
-            const nhom = String(row['Nhóm'] || '').trim();
-            if (maKhang && nhom) {
-               const khuVuc = nhomToKhuVuc[nhom] || 'Khác';
-               maKhangToKhuVuc[maKhang] = khuVuc;
-               totalCustomersByArea[khuVuc] = (totalCustomersByArea[khuVuc] || 0) + 1;
-               totalCustomers++;
-            }
-          });
-        }
+      
+      khuVucList.forEach((kv) => {
+         const maDdo = String(kv.MA_DDO || '').trim();
+         const khuVuc = String(kv.TO_QL || 'Khác').trim();
+         if (maDdo) {
+             maKhangToKhuVuc[maDdo.replace(/\s+/g, '')] = khuVuc;
+             totalCustomersByArea[khuVuc] = (totalCustomersByArea[khuVuc] || 0) + 1;
+             totalCustomers++;
+         }
       });
 
-      // 3. Get missing connections point
-      const missingList = DataStore.getMatKetNoi();
       const missingCountByArea: Record<string, number> = {};
       let totalMissing = 0;
 
       missingList.forEach(m => {
-          const raw = String(m.maDiemDo || '');
+          const raw = String(m.maDiemDo || '').trim();
           const cleaned = raw.replace(/\s+/g, '');
-          if (cleaned.length > 3) {
-             const maKhang = cleaned.slice(0, -3);
-             const khuVuc = maKhangToKhuVuc[maKhang] || 'Không xác định / Khác';
+          if (cleaned) {
+             let khuVuc = maKhangToKhuVuc[cleaned];
+             
+             // Fallback in case they actually wanted to strip suffixes still
+             if (!khuVuc && cleaned.length > 3) {
+                 khuVuc = maKhangToKhuVuc[cleaned.slice(0, -3)];
+             }
+             
+             khuVuc = khuVuc || 'Không xác định / Khác';
+
              missingCountByArea[khuVuc] = (missingCountByArea[khuVuc] || 0) + 1;
              totalMissing++;
           }
@@ -90,7 +69,7 @@ export default function DisconnectRateTab() {
 
     } catch (e: any) {
        console.error("Error fetching data for missing conn:", e);
-       setError('Không thể tải dữ liệu. Vui lòng kiểm tra lại kết nối mạng hoặc quyền truy cập Google Sheet.');
+       setError('Không thể tải dữ liệu. Vui lòng kiểm tra lại cấu trúc Google Sheet.');
     } finally {
        setLoading(false);
     }
@@ -98,7 +77,7 @@ export default function DisconnectRateTab() {
 
   useEffect(() => {
      fetchData();
-  }, []);
+  }, [refreshToggle]);
 
   const chartData = useMemo(() => {
      if (!stats) return [];
@@ -223,53 +202,74 @@ export default function DisconnectRateTab() {
          </div>
 
          {/* Biểu đồ */}
-         <div className="bg-white border border-[#141414] shadow-[4px_4px_0_#141414] p-4 flex flex-col h-[400px] xl:h-auto">
-             <h3 className="font-bold uppercase tracking-widest text-sm mb-6 pb-2 border-b border-[#141414]/20">Biểu đồ Tỷ lệ mất kết nối (%)</h3>
-             <div className="flex-1 min-h-[300px]">
+         <div className="bg-white border border-[#141414] shadow-[4px_4px_0_#141414] p-6 lg:p-8 flex flex-col items-center">
+             <div className="text-center mb-6">
+                <h3 className="font-extrabold text-lg uppercase tracking-widest text-[#141414]">Cơ cấu Mất kết nối theo Khu vực</h3>
+                <p className="text-sm font-medium text-slate-500 mt-1">Tỷ trọng các điểm đo mất kết nối phân bổ theo từng đơn vị</p>
+             </div>
+             
+             <div className="w-full flex-1 min-h-[350px]">
                 <ResponsiveContainer width="100%" height="100%">
-                   <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 40 }}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                      <XAxis 
-                          dataKey="name" 
-                          tick={{ fontSize: 11, fontWeight: 'bold', fill: '#4a5568' }} 
-                          angle={-45} 
-                          textAnchor="end"
-                          interval={0}
-                          tickLine={false}
-                          axisLine={false}
-                      />
-                      <YAxis 
-                          tick={{ fontSize: 11, fill: '#4a5568' }} 
-                          tickFormatter={(v) => `${v}%`}
-                          axisLine={false}
-                          tickLine={false}
-                      />
+                   <PieChart>
+                      <Pie
+                        data={chartData.filter(d => d.Mất_Kết_Nối > 0)}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={80}
+                        outerRadius={120}
+                        paddingAngle={4}
+                        dataKey="Mất_Kết_Nối"
+                        nameKey="name"
+                        label={({ cx, cy, midAngle, innerRadius, outerRadius, value, index }) => {
+                          const RADIAN = Math.PI / 180;
+                          const radius = 25 + innerRadius + (outerRadius - innerRadius);
+                          const x = cx + radius * Math.cos(-midAngle * RADIAN);
+                          const y = cy + radius * Math.sin(-midAngle * RADIAN);
+                          const dataFiltered = chartData.filter(d => d.Mất_Kết_Nối > 0);
+                          const percent = (value / stats.totalMissing) * 100;
+                          if (percent < 2) return null; // hide small labels
+                          return (
+                            <text
+                              x={x}
+                              y={y}
+                              fill="#141414"
+                              textAnchor={x > cx ? 'start' : 'end'}
+                              dominantBaseline="central"
+                              className="text-xs font-bold"
+                            >
+                              {`${dataFiltered[index].name} (${percent.toFixed(1)}%)`}
+                            </text>
+                          );
+                        }}
+                      >
+                        {chartData.filter(d => d.Mất_Kết_Nối > 0).map((entry, index) => {
+                          const professionalColors = [
+                            '#14b8a6', '#f59e0b', '#ef4444', '#3b82f6', 
+                            '#8b5cf6', '#ec4899', '#10b981', '#f97316', 
+                            '#64748b', '#0ea5e9'
+                          ];
+                          return <Cell key={`cell-${index}`} fill={professionalColors[index % professionalColors.length]} stroke="transparent" />
+                        })}
+                      </Pie>
                       <RechartsTooltip 
-                          cursor={{ fill: 'transparent' }}
                           contentStyle={{ 
                              backgroundColor: '#141414', 
                              color: 'white', 
                              border: 'none',
-                             borderRadius: '4px',
-                             boxShadow: '4px 4px 0px rgba(0,0,0,0.3)',
+                             borderRadius: '8px',
+                             boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.5)',
                              fontWeight: 'bold',
-                             fontSize: '12px'
+                             fontSize: '13px',
+                             padding: '12px 16px'
                           }}
-                          itemStyle={{ color: '#fff' }}
-                          labelStyle={{ color: '#aaa', marginBottom: '4px' }}
-                          formatter={(value: number) => [`${value.toFixed(2)}%`, 'Tỷ lệ Mất Kết Nối']}
+                          itemStyle={{ color: '#fff', paddingTop: '4px' }}
+                          formatter={(value: number, name: string, props: any) => {
+                             const percent = (value / stats.totalMissing) * 100;
+                             return [`${value.toLocaleString('vi-VN')} ĐĐ (${percent.toFixed(1)}%)`, name];
+                          }}
                       />
-                      <Bar dataKey="Ty_Le" radius={[4, 4, 0, 0]}>
-                          {chartData.map((entry, index) => (
-                             <Cell key={`cell-${index}`} fill={entry.Ty_Le > totalRate ? '#ef4444' : '#f59e0b'} />
-                          ))}
-                      </Bar>
-                   </BarChart>
+                   </PieChart>
                 </ResponsiveContainer>
-             </div>
-             <div className="mt-4 text-xs font-medium text-slate-500 flex items-center justify-center gap-4">
-                 <div className="flex items-center gap-1.5"><span className="w-3 h-3 bg-[#ef4444] rounded-full inline-block"></span> Cao hơn tỷ lệ công ty</div>
-                 <div className="flex items-center gap-1.5"><span className="w-3 h-3 bg-[#f59e0b] rounded-full inline-block"></span> Thấp hơn tỷ lệ công ty</div>
              </div>
          </div>
       </div>

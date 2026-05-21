@@ -26,8 +26,8 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
   const [expInput, setExpInput] = useState('');
 
   const roleStr = sessionUser?.role ? sessionUser.role.toLowerCase() : '';
-  const isDoiTruong = roleStr.includes('đội trưởng');
-  const isManagement = ['đội trưởng', 'đội phó', 'tổ trưởng', 'tổ phó'].some(r => roleStr.includes(r));
+  const isDoiTruong = ['đội trưởng', 'giám đốc'].some(r => roleStr.includes(r));
+  const isManagement = ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'].some(r => roleStr.includes(r));
   
   const fetchProgress = async () => {
     setIsRefreshing(true);

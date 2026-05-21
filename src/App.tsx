@@ -18,8 +18,8 @@ export default function App() {
   const [showConfig, setShowConfig] = useState(false);
   const [sessionUser, setSessionUser] = useState<SheetMember | null>(null);
   const roleStr = sessionUser?.role ? sessionUser.role.toLowerCase() : '';
-  const isManagement = ['đội trưởng', 'đội phó', 'tổ trưởng', 'tổ phó'].some(r => roleStr.includes(r));
-  const isDoiTruong = roleStr.includes('đội trưởng');
+  const isManagement = ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'].some(r => roleStr.includes(r));
+  const isDoiTruong = ['đội trưởng', 'giám đốc'].some(r => roleStr.includes(r));
 
   const [taskStats, setTaskStats] = useState({ overdue: 0, warning: 0, ok: 0 });
   const [tutiUnprocessedCount, setTutiUnprocessedCount] = useState(0);
@@ -85,7 +85,7 @@ export default function App() {
 
             setSessionUser(parsedUser);
             const _roleStr = parsedUser?.role ? parsedUser.role.toLowerCase() : '';
-            const _isManagement = ['đội trưởng', 'đội phó', 'tổ trưởng', 'tổ phó'].some(r => _roleStr.includes(r));
+            const _isManagement = ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'].some(r => _roleStr.includes(r));
             if (_isManagement && !sessionStorage.getItem('task_stats_shown')) {
                 showTaskAlert();
                 sessionStorage.setItem('task_stats_shown', 'true');
@@ -133,7 +133,7 @@ export default function App() {
      sessionStorage.setItem('workload_user_session', JSON.stringify(user));
      setSessionUser(user);
      const _roleStr = user?.role ? user.role.toLowerCase() : '';
-     const _isManagement = ['đội trưởng', 'đội phó', 'tổ trưởng', 'tổ phó'].some(r => _roleStr.includes(r));
+     const _isManagement = ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'].some(r => _roleStr.includes(r));
      if (_isManagement) {
          showTaskAlert();
          sessionStorage.setItem('task_stats_shown', 'true');
@@ -311,7 +311,7 @@ export default function App() {
                   <TutiTab refreshToggle={refreshToggle} sessionUser={sessionUser} />
                 )}
                 {activeTab === "disconnect" && (
-                  <DisconnectRateTab />
+                  <DisconnectRateTab refreshToggle={refreshToggle} />
                 )}
               </div>
             </div>
