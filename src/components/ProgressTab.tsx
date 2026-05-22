@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { DataStore, TaskProgress, SheetMember } from '../store/DataStore';
-import { CheckCircle, Clock, AlertCircle, Plus, User as UserIcon, Mic, XCircle, LayoutGrid, List, FileSpreadsheet, MessageSquarePlus, Send, Search } from 'lucide-react';
+import { CheckCircle, Clock, AlertCircle, Plus, User as UserIcon, Mic, XCircle, LayoutGrid, List, FileSpreadsheet, MessageSquarePlus, Send, Search, ChevronDown, ChevronRight } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 export default function ProgressTab({ refreshToggle, sessionUser }: { refreshToggle: number, sessionUser: SheetMember | null }) {
@@ -16,6 +16,8 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
   const [searchAssignee, setSearchAssignee] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [pendingViewMode, setPendingViewMode] = useState<'grid' | 'table'>('grid');
+  const [isPendingExpanded, setIsPendingExpanded] = useState(true);
+  const [isCompletedExpanded, setIsCompletedExpanded] = useState(false);
   const [filterState, setFilterState] = useState({ ok: true, warning: true, overdue: true });
   const [searchText, setSearchText] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -165,12 +167,18 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
   const today = new Date();
   today.setHours(0,0,0,0);
 
-  const pendingTasksRaw = tasks.filter(t => t.status.trim().toLowerCase() !== 'xong');
-  const completedTasksRaw = tasks.filter(t => t.status.trim().toLowerCase() === 'xong');
-
   const removeAccents = (str: string) => {
+    if (!str) return '';
     return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
   };
+
+  const isCompletedTask = (statusStr: string) => {
+    const s = removeAccents(statusStr).replace(/[\s_]+/g, '');
+    return s.includes('xong') || s.includes('hoanthanh') || s.includes('hoantat') || s.includes('ketthuc') || s.includes('dathu');
+  };
+
+  const pendingTasksRaw = tasks.filter(t => !isCompletedTask(t.status));
+  const completedTasksRaw = tasks.filter(t => isCompletedTask(t.status));
 
   const safeSearch = removeAccents(searchText);
   const pendingTasks = safeSearch ? pendingTasksRaw.filter(t => 
@@ -425,10 +433,14 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
 
       <div>
          <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <h3 className="font-bold text-lg flex items-center gap-2 text-slate-800">
+            <button 
+               onClick={() => setIsPendingExpanded(!isPendingExpanded)}
+               className="font-bold text-lg flex items-center gap-2 text-slate-800 hover:text-blue-600 transition-colors cursor-pointer text-left focus:outline-none"
+            >
+               {isPendingExpanded ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
                <AlertCircle className="w-5 h-5 text-amber-500" />
                ĐANG THỰC HIỆN <span className="bg-amber-100 text-amber-700 font-black px-2 py-0.5 rounded-full text-sm">{pendingTasks.length}</span>
-            </h3>
+            </button>
             
             <div className="flex flex-wrap items-center gap-3">
                <div className="flex items-center gap-3 bg-white px-3 py-1.5 rounded-xl border border-slate-200/50 shadow-sm text-xs font-bold text-slate-600">
@@ -461,10 +473,12 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
             </div>
          </div>
          
-         {pendingViewMode === 'grid' ? (
-             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                {sortedPendingTasks.map((t, idx) => {
-                   const colorClasses = getStatusColor(t.deadline);
+         {isPendingExpanded && (
+           <>
+             {pendingViewMode === 'grid' ? (
+                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {sortedPendingTasks.map((t, idx) => {
+                       const colorClasses = getStatusColor(t.deadline);
                    return (
                       <div key={`${t.id || 't'}-${idx}`} className={`p-5 rounded-2xl flex flex-col justify-between shadow-sm hover:shadow-md transition-all ${colorClasses}`}>
                          <div>
@@ -616,17 +630,24 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
                 </table>
              </div>
          )}
+           </>
+         )}
       </div>
 
       <div className="w-full h-px bg-slate-200 my-8"></div>
 
       <div>
-         <h3 className="font-bold text-lg mb-4 flex items-center gap-2 text-slate-800">
+         <button 
+             onClick={() => setIsCompletedExpanded(!isCompletedExpanded)}
+             className="font-bold text-lg mb-4 flex items-center gap-2 text-slate-800 hover:text-blue-600 transition-colors cursor-pointer text-left focus:outline-none"
+         >
+            {isCompletedExpanded ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
             <CheckCircle className="w-5 h-5 text-emerald-500" />
             ĐÃ HOÀN TẤT <span className="bg-emerald-100 text-emerald-700 font-black px-2 py-0.5 rounded-full text-sm">{completedTasks.length}</span>
-         </h3>
+         </button>
          
-         <div className="overflow-x-auto bg-white rounded-2xl shadow-xl shadow-slate-200/50 border border-slate-200">
+         {isCompletedExpanded && (
+           <div className="overflow-x-auto bg-white rounded-2xl shadow-xl shadow-slate-200/50 border border-slate-200">
             <table className="w-full text-left text-sm whitespace-nowrap">
                <thead className="bg-slate-50 border-b border-slate-200 uppercase text-[11px] font-bold tracking-wider text-slate-500">
                   <tr>
@@ -672,6 +693,7 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
                </tbody>
             </table>
          </div>
+         )}
       </div>
 
     </div>
