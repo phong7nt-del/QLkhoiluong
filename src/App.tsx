@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { ClipboardList, BarChart3, Database, TrendingUp, LogOut, User as UserIcon, CheckSquare, Settings, Activity, Menu, WifiOff } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { ClipboardList, BarChart3, Database, TrendingUp, LogOut, User as UserIcon, CheckSquare, Settings, Activity, Menu, WifiOff, ChevronUp, ChevronDown, KeyRound } from "lucide-react";
 import WorkloadForm from "./components/WorkloadForm";
 import Analytics from "./components/Analytics";
 import Stations from "./components/Stations";
@@ -9,9 +9,12 @@ import ProgressTab from "./components/ProgressTab";
 import ConfigModal from "./components/ConfigModal";
 import TutiTab from "./components/TutiTab";
 import DisconnectRateTab from "./components/DisconnectRateTab";
+import ChangePasswordModal from "./components/ChangePasswordModal";
 import { DataStore, SheetMember } from "./store/DataStore";
 
-const getSeasonTheme = () => {
+export type SeasonTheme = ReturnType<typeof getSeasonTheme>;
+
+export const getSeasonTheme = () => {
   const month = new Date().getMonth() + 1;
   // Mùa Xuân: 2, 3, 4
   // Mùa Hạ: 5, 6, 7
@@ -25,7 +28,12 @@ const getSeasonTheme = () => {
      accent: 'text-emerald-500',
      footerBg: 'bg-emerald-900',
      footerText: 'text-emerald-100',
-     footerAccent: 'text-emerald-300'
+     footerAccent: 'text-emerald-300',
+     status: {
+       overdue: { bg: 'bg-pink-100/80', text: 'text-pink-700', border: 'border-pink-200', dot: 'bg-pink-500 shadow-[0_0_8px_rgba(236,72,153,0.6)]' },
+       near: { bg: 'bg-yellow-100/80', text: 'text-yellow-700', border: 'border-yellow-200', dot: 'bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.6)]' },
+       ok: { bg: 'bg-emerald-100/80', text: 'text-emerald-700', border: 'border-emerald-200', dot: 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]' }
+     }
   };
   if (month >= 5 && month <= 7) return { 
      season: 'summer', 
@@ -35,7 +43,12 @@ const getSeasonTheme = () => {
      accent: 'text-orange-400',
      footerBg: 'bg-orange-900',
      footerText: 'text-orange-100',
-     footerAccent: 'text-orange-300'
+     footerAccent: 'text-orange-300',
+     status: {
+       overdue: { bg: 'bg-red-100/80', text: 'text-red-700', border: 'border-red-200', dot: 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]' },
+       near: { bg: 'bg-orange-100/80', text: 'text-orange-700', border: 'border-orange-200', dot: 'bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.6)]' },
+       ok: { bg: 'bg-cyan-100/80', text: 'text-cyan-700', border: 'border-cyan-200', dot: 'bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.6)]' }
+     }
   };
   if (month >= 8 && month <= 10) return { 
      season: 'autumn', 
@@ -45,7 +58,12 @@ const getSeasonTheme = () => {
      accent: 'text-amber-400',
      footerBg: 'bg-amber-900',
      footerText: 'text-amber-100',
-     footerAccent: 'text-amber-300'
+     footerAccent: 'text-amber-300',
+     status: {
+       overdue: { bg: 'bg-orange-100/80', text: 'text-orange-700', border: 'border-orange-200', dot: 'bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.6)]' },
+       near: { bg: 'bg-amber-100/80', text: 'text-amber-700', border: 'border-amber-200', dot: 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.6)]' },
+       ok: { bg: 'bg-teal-100/80', text: 'text-teal-700', border: 'border-teal-200', dot: 'bg-teal-500 shadow-[0_0_8px_rgba(20,184,166,0.6)]' }
+     }
   };
   return { 
      season: 'winter', 
@@ -55,7 +73,12 @@ const getSeasonTheme = () => {
      accent: 'text-blue-400',
      footerBg: 'bg-[#004b87]',
      footerText: 'text-blue-100',
-     footerAccent: 'text-blue-300'
+     footerAccent: 'text-blue-300',
+     status: {
+       overdue: { bg: 'bg-indigo-100/80', text: 'text-indigo-700', border: 'border-indigo-200', dot: 'bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.6)]' },
+       near: { bg: 'bg-slate-200/80', text: 'text-slate-700', border: 'border-slate-300', dot: 'bg-slate-500 shadow-[0_0_8px_rgba(100,116,139,0.6)]' },
+       ok: { bg: 'bg-blue-100/80', text: 'text-blue-700', border: 'border-blue-200', dot: 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]' }
+     }
   };
 };
 
@@ -63,8 +86,21 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<"input" | "report" | "stations" | "analysis" | "progress" | "tuti" | "disconnect">("input");
   const [refreshToggle, setRefreshToggle] = useState(0);
   const [showConfig, setShowConfig] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
   const theme = getSeasonTheme();
   const [sessionUser, setSessionUser] = useState<SheetMember | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [showScrollGroup, setShowScrollGroup] = useState(false);
+  
+  const handleScroll = () => {
+    if (scrollRef.current) {
+        setShowScrollGroup(scrollRef.current.scrollTop > 100);
+    }
+  };
+
+  const scrollToTop = () => scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  const scrollToBottom = () => scrollRef.current?.scrollTo({ top: scrollRef.current?.scrollHeight, behavior: 'smooth' });
+
   const roleStr = sessionUser?.role ? sessionUser.role.toLowerCase() : '';
   const isManagement = ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'].some(r => roleStr.includes(r));
   const isDoiTruong = ['đội trưởng', 'giám đốc'].some(r => roleStr.includes(r));
@@ -256,6 +292,13 @@ export default function App() {
                </div>
             </div>
             <button 
+              onClick={() => setShowPasswordModal(true)}
+              className="text-white hover:text-white hover:bg-white/20 p-2 rounded-full transition-colors border border-transparent hover:border-white/30 backdrop-blur-md"
+              title="Đổi mật khẩu"
+            >
+              <KeyRound className="w-5 h-5" />
+            </button>
+            <button 
               onClick={() => setShowConfig(true)}
               className="text-white hover:text-white hover:bg-white/20 p-2 rounded-full transition-colors border border-transparent hover:border-white/30 backdrop-blur-md"
               title="Cấu hình hệ thống"
@@ -315,8 +358,12 @@ export default function App() {
         <main className="flex-1 flex flex-col relative z-20 bg-white">
           
           {/* Main Content Pane */}
-          <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-            <div className="flex-1 p-4 md:p-6 lg:p-8">
+          <div 
+            ref={scrollRef}
+            onScroll={handleScroll}
+            className="flex-1 flex flex-col min-w-0 overflow-y-auto scroll-smooth"
+          >
+            <div className="flex-1 p-4 md:p-6 lg:p-8 relative">
               <div className="max-w-6xl mx-auto h-full">
                 {activeTab === "input" && (
                   <WorkloadForm onSaved={() => setRefreshToggle(prev => prev + 1)} refreshToggle={refreshToggle} />
@@ -331,7 +378,7 @@ export default function App() {
                   <AnalysisTab refreshToggle={refreshToggle} />
                 )}
                 {activeTab === "progress" && isManagement && (
-                  <ProgressTab refreshToggle={refreshToggle} sessionUser={sessionUser} />
+                  <ProgressTab refreshToggle={refreshToggle} sessionUser={sessionUser} theme={theme} />
                 )}
                 {activeTab === "tuti" && isManagement && (
                   <TutiTab refreshToggle={refreshToggle} sessionUser={sessionUser} />
@@ -357,9 +404,30 @@ export default function App() {
               </div>
             </footer>
           </div>
+
+          {/* Floating Scroll Controls */}
+          {showScrollGroup && (
+             <div className="absolute bottom-6 right-6 flex flex-col gap-2 z-50 transition-all duration-300 animate-in fade-in slide-in-from-bottom-4">
+                <button 
+                  onClick={scrollToTop}
+                  className={`p-3 rounded-full bg-white/90 backdrop-blur-sm shadow-[0_4px_16px_rgba(0,0,0,0.1)] border border-slate-200 text-[#005a9c] hover:bg-[#005a9c] hover:text-white transition-all duration-300 hover:scale-110`}
+                  title="Cuộn lên đầu trang"
+                >
+                  <ChevronUp className="w-5 h-5" />
+                </button>
+                <button 
+                  onClick={scrollToBottom}
+                  className={`p-3 rounded-full bg-white/90 backdrop-blur-sm shadow-[0_4px_16px_rgba(0,0,0,0.1)] border border-slate-200 text-[#005a9c] hover:bg-[#005a9c] hover:text-white transition-all duration-300 hover:scale-110`}
+                  title="Cuộn xuống cuối trang"
+                >
+                  <ChevronDown className="w-5 h-5" />
+                </button>
+             </div>
+          )}
         </main>
         
         {showConfig && <ConfigModal onClose={() => setShowConfig(false)} />}
+        {showPasswordModal && sessionUser && <ChangePasswordModal onClose={() => setShowPasswordModal(false)} sessionUser={sessionUser} />}
       </div>
     </div>
   );

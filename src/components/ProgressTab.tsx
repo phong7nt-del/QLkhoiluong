@@ -2,8 +2,9 @@ import React, { useState, useMemo } from 'react';
 import { DataStore, TaskProgress, SheetMember } from '../store/DataStore';
 import { CheckCircle, Clock, AlertCircle, Plus, User as UserIcon, Mic, XCircle, LayoutGrid, List, FileSpreadsheet, MessageSquarePlus, Send, Search, ChevronDown, ChevronRight } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { SeasonTheme } from '../App';
 
-export default function ProgressTab({ refreshToggle, sessionUser }: { refreshToggle: number, sessionUser: SheetMember | null }) {
+export default function ProgressTab({ refreshToggle, sessionUser, theme }: { refreshToggle: number, sessionUser: SheetMember | null, theme: SeasonTheme }) {
   const [tasks, setTasks] = useState<TaskProgress[]>([]);
   const [members, setMembers] = useState<string[]>([]);
   
@@ -61,7 +62,7 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
 
   const handleSaveExplanation = (id: string) => {
      if (!expInput.trim()) return;
-     DataStore.updateTaskExplanation(id, expInput.trim());
+     DataStore.updateTaskExplanation(id, expInput.trim(), sessionUser?.name || '');
      setTasks(DataStore.getTasks());
      setEditingExpId(null);
      setExpInput('');
@@ -193,12 +194,12 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
 
   const getStatusColor = (deadlineStr: string) => {
      const dDate = parseDate(deadlineStr);
-     if (!dDate) return 'bg-red-50 border-red-200 text-red-900 border';
+     if (!dDate) return `${theme.status.overdue.bg} ${theme.status.overdue.border} ${theme.status.overdue.text} border`;
      const diffTime = dDate.getTime() - today.getTime();
      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-     if (diffDays > 3) return 'bg-emerald-50 border-emerald-200 border text-emerald-900';
-     if (diffDays >= 1 && diffDays <= 3) return 'bg-amber-50 border-amber-200 border text-amber-900';
-     return 'bg-red-50 border-red-200 border text-red-900';
+     if (diffDays > 3) return `${theme.status.ok.bg} ${theme.status.ok.border} border ${theme.status.ok.text}`;
+     if (diffDays >= 1 && diffDays <= 3) return `${theme.status.near.bg} ${theme.status.near.border} border ${theme.status.near.text}`;
+     return `${theme.status.overdue.bg} ${theme.status.overdue.border} border ${theme.status.overdue.text}`;
   };
 
   let overdueCount = 0;
@@ -217,13 +218,13 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
 
   const getStatusBadge = (deadlineStr: string) => {
      const dDate = parseDate(deadlineStr);
-     if (!dDate) return <div className="flex items-center gap-1.5 bg-red-100/80 text-red-700 px-2.5 py-1 rounded-md border border-red-200 text-[10px] font-black uppercase tracking-wider shadow-sm"><span className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)] animate-pulse"></span>Quá hạn / Lỗi ngày</div>;
+     if (!dDate) return <div className={`flex items-center gap-1.5 ${theme.status.overdue.bg} ${theme.status.overdue.text} px-2.5 py-1 rounded-md border ${theme.status.overdue.border} text-[10px] font-black uppercase tracking-wider shadow-sm`}><span className={`w-2 h-2 rounded-full ${theme.status.overdue.dot} animate-pulse`}></span>Quá hạn / Lỗi ngày</div>;
      const diffTime = dDate.getTime() - today.getTime();
      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-     if (diffDays > 3) return <div className="flex items-center gap-1.5 bg-emerald-100/80 text-emerald-700 px-2.5 py-1 rounded-md border border-emerald-200 text-[10px] font-black uppercase tracking-wider shadow-sm"><span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.5)]"></span>Còn {diffDays} ngày</div>;
-     if (diffDays >= 1 && diffDays <= 3) return <div className="flex items-center gap-1.5 bg-amber-100/80 text-amber-700 px-2.5 py-1 rounded-md border border-amber-200 text-[10px] font-black uppercase tracking-wider shadow-sm"><span className="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.6)] animate-pulse"></span>Gần hạn ({diffDays} ngày)</div>;
-     if (diffDays === 0) return <div className="flex items-center gap-1.5 bg-red-100/80 text-red-700 px-2.5 py-1 rounded-md border border-red-200 text-[10px] font-black uppercase tracking-wider shadow-sm"><span className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)] animate-pulse"></span>Hôm nay</div>;
-     return <div className="flex items-center gap-1.5 bg-red-100/80 text-red-700 px-2.5 py-1 rounded-md border border-red-200 text-[10px] font-black uppercase tracking-wider shadow-sm"><span className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)] animate-pulse"></span>Quá hạn {Math.abs(diffDays)} ngày</div>;
+     if (diffDays > 3) return <div className={`flex items-center gap-1.5 ${theme.status.ok.bg} ${theme.status.ok.text} px-2.5 py-1 rounded-md border ${theme.status.ok.border} text-[10px] font-black uppercase tracking-wider shadow-sm`}><span className={`w-2 h-2 rounded-full ${theme.status.ok.dot}`}></span>Còn {diffDays} ngày</div>;
+     if (diffDays >= 1 && diffDays <= 3) return <div className={`flex items-center gap-1.5 ${theme.status.near.bg} ${theme.status.near.text} px-2.5 py-1 rounded-md border ${theme.status.near.border} text-[10px] font-black uppercase tracking-wider shadow-sm`}><span className={`w-2 h-2 rounded-full ${theme.status.near.dot} animate-pulse`}></span>Gần hạn ({diffDays} ngày)</div>;
+     if (diffDays === 0) return <div className={`flex items-center gap-1.5 ${theme.status.overdue.bg} ${theme.status.overdue.text} px-2.5 py-1 rounded-md border ${theme.status.overdue.border} text-[10px] font-black uppercase tracking-wider shadow-sm`}><span className={`w-2 h-2 rounded-full ${theme.status.overdue.dot} animate-pulse`}></span>Hôm nay</div>;
+     return <div className={`flex items-center gap-1.5 ${theme.status.overdue.bg} ${theme.status.overdue.text} px-2.5 py-1 rounded-md border ${theme.status.overdue.border} text-[10px] font-black uppercase tracking-wider shadow-sm`}><span className={`w-2 h-2 rounded-full ${theme.status.overdue.dot} animate-pulse`}></span>Quá hạn {Math.abs(diffDays)} ngày</div>;
   };
 
   const filteredMembers = members.filter(m => m.toLowerCase().includes(searchAssignee.toLowerCase()));
@@ -444,16 +445,16 @@ export default function ProgressTab({ refreshToggle, sessionUser }: { refreshTog
             
             <div className="flex flex-wrap items-center gap-3">
                <div className="flex items-center gap-3 bg-white px-3 py-1.5 rounded-xl border border-slate-200/50 shadow-sm text-xs font-bold text-slate-600">
-                  <label className="flex items-center gap-1.5 cursor-pointer hover:text-emerald-600">
-                     <input type="checkbox" checked={filterState.ok} onChange={e => setFilterState(s => ({...s, ok: e.target.checked}))} className="rounded text-emerald-500 focus:ring-emerald-500" />
+                  <label className={`flex items-center gap-1.5 cursor-pointer hover:${theme.status.ok.text}`}>
+                     <input type="checkbox" checked={filterState.ok} onChange={e => setFilterState(s => ({...s, ok: e.target.checked}))} className="rounded cursor-pointer" />
                      Còn hạn
                   </label>
-                  <label className="flex items-center gap-1.5 cursor-pointer hover:text-amber-600">
-                     <input type="checkbox" checked={filterState.warning} onChange={e => setFilterState(s => ({...s, warning: e.target.checked}))} className="rounded text-amber-500 focus:ring-amber-500" />
+                  <label className={`flex items-center gap-1.5 cursor-pointer hover:${theme.status.near.text}`}>
+                     <input type="checkbox" checked={filterState.warning} onChange={e => setFilterState(s => ({...s, warning: e.target.checked}))} className="rounded cursor-pointer" />
                      Sắp đến hạn
                   </label>
-                  <label className="flex items-center gap-1.5 cursor-pointer hover:text-red-600">
-                     <input type="checkbox" checked={filterState.overdue} onChange={e => setFilterState(s => ({...s, overdue: e.target.checked}))} className="rounded text-red-500 focus:ring-red-500" />
+                  <label className={`flex items-center gap-1.5 cursor-pointer hover:${theme.status.overdue.text}`}>
+                     <input type="checkbox" checked={filterState.overdue} onChange={e => setFilterState(s => ({...s, overdue: e.target.checked}))} className="rounded cursor-pointer" />
                      Quá hạn
                   </label>
                </div>

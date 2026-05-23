@@ -227,6 +227,7 @@ export const DataStore = {
                    const ctData = Papa.parse(ctText, { header: false }).data;
                    let headerRowIdx = -1;
                    let nameColIdx = -1;
+                   let msnvColIdx = -1;
                    let teamColIdx = 5;
                    
                    for(let r=0; r<5; r++) {
@@ -237,6 +238,9 @@ export const DataStore = {
                                if (val.includes('họ và tên') || val === 'họ tên') {
                                    headerRowIdx = r;
                                    nameColIdx = c;
+                               }
+                               if (val.includes('mã nhân viên') || val.includes('msnv') || val.includes('mật khẩu') || val.includes('password')) {
+                                   msnvColIdx = c;
                                }
                                if(val.includes('khu vực') || val.includes('khu vuc') || val === 'tổ công tác') {
                                    teamColIdx = c;
@@ -270,11 +274,16 @@ export const DataStore = {
 
                           const key = rawName.toLowerCase().replace(/\s+/g, '');
                           const cbcnvInfo = cbcnvMap.get(key) || { msnv: '', role: '' };
+                          
+                          let memberMsnv = cbcnvInfo.msnv;
+                          if (msnvColIdx !== -1 && row[msnvColIdx]) {
+                              memberMsnv = String(row[msnvColIdx]).trim();
+                          }
 
                           newMembers.push({
                               name: rawName,
                               team: finalTeam,
-                              msnv: cbcnvInfo.msnv,
+                              msnv: memberMsnv,
                               role: cbcnvInfo.role
                           });
                        }
@@ -789,7 +798,7 @@ export const DataStore = {
      return updatedTask;
   },
 
-  updateTaskExplanation: (id: string, newExplanation: string) => {
+  updateTaskExplanation: (id: string, newExplanation: string, updaterName: string) => {
      const allTasks = DataStore.getTasks();
      const task = allTasks.find(t => t.id === id);
      if (!task) return null;
@@ -797,12 +806,12 @@ export const DataStore = {
      const today = new Date();
      const dateStr = `${today.getDate().toString().padStart(2, '0')}/${(today.getMonth()+1).toString().padStart(2, '0')}/${today.getFullYear()}`;
      
-     // Build the string: "(stt)(nội dung giải trình)(ngày)"
+     // Build the string: "(stt)(nội dung giải trình)(tên người cập nhật)(ngày)"
      // First, determine STT by counting existing rows
      let currentExplanations = task.explanation ? task.explanation.trim() : '';
      let lines = currentExplanations ? currentExplanations.split('\n') : [];
      let stt = lines.length + 1;
-     let lineText = `(${stt})(${newExplanation})(${dateStr})`;
+     let lineText = `(${stt})(${newExplanation})(${updaterName || 'Unknown'})(${dateStr})`;
      
      let updatedExplanation = currentExplanations ? currentExplanations + '\n' + lineText : lineText;
      
@@ -820,6 +829,53 @@ export const DataStore = {
      localStorage.setItem(LOCAL_PROGRESS_UPDATES_KEY, JSON.stringify(localTasks));
      DataStore.syncProgressToSheet(updatedTask);
      return updatedTask;
+  },
+
+  changePasswordToSheet: async (name: string, newPass: string) => {
+    try {
+      const url = DataStore.getAppScriptUrl();
+      if (!url) throw new Error('No Apps Script URL configured');
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8',
+        },
+        body: JSON.stringify({ action: 'change_password', sheetName: 'CongTac', data: { name, newPass } }),
+      });
+      
+      const rawText = await response.text();
+      let result;
+      try {
+        result = JSON.parse(rawText);
+      } catch (parseError) {
+        console.error("Non-JSON response from GS:", rawText);
+        return false;
+      }
+      
+      if (result && result.status === 'success') {
+         // Cập nhật lại MSNV trong local storage
+         try {
+           const cached = localStorage.getItem('sheet_members_v1');
+           if (cached) {
+             const members = JSON.parse(cached);
+             const updated = members.map((m: any) => {
+               if (m.name === name) {
+                 return { ...m, msnv: newPass };
+               }
+               return m;
+             });
+             localStorage.setItem('sheet_members_v1', JSON.stringify(updated));
+           }
+         } catch (e) {
+           console.error('Update local member failed', e);
+         }
+         return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Lỗi cập nhật mật khẩu:', error);
+      return false;
+    }
   },
 
   syncTutiToSheet: async (entry: TutiEntry) => {
