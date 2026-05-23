@@ -738,24 +738,30 @@ export const DataStore = {
        let localTasks: TaskProgress[] = localCached ? JSON.parse(localCached) : [];
        
        const remoteMap = new Map();
-       const remoteHashes = new Set();
+       const hashToId = new Map();
        
        remoteTasks.forEach(t => {
            remoteMap.set(t.id, t);
            const hash = `${t.content}-${t.assignee}-${t.deadline}`.replace(/\s/g, '').toLowerCase();
-           remoteHashes.add(hash);
+           hashToId.set(hash, t.id);
        });
        
        // Filter out local-only tasks that already exist in remote data
        localTasks = localTasks.filter(lt => {
            if (!lt.id.startsWith('local-')) return true;
            const hash = `${lt.content}-${lt.assignee}-${lt.deadline}`.replace(/\s/g, '').toLowerCase();
-           return !remoteHashes.has(hash);
+           return !hashToId.has(hash);
        });
        
        // Merge remaining local tasks (updates to existing tasks, or truly new local tasks)
        localTasks.forEach(lt => {
-           remoteMap.set(lt.id, lt);
+           const hash = `${lt.content}-${lt.assignee}-${lt.deadline}`.replace(/\s/g, '').toLowerCase();
+           if (hashToId.has(hash)) {
+               const actualId = hashToId.get(hash);
+               remoteMap.set(actualId, { ...remoteMap.get(actualId), ...lt, id: actualId });
+           } else {
+               remoteMap.set(lt.id, lt);
+           }
        });
        
        return Array.from(remoteMap.values());
