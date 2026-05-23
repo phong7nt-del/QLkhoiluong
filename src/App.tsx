@@ -11,11 +11,59 @@ import TutiTab from "./components/TutiTab";
 import DisconnectRateTab from "./components/DisconnectRateTab";
 import { DataStore, SheetMember } from "./store/DataStore";
 
+const getSeasonTheme = () => {
+  const month = new Date().getMonth() + 1;
+  // Mùa Xuân: 2, 3, 4
+  // Mùa Hạ: 5, 6, 7
+  // Mùa Thu: 8, 9, 10
+  // Mùa Đông: 11, 12, 1
+  if (month >= 2 && month <= 4) return { 
+     season: 'spring', 
+     gradient: 'from-emerald-50 via-teal-50 to-cyan-50',
+     headerImg: 'https://images.unsplash.com/photo-1509391366360-2e959784a276?q=80&w=2000&auto=format&fit=crop',
+     overlay: 'from-emerald-900/90 via-teal-800/90 to-[#005a9c]/80',
+     accent: 'text-emerald-500',
+     footerBg: 'bg-emerald-900',
+     footerText: 'text-emerald-100',
+     footerAccent: 'text-emerald-300'
+  };
+  if (month >= 5 && month <= 7) return { 
+     season: 'summer', 
+     gradient: 'from-orange-50 via-amber-50 to-blue-50',
+     headerImg: 'https://images.unsplash.com/photo-1548345680-f5475ea90f05?q=80&w=2000&auto=format&fit=crop',
+     overlay: 'from-[#f47920]/90 via-orange-800/90 to-[#005a9c]/80',
+     accent: 'text-orange-400',
+     footerBg: 'bg-orange-900',
+     footerText: 'text-orange-100',
+     footerAccent: 'text-orange-300'
+  };
+  if (month >= 8 && month <= 10) return { 
+     season: 'autumn', 
+     gradient: 'from-yellow-50 via-orange-50 to-red-50',
+     headerImg: 'https://images.unsplash.com/photo-1501430654243-c934cec2e1c0?q=80&w=2000&auto=format&fit=crop',
+     overlay: 'from-amber-900/90 via-[#f47920]/80 to-[#005a9c]/80',
+     accent: 'text-amber-400',
+     footerBg: 'bg-amber-900',
+     footerText: 'text-amber-100',
+     footerAccent: 'text-amber-300'
+  };
+  return { 
+     season: 'winter', 
+     gradient: 'from-slate-50 via-blue-50 to-indigo-50',
+     headerImg: 'https://images.unsplash.com/photo-1473341304170-971dccb5ac1e?q=80&w=2000&auto=format&fit=crop',
+     overlay: 'from-[#005a9c]/90 via-[#004b87]/90 to-slate-900/80',
+     accent: 'text-blue-400',
+     footerBg: 'bg-[#004b87]',
+     footerText: 'text-blue-100',
+     footerAccent: 'text-blue-300'
+  };
+};
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<"input" | "report" | "stations" | "analysis" | "progress" | "tuti" | "disconnect">("input");
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [refreshToggle, setRefreshToggle] = useState(0);
   const [showConfig, setShowConfig] = useState(false);
+  const theme = getSeasonTheme();
   const [sessionUser, setSessionUser] = useState<SheetMember | null>(null);
   const roleStr = sessionUser?.role ? sessionUser.role.toLowerCase() : '';
   const isManagement = ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'].some(r => roleStr.includes(r));
@@ -153,7 +201,7 @@ export default function App() {
   const tabs: any[] = [
     { id: "input", icon: ClipboardList, label: "Cập nhật", color: "blue" },
     { id: "report", icon: BarChart3, label: "Báo cáo", color: "blue" },
-    { id: "stations", icon: Database, label: "Trạm và Xử lý đấu tắt", color: "blue" },
+    { id: "stations", icon: Database, label: "Link báo cáo", color: "blue" },
     { id: "analysis", icon: TrendingUp, label: "Phân tích", color: "blue" },
     { id: "disconnect", icon: WifiOff, label: "Tỷ lệ mất kết nối", color: "red" },
   ];
@@ -164,130 +212,108 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans flex flex-col items-center bg-grid-slate-100">
-      <div className="w-full max-w-7xl flex-1 flex flex-col shadow-xl bg-white/90 backdrop-blur-sm min-h-screen relative">
-        <div className="absolute inset-0 bg-gradient-to-br from-white/80 via-transparent to-transparent pointer-events-none z-0" />
+    <div className={`min-h-screen bg-gradient-to-br ${theme.gradient} text-slate-800 font-sans flex flex-col items-center bg-grid-slate-100`}>
+      <div className="w-full max-w-7xl flex-1 flex flex-col shadow-xl bg-white/90 backdrop-blur-sm min-h-screen relative overflow-hidden">
+        <div className="absolute inset-0 bg-white/40 pointer-events-none z-0" />
         
         {/* Header */}
-        <header className="bg-white/80 backdrop-blur-md border-b border-gray-200 px-4 py-3 md:px-6 md:py-4 flex flex-col md:flex-row items-center justify-between gap-4 md:gap-6 shrink-0 relative z-10">
-          {/* Subtle gradient background element */}
-          <div className="absolute top-0 right-0 -translate-y-1/2 translate-x-1/2 w-[500px] h-[500px] bg-blue-100/50 rounded-full blur-3xl pointer-events-none"></div>
+        <header className="relative px-4 py-8 md:px-8 md:py-10 flex flex-col md:flex-row items-center justify-between gap-6 shrink-0 z-10 overflow-hidden shadow-lg border-b border-white/20">
+          {/* Seasonal Background */}
+          <div className="absolute inset-0 z-0">
+             <img src={theme.headerImg} className="w-full h-full object-cover object-center" alt="Seasonal Header" />
+             <div className={`absolute inset-0 bg-gradient-to-r ${theme.overlay} mix-blend-multiply`}></div>
+             <div className="absolute inset-0 bg-[#005a9c]/20 backdrop-blur-[2px]"></div>
+          </div>
           
-          <div className="flex flex-col items-center md:items-start gap-1 w-full md:w-1/4 z-10 shrink-0">
-            <img 
-              src="https://www.evnhcmc.vn/public/images/EVNHCMC2021.svg" 
-              alt="EVNHCMC Logo" 
-              className="h-8 md:h-10 object-contain drop-shadow-sm" 
-            />
-            <div className="text-[9px] sm:text-[11px] font-bold text-blue-700 tracking-wider uppercase mt-1">
+          <div className="flex flex-col items-center md:items-start gap-2 w-full md:w-1/4 z-10 shrink-0">
+            <div className="bg-white/95 backdrop-blur-md p-2 rounded-xl shadow-[0_4px_12px_rgba(0,0,0,0.1)] border border-white/40">
+              <img 
+                src="https://www.evnhcmc.vn/public/images/EVNHCMC2021.svg" 
+                alt="EVNHCMC Logo" 
+                className="h-8 md:h-10 object-contain" 
+              />
+            </div>
+            <div className="text-[10px] sm:text-xs font-black text-white tracking-widest uppercase mt-2 drop-shadow-md">
               Công ty Điện lực Vũng Tàu
             </div>
           </div>
           
-          <div className="flex-1 text-center z-10 w-full">
-            <h1 className="text-xl sm:text-2xl md:text-3xl font-display font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-blue-700 via-indigo-700 to-blue-600 uppercase flex flex-col">
-              <span className="leading-tight">Hệ Thống Điều Hành</span>
-              <span className="text-xs sm:text-sm md:text-lg font-bold tracking-widest text-slate-500 mt-0.5">& QUẢN TRỊ NĂNG SUẤT ĐỘI QLHTĐĐ</span>
+          <div className="flex-1 text-center z-10 w-full drop-shadow-xl">
+            <h1 className="text-xl sm:text-2xl md:text-4xl font-display font-black tracking-tight text-white uppercase flex flex-col">
+              <span className="leading-tight drop-shadow-lg">Hệ Thống Điều Hành</span>
+              <span className={`text-xs sm:text-sm md:text-lg font-bold tracking-widest ${theme.accent} mt-1 drop-shadow-lg`}>& QUẢN TRỊ NĂNG SUẤT ĐỘI QLHTĐĐ</span>
             </h1>
           </div>
           
-          <div className="w-full md:w-1/4 flex flex-row justify-center md:justify-end items-center gap-2 md:gap-3 z-10 shrink-0">
-            <div className="flex items-center gap-2 md:gap-3 bg-white/60 backdrop-blur-sm px-3 md:px-4 py-1.5 md:py-2 rounded-full border border-slate-200 shadow-sm transition-all hover:bg-white hover:shadow-md">
-               <div className="w-6 h-6 md:w-8 md:h-8 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white ring-2 ring-white/50 shadow-sm">
-                  <UserIcon className="w-3 h-3 md:w-4 md:h-4" />
+          <div className="w-full md:w-1/4 flex flex-row justify-center md:justify-end items-center gap-3 z-10 shrink-0">
+            <div className="flex items-center gap-3 bg-white/10 backdrop-blur-md px-4 py-2 rounded-full border border-white/20 shadow-lg transition-all hover:bg-white/20">
+               <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center text-[#005a9c] shadow-inner">
+                  <UserIcon className="w-4 h-4" />
                </div>
                <div className="flex flex-col items-start leading-tight">
-                 <span className="text-xs md:text-sm font-bold text-slate-800">{sessionUser.name}</span>
-                 <span className="text-[9px] md:text-[10px] font-bold text-blue-600 uppercase tracking-wider">{sessionUser.team}</span>
+                 <span className="text-xs md:text-sm font-bold text-white drop-shadow-md">{sessionUser.name}</span>
+                 <span className={`text-[10px] font-black ${theme.accent} uppercase tracking-wider drop-shadow-md`}>{sessionUser.team}</span>
                </div>
             </div>
             <button 
               onClick={() => setShowConfig(true)}
-              className="text-slate-400 hover:text-blue-600 hover:bg-blue-50 p-1.5 rounded-full transition-colors"
+              className="text-white hover:text-white hover:bg-white/20 p-2 rounded-full transition-colors border border-transparent hover:border-white/30 backdrop-blur-md"
               title="Cấu hình hệ thống"
             >
-              <Settings className="w-4 h-4 md:w-5 md:h-5" />
+              <Settings className="w-5 h-5" />
             </button>
             <button 
               onClick={handleLogout}
-              className="text-slate-400 hover:text-red-500 hover:bg-red-50 p-1.5 md:p-2 rounded-full transition-all hover:scale-105"
+              className="text-white hover:text-red-300 hover:bg-white/20 p-2 rounded-full transition-all hover:scale-105 border border-transparent hover:border-white/30 backdrop-blur-md"
               title="Đăng xuất"
             >
-              <LogOut className="w-4 h-4 md:w-5 md:h-5" />
+              <LogOut className="w-5 h-5" />
             </button>
           </div>
         </header>
 
-        <main className="flex-1 flex flex-row relative z-10 overflow-hidden">
+        {/* Horizontal Navigation Tabs (Google Style - 3D Linked Folder) */}
+        <div className="w-full bg-slate-200/50 shadow-inner overflow-x-auto hide-scrollbar z-10 shrink-0 flex items-end px-2 md:px-6 pt-3 relative">
+           <div className="flex space-x-1.5 min-w-max mx-auto md:mx-0 relative z-20">
+              {tabs.map(tab => {
+                 const isActive = activeTab === tab.id;
+                 const Icon = tab.icon;
+
+                 return (
+                    <button
+                       key={tab.id}
+                       onClick={() => setActiveTab(tab.id as any)}
+                       className={`relative flex items-center gap-2 px-5 py-3 text-sm font-bold transition-all whitespace-nowrap group rounded-t-xl border border-b-0 ${
+                         isActive 
+                           ? `text-[#005a9c] bg-white border-white pb-4 -mb-[1px] z-20` 
+                           : `text-slate-500 border-transparent hover:text-[#005a9c] hover:bg-white/60 pb-3 z-10 hover:pb-4 hover:-mb-[1px]`
+                       }`}
+                       style={{
+                         boxShadow: isActive ? '0 -6px 12px -4px rgba(0,0,0,0.08)' : 'none'
+                       }}
+                    >
+                       <Icon className={`w-4 h-4 ${isActive ? 'text-[#f47920]' : 'text-slate-400 group-hover:text-[#f47920]'}`} />
+                       <span className="uppercase tracking-wide text-xs">{tab.label}</span>
+                       
+                       {/* Badges */}
+                       {tab.id === 'progress' && taskStats.overdue > 0 && (
+                          <span className="ml-1.5 inline-flex items-center justify-center px-1.5 h-4 text-[10px] font-black bg-[#ed1c24] text-white rounded-full shadow-sm">
+                             {taskStats.overdue}
+                          </span>
+                       )}
+                       {tab.id === 'tuti' && tutiUnprocessedCount > 0 && (
+                          <span className="ml-1.5 inline-flex items-center justify-center px-1.5 h-4 text-[10px] font-black bg-[#ed1c24] text-white rounded-full shadow-sm">
+                             {tutiUnprocessedCount}
+                          </span>
+                       )}
+                    </button>
+                 );
+              })}
+           </div>
+        </div>
+
+        <main className="flex-1 flex flex-col relative z-20 bg-white">
           
-          {/* Vertical Sidebar */}
-          <div className={`flex flex-col bg-white/80 backdrop-blur-xl border-r border-slate-200/60 shadow-[8px_0_30px_rgb(0,0,0,0.04)] z-20 transition-all duration-300 ease-in-out shrink-0 overflow-y-auto hide-scrollbar ${sidebarOpen ? 'w-48' : 'w-12 sm:w-16'}`}>
-             <button 
-                onClick={() => setSidebarOpen(!sidebarOpen)} 
-                className="w-full flex items-center justify-center p-3 sm:p-4 text-slate-500 hover:bg-blue-50 hover:text-blue-600 transition-colors border-b border-slate-100"
-                title="Mở rộng / Thu gọn tab"
-             >
-                <Menu className="w-5 h-5 md:w-6 md:h-6" />
-             </button>
-             
-             <div className="flex-1 flex flex-col gap-2 p-2">
-                {tabs.map(tab => {
-                   const isActive = activeTab === tab.id;
-                   const activeColors = tab.color === 'blue' 
-                      ? "text-blue-700 bg-blue-50/80 border-blue-200" 
-                      : tab.color === 'amber'
-                      ? "text-amber-700 bg-amber-50/80 border-amber-200"
-                      : "text-indigo-700 bg-indigo-50/80 border-indigo-200";
-                   
-                   const idleColors = "text-slate-500 hover:bg-slate-50 hover:text-slate-700 border-transparent";
-                   
-                   const Icon = tab.icon;
-
-                   return (
-                      <button
-                         key={tab.id}
-                         onClick={() => setActiveTab(tab.id as any)}
-                         className={`relative flex items-center justify-center transition-all duration-300 rounded-xl border ${isActive ? activeColors : idleColors} ${sidebarOpen ? 'flex-row p-3 w-full justify-start gap-3' : 'flex-col py-4 w-full'}`}
-                      >
-                         <Icon className={`w-5 h-5 shrink-0 ${isActive ? '' : 'opacity-80'}`} />
-                         
-                         {sidebarOpen ? (
-                            <span className="font-bold text-[13px] whitespace-nowrap">{tab.label}</span>
-                         ) : (
-                            <div className="mt-4 flex flex-col items-center justify-center h-24" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
-                               <span className="font-bold text-[11px] tracking-widest whitespace-nowrap uppercase">
-                                  {tab.label}
-                               </span>
-                            </div>
-                         )}
-
-                         {/* Badges */}
-                         {tab.id === 'progress' && taskStats.overdue > 0 && sidebarOpen && (
-                            <span className="ml-auto inline-flex items-center justify-center w-5 h-5 text-[10px] font-black bg-red-100 border border-red-200 text-red-700 rounded-md shadow-sm">
-                               {taskStats.overdue}
-                            </span>
-                         )}
-                         {tab.id === 'progress' && taskStats.overdue > 0 && !sidebarOpen && (
-                            <span className="absolute top-1 right-1 flex items-center justify-center w-4 h-4 text-[9px] font-black bg-red-500 text-white rounded-full shadow-sm">
-                               {taskStats.overdue}
-                            </span>
-                         )}
-                         {tab.id === 'tuti' && tutiUnprocessedCount > 0 && sidebarOpen && (
-                            <span className="ml-auto inline-flex items-center justify-center w-5 h-5 text-[10px] font-black bg-red-100 border border-red-200 text-red-700 rounded-md shadow-sm">
-                               {tutiUnprocessedCount}
-                            </span>
-                         )}
-                         {tab.id === 'tuti' && tutiUnprocessedCount > 0 && !sidebarOpen && (
-                            <span className="absolute top-1 right-1 flex items-center justify-center w-4 h-4 text-[9px] font-black bg-red-500 text-white rounded-full shadow-sm">
-                               {tutiUnprocessedCount}
-                            </span>
-                         )}
-                      </button>
-                   );
-                })}
-             </div>
-          </div>
-
           {/* Main Content Pane */}
           <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
             <div className="flex-1 p-4 md:p-6 lg:p-8">
@@ -317,15 +343,15 @@ export default function App() {
             </div>
 
             {/* Footer */}
-            <footer className="bg-slate-50 border-t border-slate-200 p-4 mt-auto">
-              <div className="flex flex-col md:flex-row justify-between items-center text-[11px] font-mono font-medium text-slate-500 uppercase tracking-wider">
-                <div className="md:w-1/3 text-center md:text-left mb-2 md:mb-0">
-                   Version 2026.5.1
+            <footer className={`${theme.footerBg} p-4 mt-auto shrink-0 z-10 border-t border-white/10`}>
+              <div className={`flex flex-col md:flex-row justify-between items-center text-[10px] sm:text-[11px] font-medium ${theme.footerText} uppercase tracking-wider gap-2`}>
+                <div className={`text-center md:text-left ${theme.footerAccent} font-bold`}>
+                   Mùa {theme.season === 'summer' ? 'Hạ' : theme.season === 'spring' ? 'Xuân' : theme.season === 'autumn' ? 'Thu' : 'Đông'} • Phiên bản 2026.5.1
                 </div>
-                <div className="md:w-1/3 text-center mb-2 md:mb-0">
-                  bản quyền thuộc PCVT @2026
+                <div className="text-center opacity-80">
+                  Bản quyền thuộc EVN PCVT @2026
                 </div>
-                <div className="md:w-1/3 text-center md:text-right">
+                <div className="text-center md:text-right opacity-80">
                   Tác giả: Nguyễn Thành Phong
                 </div>
               </div>
