@@ -1,4 +1,4 @@
-import { Zap, ShieldAlert, ArrowRight, ExternalLink, ClipboardCheck } from 'lucide-react';
+import { Zap, ShieldAlert, ArrowRight, ExternalLink, ClipboardCheck, Gauge } from 'lucide-react';
 
 export default function Stations() {
   return (
@@ -9,7 +9,7 @@ export default function Stations() {
         <p className="text-[#141414]/70 max-w-xl mx-auto font-medium">Truy cập nhanh các ứng dụng phục vụ quản lý, báo cáo và xử lý công việc.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 w-full max-w-6xl relative">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 w-full max-w-7xl relative">
         {/* Card 1: Quản lý Trạm Biến Áp */}
         <a 
           href="https://quan-ly-tram-bien-ap.vercel.app/"
@@ -101,6 +101,38 @@ export default function Stations() {
               <ExternalLink className="w-5 h-5 text-[#141414]/40 group-hover:text-[#141414] transition-colors flex-shrink-0" />
             </div>
             <p className="text-[#141414]/70 font-medium mb-6">Báo cáo kết quả xử lý các tồn tại sau kiểm tra, theo dõi tiến độ khắc phục đo đếm.</p>
+            
+            <div className="absolute bottom-8 left-8 inline-flex items-center gap-2 font-bold text-[#141414] group-hover:gap-4 transition-all uppercase text-sm tracking-wider">
+               Truy cập <ArrowRight className="w-4 h-4" />
+            </div>
+          </div>
+        </a>
+
+        {/* Card 4: Tiến độ thay 3 giá */}
+        <a 
+          href="https://tiendo-thaycongto3gia.vercel.app/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="group relative block w-full bg-white border-2 border-[#141414] shadow-[8px_8px_0_#141414] overflow-hidden hover:-translate-y-1 hover:shadow-[12px_12px_0_#141414] transition-all duration-300"
+        >
+          <div className="h-48 bg-[#141414] relative overflow-hidden flex items-center justify-center">
+             <Gauge className="w-24 h-24 text-blue-500/20 absolute -right-4 -top-4 transform -rotate-12" />
+             <img 
+               src="https://images.unsplash.com/photo-1550751827-4bd374c3f58b?q=80&w=1600&auto=format&fit=crop" 
+               className="absolute inset-0 w-full h-full object-cover opacity-40 mix-blend-overlay group-hover:scale-110 transition-transform duration-700"
+               alt="Tiến độ thay 3 giá"
+             />
+             <div className="relative z-10 bg-[#f5f4f2] p-4 rounded-xl shadow-lg border-2 border-[#141414] group-hover:-rotate-6 transition-transform">
+                <Gauge className="w-8 h-8 text-[#141414]" />
+             </div>
+          </div>
+
+          <div className="p-8 pb-16 relative">
+            <div className="flex justify-between items-start mb-2">
+              <h3 className="text-2xl font-black text-[#141414] uppercase tracking-normal">Tiến độ thay 3 giá</h3>
+              <ExternalLink className="w-5 h-5 text-[#141414]/40 group-hover:text-[#141414] transition-colors flex-shrink-0" />
+            </div>
+            <p className="text-[#141414]/70 font-medium mb-6">Theo dõi tiến độ, số lượng và thông tin chi tiết quá trình thay thế công tơ 3 giá.</p>
             
             <div className="absolute bottom-8 left-8 inline-flex items-center gap-2 font-bold text-[#141414] group-hover:gap-4 transition-all uppercase text-sm tracking-wider">
                Truy cập <ArrowRight className="w-4 h-4" />
