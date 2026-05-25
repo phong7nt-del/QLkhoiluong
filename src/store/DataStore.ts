@@ -756,11 +756,37 @@ export const DataStore = {
        // Merge remaining local tasks (updates to existing tasks, or truly new local tasks)
        localTasks.forEach(lt => {
            const hash = `${lt.content}-${lt.assignee}-${lt.deadline}`.replace(/\s/g, '').toLowerCase();
-           if (hashToId.has(hash)) {
-               const actualId = hashToId.get(hash);
-               remoteMap.set(actualId, { ...remoteMap.get(actualId), ...lt, id: actualId });
+           
+           let matchedId = null;
+           if (remoteMap.has(lt.id)) {
+               matchedId = lt.id;
+           } else if (hashToId.has(hash)) {
+               matchedId = hashToId.get(hash);
            } else {
-               remoteMap.set(lt.id, lt);
+               // Fallback: try to match by content alone if it's unique
+               const sameContentTasks = Array.from(remoteMap.values()).filter(rt => rt.content === lt.content);
+               if (sameContentTasks.length === 1) {
+                   matchedId = sameContentTasks[0].id;
+               }
+           }
+           
+           if (matchedId) {
+               // Merge only updatable fields into the existing remote task
+               const remoteTask = remoteMap.get(matchedId);
+               if (remoteTask) {
+                  remoteMap.set(matchedId, { 
+                      ...remoteTask,
+                      status: lt.status !== undefined ? lt.status : remoteTask.status,
+                      explanation: lt.explanation !== undefined ? lt.explanation : remoteTask.explanation,
+                      isLocal: true,
+                      timestamp: lt.timestamp || remoteTask.timestamp
+                  });
+               }
+           } else {
+               if (lt.id.startsWith('local-')) {
+                   remoteMap.set(lt.id, lt);
+               }
+               // Otherwise discard updates to unknown/deleted remote tasks
            }
        });
        
