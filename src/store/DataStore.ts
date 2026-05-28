@@ -63,6 +63,7 @@ const LOCAL_TUTI_UPDATES_KEY = 'local_tuti_updates_v1';
 
 let memCacheKhuVucList: any[] | null = null;
 let memCacheMatKetNoiList: any[] | null = null;
+let memCacheChiTietMKNList: any[] | null = null;
 
 export const DataStore = {
   getAppScriptUrl: () => localStorage.getItem(SCRIPT_URL_KEY) || 'https://script.google.com/macros/s/AKfycbyDCcu4I8yfT1g2KOHCRoaDtMMb1gLvfxhP4HJkzFYbqNIg1TSXCyi2HS3D7hDYpInVxQ/exec',
@@ -575,6 +576,26 @@ export const DataStore = {
                console.error('Error fetching MatKetNoi:', e);
             }
 
+            // Fetch ChiTietMKN
+            try {
+               const chiTietRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("ChiTietMKN")}&_t=${new Date().getTime()}`);
+               const chiTietText = await chiTietRes.text();
+               if (!chiTietText.includes('<html')) {
+                   const { data } = Papa.parse(chiTietText, { header: true, skipEmptyLines: true });
+                   
+                   if (data && data.length > 0) {
+                       memCacheChiTietMKNList = data;
+                       try {
+                           localStorage.setItem('sheet_chitietmkn_v1', JSON.stringify(data));
+                       } catch(e) {
+                           console.warn("localStorage quota exceeded for ChiTietMKN");
+                       }
+                   }
+               }
+            } catch (e) {
+               console.error('Error fetching ChiTietMKN:', e);
+            }
+
             // Fetch KhuVuc
             try {
                const kvRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("KhuVuc")}&_t=${new Date().getTime()}`);
@@ -710,6 +731,14 @@ export const DataStore = {
      if (memCacheMatKetNoiList) return memCacheMatKetNoiList;
      try {
        const cached = localStorage.getItem('sheet_matketnoi_v1');
+       return cached ? JSON.parse(cached) : [];
+     } catch { return []; }
+  },
+
+  getChiTietMKN: (): any[] => {
+     if (memCacheChiTietMKNList) return memCacheChiTietMKNList;
+     try {
+       const cached = localStorage.getItem('sheet_chitietmkn_v1');
        return cached ? JSON.parse(cached) : [];
      } catch { return []; }
   },

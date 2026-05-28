@@ -286,26 +286,23 @@ function doGet(e) {
        }
     }
     
-    // Đọc sheet MatKetNoi
+    // Đọc sheet ChiTietMKN/MatKetNoi
     var matKetNoiList = [];
-    var sheetMatKetNoi = getSheetFlexibly(ss, ['MatKetNoi', 'Mat Ket Noi', 'Mất Kết Nối', 'Mất kết nối', 'matketnoi']);
+    var sheetMatKetNoi = getSheetFlexibly(ss, ['ChiTietMKN', 'Chi Tiet MKN', 'Chi Tiết MKN', 'MatKetNoi', 'Mat Ket Noi', 'Mất Kết Nối', 'Mất kết nối', 'matketnoi']);
     if (sheetMatKetNoi) {
        var mknData = sheetMatKetNoi.getDataRange().getValues();
        var mknHeaders = mknData[0] || [];
-       var maDiemDoCol = -1;
-       for (var c = 0; c < mknHeaders.length; c++) {
-           var h = String(mknHeaders[c]).toLowerCase().trim();
-           if (h === 'mã điểm đo' || h === 'ma diem do' || h.indexOf('mã điểm đo') > -1) {
-               maDiemDoCol = c;
-           }
-       }
        
-       if (maDiemDoCol !== -1) {
-           for (var t = 1; t < mknData.length; t++) {
-               var val = String(mknData[t][maDiemDoCol] || '').trim();
-               if (val) {
-                   matKetNoiList.push({ maDiemDo: val });
+       for (var t = 1; t < mknData.length; t++) {
+           var rowInfo = {};
+           for (var c = 0; c < mknHeaders.length; c++) {
+               var headerStr = String(mknHeaders[c]).trim();
+               if (headerStr) {
+                   rowInfo[headerStr] = String(mknData[t][c] || '');
                }
+           }
+           if (Object.keys(rowInfo).length > 0) {
+               matKetNoiList.push(rowInfo);
            }
        }
     }
