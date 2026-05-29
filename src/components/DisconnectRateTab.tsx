@@ -36,6 +36,7 @@ export default function DisconnectRateTab({ refreshToggle }: { refreshToggle?: n
   
   // Data for Overview tab
   const [overviewStats, setOverviewStats] = useState<any>(null);
+  const [overviewStatsNhanh, setOverviewStatsNhanh] = useState<any>(null);
   
   // Data for Details tab
   const [chiTietList, setChiTietList] = useState<ChiTietMKN[]>([]);
@@ -166,6 +167,60 @@ export default function DisconnectRateTab({ refreshToggle }: { refreshToggle?: n
          };
       });
       
+      const fastTotalCustomersByArea: Record<string, number> = {};
+      const fastMissingCountByArea: Record<string, number> = {};
+      let fastTotalCustomers = 0;
+      let fastTotalMissing = 0;
+
+      const removeAcc = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[^a-z0-9]/g, '');
+      const stationMapKeysNorm = Object.keys(sMap)
+          .filter(k => k.length > 3)
+          .map(k => ({
+              original: k,
+              norm: removeAcc(k).replace(/^(tram|tba)/, ''),
+              area: sMap[k]
+          }))
+          .filter(k => k.norm.length > 2);
+
+      detailsList.forEach(m => {
+          const khCount = parseFloat(m.SL_DANAP) || 0;
+          const missingCount = Math.max(0, khCount - (parseFloat(m.SL_TT) || 0));
+
+          fastTotalCustomers += khCount;
+          fastTotalMissing += missingCount;
+
+          let area = 'Khác';
+          if (m.DCUDESC) {
+              const descL = m.DCUDESC.toLowerCase().trim();
+              if (sMap[descL]) {
+                  area = sMap[descL];
+              } else {
+                  const foundKey = Object.keys(sMap).find(k => descL.includes(k) || k.includes(descL));
+                  if (foundKey) {
+                      area = sMap[foundKey];
+                  } else {
+                      let descNorm = removeAcc(descL);
+                      descNorm = descNorm.replace(/^(tram|tba)/, '');
+                      const deepMatch = stationMapKeysNorm.find(s => descNorm.includes(s.norm) || s.norm.includes(descNorm));
+                      if (deepMatch) area = deepMatch.area;
+                  }
+              }
+          } else if (m.IDSTATION) {
+              const idL = m.IDSTATION.toLowerCase().trim();
+              if (sMap[idL]) area = sMap[idL];
+          }
+
+          fastTotalCustomersByArea[area] = (fastTotalCustomersByArea[area] || 0) + khCount;
+          fastMissingCountByArea[area] = (fastMissingCountByArea[area] || 0) + missingCount;
+      });
+
+      setOverviewStatsNhanh({
+          totalCustomersByArea: fastTotalCustomersByArea,
+          missingCountByArea: fastMissingCountByArea,
+          totalCustomers: fastTotalCustomers,
+          totalMissing: fastTotalMissing
+      });
+
       setChiTietList(detailsList);
 
     } catch (e: any) {
@@ -230,7 +285,7 @@ export default function DisconnectRateTab({ refreshToggle }: { refreshToggle?: n
          )}
          
          {!loading && !error && overviewStats && subTab === 'overview' && (
-            <OverviewSubTab stats={overviewStats} fetchData={fetchData} loading={loading} />
+            <OverviewSubTab stats={overviewStats} statsNhanh={overviewStatsNhanh} fetchData={fetchData} loading={loading} />
          )}
 
          {!loading && !error && overviewStats && subTab === 'details' && (
@@ -248,17 +303,20 @@ export default function DisconnectRateTab({ refreshToggle }: { refreshToggle?: n
   );
 }
 
-function OverviewSubTab({ stats, fetchData, loading }: { stats: any, fetchData: any, loading: boolean }) {
+function OverviewSubTab({ stats, statsNhanh, fetchData, loading }: { stats: any, statsNhanh: any, fetchData: any, loading: boolean }) {
+  const [viewMode, setViewMode] = useState<'khachhang' | 'nhanh'>('khachhang');
+  const activeStats = viewMode === 'khachhang' ? stats : statsNhanh;
+
   const chartData = useMemo(() => {
-     if (!stats) return [];
+     if (!activeStats) return [];
      const res = [];
      const areas = new Set([
-         ...Object.keys(stats.totalCustomersByArea),
-         ...Object.keys(stats.missingCountByArea)
+         ...Object.keys(activeStats.totalCustomersByArea),
+         ...Object.keys(activeStats.missingCountByArea)
      ]);
      areas.forEach(area => {
-        const t = stats.totalCustomersByArea[area] || 0;
-        const m = stats.missingCountByArea[area] || 0;
+        const t = activeStats.totalCustomersByArea[area] || 0;
+        const m = activeStats.missingCountByArea[area] || 0;
         if (t > 0 || m > 0) {
             res.push({
                 name: area,
@@ -269,24 +327,42 @@ function OverviewSubTab({ stats, fetchData, loading }: { stats: any, fetchData: 
         }
      });
      return res.sort((a, b) => b.Ty_Le - a.Ty_Le);
-  }, [stats]);
+  }, [activeStats]);
 
-  const totalRate = stats.totalCustomers > 0 ? (stats.totalMissing / stats.totalCustomers) * 100 : 0;
+  const totalRate = activeStats && activeStats.totalCustomers > 0 ? (activeStats.totalMissing / activeStats.totalCustomers) * 100 : 0;
+
+  if (!activeStats) return null;
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+       
+       <div className="flex flex-row md:items-center gap-4 border-b border-[#141414]/10 pb-4">
+           <button 
+                onClick={() => setViewMode('khachhang')}
+                className={`px-4 py-2 text-sm font-bold uppercase tracking-widest transition-colors ${viewMode === 'khachhang' ? 'bg-[#141414] text-white shadow-[2px_2px_0_#A0A0A0]' : 'bg-white border border-[#141414] shadow-[2px_2px_0_#141414] hover:bg-slate-50'}`}
+           >
+                Xem SL MDIS
+           </button>
+           <button 
+                onClick={() => setViewMode('nhanh')}
+                className={`px-4 py-2 text-sm font-bold uppercase tracking-widest transition-colors ${viewMode === 'nhanh' ? 'bg-[#141414] text-white shadow-[2px_2px_0_#A0A0A0]' : 'bg-white border border-[#141414] shadow-[2px_2px_0_#141414] hover:bg-slate-50'}`}
+           >
+                Xem SL cảnh báo
+           </button>
+       </div>
+
        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
          <div className="bg-white border border-[#141414] shadow-[4px_4px_0_#141414] p-5">
             <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-widest text-[#141414]/60 mb-2">
                <Users className="w-4 h-4" /> Tổng số khách hàng
             </div>
-            <div className="text-3xl font-black">{stats.totalCustomers.toLocaleString('vi-VN')}</div>
+            <div className="text-3xl font-black">{activeStats.totalCustomers.toLocaleString('vi-VN')}</div>
          </div>
          <div className="bg-white border border-[#141414] shadow-[4px_4px_0_#141414] p-5">
             <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-widest text-red-600/80 mb-2">
                <WifiOff className="w-4 h-4" /> Tổng mất kết nối
             </div>
-            <div className="text-3xl font-black text-red-600">{stats.totalMissing.toLocaleString('vi-VN')}</div>
+            <div className="text-3xl font-black text-red-600">{activeStats.totalMissing.toLocaleString('vi-VN')}</div>
          </div>
          <div className="bg-[#141414] text-white border border-[#141414] shadow-[4px_4px_0_#A0A0A0] p-5">
             <div className="text-sm font-bold uppercase tracking-widest text-white/60 mb-2">
@@ -393,6 +469,8 @@ function DetailsSubTab({
        IDSTATION: '',
        TILE: '',
        KH: '',
+       SL_DANAP: '',
+       SL_TT: '',
        SL1P: '',
        SL3P: ''
    });
@@ -513,6 +591,8 @@ function DetailsSubTab({
        
        if (columnFilters.TILE.trim()) list = list.filter(i => matchNumberFilter(parsePercent(i.TILE), columnFilters.TILE, i.TILE));
        if (columnFilters.KH.trim()) list = list.filter(i => matchNumberFilter(i._calculatedKH || 0, columnFilters.KH));
+       if (columnFilters.SL_DANAP.trim()) list = list.filter(i => matchNumberFilter(Number(i.SL_DANAP) || 0, columnFilters.SL_DANAP));
+       if (columnFilters.SL_TT.trim()) list = list.filter(i => matchNumberFilter(Number(i.SL_TT) || 0, columnFilters.SL_TT));
        if (columnFilters.SL1P.trim()) list = list.filter(i => matchNumberFilter(i._calculated1P || 0, columnFilters.SL1P));
        if (columnFilters.SL3P.trim()) list = list.filter(i => matchNumberFilter(i._calculated3P || 0, columnFilters.SL3P));
        
@@ -537,7 +617,9 @@ function DetailsSubTab({
         const sortKeyMap: Record<string, string> = {
             KH: '_calculatedKH',
             SL1P: '_calculated1P',
-            SL3P: '_calculated3P'
+            SL3P: '_calculated3P',
+            SL_DANAP: 'SL_DANAP',
+            SL_TT: 'SL_TT'
         };
         const sortKey = sortKeyMap[field] || field;
 
@@ -718,6 +800,8 @@ function DetailsSubTab({
                                        {renderFilterHeader('DCUID_ORG', 'DCUID_ORG', 'Lọc ORG...')}
                                        {renderFilterHeader('IDSTATION', 'IDSTATION', 'Lọc trạm...')}
                                        {renderFilterHeader('TỈ LỆ', 'TILE', 'Lọc tỷ lệ...', 'right')}
+                                        {renderFilterHeader('ĐÃ NẠP', 'SL_DANAP', 'Lọc đã nạp...', 'right')}
+                                        {renderFilterHeader('SL_TT', 'SL_TT', 'Lọc SL TT...', 'right')}
                                        {renderFilterHeader('KH', 'KH', 'Lọc KH...', 'right')}
                                        {renderFilterHeader('SL TT 1PHA', 'SL1P', 'Lọc 1 pha...', 'right')}
                                        {renderFilterHeader('SL TT 3PHA', 'SL3P', 'Lọc 3 pha...', 'right')}
@@ -732,6 +816,8 @@ function DetailsSubTab({
                                            <td className="p-3 border-r border-[#141414]/10 font-mono text-xs break-words">{item.DCUID_ORG}</td>
                                            <td className="p-3 border-r border-[#141414]/10 font-mono text-xs break-words">{item.IDSTATION}</td>
                                            <td className="p-3 border-r border-[#141414]/10 text-right font-medium whitespace-nowrap">{item.TILE}</td>
+                                            <td className="p-3 border-r border-[#141414]/10 text-right font-medium">{(Number(item.SL_DANAP) || 0).toLocaleString('vi-VN')}</td>
+                                            <td className="p-3 border-r border-[#141414]/10 text-right font-medium">{(Number(item.SL_TT) || 0).toLocaleString('vi-VN')}</td>
                                            <td className="p-3 border-r border-[#141414]/10 text-right font-black text-[#141414] bg-amber-50">
                                                {(item._calculatedKH || 0).toLocaleString('vi-VN')}
                                            </td>

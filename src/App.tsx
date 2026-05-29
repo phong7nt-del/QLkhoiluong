@@ -239,7 +239,7 @@ export default function App() {
     { id: "report", icon: BarChart3, label: "Báo cáo", color: "blue" },
     { id: "stations", icon: Database, label: "Link báo cáo", color: "blue" },
     { id: "analysis", icon: TrendingUp, label: "Phân tích", color: "blue" },
-    { id: "disconnect", icon: WifiOff, label: "Mất kết nối", color: "red" },
+    { id: "disconnect", icon: WifiOff, label: "Đo xa", color: "red" },
   ];
 
   if (isManagement) {
