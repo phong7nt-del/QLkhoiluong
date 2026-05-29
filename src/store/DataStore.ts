@@ -561,9 +561,16 @@ export const DataStore = {
                    const actualKey = docKey || keys[0];
                    
                    if (actualKey) {
-                       const matKetNoiList = data.map((row: any) => ({
-                           maDiemDo: String(row[actualKey] || '').trim()
-                       })).filter(r => r.maDiemDo);
+                       const matKetNoiList = data.map((row: any) => {
+                           const newRow: any = { maDiemDo: String(row[actualKey] || '').trim() };
+                           for (const k of keys) {
+                               const normK = normalizeCol(k);
+                               if (!normK.includes('diachidiemdo') && !normK.includes('soserialcmis') && !normK.includes('tinhtrangketnoi')) {
+                                   newRow[k] = row[k];
+                               }
+                           }
+                           return newRow;
+                       }).filter((r: any) => r.maDiemDo);
                        memCacheMatKetNoiList = matKetNoiList;
                        try {
                            localStorage.setItem('sheet_matketnoi_v1', JSON.stringify(matKetNoiList));
@@ -727,7 +734,7 @@ export const DataStore = {
      } catch { return []; }
   },
 
-  getMatKetNoi: (): { maDiemDo: string }[] => {
+  getMatKetNoi: (): any[] => {
      if (memCacheMatKetNoiList) return memCacheMatKetNoiList;
      try {
        const cached = localStorage.getItem('sheet_matketnoi_v1');

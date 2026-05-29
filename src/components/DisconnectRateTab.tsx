@@ -30,7 +30,7 @@ interface ChiTietMKN {
 }
 
 export default function DisconnectRateTab({ refreshToggle }: { refreshToggle?: number }) {
-  const [subTab, setSubTab] = useState<'overview' | 'details'>('overview');
+  const [subTab, setSubTab] = useState<'overview' | 'details' | 'statistics'>('overview');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   
@@ -41,6 +41,9 @@ export default function DisconnectRateTab({ refreshToggle }: { refreshToggle?: n
   // Data for Details tab
   const [chiTietList, setChiTietList] = useState<ChiTietMKN[]>([]);
   const [stationMap, setStationMap] = useState<Record<string, string>>({});
+
+  // Data for Statistics tab
+  const [mknList, setMknList] = useState<any[]>([]);
   
   // Selection state for Details tab
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
@@ -222,6 +225,7 @@ export default function DisconnectRateTab({ refreshToggle }: { refreshToggle?: n
       });
 
       setChiTietList(detailsList);
+      setMknList(mknData);
 
     } catch (e: any) {
        console.error("Error fetching data for missing conn:", e);
@@ -258,6 +262,16 @@ export default function DisconnectRateTab({ refreshToggle }: { refreshToggle?: n
             }`}
          >
             Chi tiết MKN
+         </button>
+         <button 
+            onClick={() => setSubTab('statistics')}
+            className={`px-6 py-3.5 font-extrabold uppercase tracking-widest text-sm transition-all whitespace-nowrap ${
+                subTab === 'statistics' 
+                ? 'bg-[#141414] text-white' 
+                : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+            }`}
+         >
+            Thống kê
          </button>
       </div>
       
@@ -297,6 +311,10 @@ export default function DisconnectRateTab({ refreshToggle }: { refreshToggle?: n
                 selectedStatus={selectedStatus}
                 setSelectedStatus={setSelectedStatus}
             />
+         )}
+
+         {!loading && !error && mknList && subTab === 'statistics' && (
+            <StatisticsSubTab mknList={mknList} />
          )}
       </div>
     </div>
@@ -556,27 +574,30 @@ function DetailsSubTab({
        let list = structuredData.stats[selectedArea]?.[selectedStatus.toLowerCase() as 'online'|'offline'] || [];
        
        const matchNumberFilter = (val: number, filterStr: string, originalStr?: string) => {
-           const s = filterStr.trim();
-           if (!s) return true;
-           if (/^(>=|<=|>|<|=)\s*$/.test(s)) return true;
-           const match = s.match(/^(>=|<=|>|<|=)\s*([\d\.\,]+)\s*%?$/);
-           if (match) {
-               const op = match[1];
-               const num = parseFloat(match[2].replace(/,/g, '.'));
-               if (!isNaN(num)) {
-                   switch (op) {
-                       case '>=': return val >= num;
-                       case '<=': return val <= num;
-                       case '>': return val > num;
-                       case '<': return val < num;
-                       case '=': return val === num;
-                   }
-               }
-           }
-           // Fallback to text match
-           const textToMatch = originalStr != null ? String(originalStr) : String(val);
-           return textToMatch.toLowerCase().includes(s.toLowerCase().replace(/,/g, '.'));
-       };
+            const s = filterStr.trim();
+            if (!s) return true;
+            if (/^(>=|<=|>|<|=)s*$/.test(s)) return true;
+            const match = s.match(/^(>=|<=|>|<|=)s*([d.,]+)s*%?$/);
+            if (match) {
+                const op = match[1];
+                const num = parseFloat(match[2].replace(/,/g, '.'));
+                if (!isNaN(num)) {
+                    switch (op) {
+                        case '>=': return val >= num;
+                        case '<=': return val <= num;
+                        case '>': return val > num;
+                        case '<': return val < num;
+                        case '=': return val === num;
+                    }
+                }
+            }
+            // Fallback to text match
+            const sLower = s.toLowerCase();
+            const t1 = String(val).toLowerCase();
+            const t2 = originalStr != null ? String(originalStr).toLowerCase() : t1;
+            // Check original formatted text, raw number, or plain digits without separators
+            return t2.includes(sLower) || t1.includes(sLower) || t2.replace(/[.,s]/g, '').includes(sLower.replace(/[.,s]/g, ''));
+        };
 
        const parsePercent = (v: any) => {
            const str = String(v || '').replace('%', '').replace(/,/g, '.');
@@ -621,7 +642,7 @@ function DetailsSubTab({
             SL_DANAP: 'SL_DANAP',
             SL_TT: 'SL_TT'
         };
-        const sortKey = sortKeyMap[field] || field;
+        const sortKey = sortKeyMap[field as string] || field;
 
         return (
         <th className={`p-3 border-r border-white/20 whitespace-nowrap min-w-[120px] relative ${align === 'right' ? 'text-right' : 'text-left'}`}>
@@ -789,8 +810,7 @@ function DetailsSubTab({
                        </div>
                    </div>
                    
-                   {renderList.length > 0 ? (
-                       <div className="overflow-x-auto max-h-[800px] overflow-y-auto w-full">
+                   <div className="overflow-x-auto max-h-[800px] overflow-y-auto w-full">
                            <table className="w-full text-left border-collapse table-auto whitespace-normal">
                                <thead className="sticky top-0 bg-[#141414] text-white z-20 shadow-md">
                                    <tr className="text-xs uppercase tracking-widest border-b border-[#141414]">
@@ -828,13 +848,213 @@ function DetailsSubTab({
                                </tbody>
                            </table>
                        </div>
-                  ) : (
-                      <div className="p-12 text-center text-slate-500 font-medium">
-                          Không có dữ liệu
-                      </div>
-                  )}
                </div>
            )}
        </div>
    );
 }
+
+
+function StatisticsSubTab({ mknList }: { mknList: any[] }) {
+    const [filterPeriod, setFilterPeriod] = useState<'1day'|'2days'|'3days'|'day'|'week'|'month'|'inactive'>('day');
+    const [colFilters, setColFilters] = useState<Record<string, string>>({});
+    const [openFilter, setOpenFilter] = useState<string | null>(null);
+    const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc'|'desc' } | null>(null);
+
+    const headers = useMemo(() => {
+        if (!mknList || mknList.length === 0) return [];
+        const excludedRegex = /^stt$|^madiemdo$|^madđ$|thoidiemcodulieugannhat|tinhtrangketnoi|diachidiemdo|soserial/i;
+        const normalizeCol = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[\s_]+/g, '');
+        return Object.keys(mknList[0]).filter(k => k !== 'maDiemDo' && !excludedRegex.test(normalizeCol(k)));
+    }, [mknList]);
+
+    const filteredList = useMemo(() => {
+        if (!mknList || mknList.length === 0) return [];
+        
+        let maxTime = 0;
+        const parsedRows = mknList.map((row, index) => {
+            const timeCol = Object.keys(row).find(k => {
+                const norm = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[\s_]+/g, '');
+                return norm.includes('thoidiemcodulieugannhat') || norm.includes('thoidiem');
+            });
+            let timeVal = 0;
+            if (timeCol && row[timeCol]) {
+                const s = String(row[timeCol]);
+                let d = new Date(s);
+                if (isNaN(d.getTime())) {
+                    const match = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})(?: (\d{1,2}):(\d{1,2}):(\d{1,2}))?/);
+                    if (match) {
+                        d = new Date(Number(match[3]), Number(match[2])-1, Number(match[1]), Number(match[4]||0), Number(match[5]||0), Number(match[6]||0));
+                    }
+                }
+                if (!isNaN(d.getTime())) {
+                    timeVal = d.getTime();
+                    if (timeVal > maxTime) maxTime = timeVal;
+                }
+            }
+            return { ...row, _timeVal: timeVal, _originalIndex: index };
+        });
+
+        const now = maxTime > 0 ? maxTime : Date.now();
+        const ONE_DAY = 24 * 60 * 60 * 1000;
+
+        let filtered = parsedRows.filter(row => {
+            // Không có dữ liệu ở trường THỜI ĐIỂM CÓ DỮ LIỆU GẦN NHẤT -> Chưa có dữ liệu
+            if (!row._timeVal) {
+                return filterPeriod === 'inactive';
+            }
+            if (filterPeriod === 'inactive') return false; // có dữ liệu thì không thuộc Không hoạt động
+
+            const diffDays = (now - row._timeVal) / ONE_DAY;
+            if (filterPeriod === '1day') return diffDays <= 1;
+            if (filterPeriod === '2days') return diffDays > 1 && diffDays <= 2;
+            if (filterPeriod === '3days') return diffDays > 2 && diffDays <= 3;
+            if (filterPeriod === 'day') return diffDays <= 7;
+            if (filterPeriod === 'week') return diffDays > 7 && diffDays <= 30;
+            if (filterPeriod === 'month') return diffDays > 30;
+            return true;
+        });
+
+        Object.keys(colFilters).forEach(key => {
+            const filterVal = colFilters[key]?.trim().toLowerCase();
+            if (filterVal) {
+                filtered = filtered.filter(row => {
+                    const cellVal = String(row[key] || '').toLowerCase();
+                    if (filterVal.startsWith('=')) {
+                        return cellVal === filterVal.slice(1).trim();
+                    }
+                    return cellVal.includes(filterVal);
+                });
+            }
+        });
+
+        if (sortConfig) {
+            filtered.sort((a, b) => {
+                const valA = String(a[sortConfig.key] || '');
+                const valB = String(b[sortConfig.key] || '');
+                const numA = parseFloat(valA);
+                const numB = parseFloat(valB);
+                if (!isNaN(numA) && !isNaN(numB)) {
+                    return sortConfig.direction === 'asc' ? numA - numB : numB - numA;
+                }
+                return sortConfig.direction === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+            });
+        }
+
+        return filtered;
+    }, [mknList, filterPeriod, colFilters, sortConfig]);
+
+    const exportExcel = async () => {
+        const XLSX = await import('xlsx');
+        const dataToExport = filteredList.map((row, idx) => {
+            const item: any = { STT: idx + 1, 'Mã điểm đo': row.maDiemDo };
+            headers.forEach(h => item[h] = row[h]);
+            return item;
+        });
+        const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "ThongKe");
+        XLSX.writeFile(workbook, `ThongKeMKN_${filterPeriod}.xlsx`);
+    };
+
+    const renderFilterHeader = (field: string, displayName?: string) => {
+        const actualField = field;
+        const display = displayName || field;
+        const isFiltered = !!colFilters[actualField];
+        const isSorted = sortConfig?.key === actualField;
+        const isFilterOpen = openFilter === actualField;
+
+        return (
+            <th key={actualField} className="p-3 border-r border-white/20 whitespace-nowrap min-w-[120px] relative text-left">
+                <div className="flex items-center justify-between gap-2">
+                    <span className="cursor-pointer flex-1" onClick={() => {
+                        let d: 'asc' | 'desc' = 'desc';
+                        if (sortConfig?.key === actualField && sortConfig.direction === 'desc') d = 'asc';
+                        setSortConfig({ key: actualField, direction: d });
+                    }}>
+                        {display}
+                        {isSorted && (sortConfig.direction === 'asc' ? <ArrowUp className="inline w-3 h-3 ml-1" /> : <ArrowDown className="inline w-3 h-3 ml-1" />)}
+                     </span>
+                    <button onClick={() => setOpenFilter(isFilterOpen ? null : actualField)} className={`${isFiltered ? 'text-blue-400' : 'text-white/50 hover:text-white'} transition-colors`}>
+                       <Filter className="w-3.5 h-3.5" />
+                    </button>
+                </div>
+                {isFilterOpen && (
+                    <div className="absolute top-12 left-0 z-50 bg-white border border-[#141414] shadow-[4px_4px_0_#141414] p-3 text-black text-sm">
+                       <input
+                           type="text"
+                           placeholder={`Lọc ${display}...`}
+                           className="border border-[#141414] p-2 text-sm w-48 mb-2 focus:outline-none"
+                           value={colFilters[actualField] || ''}
+                           onChange={(e) => setColFilters(prev => ({ ...prev, [actualField]: e.target.value }))}
+                           autoFocus
+                       />
+                       <div className="flex justify-between mt-2">
+                           <button onClick={() => setColFilters(prev => ({ ...prev, [actualField]: '' }))} className="text-xs text-red-600 hover:underline">Xóa lọc</button>
+                           <button onClick={() => setOpenFilter(null)} className="text-xs text-blue-600 font-bold hover:underline">Đóng</button>
+                       </div>
+                    </div>
+                )}
+            </th>
+        );
+    };
+
+    return (
+        <div className="space-y-4 animate-in fade-in">
+           <div className="flex flex-wrap items-center gap-4 border-b border-[#141414]/10 pb-4">
+              <span className="font-bold uppercase tracking-widest text-sm">Lọc theo:</span>
+              <select 
+                  className="border border-[#141414] p-2 bg-white font-medium"
+                  value={filterPeriod} 
+                  onChange={(e) => setFilterPeriod(e.target.value as any)}
+              >
+                 <option value="1day">Mất kết nối 1 ngày</option>
+                 <option value="2days">Mất kết nối 2 ngày</option>
+                 <option value="3days">Mất kết nối 3 ngày</option>
+                 <option value="day">Mất kết nối theo ngày (≤ 7 ngày)</option>
+                 <option value="week">Mất kết nối theo tuần (8 - 30 ngày)</option>
+                 <option value="month">Mất kết nối theo tháng (&gt; 30 ngày)</option>
+                 <option value="inactive">Không hoạt động (không có dữ liệu)</option>
+              </select>
+              <button 
+                  onClick={exportExcel}
+                  className="px-4 py-2 text-sm font-bold bg-[#141414] text-white uppercase tracking-widest hover:bg-black shadow-[2px_2px_0_#A0A0A0] transition-colors"
+              >
+                 Xuất Excel
+              </button>
+              <div className="ml-auto font-bold text-sm bg-white px-3 py-1 border border-[#141414] shadow-[2px_2px_0_#141414]">
+                 Tổng số điểm đo: <span className="text-red-600">{filteredList.length.toLocaleString('vi-VN')}</span>
+              </div>
+           </div>
+
+           <div className="overflow-x-auto max-h-[600px] overflow-y-auto bg-white border border-[#141414] shadow-[4px_4px_0_#141414]">
+               <table className="w-full text-left border-collapse table-auto whitespace-nowrap">
+                   <thead className="sticky top-0 bg-[#141414] text-white z-10">
+                       <tr className="text-xs uppercase tracking-widest border-b border-[#141414]">
+                           <th className="p-3 border-r border-white/20 whitespace-nowrap text-center">STT</th>
+                           {renderFilterHeader('maDiemDo', 'Mã điểm đo')}
+                           {headers.map(h => renderFilterHeader(h))}
+                       </tr>
+                   </thead>
+                   <tbody className="text-sm">
+                       {filteredList.map((row, idx) => (
+                           <tr key={idx} className="border-b border-[#141414]/10 hover:bg-slate-50 transition-colors">
+                               <td className="p-3 border-r border-[#141414]/10 text-center font-bold">{idx + 1}</td>
+                               <td className="p-3 border-r border-[#141414]/10 font-bold bg-slate-50">{row.maDiemDo}</td>
+                               {headers.map((h, i) => (
+                                   <td key={i} className="p-3 border-r border-[#141414]/10">{row[h] || ''}</td>
+                               ))}
+                           </tr>
+                       ))}
+                       {filteredList.length === 0 && (
+                           <tr>
+                               <td colSpan={headers.length + 2} className="p-8 text-center text-slate-500 font-medium">Không có dữ liệu phù hợp</td>
+                           </tr>
+                       )}
+                   </tbody>
+               </table>
+           </div>
+        </div>
+    );
+}
+
