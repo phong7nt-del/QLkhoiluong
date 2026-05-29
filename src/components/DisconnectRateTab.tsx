@@ -69,7 +69,7 @@ export default function DisconnectRateTab({ refreshToggle }: { refreshToggle?: n
       const chiTietData = DataStore.getChiTietMKN();
       const stations = DataStore.getStations();
       
-      // -- OVERVIEW STATS (Legacy computation for Tỷ lệ mất kết nối) --
+      // -- OVERVIEW STATS (Legacy computation for Thống kê khu vực) --
       const maKhangToKhuVuc: Record<string, string> = {};
       const totalCustomersByArea: Record<string, number> = {};
       let totalCustomers = 0;
@@ -136,34 +136,57 @@ export default function DisconnectRateTab({ refreshToggle }: { refreshToggle?: n
       });
       setStationMap(sMap);
       
+      let keyMapping: Record<string, string> = {};
+      if (chiTietData.length > 0) {
+          const sampleKeys = Object.keys(chiTietData[0]);
+          const findKey = (keysToTry: string[]) => {
+              for (const k of keysToTry) {
+                  const actualKey = sampleKeys.find(dk => dk.toLowerCase().trim() === k.toLowerCase().trim());
+                  if (actualKey) return actualKey;
+              }
+              return null;
+          };
+          keyMapping = {
+              SL_DANAP: findKey(['SL_DANAP', 'số lượng đã nạp', 'SL ĐÃ NẠP']) || '',
+              SL_TT: findKey(['SL_TT', 'số lượng thực tế', 'SL THỰC TẾ']) || '',
+              SL_TT_1PHA: findKey(['SL_TT_1PHA']) || '',
+              SL_TT_3PHA: findKey(['SL_TT_3PHA']) || '',
+              IMEI: findKey(['IMEI']) || '',
+              DCUTYPE: findKey(['DCUTYPE', 'DCU TYPE']) || '',
+              DCUDESC: findKey(['DCUDESC', 'DCU DESC']) || '',
+              DCUID_ORG: findKey(['DCUID_ORG']) || '',
+              IDSTATION: findKey(['IDSTATION', 'ID STATION']) || '',
+              TILE: findKey(['TILE', 'TỈ LỆ', 'TY LE']) || '',
+              STATUS_DCU: findKey(['STATUS_DCU', 'STATUS DCU', 'status dcu', 'trạng thái']) || ''
+          };
+      }
+
       const detailsList: ChiTietMKN[] = chiTietData.map((d: any) => {
-         const getV = (keysToTry: string[]) => {
-            for (const k of keysToTry) {
-               const actualKey = Object.keys(d).find(dk => dk.toLowerCase().trim() === k.toLowerCase().trim());
-               if (actualKey) return String(d[actualKey] || '');
-            }
+         const getV = (keyName: keyof typeof keyMapping) => {
+            const actualKey = keyMapping[keyName];
+            if (actualKey && d[actualKey] != null) return String(d[actualKey]);
             return '';
          };
          
-         const sl_danap = parseFloat(getV(['SL_DANAP', 'số lượng đã nạp', 'SL ĐÃ NẠP']).replace(/,/g, '')) || 0;
-         const sl_tt = parseFloat(getV(['SL_TT', 'số lượng thực tế', 'SL THỰC TẾ']).replace(/,/g, '')) || 0;
+         const sl_danap = parseFloat(getV('SL_DANAP').replace(/,/g, '')) || 0;
+         const sl_tt = parseFloat(getV('SL_TT').replace(/,/g, '')) || 0;
          const kh = sl_danap - sl_tt;
-         const t1 = parseFloat(getV(['SL_TT_1PHA']).replace(/,/g, '')) || 0;
-         const t3 = parseFloat(getV(['SL_TT_3PHA']).replace(/,/g, '')) || 0;
+         const t1 = parseFloat(getV('SL_TT_1PHA').replace(/,/g, '')) || 0;
+         const t3 = parseFloat(getV('SL_TT_3PHA').replace(/,/g, '')) || 0;
          
          return {
             ...d,
-            IMEI: getV(['IMEI']),
-            DCUTYPE: getV(['DCUTYPE', 'DCU TYPE']),
-            DCUDESC: getV(['DCUDESC', 'DCU DESC']),
-            DCUID_ORG: getV(['DCUID_ORG']),
-            IDSTATION: getV(['IDSTATION', 'ID STATION']),
-            TILE: getV(['TILE', 'TỈ LỆ', 'TY LE']),
+            IMEI: getV('IMEI'),
+            DCUTYPE: getV('DCUTYPE'),
+            DCUDESC: getV('DCUDESC'),
+            DCUID_ORG: getV('DCUID_ORG'),
+            IDSTATION: getV('IDSTATION'),
+            TILE: getV('TILE'),
             SL_DANAP: String(sl_danap),
             SL_TT: String(sl_tt),
             SL_TT_1PHA: String(t1),
             SL_TT_3PHA: String(t3),
-            STATUS_DCU: getV(['STATUS_DCU', 'STATUS DCU', 'status dcu', 'trạng thái']),
+            STATUS_DCU: getV('STATUS_DCU'),
             _calculatedKH: kh,
             _calculated1P: t1,
             _calculated3P: t3
@@ -185,6 +208,9 @@ export default function DisconnectRateTab({ refreshToggle }: { refreshToggle?: n
           }))
           .filter(k => k.norm.length > 2);
 
+      const areaCache: Record<string, string> = {};
+      const sMapKeysArray = Object.keys(sMap);
+
       detailsList.forEach(m => {
           const khCount = parseFloat(m.SL_DANAP) || 0;
           const missingCount = Math.max(0, khCount - (parseFloat(m.SL_TT) || 0));
@@ -195,23 +221,32 @@ export default function DisconnectRateTab({ refreshToggle }: { refreshToggle?: n
           let area = 'Khác';
           if (m.DCUDESC) {
               const descL = m.DCUDESC.toLowerCase().trim();
-              if (sMap[descL]) {
+              if (areaCache[descL]) {
+                  area = areaCache[descL];
+              } else if (sMap[descL]) {
                   area = sMap[descL];
+                  areaCache[descL] = area;
               } else {
-                  const foundKey = Object.keys(sMap).find(k => descL.includes(k) || k.includes(descL));
+                  const foundKey = sMapKeysArray.find(k => descL.includes(k) || k.includes(descL));
                   if (foundKey) {
                       area = sMap[foundKey];
+                      areaCache[descL] = area;
                   } else {
                       let descNorm = removeAcc(descL);
                       descNorm = descNorm.replace(/^(tram|tba)/, '');
                       const deepMatch = stationMapKeysNorm.find(s => descNorm.includes(s.norm) || s.norm.includes(descNorm));
-                      if (deepMatch) area = deepMatch.area;
+                      if (deepMatch) {
+                          area = deepMatch.area;
+                      }
+                      areaCache[descL] = area;
                   }
               }
           } else if (m.IDSTATION) {
               const idL = m.IDSTATION.toLowerCase().trim();
               if (sMap[idL]) area = sMap[idL];
           }
+
+          m._area = area; // Save it so DetailsSubTab doesn't need to do it again
 
           fastTotalCustomersByArea[area] = (fastTotalCustomersByArea[area] || 0) + khCount;
           fastMissingCountByArea[area] = (fastMissingCountByArea[area] || 0) + missingCount;
@@ -251,7 +286,7 @@ export default function DisconnectRateTab({ refreshToggle }: { refreshToggle?: n
                 : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
             }`}
          >
-            Tỷ lệ mất kết nối
+            Thống kê khu vực
          </button>
          <button 
             onClick={() => setSubTab('details')}
@@ -260,9 +295,7 @@ export default function DisconnectRateTab({ refreshToggle }: { refreshToggle?: n
                 ? 'bg-[#141414] text-white' 
                 : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
             }`}
-         >
-            Chi tiết MKN
-         </button>
+         >Thống kê Trạm</button>
          <button 
             onClick={() => setSubTab('statistics')}
             className={`px-6 py-3.5 font-extrabold uppercase tracking-widest text-sm transition-all whitespace-nowrap ${
@@ -270,9 +303,7 @@ export default function DisconnectRateTab({ refreshToggle }: { refreshToggle?: n
                 ? 'bg-[#141414] text-white' 
                 : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
             }`}
-         >
-            Thống kê
-         </button>
+         >Thống kê KH</button>
       </div>
       
       {/* Dynamic Content */}
@@ -384,7 +415,7 @@ function OverviewSubTab({ stats, statsNhanh, fetchData, loading }: { stats: any,
          </div>
          <div className="bg-[#141414] text-white border border-[#141414] shadow-[4px_4px_0_#A0A0A0] p-5">
             <div className="text-sm font-bold uppercase tracking-widest text-white/60 mb-2">
-               Tỷ lệ mất kết nối (Công ty)
+               Thống kê khu vực (Công ty)
             </div>
             <div className="text-4xl font-black text-[#FFD700]">
                {totalRate.toFixed(2)}%
@@ -507,45 +538,10 @@ function DetailsSubTab({
        });
        stats['Khác'] = { online: [], offline: [], other: [] };
 
-       const removeAcc = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[^a-z0-9]/g, '');
 
-       const stationMapKeysNorm = Object.keys(stationMap)
-           .filter(k => k.length > 3)
-           .map(k => ({
-               original: k,
-               norm: removeAcc(k).replace(/^(tram|tba)/, ''),
-               area: stationMap[k]
-           }))
-           .filter(k => k.norm.length > 2);
 
        chiTietList.forEach(mkn => {
-           let area = 'Khác';
-           
-           if (mkn.DCUDESC) {
-               const descL = mkn.DCUDESC.toLowerCase().trim();
-               if (stationMap[descL]) {
-                   area = stationMap[descL];
-               } else {
-                   // Fuzzy match: sometimes they just write part of the TBA name
-                   const foundKey = Object.keys(stationMap).find(k => descL.includes(k) || k.includes(descL));
-                   if (foundKey) {
-                       area = stationMap[foundKey];
-                   } else {
-                       // Deep fuzzy match: remove accents and spaces
-                       let descNorm = removeAcc(descL);
-                       descNorm = descNorm.replace(/^(tram|tba)/, '');
-                       
-                       const deepMatch = stationMapKeysNorm.find(s => descNorm.includes(s.norm) || s.norm.includes(descNorm));
-                       if (deepMatch) {
-                           area = deepMatch.area;
-                       }
-                   }
-               }
-           } else if (mkn.IDSTATION) {
-               const idL = mkn.IDSTATION.toLowerCase().trim();
-               if (stationMap[idL]) area = stationMap[idL];
-           }
-
+           let area = String(mkn._area || 'Khác');
            if (!areas.includes(area)) {
                area = 'Khác';
            }
@@ -576,11 +572,25 @@ function DetailsSubTab({
        const matchNumberFilter = (val: number, filterStr: string, originalStr?: string) => {
             const s = filterStr.trim();
             if (!s) return true;
-            if (/^(>=|<=|>|<|=)s*$/.test(s)) return true;
-            const match = s.match(/^(>=|<=|>|<|=)s*([d.,]+)s*%?$/);
+            if (/^(>=|<=|>|<|=)\s*$/.test(s)) return true;
+            const match = s.match(/^(>=|<=|>|<|=)\s*([\d\.\,]+)\s*%?$/);
             if (match) {
                 const op = match[1];
-                const num = parseFloat(match[2].replace(/,/g, '.'));
+                let cleanStr = match[2];
+                if (cleanStr.includes('.') && cleanStr.includes(',')) {
+                    if (cleanStr.indexOf(',') > cleanStr.lastIndexOf('.')) {
+                        cleanStr = cleanStr.replace(/\./g, '').replace(',', '.');
+                    } else {
+                        cleanStr = cleanStr.replace(/,/g, '');
+                    }
+                } else if (cleanStr.includes(',')) {
+                    cleanStr = cleanStr.replace(/,/g, '.');
+                } else if (cleanStr.includes('.')) {
+                    if (/^\d{1,3}(\.\d{3})+$/.test(cleanStr)) {
+                        cleanStr = cleanStr.replace(/\./g, '');
+                    }
+                }
+                const num = parseFloat(cleanStr);
                 if (!isNaN(num)) {
                     switch (op) {
                         case '>=': return val >= num;
@@ -596,7 +606,7 @@ function DetailsSubTab({
             const t1 = String(val).toLowerCase();
             const t2 = originalStr != null ? String(originalStr).toLowerCase() : t1;
             // Check original formatted text, raw number, or plain digits without separators
-            return t2.includes(sLower) || t1.includes(sLower) || t2.replace(/[.,s]/g, '').includes(sLower.replace(/[.,s]/g, ''));
+            return t2.includes(sLower) || t1.includes(sLower) || t2.replace(/[\.,\s]/g, '').includes(sLower.replace(/[\.,\s]/g, ''));
         };
 
        const parsePercent = (v: any) => {
@@ -611,11 +621,11 @@ function DetailsSubTab({
        if (columnFilters.IDSTATION.trim()) list = list.filter(i => String(i.IDSTATION || '').toLowerCase().includes(columnFilters.IDSTATION.toLowerCase().trim()));
        
        if (columnFilters.TILE.trim()) list = list.filter(i => matchNumberFilter(parsePercent(i.TILE), columnFilters.TILE, i.TILE));
-       if (columnFilters.KH.trim()) list = list.filter(i => matchNumberFilter(i._calculatedKH || 0, columnFilters.KH));
-       if (columnFilters.SL_DANAP.trim()) list = list.filter(i => matchNumberFilter(Number(i.SL_DANAP) || 0, columnFilters.SL_DANAP));
-       if (columnFilters.SL_TT.trim()) list = list.filter(i => matchNumberFilter(Number(i.SL_TT) || 0, columnFilters.SL_TT));
-       if (columnFilters.SL1P.trim()) list = list.filter(i => matchNumberFilter(i._calculated1P || 0, columnFilters.SL1P));
-       if (columnFilters.SL3P.trim()) list = list.filter(i => matchNumberFilter(i._calculated3P || 0, columnFilters.SL3P));
+       if (columnFilters.KH.trim()) list = list.filter(i => matchNumberFilter(i._calculatedKH || 0, columnFilters.KH, (i._calculatedKH || 0).toLocaleString('vi-VN')));
+       if (columnFilters.SL_DANAP.trim()) list = list.filter(i => matchNumberFilter(Number(i.SL_DANAP) || 0, columnFilters.SL_DANAP, (Number(i.SL_DANAP) || 0).toLocaleString('vi-VN')));
+       if (columnFilters.SL_TT.trim()) list = list.filter(i => matchNumberFilter(Number(i.SL_TT) || 0, columnFilters.SL_TT, (Number(i.SL_TT) || 0).toLocaleString('vi-VN')));
+       if (columnFilters.SL1P.trim()) list = list.filter(i => matchNumberFilter(i._calculated1P || 0, columnFilters.SL1P, (i._calculated1P || 0).toLocaleString('vi-VN')));
+       if (columnFilters.SL3P.trim()) list = list.filter(i => matchNumberFilter(i._calculated3P || 0, columnFilters.SL3P, (i._calculated3P || 0).toLocaleString('vi-VN')));
        
        if (sortConfig) {
            list.sort((a, b) => {
@@ -634,7 +644,29 @@ function DetailsSubTab({
        return list;
    }, [structuredData, selectedArea, selectedStatus, columnFilters, isDetailPrepared, sortConfig]);
 
-    const renderFilterHeader = (label: string, field: keyof typeof columnFilters, placeholder: string, align: 'left' | 'right' = 'left') => {
+     const exportExcel = async () => {
+        const XLSX = await import('xlsx');
+        const dataToExport = renderList.map((row, idx) => ({
+            STT: idx + 1,
+            IMEI: row.IMEI,
+            DCUTYPE: row.DCUTYPE,
+            DCUDESC: row.DCUDESC,
+            DCUID_ORG: row.DCUID_ORG,
+            IDSTATION: row.IDSTATION,
+            'TỈ LỆ': row.TILE,
+            'ĐÃ NẠP': row.SL_DANAP,
+            'SL_TT': row.SL_TT,
+            'KH': row._calculatedKH,
+            'SL TT 1PHA': row._calculated1P,
+            'SL TT 3PHA': row._calculated3P
+        }));
+        const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'Thong_Ke_Tram');
+        XLSX.writeFile(workbook, `Thong_Ke_Tram_${selectedArea}_${selectedStatus}.xlsx`);
+    };
+
+   const renderFilterHeader = (label: string, field: keyof typeof columnFilters, placeholder: string, align: 'left' | 'right' = 'left') => {
         const sortKeyMap: Record<string, string> = {
             KH: '_calculatedKH',
             SL1P: '_calculated1P',
@@ -808,6 +840,12 @@ function DetailsSubTab({
                               {renderList.length}
                           </span>
                        </div>
+                       <button
+                           onClick={exportExcel}
+                           className="px-4 py-2 text-xs font-bold bg-[#141414] text-white uppercase tracking-widest hover:bg-black shadow-[2px_2px_0_#A0A0A0] transition-colors whitespace-nowrap"
+                       >
+                          Xuất Excel
+                       </button>
                    </div>
                    
                    <div className="overflow-x-auto max-h-[800px] overflow-y-auto w-full">
@@ -872,11 +910,15 @@ function StatisticsSubTab({ mknList }: { mknList: any[] }) {
         if (!mknList || mknList.length === 0) return [];
         
         let maxTime = 0;
-        const parsedRows = mknList.map((row, index) => {
-            const timeCol = Object.keys(row).find(k => {
+        let timeCol: string | undefined;
+        if (mknList.length > 0) {
+            timeCol = Object.keys(mknList[0]).find(k => {
                 const norm = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[\s_]+/g, '');
                 return norm.includes('thoidiemcodulieugannhat') || norm.includes('thoidiem');
             });
+        }
+
+        const parsedRows = mknList.map((row, index) => {
             let timeVal = 0;
             if (timeCol && row[timeCol]) {
                 const s = String(row[timeCol]);
