@@ -117,11 +117,23 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
         });
      });
      
-     // Tính tổng: chia 2 các tổ khối lượng (trừ tổ tổng hợp)
+     // Tính tổng: chia 2 các tổ khối lượng nếu nhóm và trừ tổ tổng hợp
      Object.values(catData).forEach(cat => {
+         // lookup if this category is a group task
+         const normalize = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase().trim();
+         const cleanCatName = normalize(cat.categoryName);
+         
+         const exactDm = dinhMucList.find(d => normalize(d.name || '') === cleanCatName);
+         let foundDm = exactDm || dinhMucList.find(d => {
+             const cleanDName = normalize(d.name || '');
+             return cleanDName.includes(cleanCatName) || cleanCatName.includes(cleanDName);
+         });
+         const isGroupTask = foundDm ? foundDm.isGroup : false;
+
          let newTotal = 0;
          Object.keys(cat.teams).forEach(team => {
-             if (!team.toLowerCase().includes('tổng hợp') && !team.toLowerCase().includes('bộ phận công tác')) {
+             const isTongHop = team.toLowerCase().includes('tổng hợp') || team.toLowerCase().includes('bộ phận công tác');
+             if (!isTongHop && isGroupTask) {
                  newTotal += Math.ceil(cat.teams[team] / 2);
              } else {
                  newTotal += cat.teams[team];

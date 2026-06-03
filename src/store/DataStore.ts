@@ -65,6 +65,14 @@ let memCacheKhuVucList: any[] | null = null;
 let memCacheMatKetNoiList: any[] | null = null;
 let memCacheChiTietMKNList: any[] | null = null;
 
+const safeSetItem = (key: string, value: string) => {
+    try {
+        localStorage.setItem(key, value);
+    } catch (e) {
+        console.warn('localStorage quota exceeded for key:', key);
+    }
+};
+
 export const DataStore = {
   getAppScriptUrl: () => localStorage.getItem(SCRIPT_URL_KEY) || 'https://script.google.com/macros/s/AKfycbyDCcu4I8yfT1g2KOHCRoaDtMMb1gLvfxhP4HJkzFYbqNIg1TSXCyi2HS3D7hDYpInVxQ/exec',
   setAppScriptUrl: (url: string) => localStorage.setItem(SCRIPT_URL_KEY, url),
@@ -104,7 +112,7 @@ export const DataStore = {
       timestamp: Date.now()
     };
     entries.push(newEntry);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+    safeSetItem(STORAGE_KEY, JSON.stringify(entries));
     return newEntry;
   },
 
@@ -444,7 +452,7 @@ export const DataStore = {
                      }
                   }
                }
-               localStorage.setItem(PROGRESS_KEY, JSON.stringify(progressList));
+               safeSetItem(PROGRESS_KEY, JSON.stringify(progressList));
             } catch (e) {
                console.error('Error fetching Progress sheet', e);
             }
@@ -457,7 +465,7 @@ export const DataStore = {
                   const dmText = await dmRes.text();
                   if (!dmText.includes('<html') && dmText.trim() && dmText.length > 50) {
                      const dmData: any[] = Papa.parse(dmText, { header: true }).data as any[];
-                     const newDinhMuc: {name: string, quota: number}[] = [];
+                     const newDinhMuc: {name: string, quota: number, isGroup: boolean}[] = [];
                      if (dmData && dmData.length > 0) {
                          const firstRow = dmData[0];
                          const keys = Object.keys(firstRow);
@@ -469,6 +477,10 @@ export const DataStore = {
                              const nk = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
                              return nk.includes('dinh muc') || nk.includes('quota') || nk.includes('diem');
                          });
+                         const groupKey = keys.find(k => {
+                             const nk = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
+                             return nk.includes('chung nhom');
+                         });
                          
                          if (nameKey) {
                              for (const row of dmData) {
@@ -476,8 +488,12 @@ export const DataStore = {
                                  let quotaStr = String(row[quotaKey] || '0').replace(/,/g, '.');
                                  let val2 = parseFloat(quotaStr);
                                  if (isNaN(val2)) val2 = 0;
+                                 
+                                 let isGroupStr = groupKey ? String(row[groupKey] || '').toLowerCase().trim() : '';
+                                 let isGroup = isGroupStr === 'x';
+                                 
                                  if (val1 && val1.toLowerCase() !== 'stt') {
-                                     newDinhMuc.push({ name: val1, quota: val2 });
+                                     newDinhMuc.push({ name: val1, quota: val2, isGroup });
                                  }
                              }
                              if (newDinhMuc.length > 0) {
@@ -542,7 +558,7 @@ export const DataStore = {
                        }
                    }
                    console.log('TUTI CSV Fetched successfully, rows:', tutiList.length);
-                   localStorage.setItem(TUTI_KEY, JSON.stringify(tutiList));
+                   safeSetItem(TUTI_KEY, JSON.stringify(tutiList));
                }
             } catch (e) {
                console.error('Error fetching TUTI', e);
@@ -573,7 +589,7 @@ export const DataStore = {
                        }).filter((r: any) => r.maDiemDo);
                        memCacheMatKetNoiList = matKetNoiList;
                        try {
-                           localStorage.setItem('sheet_matketnoi_v1', JSON.stringify(matKetNoiList));
+                           safeSetItem('sheet_matketnoi_v1', JSON.stringify(matKetNoiList));
                        } catch(e) {
                            console.warn("localStorage quota exceeded for MatKetNoi");
                        }
@@ -593,7 +609,7 @@ export const DataStore = {
                    if (data && data.length > 0) {
                        memCacheChiTietMKNList = data;
                        try {
-                           localStorage.setItem('sheet_chitietmkn_v1', JSON.stringify(data));
+                           safeSetItem('sheet_chitietmkn_v1', JSON.stringify(data));
                        } catch(e) {
                            console.warn("localStorage quota exceeded for ChiTietMKN");
                        }
@@ -633,7 +649,7 @@ export const DataStore = {
                        })).filter(r => r.MA_DDO);
                        memCacheKhuVucList = khuVucList;
                        try {
-                           localStorage.setItem('sheet_khuvuc_v1', JSON.stringify(khuVucList));
+                           safeSetItem('sheet_khuvuc_v1', JSON.stringify(khuVucList));
                        } catch(e) {
                            console.warn("localStorage quota exceeded for KhuVuc");
                        }
@@ -648,19 +664,19 @@ export const DataStore = {
          }
 
          if (json.teams && json.teams.length > 0) {
-           localStorage.setItem(TEAMS_KEY, JSON.stringify(json.teams));
+           safeSetItem(TEAMS_KEY, JSON.stringify(json.teams));
          }
          if (json.members && json.members.length > 0) {
-           localStorage.setItem(MEMBERS_KEY, JSON.stringify(json.members));
+           safeSetItem(MEMBERS_KEY, JSON.stringify(json.members));
          }
          if (json.stations && json.stations.length > 0) {
-           localStorage.setItem(STATIONS_KEY, JSON.stringify(json.stations));
+           safeSetItem(STATIONS_KEY, JSON.stringify(json.stations));
          }
          if (json.workloads) {
-           localStorage.setItem(STORAGE_KEY, JSON.stringify(json.workloads));
+           safeSetItem(STORAGE_KEY, JSON.stringify(json.workloads));
          }
          if (json.dinhMuc) {
-           localStorage.setItem(DINHMUC_KEY, JSON.stringify(json.dinhMuc));
+           safeSetItem(DINHMUC_KEY, JSON.stringify(json.dinhMuc));
          }
          if (json.tuti && json.tuti.length > 0) {
             const formattedTuti = json.tuti.map((item: any) => ({
@@ -676,12 +692,12 @@ export const DataStore = {
                 ngayCapNhat: String(item.ngayCapNhat || ''),
                 ngayDuaLen: String(item.ngayDuaLen || '')
             }));
-            localStorage.setItem(TUTI_KEY, JSON.stringify(formattedTuti));
+            safeSetItem(TUTI_KEY, JSON.stringify(formattedTuti));
             // Wipe stuck local tuti entries when fetching new master data
             localStorage.removeItem(LOCAL_TUTI_UPDATES_KEY);
          }
          if (json.matKetNoi) {
-            localStorage.setItem('sheet_matketnoi_v1', JSON.stringify(json.matKetNoi));
+            safeSetItem('sheet_matketnoi_v1', JSON.stringify(json.matKetNoi));
          }
          
          const localCached = localStorage.getItem(LOCAL_PROGRESS_UPDATES_KEY);
@@ -690,7 +706,7 @@ export const DataStore = {
              const now = Date.now();
              const validLocal = localTasks.filter(t => t.timestamp && (now - t.timestamp) < 30 * 24 * 60 * 60 * 1000);
              if (validLocal.length > 0) {
-                 localStorage.setItem(LOCAL_PROGRESS_UPDATES_KEY, JSON.stringify(validLocal));
+                 safeSetItem(LOCAL_PROGRESS_UPDATES_KEY, JSON.stringify(validLocal));
              } else {
                  localStorage.removeItem(LOCAL_PROGRESS_UPDATES_KEY);
              }
@@ -758,7 +774,7 @@ export const DataStore = {
      } catch { return []; }
   },
 
-  getDinhMuc: (): { name: string; quota: number }[] => {
+  getDinhMuc: (): { name: string; quota: number; isGroup?: boolean }[] => {
      try {
        const cached = localStorage.getItem(DINHMUC_KEY);
        return cached ? JSON.parse(cached) : [];
@@ -840,7 +856,7 @@ export const DataStore = {
         timestamp: Date.now()
      };
      localTasks.push(newTask);
-     localStorage.setItem(LOCAL_PROGRESS_UPDATES_KEY, JSON.stringify(localTasks));
+     safeSetItem(LOCAL_PROGRESS_UPDATES_KEY, JSON.stringify(localTasks));
      DataStore.syncProgressToSheet({...newTask, id: ''});
      return newTask;
   },
@@ -861,7 +877,7 @@ export const DataStore = {
      } else {
         localTasks.push(updatedTask);
      }
-     localStorage.setItem(LOCAL_PROGRESS_UPDATES_KEY, JSON.stringify(localTasks));
+     safeSetItem(LOCAL_PROGRESS_UPDATES_KEY, JSON.stringify(localTasks));
      DataStore.syncProgressToSheet(updatedTask);
      return updatedTask;
   },
@@ -894,7 +910,7 @@ export const DataStore = {
      } else {
         localTasks.push(updatedTask);
      }
-     localStorage.setItem(LOCAL_PROGRESS_UPDATES_KEY, JSON.stringify(localTasks));
+     safeSetItem(LOCAL_PROGRESS_UPDATES_KEY, JSON.stringify(localTasks));
      DataStore.syncProgressToSheet(updatedTask);
      return updatedTask;
   },
@@ -932,7 +948,7 @@ export const DataStore = {
                }
                return m;
              });
-             localStorage.setItem('sheet_members_v1', JSON.stringify(updated));
+             safeSetItem('sheet_members_v1', JSON.stringify(updated));
            }
          } catch (e) {
            console.error('Update local member failed', e);
@@ -985,7 +1001,7 @@ export const DataStore = {
        const originalLength = localTasks.length;
        localTasks = localTasks.filter(t => t && t.id && String(t.id).includes('-'));
        if (localTasks.length !== originalLength) {
-           localStorage.setItem(LOCAL_TUTI_UPDATES_KEY, JSON.stringify(localTasks));
+           safeSetItem(LOCAL_TUTI_UPDATES_KEY, JSON.stringify(localTasks));
        }
        
        // Priority to local tasks
@@ -1032,7 +1048,7 @@ export const DataStore = {
         isLocal: true
      };
      localTasks.push(newEntry);
-     localStorage.setItem(LOCAL_TUTI_UPDATES_KEY, JSON.stringify(localTasks));
+     safeSetItem(LOCAL_TUTI_UPDATES_KEY, JSON.stringify(localTasks));
      const success = await DataStore.addTutiToSheet(newEntry);
      if (success) {
          // remove from local tasks if sync succeeds
@@ -1045,7 +1061,7 @@ export const DataStore = {
              } catch(e) { lt = []; }
          }
          lt = lt.filter(t => t.id !== newEntry.id);
-         localStorage.setItem(LOCAL_TUTI_UPDATES_KEY, JSON.stringify(lt));
+         safeSetItem(LOCAL_TUTI_UPDATES_KEY, JSON.stringify(lt));
          await DataStore.syncMasterData(); // refresh to get it correctly
      }
      return newEntry;
@@ -1075,7 +1091,7 @@ export const DataStore = {
      } else {
         localTasks.push(updatedEntry);
      }
-     localStorage.setItem(LOCAL_TUTI_UPDATES_KEY, JSON.stringify(localTasks));
+     safeSetItem(LOCAL_TUTI_UPDATES_KEY, JSON.stringify(localTasks));
      const success = await DataStore.syncTutiToSheet(updatedEntry);
      if (success) {
          // remove from local tasks if sync succeeds
@@ -1088,7 +1104,7 @@ export const DataStore = {
              } catch(e) { lt = []; }
          }
          lt = lt.filter(t => t.id !== updatedEntry.id);
-         localStorage.setItem(LOCAL_TUTI_UPDATES_KEY, JSON.stringify(lt));
+         safeSetItem(LOCAL_TUTI_UPDATES_KEY, JSON.stringify(lt));
          await DataStore.syncMasterData();
      }
      return updatedEntry;
@@ -1097,7 +1113,7 @@ export const DataStore = {
   deleteEntry: (id: string) => {
     const entries = DataStore.getEntries();
     const filtered = entries.filter((e) => e.id !== id);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+    safeSetItem(STORAGE_KEY, JSON.stringify(filtered));
   },
 
   getUniqueContents: (): string[] => {

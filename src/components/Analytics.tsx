@@ -1,13 +1,27 @@
 import React, { useState, useMemo } from 'react';
 import { DataStore } from '../store/DataStore';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, getISOWeek, getISOWeekYear } from 'date-fns';
 import { Filter, Trash2, ChevronDown, ChevronUp, Download } from 'lucide-react';
 import * as XLSX from 'xlsx-js-style';
+
+const getWeekString = (dateStr: string) => {
+   try {
+     const d = parseISO(dateStr);
+     if (isNaN(d.getTime())) return '';
+     const w = getISOWeek(d);
+     const y = getISOWeekYear(d);
+     return `${y}-W${w.toString().padStart(2, '0')}`;
+   } catch { return ''; }
+};
 
 export default function Analytics({ refreshToggle }: { refreshToggle: number }) {
   const [selectedTeam, setSelectedTeam] = useState<string>('all');
   const [selectedMember, setSelectedMember] = useState<string>('all');
+  const [filterMode, setFilterMode] = useState<'all' | 'day' | 'week' | 'month' | 'year'>('all');
   const [selectedDate, setSelectedDate] = useState<string>('');
+  const [selectedWeek, setSelectedWeek] = useState<string>('');
+  const [selectedMonth, setSelectedMonth] = useState<string>('');
+  const [selectedYear, setSelectedYear] = useState<string>('');
   const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set());
   const [detailViewMode, setDetailViewMode] = useState<'grouped' | 'list'>('grouped');
 
@@ -36,11 +50,16 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
       const selectedTeamNormalized = selectedTeam.normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
 
       if (selectedTeam !== 'all' && eTeamNormalized !== selectedTeamNormalized) return false;
-      if (selectedDate && e.date !== selectedDate) return false;
+      
+      if (filterMode === 'day' && selectedDate && e.date !== selectedDate) return false;
+      if (filterMode === 'week' && selectedWeek && getWeekString(e.date) !== selectedWeek) return false;
+      if (filterMode === 'month' && selectedMonth && !e.date.startsWith(selectedMonth)) return false;
+      if (filterMode === 'year' && selectedYear && !e.date.startsWith(selectedYear)) return false;
+
       if (selectedMember !== 'all' && (!e.members || !e.members.includes(selectedMember))) return false;
       return true;
     });
-  }, [entries, selectedTeam, selectedDate, selectedMember]);
+  }, [entries, selectedTeam, selectedMember, filterMode, selectedDate, selectedWeek, selectedMonth, selectedYear]);
 
   const uniqueTeams = useMemo(() => DataStore.getTeams(), [refreshToggle]);
   const uniqueMembers = useMemo(() => {
@@ -92,10 +111,20 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
               const taskName = match[1].trim();
               const qty = parseFloat(match[2].replace(',', '.'));
               if (!isNaN(qty)) {
-                  if (isTongHop) {
-                      sumNotToDivide[taskName] = (sumNotToDivide[taskName] || 0) + qty;
-                  } else {
+                  const normalize = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase().trim();
+                  const cleanTaskName = normalize(taskName);
+                  
+                  const exactDm = dinhMucList.find(d => normalize(d.name || '') === cleanTaskName);
+                  let foundDm = exactDm || dinhMucList.find(d => {
+                      const cleanDName = normalize(d.name || '');
+                      return cleanDName.includes(cleanTaskName) || cleanTaskName.includes(cleanDName);
+                  });
+                  const isGroupTask = foundDm ? foundDm.isGroup : false;
+
+                  if (!isTongHop && isGroupTask) {
                       sumToDivide[taskName] = (sumToDivide[taskName] || 0) + qty;
+                  } else {
+                      sumNotToDivide[taskName] = (sumNotToDivide[taskName] || 0) + qty;
                   }
               }
            }
@@ -111,7 +140,7 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
     });
 
     return Object.entries(finalStats).sort((a, b) => b[1] - a[1]);
-  }, [filteredEntries]);
+  }, [filteredEntries, dinhMucList]);
 
   const renderContentWithQuota = (content: string, membersCount: number) => {
     if (!content) return null;
@@ -150,7 +179,8 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
           let nsPercent = 0;
           let quotaDisplay = "";
 
-          const qtyPerMember = qty; // Tính trực tiếp theo yêu cầu "số liệu làm cho 1 nhóm đều tính cho từng người"
+          const isGroupTask = dm ? dm.isGroup : false;
+          const qtyPerMember = isGroupTask ? Math.ceil(qty / 2) : qty;
 
           if (cleanMatchedName === 'khác') {
               nsPercent = (qtyPerMember / 1) * 100;
@@ -232,7 +262,16 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
                 const taskName = match[1].trim();
                 const cleanTaskName = normalize(taskName);
                 const totalQty = parseFloat(match[2].replace(',', '.'));
-                const qtyPerMember = totalQty; // Tính trực tiếp
+                
+                const exactDm = dinhMucList.find(d => normalize(d.name || '') === cleanTaskName);
+                let foundDm = exactDm || dinhMucList.find(d => {
+                    const cleanDName = normalize(d.name || '');
+                    return cleanDName.includes(cleanTaskName) || cleanTaskName.includes(cleanDName);
+                });
+                
+                const isGroupTask = foundDm ? foundDm.isGroup : false;
+                const qtyPerMember = isGroupTask ? Math.ceil(totalQty / 2) : totalQty;
+                
                 return { isTask: true, taskName, cleanTaskName, qty: qtyPerMember, rawLine: cleanLine };
             }
             return { isTask: false, text: cleanLine, rawLine: cleanLine };
@@ -405,13 +444,55 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
           </h2>
           <div className="flex flex-col sm:flex-row gap-4 items-end">
             <div>
-              <label className="block text-[10px] font-mono opacity-50 uppercase mb-2">Ngày</label>
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={e => setSelectedDate(e.target.value)}
-                className="bg-transparent border-b border-[#141414] pb-1 font-mono text-sm focus:outline-none w-full sm:w-auto"
-              />
+              <label className="block text-[10px] font-mono opacity-50 uppercase mb-2">Kỳ báo cáo</label>
+              <div className="flex flex-col sm:flex-row gap-2">
+                  <select
+                     value={filterMode}
+                     onChange={e => setFilterMode(e.target.value as any)}
+                     className="bg-transparent border-b border-[#141414] pb-1 font-mono text-sm focus:outline-none pr-4 w-full sm:w-auto"
+                  >
+                     <option value="all">Tất cả thời gian</option>
+                     <option value="day">Theo Ngày</option>
+                     <option value="week">Theo Tuần</option>
+                     <option value="month">Theo Tháng</option>
+                     <option value="year">Theo Năm</option>
+                  </select>
+
+                  {filterMode === 'day' && (
+                    <input
+                      type="date"
+                      value={selectedDate}
+                      onChange={e => setSelectedDate(e.target.value)}
+                      className="bg-transparent border-b border-[#141414] pb-1 font-mono text-sm focus:outline-none w-full sm:w-auto"
+                    />
+                  )}
+                  {filterMode === 'week' && (
+                    <input
+                      type="week"
+                      value={selectedWeek}
+                      onChange={e => setSelectedWeek(e.target.value)}
+                      className="bg-transparent border-b border-[#141414] pb-1 font-mono text-sm focus:outline-none w-full sm:w-auto"
+                    />
+                  )}
+                  {filterMode === 'month' && (
+                    <input
+                      type="month"
+                      value={selectedMonth}
+                      onChange={e => setSelectedMonth(e.target.value)}
+                      className="bg-transparent border-b border-[#141414] pb-1 font-mono text-sm focus:outline-none w-full sm:w-auto"
+                    />
+                  )}
+                  {filterMode === 'year' && (
+                    <input
+                      type="number"
+                      min="2000" max="2100"
+                      placeholder="2024"
+                      value={selectedYear}
+                      onChange={e => setSelectedYear(e.target.value)}
+                      className="bg-transparent border-b border-[#141414] pb-1 font-mono text-sm focus:outline-none w-full sm:w-auto w-[80px]"
+                    />
+                  )}
+              </div>
             </div>
             <div>
               <label className="block text-[10px] font-mono opacity-50 uppercase mb-2">Tổ</label>
@@ -437,7 +518,15 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
             </div>
             <div className="flex gap-2 mt-2 sm:mt-0">
               <button 
-                onClick={() => { setSelectedDate(''); setSelectedTeam('all'); setSelectedMember('all'); }}
+                onClick={() => { 
+                    setFilterMode('all'); 
+                    setSelectedDate(''); 
+                    setSelectedWeek('');
+                    setSelectedMonth('');
+                    setSelectedYear('');
+                    setSelectedTeam('all'); 
+                    setSelectedMember('all'); 
+                }}
                 className="text-[10px] bg-[#141414] text-white px-3 py-2 uppercase font-bold tracking-widest hover:invert transition-all"
               >
                 Reset
@@ -459,9 +548,9 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
                 Tổng Cộng Khối Lượng
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                {summaryStats.map(([name, qty]) => (
+                {summaryStats.map(([name, qty], idx) => (
                   <div key={name} className="flex justify-between items-center text-sm border-b border-dashed border-[#141414]/20 pb-1">
-                    <span className="font-medium text-[#141414]/80">{name}</span>
+                    <span className="font-medium text-[#141414]/80">{idx + 1}. {name}</span>
                     <span className="font-bold">{qty}</span>
                   </div>
                 ))}
