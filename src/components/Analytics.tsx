@@ -371,12 +371,13 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
 
     // 1. Summary Sheet
     if (summaryStats && summaryStats.length > 0) {
-       const summaryData = summaryStats.map(([name, qty]) => ({
+       const summaryData = summaryStats.map(([name, qty], index) => ({
+          "STT": index + 1,
           "Nội dung công việc": name,
           "Tổng khối lượng": qty
        }));
        const summaryWorksheet = XLSX.utils.json_to_sheet(summaryData);
-       summaryWorksheet['!cols'] = [{ wch: 50 }, { wch: 20 }];
+       summaryWorksheet['!cols'] = [{ wch: 5 }, { wch: 50 }, { wch: 20 }];
        XLSX.utils.book_append_sheet(workbook, summaryWorksheet, "TongCong");
     }
 

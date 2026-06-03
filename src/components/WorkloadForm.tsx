@@ -55,7 +55,16 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
   }, [refreshToggle]);
 
   useEffect(() => {
-    const availableMembers = (team ? allSheetMembers.filter(m => m.team === team) : allSheetMembers).map(m => m.name);
+    const excludedRoles = ["tổ trưởng", "đội phó", "phó phòng", "đội trưởng", "trưởng phòng", "phó giám đốc", "giám đốc"]
+      .map(r => r.normalize('NFC').toLowerCase().replace(/\s+/g, ''));
+      
+    const availableMembers = (team ? allSheetMembers.filter(m => m.team === team) : allSheetMembers)
+      .filter(m => {
+        const role = (m.role || '').normalize('NFC').toLowerCase().replace(/\s+/g, '');
+        return !excludedRoles.includes(role);
+      })
+      .map(m => m.name);
+
     if (memberInput.length > 0) {
       const lowerReq = memberInput.toLowerCase();
       setFilteredMembers(
