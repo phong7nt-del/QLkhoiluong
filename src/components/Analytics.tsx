@@ -94,14 +94,10 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
 
   // Compute total tasks summary
   const summaryStats = useMemo(() => {
-    const sumToDivide: Record<string, number> = {};
-    const sumNotToDivide: Record<string, number> = {};
+    const finalStats: Record<string, number> = {};
     
     filteredEntries.forEach(e => {
         if (!e.content) return;
-        const teamName = e.team || 'Khác';
-        const isTongHop = teamName.toLowerCase().includes('tổng hợp') || teamName.toLowerCase().includes('bộ phận công tác');
-        
         const lines = e.content.split('\n');
         lines.forEach(line => {
            let cleanLine = line.trim();
@@ -111,36 +107,14 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
               const taskName = match[1].trim();
               const qty = parseFloat(match[2].replace(',', '.'));
               if (!isNaN(qty)) {
-                  const normalize = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase().trim();
-                  const cleanTaskName = normalize(taskName);
-                  
-                  const exactDm = dinhMucList.find(d => normalize(d.name || '') === cleanTaskName);
-                  let foundDm = exactDm || dinhMucList.find(d => {
-                      const cleanDName = normalize(d.name || '');
-                      return cleanDName.includes(cleanTaskName) || cleanTaskName.includes(cleanDName);
-                  });
-                  const isGroupTask = foundDm ? foundDm.isGroup : false;
-
-                  if (!isTongHop && isGroupTask) {
-                      sumToDivide[taskName] = (sumToDivide[taskName] || 0) + qty;
-                  } else {
-                      sumNotToDivide[taskName] = (sumNotToDivide[taskName] || 0) + qty;
-                  }
+                  finalStats[taskName] = (finalStats[taskName] || 0) + qty;
               }
            }
         });
     });
-    
-    const finalStats: Record<string, number> = {};
-    Object.keys(sumToDivide).forEach(k => {
-         finalStats[k] = Math.ceil(sumToDivide[k] / 2);
-    });
-    Object.keys(sumNotToDivide).forEach(k => {
-         finalStats[k] = (finalStats[k] || 0) + sumNotToDivide[k];
-    });
 
     return Object.entries(finalStats).sort((a, b) => b[1] - a[1]);
-  }, [filteredEntries, dinhMucList]);
+  }, [filteredEntries]);
 
   const renderContentWithQuota = (content: string, membersCount: number) => {
     if (!content) return null;
@@ -179,8 +153,7 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
           let nsPercent = 0;
           let quotaDisplay = "";
 
-          const isGroupTask = dm ? dm.isGroup : false;
-          const qtyPerMember = isGroupTask ? Math.ceil(qty / 2) : qty;
+          const qtyPerMember = qty;
 
           if (cleanMatchedName === 'khác') {
               nsPercent = (qtyPerMember / 1) * 100;
@@ -263,14 +236,7 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
                 const cleanTaskName = normalize(taskName);
                 const totalQty = parseFloat(match[2].replace(',', '.'));
                 
-                const exactDm = dinhMucList.find(d => normalize(d.name || '') === cleanTaskName);
-                let foundDm = exactDm || dinhMucList.find(d => {
-                    const cleanDName = normalize(d.name || '');
-                    return cleanDName.includes(cleanTaskName) || cleanTaskName.includes(cleanDName);
-                });
-                
-                const isGroupTask = foundDm ? foundDm.isGroup : false;
-                const qtyPerMember = isGroupTask ? Math.ceil(totalQty / 2) : totalQty;
+                const qtyPerMember = totalQty;
                 
                 return { isTask: true, taskName, cleanTaskName, qty: qtyPerMember, rawLine: cleanLine };
             }

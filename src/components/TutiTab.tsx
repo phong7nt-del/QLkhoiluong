@@ -134,22 +134,95 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
         );
     });
 
+    const missingWarnings = React.useMemo(() => {
+        const workloads = DataStore.getEntries();
+        const teamTutiDates: Record<string, Set<string>> = {};
+        
+        workloads.forEach(w => {
+            if (!w.team || !w.date || !w.content) return;
+            const contentUpper = w.content.toUpperCase();
+            // Match exactly TU or TI as whole words to avoid matching "TUẤN", "TÙNG", etc.
+            // Using a simple boundary check:
+            const hasTU = /(?:^|[^A-Z])TU(?:[^A-Z]|$)/.test(contentUpper);
+            const hasTI = /(?:^|[^A-Z])TI(?:[^A-Z]|$)/.test(contentUpper);
+            
+            if (hasTU || hasTI) {
+                if (!teamTutiDates[w.team]) teamTutiDates[w.team] = new Set();
+                teamTutiDates[w.team].add(formatDate(w.date));
+            }
+        });
+
+        const enteredDates = new Set(entries.map(e => formatDate(e.ngayDuaLen)).filter(Boolean));
+
+        const warnings: { team: string; count: number; dates: string }[] = [];
+        for (const [team, dates] of Object.entries(teamTutiDates)) {
+            let missingDates: string[] = [];
+            dates.forEach(d => {
+                if (!enteredDates.has(d)) {
+                    missingDates.push(d);
+                }
+            });
+            if (missingDates.length > 0) {
+                const lowerTeam = team.toLowerCase();
+                if (lowerTeam.includes('tổng hợp') || lowerTeam.includes('bộ phận công tác')) continue;
+                
+                // Sort dates array
+                missingDates.sort((a, b) => {
+                    const [d1, m1, y1] = a.split('/');
+                    const [d2, m2, y2] = b.split('/');
+                    return new Date(`${y1}-${m1}-${d1}`).getTime() - new Date(`${y2}-${m2}-${d2}`).getTime();
+                });
+
+                warnings.push({
+                    team,
+                    count: missingDates.length,
+                    dates: missingDates.join(', ')
+                });
+            }
+        }
+        return warnings;
+    }, [refreshToggle, entries]);
+
     return (
         <div className="space-y-6">
+            {missingWarnings.length > 0 && (
+                <div className="bg-red-50/80 border border-red-200/60 rounded-2xl p-4 shadow-sm backdrop-blur-sm animate-in fade-in slide-in-from-top-2">
+                    <div className="flex items-center gap-2 mb-3">
+                        <AlertCircle className="w-5 h-5 text-red-600" />
+                        <h3 className="font-bold text-red-900 text-sm uppercase tracking-wider">Cảnh báo thiếu dữ liệu kiểm tra TU - TI</h3>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                        {missingWarnings.map((w, idx) => (
+                            <div key={idx} className="bg-white/80 border border-red-100 p-3 rounded-xl shadow-sm">
+                                <div className="font-bold text-slate-800 text-sm mb-1">{w.team}</div>
+                                <div className="text-xs text-slate-600 mb-1">
+                                    Chưa nhập <span className="font-bold text-red-600">{w.count} ngày</span>
+                                </div>
+                                <div className="text-[11px] font-mono text-slate-500 bg-slate-50/50 p-1.5 rounded border border-slate-100">
+                                    {w.dates}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
             <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-black text-indigo-900 tracking-tight flex items-center gap-2">
                     <Activity className="w-6 h-6 text-indigo-600" />
                     Quản lý Kiểm tra TU - TI
                 </h2>
-                {!showForm && (
-                    <button 
-                        onClick={() => setShowForm(true)}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm hover:shadow"
-                    >
-                        <Plus className="w-4 h-4" />
-                        Thêm mới
-                    </button>
-                )}
+                <div className="flex items-center gap-4">
+                    {!showForm && (
+                        <button 
+                            onClick={() => setShowForm(true)}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm hover:shadow shrink-0"
+                        >
+                            <Plus className="w-4 h-4" />
+                            Thêm mới
+                        </button>
+                    )}
+                </div>
             </div>
 
             {/* A. Top Form */}

@@ -1,4 +1,4 @@
-import { Zap, ShieldAlert, ArrowRight, ExternalLink, ClipboardCheck, Gauge } from 'lucide-react';
+import { Zap, ShieldAlert, ArrowRight, ExternalLink, ClipboardCheck, Gauge, BookOpen } from 'lucide-react';
 
 export default function Stations() {
   return (
@@ -9,7 +9,7 @@ export default function Stations() {
         <p className="text-[#141414]/70 max-w-xl mx-auto font-medium">Truy cập nhanh các ứng dụng phục vụ quản lý, báo cáo và xử lý công việc.</p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 w-full max-w-7xl relative">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 w-full max-w-[1400px] mx-auto relative">
         {/* Card 1: Quản lý Trạm Biến Áp */}
         <a 
           href="https://quan-ly-tram-bien-ap.vercel.app/"
@@ -133,6 +133,37 @@ export default function Stations() {
               <ExternalLink className="w-5 h-5 text-[#141414]/40 group-hover:text-[#141414] transition-colors flex-shrink-0" />
             </div>
             <p className="text-[#141414]/70 font-medium mb-6">Theo dõi tiến độ, số lượng và thông tin chi tiết quá trình thay thế công tơ 3 giá.</p>
+            
+            <div className="absolute bottom-8 left-8 inline-flex items-center gap-2 font-bold text-[#141414] group-hover:gap-4 transition-all uppercase text-sm tracking-wider">
+               Truy cập <ArrowRight className="w-4 h-4" />
+            </div>
+          </div>
+        </a>
+        {/* Card 5: Ôn thi nghiệp vụ */}
+        <a 
+          href="https://on-thi-trac-nghiem.vercel.app/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="group relative block w-full bg-white border-2 border-[#141414] shadow-[8px_8px_0_#141414] overflow-hidden hover:-translate-y-1 hover:shadow-[12px_12px_0_#141414] transition-all duration-300"
+        >
+          <div className="h-48 bg-[#141414] relative overflow-hidden flex items-center justify-center">
+             <BookOpen className="w-24 h-24 text-amber-500/20 absolute -left-4 -top-4 transform rotate-12" />
+             <img 
+               src="https://images.unsplash.com/photo-1546410531-bea5aadcb6ce?q=80&w=1600&auto=format&fit=crop" 
+               className="absolute inset-0 w-full h-full object-cover opacity-40 mix-blend-overlay group-hover:scale-110 transition-transform duration-700"
+               alt="Ôn thi nghiệp vụ"
+             />
+             <div className="relative z-10 bg-[#f5f4f2] p-4 rounded-xl shadow-lg border-2 border-[#141414] group-hover:rotate-6 transition-transform">
+                <BookOpen className="w-8 h-8 text-[#141414]" />
+             </div>
+          </div>
+
+          <div className="p-8 pb-16 relative">
+            <div className="flex justify-between items-start mb-2">
+              <h3 className="text-2xl font-black text-[#141414] uppercase tracking-normal">Ôn thi nghiệp vụ</h3>
+              <ExternalLink className="w-5 h-5 text-[#141414]/40 group-hover:text-[#141414] transition-colors flex-shrink-0" />
+            </div>
+            <p className="text-[#141414]/70 font-medium mb-6">Hệ thống thi trắc nghiệm, ôn luyện và kiểm tra nghiệp vụ định kỳ.</p>
             
             <div className="absolute bottom-8 left-8 inline-flex items-center gap-2 font-bold text-[#141414] group-hover:gap-4 transition-all uppercase text-sm tracking-wider">
                Truy cập <ArrowRight className="w-4 h-4" />

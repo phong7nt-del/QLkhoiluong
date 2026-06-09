@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Lock, User, KeyRound, AlertCircle, ArrowRight, Zap, Target, TrendingUp, CalendarDays, CheckSquare, Activity } from 'lucide-react';
+import { Lock, User, KeyRound, AlertCircle, ArrowRight, Zap, Target, TrendingUp, CalendarDays, CheckSquare, Activity, WifiOff } from 'lucide-react';
 import { DataStore, SheetMember } from '../store/DataStore';
 
 interface LoginProps {
@@ -175,6 +175,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                    { icon: <CalendarDays className="w-5 h-5"/>, text: "Báo cáo thống kê theo chu kỳ" },
                    { icon: <CheckSquare className="w-5 h-5"/>, text: "Theo dõi tiến độ công việc" },
                    { icon: <Activity className="w-5 h-5"/>, text: "Kết quả kiểm tra TU - TI" },
+                   { icon: <WifiOff className="w-5 h-5"/>, text: "Quản lý hiện trạng Đo xa" },
                  ].map((feat, idx) => (
                     <motion.div 
                       key={idx}
