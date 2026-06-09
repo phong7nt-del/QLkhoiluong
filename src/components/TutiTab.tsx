@@ -202,9 +202,16 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
         
         for (const [team, dates] of Object.entries(teamTutiDates)) {
             const lowerTeam = team.toLowerCase();
-            if (lowerTeam.includes('tổng hợp') || lowerTeam.includes('bộ phận công tác')) continue;
+            if (lowerTeam.includes('tổng hợp') || lowerTeam.includes('bộ phận công tác') || lowerTeam.includes('đo xa') || lowerTeam.includes('tăng cường')) continue;
             
             const uploadedDates = teamEnteredDates[team] || [];
+            // Tổng số ngày có thay TU, TI
+            const totalRepDates = dates.size;
+            // Tổng số ngày đưa lên
+            const uniqueUpDates = new Set(uploadedDates).size;
+
+            if (totalRepDates <= uniqueUpDates) continue; // Nếu số ngày đưa lên bằng (hoặc lớn hơn) số ngày thay thì ko cảnh báo
+
             const upTimes = uploadedDates.map(d => parseD(d).getTime()).filter(t => !isNaN(t)).sort((a, b) => a - b);
             
             const reqDates = Array.from(dates)

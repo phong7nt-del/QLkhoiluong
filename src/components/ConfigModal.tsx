@@ -253,19 +253,20 @@ function doGet(e) {
        var tHeaders = tData[0] || [];
        var thm = {};
        for (var c = 0; c < tHeaders.length; c++) {
-          var h = String(tHeaders[c]).toLowerCase().trim();
-          if (h === 'mã trạm' || h === 'ma tram') thm.maTramCol = c;
-          if (h === 'tên điểm đo' || h === 'ten diem do' || h === 'tên trạm') thm.tenDiemDoCol = c;
-          if (h.indexOf('thông số tu') > -1 || h.indexOf('thong so tu') > -1 || h === 'tu') thm.tuCol = c;
-          if (h.indexOf('thông số ti') > -1 || h.indexOf('thong so ti') > -1 || h === 'ti') thm.tiCol = c;
-          if (h.indexOf('kiểm tra tu') > -1 || h.indexOf('kiem tra tu') > -1) thm.ktTuCol = c;
-          if (h.indexOf('kiểm tra ti') > -1 || h.indexOf('kiem tra ti') > -1) thm.ktTiCol = c;
-          if (h === 'khác' || h === 'khac') thm.khacCol = c;
-          if (h === 'kết luận' || h === 'ket luan') thm.ketLuanCol = c;
-          if (h.indexOf('ngày cập nhật') > -1 || h.indexOf('ngày kiểm tra') > -1 || h.indexOf('ngay kiem tra') > -1) thm.ngayKiemTraCol = c;
-          if (h.indexOf('ngày đưa lên') > -1 || h.indexOf('ngay dua len') > -1) thm.ngayDuaLenCol = c;
-          if (h.indexOf('người đưa lên') > -1 || h.indexOf('nguoi dua len') > -1) thm.nguoiDuaLenCol = c;
-          if (h.indexOf('người kiểm tra') > -1 || h.indexOf('nguoi kiem tra') > -1) thm.nguoiKiemTraCol = c;
+          var rawH = String(tHeaders[c]).toLowerCase().trim();
+          var h = rawH.normalize('NFD').replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/\s+/g, ' ');
+          if (h === 'ma tram') thm.maTramCol = c;
+          if (h === 'ten diem do' || h === 'ten tram') thm.tenDiemDoCol = c;
+          if (h.indexOf('thong so tu') > -1 || h === 'tu') thm.tuCol = c;
+          if (h.indexOf('thong so ti') > -1 || h === 'ti') thm.tiCol = c;
+          if (h.indexOf('kiem tra tu') > -1) thm.ktTuCol = c;
+          if (h.indexOf('kiem tra ti') > -1) thm.ktTiCol = c;
+          if (h === 'khac') thm.khacCol = c;
+          if (h === 'ket luan') thm.ketLuanCol = c;
+          if (h.indexOf('ngay cap nhat') > -1 || h.indexOf('ngay kiem tra') > -1) thm.ngayKiemTraCol = c;
+          if (h.indexOf('ngay dua len') > -1) thm.ngayDuaLenCol = c;
+          if (h.indexOf('nguoi dua len') > -1) thm.nguoiDuaLenCol = c;
+          if (h.indexOf('nguoi kiem tra') > -1) thm.nguoiKiemTraCol = c;
        }
        
        for (var t = 1; t < tData.length; t++) {
@@ -530,20 +531,21 @@ function doPost(e) {
        
        var hm = {};
        for (var c = 0; c < headers.length; c++) {
-          var h = String(headers[c]).toLowerCase().trim();
+          var rawH = String(headers[c]).toLowerCase().trim();
+          var h = rawH.normalize('NFD').replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/\s+/g, ' ');
           if (h === 'tt' || h === 'stt') hm.ttCol = c;
-          if (h === 'mã trạm' || h === 'ma tram') hm.maTramCol = c;
-          if (h === 'tên điểm đo' || h === 'ten diem do' || h === 'tên trạm') hm.tenDiemDoCol = c;
-          if (h.indexOf('thông số tu') > -1 || h.indexOf('thong so tu') > -1 || h === 'tu') hm.tuCol = c;
-          if (h.indexOf('thông số ti') > -1 || h.indexOf('thong so ti') > -1 || h === 'ti') hm.tiCol = c;
-          if (h.indexOf('kiểm tra tu') > -1 || h.indexOf('kiem tra tu') > -1) hm.ktTuCol = c;
-          if (h.indexOf('kiểm tra ti') > -1 || h.indexOf('kiem tra ti') > -1) hm.ktTiCol = c;
-          if (h === 'khác' || h === 'khac') hm.khacCol = c;
-          if (h === 'kết luận' || h === 'ket luan') hm.ketLuanCol = c;
-          if (h.indexOf('ngày cập nhật') > -1 || h.indexOf('ngày kiểm tra') > -1 || h.indexOf('ngay kiem tra') > -1) hm.ngayKiemTraCol = c;
-          if (h.indexOf('ngày đưa lên') > -1 || h.indexOf('ngay dua len') > -1) hm.ngayDuaLenCol = c;
-          if (h.indexOf('người đưa lên') > -1 || h.indexOf('nguoi dua len') > -1) hm.nguoiDuaLenCol = c;
-          if (h.indexOf('người kiểm tra') > -1 || h.indexOf('nguoi kiem tra') > -1) hm.nguoiKiemTraCol = c;
+          if (h === 'ma tram') hm.maTramCol = c;
+          if (h === 'ten diem do' || h === 'ten tram') hm.tenDiemDoCol = c;
+          if (h.indexOf('thong so tu') > -1 || h === 'tu') hm.tuCol = c;
+          if (h.indexOf('thong so ti') > -1 || h === 'ti') hm.tiCol = c;
+          if (h.indexOf('kiem tra tu') > -1) hm.ktTuCol = c;
+          if (h.indexOf('kiem tra ti') > -1) hm.ktTiCol = c;
+          if (h === 'khac') hm.khacCol = c;
+          if (h === 'ket luan') hm.ketLuanCol = c;
+          if (h.indexOf('ngay cap nhat') > -1 || h.indexOf('ngay kiem tra') > -1) hm.ngayKiemTraCol = c;
+          if (h.indexOf('ngay dua len') > -1) hm.ngayDuaLenCol = c;
+          if (h.indexOf('nguoi dua len') > -1) hm.nguoiDuaLenCol = c;
+          if (h.indexOf('nguoi kiem tra') > -1) hm.nguoiKiemTraCol = c;
        }
        
        var targetRow = -1;

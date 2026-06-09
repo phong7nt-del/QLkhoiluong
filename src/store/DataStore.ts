@@ -398,18 +398,18 @@ export const DataStore = {
                for (const row of progData as any[]) {
                   const getVal = (opts: string[]) => {
                       for (const k of Object.keys(row)) {
-                          const normalizedK = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+                          const normalizedK = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
                           if (opts.some(opt => {
-                              const normalizedOpt = opt.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+                              const normalizedOpt = opt.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
                               return normalizedK === normalizedOpt;
                           })) {
                               return row[k];
                           }
                       }
                       for (const k of Object.keys(row)) {
-                          const normalizedK = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+                          const normalizedK = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
                           if (opts.some(opt => {
-                              const normalizedOpt = opt.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+                              const normalizedOpt = opt.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
                               return normalizedK.includes(normalizedOpt);
                           })) {
                               return row[k];
@@ -521,18 +521,18 @@ export const DataStore = {
                        if (!row || Object.keys(row).length === 0) continue;
                        const getVal = (opts: string[]) => {
                            for (const k of Object.keys(row)) {
-                               const normalizedK = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+                               const normalizedK = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
                                if (opts.some(opt => {
-                                   const normalizedOpt = opt.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+                                   const normalizedOpt = opt.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
                                    return normalizedK === normalizedOpt;
                                })) {
                                    return row[k] ? String(row[k]) : '';
                                }
                            }
                            for (const k of Object.keys(row)) {
-                               const normalizedK = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+                               const normalizedK = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
                                if (opts.some(opt => {
-                                   const normalizedOpt = opt.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+                                   const normalizedOpt = opt.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
                                    return normalizedK.includes(normalizedOpt);
                                })) {
                                    return row[k] ? String(row[k]) : '';
