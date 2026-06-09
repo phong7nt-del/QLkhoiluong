@@ -49,7 +49,8 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
             khac: '',
             ketLuan: '',
             ngayCapNhat: '',
-            ngayDuaLen: dateStr
+            ngayDuaLen: dateStr,
+            nguoiDuaLen: sessionUser?.name || ''
         };
         
         await DataStore.addTutiEntry(newEntry);
@@ -86,6 +87,7 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                 now.getFullYear()
             ].join('/');
             finalUpdates.ngayCapNhat = dateStr;
+            finalUpdates.nguoiKiemTra = sessionUser?.name || '';
         }
 
         await DataStore.updateTutiEntry(id, finalUpdates);
@@ -136,43 +138,93 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
 
     const missingWarnings = React.useMemo(() => {
         const workloads = DataStore.getEntries();
+        const members = DataStore.getMembers();
+        const stations = DataStore.getStations();
         const teamTutiDates: Record<string, Set<string>> = {};
+        
+        const now = new Date();
+        const parseD = (str: string) => {
+            if (!str) return new Date(NaN);
+            const parts = str.split('/');
+            if (parts.length !== 3) return new Date(NaN);
+            return new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+        };
+
+        const getTeam = (nguoi: string) => {
+           if(!nguoi) return undefined;
+           const target = String(nguoi).normalize('NFC').toLowerCase().replace(/\s+/g,'');
+           const matched = members.find(m => m?.name && String(m.name).normalize('NFC').toLowerCase().replace(/\s+/g,'') === target);
+           return matched?.team;
+        };
         
         workloads.forEach(w => {
             if (!w.team || !w.date || !w.content) return;
             const contentUpper = w.content.toUpperCase();
-            // Match exactly TU or TI as whole words to avoid matching "TUẤN", "TÙNG", etc.
-            // Using a simple boundary check:
+            // Match exactly TU or TI as whole words
             const hasTU = /(?:^|[^A-Z])TU(?:[^A-Z]|$)/.test(contentUpper);
             const hasTI = /(?:^|[^A-Z])TI(?:[^A-Z]|$)/.test(contentUpper);
             
             if (hasTU || hasTI) {
+                const fd = formatDate(w.date);
+                const wDate = parseD(fd);
+                if (!isNaN(wDate.getTime())) {
+                    // Loại ra các công việc mới thực hiện trong vòng 2 ngày qua
+                    const diffDays = (now.getTime() - wDate.getTime()) / (1000 * 3600 * 24);
+                    if (diffDays <= 2) return; 
+                }
+
                 if (!teamTutiDates[w.team]) teamTutiDates[w.team] = new Set();
-                teamTutiDates[w.team].add(formatDate(w.date));
+                teamTutiDates[w.team].add(fd);
             }
         });
 
-        const enteredDates = new Set(entries.map(e => formatDate(e.ngayDuaLen)).filter(Boolean));
+        const teamEnteredDates: Record<string, string[]> = {};
+        entries.forEach(e => {
+            let team = getTeam(e.nguoiDuaLen || '');
+            if (!team && e.maTram) {
+                 const sMaTram = e.maTram.toLowerCase().trim();
+                 const station = stations.find(s => s.id.toLowerCase().trim() === sMaTram || s.id.toLowerCase().trim() === sMaTram.split(' - ')[0]);
+                 if (station && station.area) {
+                     team = station.area;
+                 }
+            }
+            team = team || '';
+            const d1 = formatDate(e.ngayDuaLen);
+            const d2 = formatDate(e.ngayCapNhat);
+            if (team) {
+                if(!teamEnteredDates[team]) teamEnteredDates[team] = [];
+                if (d1) teamEnteredDates[team].push(d1);
+                if (d2 && d2 !== d1) teamEnteredDates[team].push(d2);
+            }
+        });
 
         const warnings: { team: string; count: number; dates: string }[] = [];
+        
         for (const [team, dates] of Object.entries(teamTutiDates)) {
+            const lowerTeam = team.toLowerCase();
+            if (lowerTeam.includes('tổng hợp') || lowerTeam.includes('bộ phận công tác')) continue;
+            
+            const uploadedDates = teamEnteredDates[team] || [];
+            const upTimes = uploadedDates.map(d => parseD(d).getTime()).filter(t => !isNaN(t)).sort((a, b) => a - b);
+            
+            const reqDates = Array.from(dates)
+                                  .map(d => ({ dateStr: d, time: parseD(d).getTime() }))
+                                  .filter(r => !isNaN(r.time))
+                                  .sort((a, b) => a.time - b.time);
+
             let missingDates: string[] = [];
-            dates.forEach(d => {
-                if (!enteredDates.has(d)) {
-                    missingDates.push(d);
+            
+            reqDates.forEach(req => {
+                // Tím ngày đưa lên gần nhất sau ngày thực hiện (trong vòng 5 ngày)
+                const matchIdx = upTimes.findIndex(t => t >= req.time && t <= req.time + 5 * 24 * 3600 * 1000);
+                if (matchIdx !== -1) {
+                    upTimes.splice(matchIdx, 1); // Đã dùng để khớp
+                } else {
+                    missingDates.push(req.dateStr);
                 }
             });
-            if (missingDates.length > 0) {
-                const lowerTeam = team.toLowerCase();
-                if (lowerTeam.includes('tổng hợp') || lowerTeam.includes('bộ phận công tác')) continue;
-                
-                // Sort dates array
-                missingDates.sort((a, b) => {
-                    const [d1, m1, y1] = a.split('/');
-                    const [d2, m2, y2] = b.split('/');
-                    return new Date(`${y1}-${m1}-${d1}`).getTime() - new Date(`${y2}-${m2}-${d2}`).getTime();
-                });
 
+            if (missingDates.length > 0) {
                 warnings.push({
                     team,
                     count: missingDates.length,
@@ -283,6 +335,7 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                                 <th className="px-4 py-3 min-w-[150px]">Kiểm tra TI</th>
                                 <th className="px-4 py-3 min-w-[150px]">Khác</th>
                                 <th className="px-4 py-3 min-w-[120px]">Kết luận</th>
+                                <th className="px-4 py-3 whitespace-nowrap">Người đưa lên</th>
                                 <th className="px-4 py-3 whitespace-nowrap">Ngày đưa lên</th>
                                 <th className="px-4 py-3 text-center">Thao tác</th>
                             </tr>
@@ -290,7 +343,7 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                         <tbody className="divide-y divide-slate-100">
                             {unprocessed.length === 0 ? (
                                 <tr>
-                                    <td colSpan={9} className="px-4 py-12 text-center text-slate-500">
+                                    <td colSpan={10} className="px-4 py-12 text-center text-slate-500">
                                         Không có trạm nào cần xử lý.
                                     </td>
                                 </tr>
@@ -337,6 +390,9 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                                                     {t.ketLuan || 'Chưa có'}
                                                 </span>
                                             )}
+                                        </td>
+                                        <td className="px-4 py-2 text-xs font-bold text-slate-600 whitespace-nowrap">
+                                            {t.nguoiDuaLen}
                                         </td>
                                         <td className="px-4 py-2 text-xs font-medium text-slate-500 whitespace-nowrap">
                                             {formatDate(t.ngayDuaLen)}
@@ -387,14 +443,16 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                                 <th className="px-4 py-3 min-w-[150px]">Kết quả kiểm tra</th>
                                 <th className="px-4 py-3 min-w-[150px]">Khác</th>
                                 <th className="px-4 py-3 text-center">Kết luận</th>
-                                <th className="px-4 py-3 whitespace-nowrap text-right">Ngày đưa lên</th>
-                                <th className="px-4 py-3 whitespace-nowrap text-right">Ngày cập nhật</th>
+                                <th className="px-4 py-3 whitespace-nowrap">Người đưa lên</th>
+                                <th className="px-4 py-3 whitespace-nowrap">Ngày đưa lên</th>
+                                <th className="px-4 py-3 whitespace-nowrap">Người kiểm tra</th>
+                                <th className="px-4 py-3 whitespace-nowrap">Ngày kiểm tra</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                             {filteredProcessed.length === 0 ? (
                                 <tr>
-                                    <td colSpan={8} className="px-4 py-12 text-center text-slate-500">
+                                    <td colSpan={10} className="px-4 py-12 text-center text-slate-500">
                                         Chưa có biên bản nào được xử lý hoặc không khớp tìm kiếm.
                                     </td>
                                 </tr>
@@ -418,12 +476,17 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                                             {t.ketLuan}
                                         </span>
                                     </td>
-                                    <td className="px-4 py-2 text-right text-xs font-medium text-slate-500 whitespace-nowrap">
+                                    <td className="px-4 py-2 text-xs font-bold text-slate-600 whitespace-nowrap">
+                                        {t.nguoiDuaLen}
+                                    </td>
+                                    <td className="px-4 py-2 text-xs text-slate-500 whitespace-nowrap">
                                         {formatDate(t.ngayDuaLen)}
                                     </td>
-                                    <td className="px-4 py-2 text-right text-xs font-medium text-slate-500 whitespace-nowrap flex justify-end items-center gap-1.5">
-                                        <Calendar className="w-3.5 h-3.5 opacity-70" />
-                                        {formatDate(t.ngayCapNhat)}
+                                    <td className="px-4 py-2 text-xs font-bold text-slate-600 whitespace-nowrap">
+                                        {t.nguoiKiemTra}
+                                    </td>
+                                    <td className="px-4 py-2 text-xs text-slate-500 whitespace-nowrap">
+                                        <div className="flex items-center gap-1"><Calendar className="w-3 h-3 opacity-70" /> {formatDate(t.ngayCapNhat)}</div>
                                     </td>
                                 </tr>
                             ))}

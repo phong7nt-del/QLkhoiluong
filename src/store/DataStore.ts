@@ -47,6 +47,8 @@ export interface TutiEntry {
   ketLuan: string; // Kết luận ('Đúng' | 'Sai' | '')
   ngayCapNhat: string; // Ngày cập nhật (dd/mm/yyyy)
   ngayDuaLen: string; // Ngày đưa lên (dd/mm/yyyy)
+  nguoiDuaLen?: string;
+  nguoiKiemTra?: string;
   isLocal?: boolean;
 }
 
@@ -554,6 +556,8 @@ export const DataStore = {
                               ketLuan: getVal(['kết luận']),
                               ngayCapNhat: getVal(['ngày cập nhật']),
                               ngayDuaLen: getVal(['ngày đưa lên']),
+                              nguoiDuaLen: getVal(['người đưa lên']),
+                              nguoiKiemTra: getVal(['người kiểm tra']),
                           });
                        }
                    }
@@ -690,7 +694,9 @@ export const DataStore = {
                 khac: String(item.khac || ''),
                 ketLuan: String(item.ketLuan || ''),
                 ngayCapNhat: String(item.ngayCapNhat || ''),
-                ngayDuaLen: String(item.ngayDuaLen || '')
+                ngayDuaLen: String(item.ngayDuaLen || ''),
+                nguoiDuaLen: String(item.nguoiDuaLen || ''),
+                nguoiKiemTra: String(item.nguoiKiemTra || '')
             }));
             safeSetItem(TUTI_KEY, JSON.stringify(formattedTuti));
             // Wipe stuck local tuti entries when fetching new master data

@@ -264,6 +264,8 @@ function doGet(e) {
           if (h === 'kết luận' || h === 'ket luan') thm.ketLuanCol = c;
           if (h.indexOf('ngày cập nhật') > -1 || h.indexOf('ngày kiểm tra') > -1 || h.indexOf('ngay kiem tra') > -1) thm.ngayKiemTraCol = c;
           if (h.indexOf('ngày đưa lên') > -1 || h.indexOf('ngay dua len') > -1) thm.ngayDuaLenCol = c;
+          if (h.indexOf('người đưa lên') > -1 || h.indexOf('nguoi dua len') > -1) thm.nguoiDuaLenCol = c;
+          if (h.indexOf('người kiểm tra') > -1 || h.indexOf('nguoi kiem tra') > -1) thm.nguoiKiemTraCol = c;
        }
        
        for (var t = 1; t < tData.length; t++) {
@@ -280,7 +282,9 @@ function doGet(e) {
                    khac: thm.khacCol !== undefined ? String(tData[t][thm.khacCol] || '') : '',
                    ketLuan: thm.ketLuanCol !== undefined ? String(tData[t][thm.ketLuanCol] || '') : '',
                    ngayCapNhat: thm.ngayKiemTraCol !== undefined ? String(tData[t][thm.ngayKiemTraCol] || '') : '',
-                   ngayDuaLen: thm.ngayDuaLenCol !== undefined ? String(tData[t][thm.ngayDuaLenCol] || '') : ''
+                   ngayDuaLen: thm.ngayDuaLenCol !== undefined ? String(tData[t][thm.ngayDuaLenCol] || '') : '',
+                   nguoiDuaLen: thm.nguoiDuaLenCol !== undefined ? String(tData[t][thm.nguoiDuaLenCol] || '') : '',
+                   nguoiKiemTra: thm.nguoiKiemTraCol !== undefined ? String(tData[t][thm.nguoiKiemTraCol] || '') : ''
                });
            }
        }
@@ -324,6 +328,63 @@ function doGet(e) {
 function doPost(e) {
   try {
     var payload = JSON.parse(e.postData.contents);
+    
+    if (payload.action === "change_password") {
+       var possibleNames = ["CongTac", "Cong Tac", "Công tác", "Công Tác", "Con Tác"];
+       var sheetName = payload.sheetName;
+       var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+       var sheet = null;
+       if (sheetName) {
+          sheet = ss.getSheetByName(sheetName);
+       }
+       if (!sheet) {
+          for (var x = 0; x < possibleNames.length; x++) {
+             sheet = ss.getSheetByName(possibleNames[x]);
+             if (sheet) break;
+          }
+       }
+       if (!sheet) {
+         return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "Không tìm thấy sheet liên quan đến Công tác" })).setMimeType(ContentService.MimeType.JSON);
+       }
+       
+       var nameToChange = payload.data.name.toLowerCase().trim();
+       var newPass = payload.data.newPass;
+       
+       var dataValues = sheet.getDataRange().getValues();
+       var nameCol = -1;
+       var msnvCol = -1;
+       var headerRow = -1;
+       
+       for (var r = 0; r < 5; r++) {
+         for (var c = 0; c < dataValues[r].length; c++) {
+           var val = String(dataValues[r][c]).toLowerCase().trim();
+           if (val.indexOf('họ và tên') !== -1 || val === 'họ tên') nameCol = c;
+           if (val.indexOf('mã nhân viên') !== -1 || val.indexOf('msnv') !== -1 || val.indexOf('mật khẩu') !== -1 || val.indexOf('password') !== -1) {
+              msnvCol = c;
+           }
+         }
+         if (nameCol !== -1 && msnvCol !== -1) {
+           headerRow = r;
+           break;
+         }
+       }
+       
+       if (nameCol !== -1 && msnvCol !== -1 && headerRow !== -1) {
+          var updated = false;
+          for (var i = headerRow + 1; i < dataValues.length; i++) {
+             var rowName = String(dataValues[i][nameCol]).toLowerCase().trim();
+             if (rowName.replace(/\s+/g, '') === nameToChange.replace(/\s+/g, '')) {
+                sheet.getRange(i + 1, msnvCol + 1).setValue(newPass);
+                updated = true;
+             }
+          }
+          if (updated) {
+              return ContentService.createTextOutput(JSON.stringify({ status: "success" })).setMimeType(ContentService.MimeType.JSON);
+          }
+       }
+       return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "Không tìm thấy tài khoản để đổi mật khẩu" })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     if (payload.action === 'add_workload') {
       var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
       var sheet = getSheetFlexibly(ss, ['CongTac', 'Cong Tac', 'Công tác', 'Công Tác', 'Con Tác']);
@@ -481,6 +542,8 @@ function doPost(e) {
           if (h === 'kết luận' || h === 'ket luan') hm.ketLuanCol = c;
           if (h.indexOf('ngày cập nhật') > -1 || h.indexOf('ngày kiểm tra') > -1 || h.indexOf('ngay kiem tra') > -1) hm.ngayKiemTraCol = c;
           if (h.indexOf('ngày đưa lên') > -1 || h.indexOf('ngay dua len') > -1) hm.ngayDuaLenCol = c;
+          if (h.indexOf('người đưa lên') > -1 || h.indexOf('nguoi dua len') > -1) hm.nguoiDuaLenCol = c;
+          if (h.indexOf('người kiểm tra') > -1 || h.indexOf('nguoi kiem tra') > -1) hm.nguoiKiemTraCol = c;
        }
        
        var targetRow = -1;
@@ -516,6 +579,8 @@ function doPost(e) {
           if (hm.ketLuanCol !== undefined) newRowData[hm.ketLuanCol] = data.ketLuan || '';
           if (hm.ngayKiemTraCol !== undefined) newRowData[hm.ngayKiemTraCol] = data.ngayCapNhat || '';
           if (hm.ngayDuaLenCol !== undefined) newRowData[hm.ngayDuaLenCol] = data.ngayDuaLen || '';
+          if (hm.nguoiDuaLenCol !== undefined) newRowData[hm.nguoiDuaLenCol] = data.nguoiDuaLen || '';
+          if (hm.nguoiKiemTraCol !== undefined) newRowData[hm.nguoiKiemTraCol] = data.nguoiKiemTra || '';
           
           sheet.appendRow(newRowData);
        } else {
@@ -527,6 +592,8 @@ function doPost(e) {
           if (hm.ketLuanCol !== undefined && data.ketLuan !== undefined) sheet.getRange(targetRow + 1, hm.ketLuanCol + 1).setValue(data.ketLuan);
           if (hm.ngayKiemTraCol !== undefined && data.ngayCapNhat !== undefined) sheet.getRange(targetRow + 1, hm.ngayKiemTraCol + 1).setValue(data.ngayCapNhat);
           if (hm.ngayDuaLenCol !== undefined && data.ngayDuaLen !== undefined) sheet.getRange(targetRow + 1, hm.ngayDuaLenCol + 1).setValue(data.ngayDuaLen);
+          if (hm.nguoiDuaLenCol !== undefined && data.nguoiDuaLen !== undefined) sheet.getRange(targetRow + 1, hm.nguoiDuaLenCol + 1).setValue(data.nguoiDuaLen);
+          if (hm.nguoiKiemTraCol !== undefined && data.nguoiKiemTra !== undefined) sheet.getRange(targetRow + 1, hm.nguoiKiemTraCol + 1).setValue(data.nguoiKiemTra);
        }
        
        return ContentService.createTextOutput(JSON.stringify({ status: 'success' })).setMimeType(ContentService.MimeType.JSON);
