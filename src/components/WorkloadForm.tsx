@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { DataStore, SheetMember } from '../store/DataStore';
-import { PlusCircle, Search, CheckSquare, Square, Mic, ClipboardList } from 'lucide-react';
+import { PlusCircle, Search, CheckSquare, Square, Mic, ClipboardList, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { format } from 'date-fns';
 
 export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () => void, refreshToggle: number }) {
@@ -37,6 +37,7 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
 
   const [filteredMembers, setFilteredMembers] = useState<string[]>([]);
+  const [message, setMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
 
   useEffect(() => {
     const teams = DataStore.getTeams();
@@ -84,7 +85,17 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
     const selectedList = entries.filter(([_, data]) => data.selected && typeof data.quantity === 'number' && data.quantity > 0);
     
     if (!team || members.length === 0 || !date || selectedList.length === 0) {
-      alert("Vui lòng điền đầy đủ thông tin nội dung và có ít nhất 1 nội dung được chọn");
+      setMessage({ type: 'error', text: "Vui lòng điền đầy đủ thông tin nội dung và có ít nhất 1 nội dung được chọn" });
+      setTimeout(() => setMessage(null), 5000);
+      return;
+    }
+
+    const existingEntries = DataStore.getEntries();
+    const hasSubmitted = existingEntries.some(e => e.team === team && e.date === date);
+    if (hasSubmitted) {
+      const formattedDate = date.split('-').reverse().join('/');
+      setMessage({ type: 'error', text: `Tổ ${team} đã cập nhật công việc trong ngày ${formattedDate}. Không thể cập nhật thêm.` });
+      setTimeout(() => setMessage(null), 5000);
       return;
     }
 
@@ -112,9 +123,11 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
     setIsSubmitting(false);
 
     if (success) {
-      alert("Đã lưu và đồng bộ thành công!");
+      setMessage({ type: 'success', text: "Đã lưu và đồng bộ thành công!" });
+      setTimeout(() => setMessage(null), 5000);
     } else {
-      alert("Đã lưu cục bộ nhưng đồng bộ thất bại. Vui lòng thử lại sau.");
+      setMessage({ type: 'error', text: "Đã lưu cục bộ nhưng đồng bộ thất bại. Vui lòng thử lại sau." });
+      setTimeout(() => setMessage(null), 5000);
     }
 
     setMembers([]);
@@ -146,7 +159,8 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
   const toggleRecordingPhatHien = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-       alert("Trình duyệt không hỗ trợ nhận dạng giọng nói!");
+       setMessage({ type: 'error', text: "Trình duyệt không hỗ trợ nhận dạng giọng nói!" });
+       setTimeout(() => setMessage(null), 5000);
        return;
     }
     
@@ -190,7 +204,8 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
   const toggleSmartRecording = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-       alert("Trình duyệt không hỗ trợ nhận dạng giọng nói!");
+       setMessage({ type: 'error', text: "Trình duyệt không hỗ trợ nhận dạng giọng nói!" });
+       setTimeout(() => setMessage(null), 5000);
        return;
     }
     
@@ -429,16 +444,37 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
           Nhập Ghi Nhận Công Việc
         </h2>
         
-        <button
-          type="button"
-          onClick={toggleSmartRecording}
-          className={`px-4 py-2.5 rounded-xl font-bold text-sm flex justify-center items-center gap-2 transition-all shadow-sm border ${isSmartRecording ? 'bg-red-50 text-red-600 border-red-200 animate-pulse ring-2 ring-red-500/30' : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100 hover:shadow-md hover:-translate-y-0.5'}`}
-        >
-          <Mic className="w-4 h-4 md:w-5 md:h-5" />
-          {isSmartRecording ? "Đang Nghe (Báo cáo nhanh)..." : "Báo Cáo Nhanh (Giọng Nói)"}
-        </button>
+        <div className="relative group">
+          <button
+            type="button"
+            onClick={toggleSmartRecording}
+            className={`w-full sm:w-auto px-4 py-2.5 rounded-xl font-bold text-sm flex justify-center items-center gap-2 transition-all shadow-sm border ${isSmartRecording ? 'bg-red-50 text-red-600 border-red-200 animate-pulse ring-2 ring-red-500/30' : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100 hover:shadow-md hover:-translate-y-0.5'}`}
+          >
+            <Mic className="w-4 h-4 md:w-5 md:h-5" />
+            {isSmartRecording ? "Đang Nghe (Báo cáo nhanh)..." : "Báo Cáo Nhanh (Giọng Nói)"}
+          </button>
+          
+          <div className="absolute top-full mt-2 right-0 sm:right-0 w-[280px] bg-slate-800 text-white text-xs rounded-xl p-3 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 shadow-xl pointer-events-none transform origin-top-right">
+             <div className="font-bold text-blue-300 mb-1.5 uppercase tracking-wider text-[10px]">Cấu trúc đọc chuẩn</div>
+             <ul className="space-y-1.5 text-slate-200">
+                <li><span className="text-indigo-300 font-semibold">Tên:</span> [Họ và tên]</li>
+                <li><span className="text-indigo-300 font-semibold">Công việc:</span> [Tên việc] số lượng [Số lượng]</li>
+                <li><span className="text-indigo-300 font-semibold">Phát hiện:</span> [Nội dung phát hiện]</li>
+             </ul>
+             <div className="mt-2 pt-2 border-t border-slate-600/50 text-[11px] text-slate-400 italic">
+                Ví dụ: "Họ và tên Nguyễn Văn A công việc phát quang số lượng 1 phát hiện điểm đứt cáp... kết thúc"
+             </div>
+          </div>
+        </div>
       </div>
       
+      {message && (
+         <div className={`mb-6 p-4 rounded-xl flex items-start gap-3 border shadow-sm animate-in fade-in slide-in-from-top-2 ${message.type === 'error' ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>
+            {message.type === 'error' ? <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" /> : <CheckCircle2 className="w-5 h-5 flex-shrink-0 mt-0.5" />}
+            <span className="text-sm font-bold leading-relaxed">{message.text}</span>
+         </div>
+      )}
+
       <form onSubmit={handleSubmit} className="space-y-8">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <div className="relative group">
@@ -496,7 +532,8 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
                            }
                            setMemberInput('');
                         } else {
-                           alert(`Lỗi! Tên "${val}" không khớp với danh sách nhân viên trong hệ thống (Sheet CongTac).`);
+                           setMessage({ type: 'error', text: `Lỗi! Tên "${val}" không khớp với danh sách nhân viên trong hệ thống (Sheet CongTac).` });
+                           setTimeout(() => setMessage(null), 5000);
                         }
                      }
                   }
