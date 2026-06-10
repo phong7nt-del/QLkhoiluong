@@ -91,10 +91,17 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
     }
 
     const existingEntries = DataStore.getEntries();
-    const hasSubmitted = existingEntries.some(e => e.team === team && e.date === date);
-    if (hasSubmitted) {
+    // Chỉ chặn nếu các CÁ NHÂN được chọn đã có dữ liệu công việc trong ngày
+    const submittedMembers = members.filter(m => {
+       return existingEntries.some(e => {
+          if (e.date !== date || !e.members.includes(m)) return false;
+          return e.isLocal || e.content.includes(': ') || e.content.includes('- ') || e.content.includes('\n');
+       });
+    });
+
+    if (submittedMembers.length > 0) {
       const formattedDate = date.split('-').reverse().join('/');
-      setMessage({ type: 'error', text: `Tổ ${team} đã cập nhật công việc trong ngày ${formattedDate}. Không thể cập nhật thêm.` });
+      setMessage({ type: 'error', text: `Thành viên ${submittedMembers.join(', ')} đã cập nhật công việc trong ngày ${formattedDate}. Không thể cập nhật thêm.` });
       setTimeout(() => setMessage(null), 5000);
       return;
     }
