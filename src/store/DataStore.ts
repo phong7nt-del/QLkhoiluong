@@ -352,6 +352,9 @@ export const DataStore = {
                        const memberName = row[nameColIdx].trim();
                        if (!memberName) continue;
                        
+                       const mLower = memberName.toLowerCase();
+                       if (mLower.includes('tổng') || mLower.includes('cộng') || mLower.includes('kế') || mLower === 'tc') continue;
+                       
                        let finalTeam = currentTeamWkt || 'Không xác định';
                        
                        for(let c = 0; c < headers.length; c++) { // dates start wherever a date-like header is found
@@ -371,14 +374,22 @@ export const DataStore = {
                                    formattedDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
                                }
 
-                               newWorkloads.push({
-                                   id: Math.random().toString(36).substring(2, 9),
-                                   content: cellValue,
-                                   team: finalTeam,
-                                   members: [memberName],
-                                   timestamp: Date.now(),
-                                   date: formattedDate
-                               });
+                               // Combine duplicate entries
+                               let existing = newWorkloads.find(w => w.date === formattedDate && w.team === finalTeam && w.content === cellValue);
+                               if (existing) {
+                                   if (!existing.members.includes(memberName)) {
+                                       existing.members.push(memberName);
+                                   }
+                               } else {
+                                   newWorkloads.push({
+                                       id: Math.random().toString(36).substring(2, 9),
+                                       content: cellValue,
+                                       team: finalTeam,
+                                       members: [memberName],
+                                       timestamp: Date.now(),
+                                       date: formattedDate
+                                   });
+                               }
                            }
 
                        }

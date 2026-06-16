@@ -98,6 +98,7 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
     
     filteredEntries.forEach(e => {
         if (!e.content) return;
+        const membersCount = e.members?.length || 1;
         const lines = e.content.split('\n');
         lines.forEach(line => {
            let cleanLine = line.trim();
@@ -105,9 +106,18 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
            const match = cleanLine.match(/^(.*?):\s*([\d.,]+)$/);
            if (match) {
               const taskName = match[1].trim();
+              const normalize = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase().trim();
+              const cleanTaskName = normalize(taskName);
+              
+              let mappedTo = taskName;
+              if (dinhMucList && dinhMucList.length > 0) {
+                  let exactDm = dinhMucList.find(d => normalize(d.name || '') === cleanTaskName);
+                  if (exactDm) mappedTo = exactDm.name;
+              }
+
               const qty = parseFloat(match[2].replace(',', '.'));
               if (!isNaN(qty)) {
-                  finalStats[taskName] = (finalStats[taskName] || 0) + qty;
+                  finalStats[mappedTo] = (finalStats[mappedTo] || 0) + (qty * membersCount);
               }
            }
         });

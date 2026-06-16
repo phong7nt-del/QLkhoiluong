@@ -59,20 +59,22 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
     const excludedRoles = ["tổ trưởng", "đội phó", "phó phòng", "đội trưởng", "trưởng phòng", "phó giám đốc", "giám đốc"]
       .map(r => r.normalize('NFC').toLowerCase().replace(/\s+/g, ''));
       
-    const availableMembers = (team ? allSheetMembers.filter(m => m.team === team) : allSheetMembers)
-      .filter(m => {
+    const filterValidRoles = (m: any) => {
         const role = (m.role || '').normalize('NFC').toLowerCase().replace(/\s+/g, '');
         return !excludedRoles.includes(role);
-      })
-      .map(m => m.name);
+    };
 
     if (memberInput.length > 0) {
       const lowerReq = memberInput.toLowerCase();
       setFilteredMembers(
-        availableMembers.filter(m => m.toLowerCase().includes(lowerReq) && !members.includes(m))
+        allSheetMembers
+          .filter(filterValidRoles)
+          .map(m => m.name)
+          .filter(m => m.toLowerCase().includes(lowerReq) && !members.includes(m))
       );
     } else {
-      setFilteredMembers(availableMembers.filter(m => !members.includes(m)));
+      const pool = (team && members.length === 0) ? allSheetMembers.filter(m => m.team === team) : allSheetMembers;
+      setFilteredMembers(pool.filter(filterValidRoles).map(m => m.name).filter(m => !members.includes(m)));
     }
   }, [memberInput, team, allSheetMembers, members]);
 
