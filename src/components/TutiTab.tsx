@@ -20,6 +20,10 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
     // Filter state for processed items
     const [filter, setFilter] = useState('');
 
+    const userRole = (sessionUser?.role || '').toLowerCase();
+    const userTeam = (sessionUser?.team || '').toLowerCase();
+    const canEditTuti = userRole.includes('đội trưởng') || userRole.includes('đội phó') || (userRole.includes('tổ trưởng') && userTeam.includes('đo xa'));
+
     useEffect(() => {
         setEntries(DataStore.getTutiEntries());
     }, [refreshToggle]);
@@ -40,17 +44,18 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
         ].join('/');
 
         const newEntry = {
-            maTram,
-            tenDiemDo,
-            thongSoTU,
-            thongSoTI,
+            maTram: maTram || '',
+            tenDiemDo: tenDiemDo || '',
+            thongSoTU: thongSoTU || '',
+            thongSoTI: thongSoTI || '',
             kiemTraTU: '',
             kiemTraTI: '',
             khac: '',
             ketLuan: '',
             ngayCapNhat: '',
             ngayDuaLen: dateStr,
-            nguoiDuaLen: sessionUser?.name || ''
+            nguoiDuaLen: sessionUser?.name || '',
+            nguoiKiemTra: ''
         };
         
         await DataStore.addTutiEntry(newEntry);
@@ -79,7 +84,7 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
     const handleSaveEdit = async (id: string) => {
         let finalUpdates = { ...editData };
         
-        if (finalUpdates.ketLuan === 'Đúng' || finalUpdates.ketLuan === 'Sai') {
+        if (finalUpdates.ketLuan && finalUpdates.ketLuan.trim() !== '') {
             const now = new Date();
             const dateStr = [
                 now.getDate().toString().padStart(2, '0'),
@@ -90,17 +95,20 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
             finalUpdates.nguoiKiemTra = sessionUser?.name || '';
         }
 
+        const optimisticEntry = { ...(entries.find(e => e.id === id) || {}), ...finalUpdates } as TutiEntry;
+        setEntries(entries.map(e => e.id === id ? optimisticEntry : e));
+        setEditingId(null);
+
         await DataStore.updateTutiEntry(id, finalUpdates);
         setEntries(DataStore.getTutiEntries());
         window.dispatchEvent(new Event('workload_updated'));
-        setEditingId(null);
     };
 
     const formatDate = (dStr: string) => {
         if (!dStr) return '';
-        if (dStr.match(/^\d{2}\/\d{2}\/\d{4}$/)) return dStr;
+        if (dStr.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) return dStr;
         const d = new Date(dStr);
-        if (!isNaN(d.getTime())) {
+        if (!isNaN(d.getTime()) && (dStr.includes('T') || dStr.includes('GMT') || dStr.includes('Z') || dStr.match(/^[a-zA-Z]{3,}/))) {
             return [
                 d.getDate().toString().padStart(2, '0'),
                 (d.getMonth() + 1).toString().padStart(2, '0'),
@@ -119,8 +127,13 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
         return dStr;
     };
 
-    const unprocessed = entries.filter(e => !e.ketLuan || (e.ketLuan !== 'Đúng' && e.ketLuan !== 'Sai'));
-    const processed = entries.filter(e => e.ketLuan === 'Đúng' || e.ketLuan === 'Sai');
+    const isProcessed = (k?: string) => {
+        if (!k) return false;
+        return k.trim().length > 0;
+    };
+
+    const unprocessed = entries.filter(e => !isProcessed(e.ketLuan));
+    const processed = entries.filter(e => isProcessed(e.ketLuan));
     
     // Sort unprocessed ascending
     unprocessed.sort((a, b) => (a.maTram || '').localeCompare(b.maTram || ''));
@@ -272,7 +285,7 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                     Quản lý Kiểm tra TU - TI
                 </h2>
                 <div className="flex items-center gap-4">
-                    {!showForm && (
+                    {!showForm && canEditTuti && (
                         <button 
                             onClick={() => setShowForm(true)}
                             className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm hover:shadow shrink-0"
@@ -393,7 +406,7 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                                                     <option value="Sai">Sai</option>
                                                 </select>
                                             ) : (
-                                                <span className={`font-bold ${t.ketLuan === 'Đúng' ? 'text-green-600' : t.ketLuan === 'Sai' ? 'text-red-600' : 'text-slate-400'}`}>
+                                                <span className={`font-bold ${t.ketLuan?.toLowerCase() === 'sai' ? 'text-red-600' : t.ketLuan ? 'text-green-600' : 'text-slate-400'}`}>
                                                     {t.ketLuan || 'Chưa có'}
                                                 </span>
                                             )}
@@ -409,11 +422,11 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                                                 <button onClick={() => handleSaveEdit(t.id)} className="bg-indigo-100 hover:bg-indigo-200 text-indigo-700 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors">
                                                     Lưu
                                                 </button>
-                                            ) : (
+                                            ) : canEditTuti ? (
                                                 <button onClick={() => handleStartEdit(t)} className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-full hover:bg-indigo-50 transition-colors">
                                                     <Edit2 className="w-4 h-4" />
                                                 </button>
-                                            )}
+                                            ) : null}
                                         </td>
                                     </tr>
                                 );
@@ -479,7 +492,7 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                                         {t.khac}
                                     </td>
                                     <td className="px-4 py-2 text-center">
-                                        <span className={`inline-flex items-center justify-center px-2 py-1 rounded-md text-[11px] font-black uppercase ${t.ketLuan === 'Đúng' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                        <span className={`inline-flex items-center justify-center px-2 py-1 rounded-md text-[11px] font-black uppercase ${t.ketLuan?.toLowerCase() === 'sai' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
                                             {t.ketLuan}
                                         </span>
                                     </td>

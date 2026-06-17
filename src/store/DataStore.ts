@@ -15,6 +15,7 @@ export interface WorkloadEntry {
   content: string;
   date: string; // YYYY-MM-DD
   timestamp: number;
+  isLocal?: boolean;
 }
 
 export interface TaskProgress {
@@ -76,7 +77,10 @@ const safeSetItem = (key: string, value: string) => {
 };
 
 export const DataStore = {
-  getAppScriptUrl: () => localStorage.getItem(SCRIPT_URL_KEY) || 'https://script.google.com/macros/s/AKfycbyDCcu4I8yfT1g2KOHCRoaDtMMb1gLvfxhP4HJkzFYbqNIg1TSXCyi2HS3D7hDYpInVxQ/exec',
+  getAppScriptUrl: () => { 
+      const url = localStorage.getItem(SCRIPT_URL_KEY);
+      return url ? url.trim() : 'https://script.google.com/macros/s/AKfycbyDCcu4I8yfT1g2KOHCRoaDtMMb1gLvfxhP4HJkzFYbqNIg1TSXCyi2HS3D7hDYpInVxQ/exec';
+  },
   setAppScriptUrl: (url: string) => localStorage.setItem(SCRIPT_URL_KEY, url),
 
   getEntries: (): WorkloadEntry[] => {
@@ -131,8 +135,8 @@ export const DataStore = {
       });
       const result = await response.json();
       return result.status === 'success';
-    } catch (error) {
-      console.error('Error syncing to sheet:', error);
+    } catch (error: any) {
+      console.warn('Error syncing to sheet:', error.message || error);
       return false;
     }
   },
@@ -150,8 +154,8 @@ export const DataStore = {
       });
       const result = await response.json();
       return result.status === 'success';
-    } catch (error) {
-      console.error('Error syncing progress to sheet:', error);
+    } catch (error: any) {
+      console.warn('Error syncing progress to sheet:', error.message || error);
       return false;
     }
   },
@@ -537,7 +541,9 @@ export const DataStore = {
                                    const normalizedOpt = opt.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
                                    return normalizedK === normalizedOpt;
                                })) {
-                                   return row[k] ? String(row[k]) : '';
+                                   let v = row[k] ? String(row[k]) : '';
+                                   if (v.startsWith("'")) v = v.substring(1);
+                                   return v;
                                }
                            }
                            for (const k of Object.keys(row)) {
@@ -546,17 +552,41 @@ export const DataStore = {
                                    const normalizedOpt = opt.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
                                    return normalizedK.includes(normalizedOpt);
                                })) {
-                                   return row[k] ? String(row[k]) : '';
+                                   let v = row[k] ? String(row[k]) : '';
+                                   if (v.startsWith("'")) v = v.substring(1);
+                                   return v;
                                }
                            }
                            return '';
                        };
                        
+                       const formatIfDateCSV = (dStr: string) => {
+                           if (!dStr) return '';
+                           if (dStr.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) return dStr;
+                           const d = new Date(dStr);
+                           if (!isNaN(d.getTime()) && (dStr.includes('T') || dStr.includes('GMT') || dStr.includes('Z') || dStr.match(/^[a-zA-Z]{3,}/))) {
+                               return [
+                                   d.getDate().toString().padStart(2, '0'),
+                                   (d.getMonth() + 1).toString().padStart(2, '0'),
+                                   d.getFullYear()
+                               ].join('/');
+                           }
+                           return dStr;
+                       };
+
+                       const normalizeKetLuanCSV = (k: string) => {
+                           if (!k) return '';
+                           const clean = k.trim().toLowerCase();
+                           if (clean === 'đúng') return 'Đúng';
+                           if (clean === 'sai') return 'Sai';
+                           return clean ? k.trim() : '';
+                       };
+
                        const maTram = getVal(['mã trạm']);
                        const tenDiemDo = getVal(['tên điểm đo']);
                        if (maTram || tenDiemDo) {
                           tutiList.push({
-                              id: `${maTram.trim()}-${tenDiemDo.trim()}`.replace(/\s+/g, '-').toLowerCase(),
+                              id: `${maTram.trim()}-${tenDiemDo.trim()}-${index}`.replace(/\s+/g, '-').toLowerCase(),
                               maTram: maTram,
                               tenDiemDo: tenDiemDo,
                               thongSoTU: getVal(['thông số tu']),
@@ -564,9 +594,9 @@ export const DataStore = {
                               kiemTraTU: getVal(['kiểm tra tu']),
                               kiemTraTI: getVal(['kiểm tra ti']),
                               khac: getVal(['khác']),
-                              ketLuan: getVal(['kết luận']),
-                              ngayCapNhat: getVal(['ngày cập nhật']),
-                              ngayDuaLen: getVal(['ngày đưa lên']),
+                              ketLuan: normalizeKetLuanCSV(getVal(['kết luận'])),
+                              ngayCapNhat: formatIfDateCSV(getVal(['ngày cập nhật'])),
+                              ngayDuaLen: formatIfDateCSV(getVal(['ngày đưa lên'])),
                               nguoiDuaLen: getVal(['người đưa lên']),
                               nguoiKiemTra: getVal(['người kiểm tra']),
                           });
@@ -696,21 +726,52 @@ export const DataStore = {
          if (json.tuti && json.tuti.length > 0) {
             const getTutiVal = (obj: any, keys: string[]) => {
                 for (const k of keys) {
-                    if (obj[k] !== undefined) return String(obj[k]);
+                    if (obj[k] !== undefined) {
+                        let v = String(obj[k]);
+                        if (v.startsWith("'")) v = v.substring(1);
+                        return v;
+                    }
                 }
                 const allKeys = Object.keys(obj);
                 for (const k of allKeys) {
                     const normK = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, '').replace(/đ/g, 'd');
                     for (const pk of keys) {
                         const normPk = pk.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, '').replace(/đ/g, 'd');
-                        if (normK === normPk || normK.includes(normPk)) return String(obj[k]);
+                        if (normK === normPk || normK.includes(normPk)) {
+                            let v = String(obj[k]);
+                            if (v.startsWith("'")) v = v.substring(1);
+                            return v;
+                        }
                     }
                 }
                 return '';
             };
 
-            const formattedTuti = json.tuti.map((item: any) => ({
-                id: `${getTutiVal(item, ['maTram', 'mã trạm']).trim()}-${getTutiVal(item, ['tenDiemDo', 'tên điểm đo']).trim()}`.replace(/\s+/g, '-').toLowerCase(),
+            const formatIfDate = (dStr: string) => {
+                if (!dStr) return '';
+                if (dStr.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) return dStr;
+                // If the string starts with a weekday and looks like a full Date string, or is ISO string
+                const d = new Date(dStr);
+                if (!isNaN(d.getTime()) && (dStr.includes('T') || dStr.includes('GMT') || dStr.includes('Z') || dStr.match(/^[a-zA-Z]{3,}/))) {
+                    return [
+                        d.getDate().toString().padStart(2, '0'),
+                        (d.getMonth() + 1).toString().padStart(2, '0'),
+                        d.getFullYear()
+                    ].join('/');
+                }
+                return dStr;
+            };
+
+            const normalizeKetLuan = (k: string) => {
+                if (!k) return '';
+                const clean = k.trim().toLowerCase();
+                if (clean === 'đúng') return 'Đúng';
+                if (clean === 'sai') return 'Sai';
+                return clean ? k.trim() : '';
+            };
+
+            const formattedTuti = json.tuti.map((item: any, index: number) => ({
+                id: `${getTutiVal(item, ['maTram', 'mã trạm']).trim()}-${getTutiVal(item, ['tenDiemDo', 'tên điểm đo']).trim()}-${index}`.replace(/\s+/g, '-').toLowerCase(),
                 maTram: getTutiVal(item, ['maTram', 'mã trạm']),
                 tenDiemDo: getTutiVal(item, ['tenDiemDo', 'tên điểm đo']),
                 thongSoTU: getTutiVal(item, ['thongSoTU', 'thông số tu']),
@@ -718,9 +779,9 @@ export const DataStore = {
                 kiemTraTU: getTutiVal(item, ['kiemTraTU', 'kiểm tra tu']),
                 kiemTraTI: getTutiVal(item, ['kiemTraTI', 'kiểm tra ti']),
                 khac: getTutiVal(item, ['khac', 'khác']),
-                ketLuan: getTutiVal(item, ['ketLuan', 'kết luận']),
-                ngayCapNhat: getTutiVal(item, ['ngayCapNhat', 'ngày cập nhật']),
-                ngayDuaLen: getTutiVal(item, ['ngayDuaLen', 'ngày đưa lên']),
+                ketLuan: normalizeKetLuan(getTutiVal(item, ['ketLuan', 'kết luận'])),
+                ngayCapNhat: formatIfDate(getTutiVal(item, ['ngayCapNhat', 'ngày cập nhật'])),
+                ngayDuaLen: formatIfDate(getTutiVal(item, ['ngayDuaLen', 'ngày đưa lên'])),
                 nguoiDuaLen: getTutiVal(item, ['nguoiDuaLen', 'người đưa lên']),
                 nguoiKiemTra: getTutiVal(item, ['nguoiKiemTra', 'người kiểm tra'])
             }));
@@ -998,17 +1059,43 @@ export const DataStore = {
     try {
       const url = DataStore.getAppScriptUrl();
       if (!url) return false;
+      
+      const prepareString = (str: string) => {
+          if (!str) return '';
+          // Nếu có dạng x/y (như 10/5) Google Sheets tự convert thành Ngày. Nên thêm dấu nháy đơn.
+          if (/^\d+\s*\/\s*\d+/.test(str)) {
+              return `'${str}`;
+          }
+          return str;
+      };
+
       const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'text/plain;charset=utf-8',
         },
-        body: JSON.stringify({ action: 'update_tuti', data: entry }),
+        body: JSON.stringify({ 
+           action: 'update_tuti', 
+           data: {
+             maTram: entry.maTram,
+             tenDiemDo: entry.tenDiemDo,
+             thongSoTU: prepareString(entry.thongSoTU || ''),
+             thongSoTI: prepareString(entry.thongSoTI || ''),
+             kiemTraTU: prepareString(entry.kiemTraTU || ''),
+             kiemTraTI: prepareString(entry.kiemTraTI || ''),
+             khac: prepareString(entry.khac || ''),
+             ketLuan: entry.ketLuan || '',
+             ngayCapNhat: prepareString(entry.ngayCapNhat || ''),
+             ngayDuaLen: prepareString(entry.ngayDuaLen || ''),
+             nguoiDuaLen: entry.nguoiDuaLen || '',
+             nguoiKiemTra: entry.nguoiKiemTra || ''
+           } 
+        }),
       });
       const result = await response.json();
       return result.status === 'success';
-    } catch (error) {
-      console.error('Error syncing TUTI to sheet:', error);
+    } catch (error: any) {
+      console.warn('Error syncing TUTI to sheet:', error.message || error);
       return false;
     }
   },
@@ -1048,17 +1135,42 @@ export const DataStore = {
     try {
       const url = DataStore.getAppScriptUrl();
       if (!url) return false;
+
+      const prepareString = (str: string) => {
+          if (!str) return '';
+          if (/^\d+\s*\/\s*\d+/.test(str)) {
+              return `'${str}`;
+          }
+          return str;
+      };
+
       const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'text/plain;charset=utf-8',
         },
-        body: JSON.stringify({ action: 'add_tuti', data: entry }),
+        body: JSON.stringify({ 
+           action: 'add_tuti', 
+           data: {
+             maTram: entry.maTram,
+             tenDiemDo: entry.tenDiemDo,
+             thongSoTU: prepareString(entry.thongSoTU || ''),
+             thongSoTI: prepareString(entry.thongSoTI || ''),
+             kiemTraTU: prepareString(entry.kiemTraTU || ''),
+             kiemTraTI: prepareString(entry.kiemTraTI || ''),
+             khac: prepareString(entry.khac || ''),
+             ketLuan: entry.ketLuan || '',
+             ngayCapNhat: prepareString(entry.ngayCapNhat || ''),
+             ngayDuaLen: prepareString(entry.ngayDuaLen || ''),
+             nguoiDuaLen: entry.nguoiDuaLen || '',
+             nguoiKiemTra: entry.nguoiKiemTra || ''
+           } 
+        }),
       });
       const result = await response.json();
       return result.status === 'success';
-    } catch (error) {
-      console.error('Error adding TUTI to sheet:', error);
+    } catch (error: any) {
+      console.warn('Error adding TUTI to sheet:', error.message || error);
       return false;
     }
   },
@@ -1076,7 +1188,7 @@ export const DataStore = {
      }
      const newEntry: TutiEntry = {
         ...entry,
-        id: `${entry.maTram.trim()}-${entry.tenDiemDo.trim()}`.replace(/\s+/g, '-').toLowerCase(),
+        id: `${entry.maTram.trim()}-${entry.tenDiemDo.trim()}-${Date.now()}`.replace(/\s+/g, '-').toLowerCase(),
         isLocal: true
      };
      localTasks.push(newEntry);
@@ -1094,7 +1206,6 @@ export const DataStore = {
          }
          lt = lt.filter(t => t.id !== newEntry.id);
          safeSetItem(LOCAL_TUTI_UPDATES_KEY, JSON.stringify(lt));
-         await DataStore.syncMasterData(); // refresh to get it correctly
      }
      return newEntry;
   },
@@ -1137,7 +1248,6 @@ export const DataStore = {
          }
          lt = lt.filter(t => t.id !== updatedEntry.id);
          safeSetItem(LOCAL_TUTI_UPDATES_KEY, JSON.stringify(lt));
-         await DataStore.syncMasterData();
      }
      return updatedEntry;
   },
