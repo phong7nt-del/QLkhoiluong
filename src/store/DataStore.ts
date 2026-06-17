@@ -694,20 +694,35 @@ export const DataStore = {
            safeSetItem(DINHMUC_KEY, JSON.stringify(json.dinhMuc));
          }
          if (json.tuti && json.tuti.length > 0) {
+            const getTutiVal = (obj: any, keys: string[]) => {
+                for (const k of keys) {
+                    if (obj[k] !== undefined) return String(obj[k]);
+                }
+                const allKeys = Object.keys(obj);
+                for (const k of allKeys) {
+                    const normK = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, '').replace(/đ/g, 'd');
+                    for (const pk of keys) {
+                        const normPk = pk.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, '').replace(/đ/g, 'd');
+                        if (normK === normPk || normK.includes(normPk)) return String(obj[k]);
+                    }
+                }
+                return '';
+            };
+
             const formattedTuti = json.tuti.map((item: any) => ({
-                id: `${String(item.maTram || '').trim()}-${String(item.tenDiemDo || '').trim()}`.replace(/\s+/g, '-').toLowerCase(),
-                maTram: String(item.maTram || ''),
-                tenDiemDo: String(item.tenDiemDo || ''),
-                thongSoTU: String(item.thongSoTU || ''),
-                thongSoTI: String(item.thongSoTI || ''),
-                kiemTraTU: String(item.kiemTraTU || ''),
-                kiemTraTI: String(item.kiemTraTI || ''),
-                khac: String(item.khac || ''),
-                ketLuan: String(item.ketLuan || ''),
-                ngayCapNhat: String(item.ngayCapNhat || ''),
-                ngayDuaLen: String(item.ngayDuaLen || ''),
-                nguoiDuaLen: String(item.nguoiDuaLen || ''),
-                nguoiKiemTra: String(item.nguoiKiemTra || '')
+                id: `${getTutiVal(item, ['maTram', 'mã trạm']).trim()}-${getTutiVal(item, ['tenDiemDo', 'tên điểm đo']).trim()}`.replace(/\s+/g, '-').toLowerCase(),
+                maTram: getTutiVal(item, ['maTram', 'mã trạm']),
+                tenDiemDo: getTutiVal(item, ['tenDiemDo', 'tên điểm đo']),
+                thongSoTU: getTutiVal(item, ['thongSoTU', 'thông số tu']),
+                thongSoTI: getTutiVal(item, ['thongSoTI', 'thông số ti']),
+                kiemTraTU: getTutiVal(item, ['kiemTraTU', 'kiểm tra tu']),
+                kiemTraTI: getTutiVal(item, ['kiemTraTI', 'kiểm tra ti']),
+                khac: getTutiVal(item, ['khac', 'khác']),
+                ketLuan: getTutiVal(item, ['ketLuan', 'kết luận']),
+                ngayCapNhat: getTutiVal(item, ['ngayCapNhat', 'ngày cập nhật']),
+                ngayDuaLen: getTutiVal(item, ['ngayDuaLen', 'ngày đưa lên']),
+                nguoiDuaLen: getTutiVal(item, ['nguoiDuaLen', 'người đưa lên']),
+                nguoiKiemTra: getTutiVal(item, ['nguoiKiemTra', 'người kiểm tra'])
             }));
             safeSetItem(TUTI_KEY, JSON.stringify(formattedTuti));
             // Wipe stuck local tuti entries when fetching new master data
