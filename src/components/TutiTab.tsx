@@ -356,20 +356,20 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                     </div>
                 </button>
                 {isUnprocessedExpanded && (
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-left">
-                            <thead className="bg-slate-50 border-b border-slate-100 text-[11px] uppercase font-bold text-slate-500">
+                    <div className="overflow-x-auto overflow-y-auto max-h-[60vh] relative styled-scrollbar rounded-b-2xl">
+                        <table className="w-full text-sm text-left relative border-collapse">
+                            <thead className="bg-slate-50 text-[11px] uppercase font-bold text-slate-500 sticky top-0 z-20 shadow-sm divide-x divide-slate-100">
                                 <tr>
-                                    <th className="px-4 py-3 whitespace-nowrap">Mã trạm</th>
-                                <th className="px-4 py-3 min-w-[200px]">Tên điểm đo</th>
-                                <th className="px-4 py-3 min-w-[150px]">Thông số TU/TI</th>
-                                <th className="px-4 py-3 min-w-[150px]">Kiểm tra TU</th>
-                                <th className="px-4 py-3 min-w-[150px]">Kiểm tra TI</th>
-                                <th className="px-4 py-3 min-w-[150px]">Khác</th>
-                                <th className="px-4 py-3 min-w-[120px]">Kết luận</th>
-                                <th className="px-4 py-3 whitespace-nowrap">Người đưa lên</th>
-                                <th className="px-4 py-3 whitespace-nowrap">Ngày đưa lên</th>
-                                <th className="px-4 py-3 text-center">Thao tác</th>
+                                    <th className="px-4 py-3 text-center sticky top-0 left-0 z-30 bg-slate-50 border-r border-slate-100 shadow-[1px_0_0_rgba(241,245,249,1)]">Thao tác</th>
+                                    <th className="px-4 py-3 whitespace-nowrap bg-slate-50">Mã trạm</th>
+                                <th className="px-4 py-3 min-w-[200px] bg-slate-50">Tên điểm đo</th>
+                                <th className="px-4 py-3 min-w-[150px] bg-slate-50">Thông số TU/TI</th>
+                                <th className="px-4 py-3 min-w-[150px] bg-slate-50">Kiểm tra TU</th>
+                                <th className="px-4 py-3 min-w-[150px] bg-slate-50">Kiểm tra TI</th>
+                                <th className="px-4 py-3 min-w-[150px] bg-slate-50">Khác</th>
+                                <th className="px-4 py-3 min-w-[120px] bg-slate-50">Kết luận</th>
+                                <th className="px-4 py-3 whitespace-nowrap bg-slate-50">Người đưa lên</th>
+                                <th className="px-4 py-3 whitespace-nowrap bg-slate-50">Ngày đưa lên</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
@@ -383,6 +383,17 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                                 const isEditing = editingId === t.id;
                                 return (
                                     <tr key={t.id} className="hover:bg-slate-50 transition-colors">
+                                        <td className="px-4 py-2 text-center sticky left-0 z-10 bg-white/90 backdrop-blur border-r border-slate-100 group-hover:bg-slate-50 transition-colors">
+                                            {isEditing ? (
+                                                <button onClick={() => handleSaveEdit(t.id)} className="bg-indigo-100 hover:bg-indigo-200 text-indigo-700 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors">
+                                                    Lưu
+                                                </button>
+                                            ) : canEditTuti ? (
+                                                <button onClick={() => handleStartEdit(t)} className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-full hover:bg-indigo-50 transition-colors">
+                                                    <Edit2 className="w-4 h-4" />
+                                                </button>
+                                            ) : null}
+                                        </td>
                                         <td className="px-4 py-3 font-mono text-xs font-bold text-slate-700">{t.maTram}</td>
                                         <td className="px-4 py-3 font-medium text-slate-800">{t.tenDiemDo}</td>
                                         <td className="px-4 py-3 text-xs">
@@ -429,17 +440,6 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                                         <td className="px-4 py-2 text-xs font-medium text-slate-500 whitespace-nowrap">
                                             {formatDate(t.ngayDuaLen)}
                                         </td>
-                                        <td className="px-4 py-2 text-center">
-                                            {isEditing ? (
-                                                <button onClick={() => handleSaveEdit(t.id)} className="bg-indigo-100 hover:bg-indigo-200 text-indigo-700 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors">
-                                                    Lưu
-                                                </button>
-                                            ) : canEditTuti ? (
-                                                <button onClick={() => handleStartEdit(t)} className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-full hover:bg-indigo-50 transition-colors">
-                                                    <Edit2 className="w-4 h-4" />
-                                                </button>
-                                            ) : null}
-                                        </td>
                                     </tr>
                                 );
                             })}
@@ -478,20 +478,20 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                     </div>
                 </div>
                 {isProcessedExpanded && (
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                        <thead className="bg-slate-50 border-b border-slate-100 text-[11px] uppercase font-bold text-slate-500">
+                <div className="overflow-x-auto overflow-y-auto max-h-[60vh] relative styled-scrollbar rounded-b-2xl border-t border-slate-200">
+                    <table className="w-full text-sm text-left relative border-collapse">
+                        <thead className="bg-slate-50 text-[11px] uppercase font-bold text-slate-500 sticky top-0 z-20 shadow-sm divide-x divide-slate-100">
                             <tr>
-                                <th className="px-4 py-3 whitespace-nowrap">Mã trạm</th>
-                                <th className="px-4 py-3 min-w-[200px]">Tên điểm đo</th>
-                                <th className="px-4 py-3 min-w-[150px]">Thông số TU/TI</th>
-                                <th className="px-4 py-3 min-w-[150px]">Kết quả kiểm tra</th>
-                                <th className="px-4 py-3 min-w-[150px]">Khác</th>
-                                <th className="px-4 py-3 text-center">Kết luận</th>
-                                <th className="px-4 py-3 whitespace-nowrap">Người đưa lên</th>
-                                <th className="px-4 py-3 whitespace-nowrap">Ngày đưa lên</th>
-                                <th className="px-4 py-3 whitespace-nowrap">Người kiểm tra</th>
-                                <th className="px-4 py-3 whitespace-nowrap">Ngày kiểm tra</th>
+                                <th className="px-4 py-3 whitespace-nowrap bg-slate-50">Mã trạm</th>
+                                <th className="px-4 py-3 min-w-[200px] bg-slate-50">Tên điểm đo</th>
+                                <th className="px-4 py-3 min-w-[150px] bg-slate-50">Thông số TU/TI</th>
+                                <th className="px-4 py-3 min-w-[150px] bg-slate-50">Kết quả kiểm tra</th>
+                                <th className="px-4 py-3 min-w-[150px] bg-slate-50">Khác</th>
+                                <th className="px-4 py-3 text-center bg-slate-50">Kết luận</th>
+                                <th className="px-4 py-3 whitespace-nowrap bg-slate-50">Người đưa lên</th>
+                                <th className="px-4 py-3 whitespace-nowrap bg-slate-50">Ngày đưa lên</th>
+                                <th className="px-4 py-3 whitespace-nowrap bg-slate-50">Người kiểm tra</th>
+                                <th className="px-4 py-3 whitespace-nowrap bg-slate-50">Ngày kiểm tra</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
