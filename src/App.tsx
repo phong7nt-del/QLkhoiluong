@@ -8,6 +8,7 @@ import Login from "./components/Login";
 import ProgressTab from "./components/ProgressTab";
 import ConfigModal from "./components/ConfigModal";
 import TutiTab from "./components/TutiTab";
+import SangTaiTab from "./components/SangTaiTab";
 import DisconnectRateTab from "./components/DisconnectRateTab";
 import ChangePasswordModal from "./components/ChangePasswordModal";
 import { DataStore, SheetMember } from "./store/DataStore";
@@ -83,10 +84,11 @@ export const getSeasonTheme = () => {
 };
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"input" | "report" | "stations" | "analysis" | "progress" | "tuti" | "disconnect">("input");
+  const [activeTab, setActiveTab] = useState<"input" | "report" | "stations" | "analysis" | "progress" | "tuti" | "disconnect" | "sangtai">("input");
   const [refreshToggle, setRefreshToggle] = useState(0);
   const [showConfig, setShowConfig] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const theme = getSeasonTheme();
   const [sessionUser, setSessionUser] = useState<SheetMember | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -246,6 +248,7 @@ export default function App() {
     tabs.push({ id: "progress", icon: CheckSquare, label: "Tiến độ CV", color: "amber" });
     tabs.push({ id: "tuti", icon: Activity, label: "KT TU - TI", color: "indigo" });
   }
+  tabs.push({ id: "sangtai", icon: Database, label: "KT sang tải", color: "amber" });
 
   return (
     <div className={`min-h-screen bg-gradient-to-br ${theme.gradient} text-slate-800 font-sans flex flex-col items-center bg-grid-slate-100`}>
@@ -261,23 +264,32 @@ export default function App() {
              <div className="absolute inset-0 bg-[#005a9c]/20 backdrop-blur-[2px]"></div>
           </div>
           
-          <div className="flex flex-col items-center md:items-start gap-2 w-full md:w-1/4 z-10 shrink-0">
-            <div className="bg-white/95 backdrop-blur-md p-2 rounded-xl shadow-[0_4px_12px_rgba(0,0,0,0.1)] border border-white/40">
-              <img 
-                src="https://www.evnhcmc.vn/public/images/EVNHCMC2021.svg" 
-                alt="EVNHCMC Logo" 
-                className="h-8 md:h-10 object-contain" 
-              />
-            </div>
-            <div className="text-[10px] sm:text-xs font-black text-white tracking-widest uppercase mt-2 drop-shadow-md">
-              Công ty Điện lực Vũng Tàu
+          <div className="flex flex-row items-center gap-3 w-full md:w-1/4 z-10 shrink-0 select-none">
+            <button 
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className="text-white bg-white/10 hover:bg-white/20 p-2 rounded-xl backdrop-blur-md transition-all border border-white/20 shadow-sm self-start mt-2"
+              title="Hiện/Ẩn Menu"
+            >
+              <Menu className="w-6 h-6" />
+            </button>
+            <div className="flex flex-col items-center md:items-start gap-2">
+              <div className="bg-white/95 backdrop-blur-md p-2 rounded-xl shadow-[0_4px_12px_rgba(0,0,0,0.1)] border border-white/40 inline-block">
+                <img 
+                  src="https://www.evnhcmc.vn/public/images/EVNHCMC2021.svg" 
+                  alt="EVNHCMC Logo" 
+                  className="h-8 md:h-10 object-contain" 
+                />
+              </div>
+              <div className="text-[10px] sm:text-xs font-black text-white tracking-widest uppercase mt-0 drop-shadow-md whitespace-nowrap">
+                Công ty Điện lực Vũng Tàu
+              </div>
             </div>
           </div>
           
           <div className="flex-1 text-center z-10 w-full drop-shadow-xl">
             <h1 className="text-xl sm:text-2xl md:text-4xl font-display font-black tracking-tight text-white uppercase flex flex-col">
-              <span className="leading-tight drop-shadow-lg">Hệ Thống Điều Hành</span>
-              <span className={`text-xs sm:text-sm md:text-lg font-bold tracking-widest ${theme.accent} mt-1 drop-shadow-lg`}>& QUẢN TRỊ NĂNG SUẤT ĐỘI QLHTĐĐ</span>
+              <span className="leading-tight drop-shadow-lg">HỆ THỐNG ĐIỀU HÀNH</span>
+              <span className={`text-xs sm:text-sm md:text-lg font-bold tracking-widest ${theme.accent} mt-1 drop-shadow-lg`}>& QUẢN TRỊ ĐỘI QLHTĐĐ</span>
             </h1>
           </div>
           
@@ -315,47 +327,70 @@ export default function App() {
           </div>
         </header>
 
-        {/* Horizontal Navigation Tabs (Google Style - 3D Linked Folder) */}
-        <div className="w-full bg-slate-200/50 shadow-inner overflow-x-auto hide-scrollbar z-10 shrink-0 flex items-end px-2 md:px-6 pt-3 relative">
-           <div className="flex space-x-1.5 min-w-max mx-auto md:mx-0 relative z-20">
-              {tabs.map(tab => {
-                 const isActive = activeTab === tab.id;
-                 const Icon = tab.icon;
+        <div className="flex flex-1 overflow-hidden z-20">
+          {/* Vertical Navigation Tabs */}
+          <div className={`transition-all duration-300 ease-in-out bg-slate-200/50 shadow-inner overflow-y-auto hide-scrollbar z-10 shrink-0 py-3 relative border-slate-300 ${isSidebarOpen ? 'w-24 md:w-32 opacity-100 border-r' : 'w-0 opacity-0 px-0'}`}>
+             <div className="flex flex-col space-y-2 min-h-max w-full pl-2 pr-0 relative z-20">
+                {tabs.map(tab => {
+                   const isActive = activeTab === tab.id;
+                   const Icon = tab.icon;
 
-                 return (
-                    <button
-                       key={tab.id}
-                       onClick={() => setActiveTab(tab.id as any)}
-                       className={`relative flex items-center gap-2 px-5 py-3 text-sm font-bold transition-all whitespace-nowrap group rounded-t-xl border border-b-0 ${
-                         isActive 
-                           ? `text-[#005a9c] bg-white border-white pb-4 -mb-[1px] z-20` 
-                           : `text-slate-500 border-transparent hover:text-[#005a9c] hover:bg-white/60 pb-3 z-10 hover:pb-4 hover:-mb-[1px]`
-                       }`}
-                       style={{
-                         boxShadow: isActive ? '0 -6px 12px -4px rgba(0,0,0,0.08)' : 'none'
-                       }}
-                    >
-                       <Icon className={`w-4 h-4 ${isActive ? 'text-[#f47920]' : 'text-slate-400 group-hover:text-[#f47920]'}`} />
-                       <span className="uppercase tracking-wide text-xs">{tab.label}</span>
-                       
-                       {/* Badges */}
-                       {tab.id === 'progress' && taskStats.overdue > 0 && (
-                          <span className="ml-1.5 inline-flex items-center justify-center px-1.5 h-4 text-[10px] font-black bg-[#ed1c24] text-white rounded-full shadow-sm">
-                             {taskStats.overdue}
-                          </span>
-                       )}
-                       {tab.id === 'tuti' && tutiUnprocessedCount > 0 && (
-                          <span className="ml-1.5 inline-flex items-center justify-center px-1.5 h-4 text-[10px] font-black bg-[#ed1c24] text-white rounded-full shadow-sm">
-                             {tutiUnprocessedCount}
-                          </span>
-                       )}
-                    </button>
-                 );
-              })}
-           </div>
-        </div>
+                   return (
+                      <button
+                         key={tab.id}
+                         onClick={() => setActiveTab(tab.id as any)}
+                         className={`relative flex flex-col xl:flex-row items-center xl:items-start xl:justify-start gap-1.5 xl:gap-2.5 py-3 px-2 xl:px-4 text-sm font-bold transition-all group rounded-l-2xl ${
+                           isActive 
+                             ? `text-[#005a9c] bg-white z-20 -mr-[1px]` 
+                             : `text-slate-500 hover:text-[#005a9c] hover:bg-white/60 z-10 -mr-[1px]`
+                         }`}
+                         style={{
+                           boxShadow: isActive ? '-8px 6px 12px -6px rgba(0,0,0,0.12)' : 'none'
+                         }}
+                      >
+                         {/* Tech/Digital Indicator for Active Tab */}
+                         {isActive && (
+                            <>
+                                {/* Glowing left edge for 'digital' feel */}
+                                <div className="absolute left-[3px] top-1/2 -translate-y-1/2 h-1/2 w-[3px] bg-[#f47920] rounded-full shadow-[0_0_8px_#f47920]"></div>
+                                
+                                {/* Fluid Curves (SVG) */}
+                                <svg className="absolute -top-[16px] right-0 w-[16px] h-[16px] text-white z-20" fill="currentColor" viewBox="0 0 20 20">
+                                   <path d="M20 20V0C20 11 11 20 0 20H20Z" />
+                                </svg>
+                                <svg className="absolute -bottom-[16px] right-0 w-[16px] h-[16px] text-white z-20" fill="currentColor" viewBox="0 0 20 20">
+                                   <path d="M20 0V20C20 9 11 0 0 0H20Z" />
+                                </svg>
+                            </>
+                         )}
 
-        <main className="flex-1 flex flex-col relative z-20 bg-white">
+                         <Icon className={`w-5 h-5 shrink-0 xl:mt-0.5 transition-transform duration-300 ${isActive ? 'text-[#f47920] scale-110 drop-shadow' : 'text-slate-400 group-hover:text-[#f47920] group-hover:scale-110'}`} />
+                         
+                         <span 
+                           className={`uppercase text-[10px] xl:text-xs xl:text-left leading-tight text-center transition-all ${isActive ? 'drop-shadow-sm' : ''}`}
+                         >
+                           {tab.label}
+                         </span>
+                         
+                         {/* Badges */}
+                         {tab.id === 'progress' && taskStats.overdue > 0 && (
+                            <span className="absolute top-1 right-1 inline-flex items-center justify-center px-1 h-4 min-w-[16px] text-[10px] font-black bg-[#ed1c24] text-white rounded-full shadow-sm">
+                               {taskStats.overdue}
+                            </span>
+                         )}
+                         {tab.id === 'tuti' && tutiUnprocessedCount > 0 && (
+                            <span className="absolute top-1 right-1 inline-flex items-center justify-center px-1 h-4 min-w-[16px] text-[10px] font-black bg-[#ed1c24] text-white rounded-full shadow-sm">
+                               {tutiUnprocessedCount}
+                            </span>
+                         )}
+                      </button>
+                   );
+                })}
+             </div>
+          </div>
+
+          <main className="flex-1 flex flex-col relative z-20 bg-white min-w-0">
+             <div className="flex-1 overflow-hidden flex flex-col relative">
           
           {/* Main Content Pane */}
           <div 
@@ -385,6 +420,9 @@ export default function App() {
                 )}
                 {activeTab === "disconnect" && (
                   <DisconnectRateTab refreshToggle={refreshToggle} />
+                )}
+                {activeTab === "sangtai" && (
+                  <SangTaiTab />
                 )}
               </div>
             </div>
@@ -424,7 +462,9 @@ export default function App() {
                 </button>
              </div>
           )}
+          </div>
         </main>
+        </div>
         
         {showConfig && <ConfigModal onClose={() => setShowConfig(false)} />}
         {showPasswordModal && sessionUser && <ChangePasswordModal onClose={() => setShowPasswordModal(false)} sessionUser={sessionUser} />}

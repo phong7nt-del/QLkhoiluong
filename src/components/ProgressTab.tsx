@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { DataStore, TaskProgress, SheetMember } from '../store/DataStore';
-import { CheckCircle, Clock, AlertCircle, Plus, User as UserIcon, Mic, XCircle, LayoutGrid, List, FileSpreadsheet, MessageSquarePlus, Send, Search, ChevronDown, ChevronRight } from 'lucide-react';
+import { CheckCircle, Clock, AlertCircle, Plus, User as UserIcon, Mic, XCircle, LayoutGrid, GripHorizontal, List, FileSpreadsheet, MessageSquarePlus, Send, Search, ChevronDown, ChevronRight } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { SeasonTheme } from '../App';
 
@@ -16,7 +16,7 @@ export default function ProgressTab({ refreshToggle, sessionUser, theme }: { ref
   const [newAssignee, setNewAssignee] = useState('');
   const [searchAssignee, setSearchAssignee] = useState('');
   const [isRecording, setIsRecording] = useState(false);
-  const [pendingViewMode, setPendingViewMode] = useState<'grid' | 'table'>('grid');
+  const [pendingViewMode, setPendingViewMode] = useState<'grid' | 'table' | 'slider'>('slider');
   const [isPendingExpanded, setIsPendingExpanded] = useState(true);
   const [isCompletedExpanded, setIsCompletedExpanded] = useState(false);
   const [filterState, setFilterState] = useState({ ok: true, warning: true, overdue: true });
@@ -461,9 +461,14 @@ export default function ProgressTab({ refreshToggle, sessionUser, theme }: { ref
 
                <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200/50">
                   <button 
+                     onClick={() => setPendingViewMode('slider')}
+                     className={`p-2 rounded-lg transition-all ${pendingViewMode === 'slider' ? 'bg-white text-blue-600 shadow-sm border border-slate-200/50' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-200/50'}`}
+                     title="Dạng trượt"
+                  ><GripHorizontal className="w-4 h-4" /></button>
+                  <button 
                      onClick={() => setPendingViewMode('grid')}
                      className={`p-2 rounded-lg transition-all ${pendingViewMode === 'grid' ? 'bg-white text-blue-600 shadow-sm border border-slate-200/50' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-200/50'}`}
-                     title="Dạng thẻ"
+                     title="Dạng lưới"
                   ><LayoutGrid className="w-4 h-4" /></button>
                   <button 
                      onClick={() => setPendingViewMode('table')}
@@ -476,12 +481,14 @@ export default function ProgressTab({ refreshToggle, sessionUser, theme }: { ref
          
          {isPendingExpanded && (
            <>
-             {pendingViewMode === 'grid' ? (
-                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+             {pendingViewMode === 'grid' || pendingViewMode === 'slider' ? (
+                 <div className={pendingViewMode === 'slider' 
+                      ? "flex overflow-x-auto hide-scrollbar gap-4 pb-4 snap-x snap-mandatory px-1"
+                      : "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"}>
                     {sortedPendingTasks.map((t, idx) => {
                        const colorClasses = getStatusColor(t.deadline);
                    return (
-                      <div key={`${t.id || 't'}-${idx}`} className={`p-5 rounded-2xl flex flex-col justify-between shadow-sm hover:shadow-md transition-all ${colorClasses}`}>
+                      <div key={`${t.id || 't'}-${idx}`} className={`p-5 rounded-2xl flex flex-col justify-between shadow-sm hover:shadow-md transition-all ${colorClasses} ${pendingViewMode === 'slider' ? 'shrink-0 w-[85vw] sm:w-[320px] md:w-[380px] snap-center snap-always' : ''}`}>
                          <div>
                             <div className="flex justify-between items-start mb-3">
                                <div className="flex items-center gap-2">

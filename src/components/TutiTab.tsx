@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, X, Save, Edit2, Search, CheckCircle, AlertCircle, Calendar, RefreshCw, Activity } from 'lucide-react';
+import { Plus, X, Save, Edit2, Search, CheckCircle, AlertCircle, Calendar, RefreshCw, Activity, ChevronDown, ChevronRight } from 'lucide-react';
 import { DataStore, TutiEntry, SheetMember } from '../store/DataStore';
 
 export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle: number, sessionUser: SheetMember | null }) {
@@ -19,6 +19,10 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
 
     // Filter state for processed items
     const [filter, setFilter] = useState('');
+
+    // Collapse states
+    const [isUnprocessedExpanded, setIsUnprocessedExpanded] = useState(true);
+    const [isProcessedExpanded, setIsProcessedExpanded] = useState(true);
 
     const userRole = (sessionUser?.role || '').toLowerCase();
     const userTeam = (sessionUser?.team || '').toLowerCase();
@@ -337,18 +341,26 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
             )}
 
             {/* B. Middle Part: Unprocessed */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-6">
-                <div className="bg-slate-50 border-b border-slate-200 p-4">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 mb-6">
+                <button 
+                    onClick={() => setIsUnprocessedExpanded(!isUnprocessedExpanded)}
+                    className="w-full text-left bg-slate-50 hover:bg-slate-100 transition-colors border-b border-slate-200 p-4 flex items-center justify-between outline-none"
+                    style={{ borderTopLeftRadius: '1rem', borderTopRightRadius: '1rem', borderBottomLeftRadius: isUnprocessedExpanded ? '0' : '1rem', borderBottomRightRadius: isUnprocessedExpanded ? '0' : '1rem' }}
+                >
                     <h3 className="font-bold text-slate-800 flex items-center gap-2">
                         <RefreshCw className="w-4 h-4 text-indigo-500" />
                         Danh sách cần xử lý ({unprocessed.length})
                     </h3>
-                </div>
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                        <thead className="bg-slate-50 border-b border-slate-100 text-[11px] uppercase font-bold text-slate-500">
-                            <tr>
-                                <th className="px-4 py-3 whitespace-nowrap">Mã trạm</th>
+                    <div className="text-slate-500">
+                        {isUnprocessedExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
+                    </div>
+                </button>
+                {isUnprocessedExpanded && (
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-slate-50 border-b border-slate-100 text-[11px] uppercase font-bold text-slate-500">
+                                <tr>
+                                    <th className="px-4 py-3 whitespace-nowrap">Mã trạm</th>
                                 <th className="px-4 py-3 min-w-[200px]">Tên điểm đo</th>
                                 <th className="px-4 py-3 min-w-[150px]">Thông số TU/TI</th>
                                 <th className="px-4 py-3 min-w-[150px]">Kiểm tra TU</th>
@@ -434,15 +446,27 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                         </tbody>
                     </table>
                 </div>
+                )}
             </div>
 
             {/* C. Bottom Part: Processed */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="bg-slate-50 border-b border-slate-200 p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                    <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                        <CheckCircle className="w-4 h-4 text-green-500" />
-                        Danh sách đã xử lý ({filteredProcessed.length})
-                    </h3>
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200">
+                <div 
+                    className="bg-slate-50 border-b border-slate-200 p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 transition-colors"
+                    style={{ borderTopLeftRadius: '1rem', borderTopRightRadius: '1rem', borderBottomLeftRadius: isProcessedExpanded ? '0' : '1rem', borderBottomRightRadius: isProcessedExpanded ? '0' : '1rem' }}
+                >
+                    <button 
+                        onClick={() => setIsProcessedExpanded(!isProcessedExpanded)}
+                        className="flex items-center gap-2 hover:bg-slate-100 p-1 -m-1 rounded-lg transition-colors outline-none w-full sm:w-auto text-left"
+                    >
+                        <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                            <CheckCircle className="w-4 h-4 text-green-500" />
+                            Danh sách đã xử lý ({filteredProcessed.length})
+                        </h3>
+                        <div className="text-slate-500 ml-2">
+                            {isProcessedExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
+                        </div>
+                    </button>
                     <div className="relative w-full sm:w-64">
                         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                         <input 
@@ -453,6 +477,7 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                         />
                     </div>
                 </div>
+                {isProcessedExpanded && (
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left">
                         <thead className="bg-slate-50 border-b border-slate-100 text-[11px] uppercase font-bold text-slate-500">
@@ -513,6 +538,7 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                         </tbody>
                     </table>
                 </div>
+                )}
             </div>
             
         </div>

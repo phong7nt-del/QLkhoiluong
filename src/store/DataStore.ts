@@ -67,6 +67,7 @@ const LOCAL_TUTI_UPDATES_KEY = 'local_tuti_updates_v1';
 let memCacheKhuVucList: any[] | null = null;
 let memCacheMatKetNoiList: any[] | null = null;
 let memCacheChiTietMKNList: any[] | null = null;
+let memCacheSangTaiList: any[] | null = null;
 
 const safeSetItem = (key: string, value: string) => {
     try {
@@ -532,9 +533,21 @@ export const DataStore = {
                if (!tutiText.includes('<html') && tutiText.trim()) {
                    const { data: tutiData } = Papa.parse(tutiText, { header: true });
                    const tutiList: TutiEntry[] = [];
+                   let index = 0;
                    for (const row of tutiData as any[]) {
+                       index++;
                        if (!row || Object.keys(row).length === 0) continue;
                        const getVal = (opts: string[]) => {
+                           const cleanVal = (v: string) => {
+                               if (!v) return v;
+                               if (v.includes('GMT+') || v.includes('Indochina Time') || v.match(/^[a-zA-Z]{3} [a-zA-Z]{3} \d{1,2} \d{4}/)) {
+                                   const d = new Date(v);
+                                   if (!isNaN(d.getTime())) {
+                                       return `${d.getDate()}/${d.getMonth() + 1}`;
+                                   }
+                               }
+                               return v;
+                           };
                            for (const k of Object.keys(row)) {
                                const normalizedK = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
                                if (opts.some(opt => {
@@ -543,7 +556,7 @@ export const DataStore = {
                                })) {
                                    let v = row[k] ? String(row[k]) : '';
                                    if (v.startsWith("'")) v = v.substring(1);
-                                   return v;
+                                   return cleanVal(v);
                                }
                            }
                            for (const k of Object.keys(row)) {
@@ -554,7 +567,7 @@ export const DataStore = {
                                })) {
                                    let v = row[k] ? String(row[k]) : '';
                                    if (v.startsWith("'")) v = v.substring(1);
-                                   return v;
+                                   return cleanVal(v);
                                }
                            }
                            return '';
@@ -704,6 +717,25 @@ export const DataStore = {
                console.error('Error fetching KhuVuc:', e);
             }
 
+            // Fetch SangTai
+            try {
+               const stRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("SangTai")}&_t=${new Date().getTime()}`);
+               const stText = await stRes.text();
+               if (!stText.includes('<html')) {
+                   const { data } = Papa.parse(stText, { header: true, skipEmptyLines: true });
+                   if (data && data.length > 0) {
+                       memCacheSangTaiList = data;
+                       try {
+                           safeSetItem('sheet_sangtai_v1', JSON.stringify(data));
+                       } catch(e) {
+                           console.warn("localStorage quota exceeded for SangTai");
+                       }
+                   }
+               }
+            } catch(e) {
+               console.error('Error fetching SangTai:', e);
+            }
+
          } catch (e) {
             console.error('Error parsing CBCNV from CSV', e);
          }
@@ -725,11 +757,21 @@ export const DataStore = {
          }
          if (json.tuti && json.tuti.length > 0) {
             const getTutiVal = (obj: any, keys: string[]) => {
+                const cleanVal = (v: string) => {
+                    if (!v) return v;
+                    if (v.includes('GMT+') || v.includes('Indochina Time') || v.match(/^[a-zA-Z]{3} [a-zA-Z]{3} \d{1,2} \d{4}/)) {
+                        const d = new Date(v);
+                        if (!isNaN(d.getTime())) {
+                            return `${d.getDate()}/${d.getMonth() + 1}`;
+                        }
+                    }
+                    return v;
+                };
                 for (const k of keys) {
                     if (obj[k] !== undefined) {
                         let v = String(obj[k]);
                         if (v.startsWith("'")) v = v.substring(1);
-                        return v;
+                        return cleanVal(v);
                     }
                 }
                 const allKeys = Object.keys(obj);
@@ -740,7 +782,7 @@ export const DataStore = {
                         if (normK === normPk || normK.includes(normPk)) {
                             let v = String(obj[k]);
                             if (v.startsWith("'")) v = v.substring(1);
-                            return v;
+                            return cleanVal(v);
                         }
                     }
                 }
@@ -863,6 +905,14 @@ export const DataStore = {
      if (memCacheKhuVucList) return memCacheKhuVucList;
      try {
        const cached = localStorage.getItem('sheet_khuvuc_v1');
+       return cached ? JSON.parse(cached) : [];
+     } catch { return []; }
+  },
+
+  getSangTai: (): any[] => {
+     if (memCacheSangTaiList) return memCacheSangTaiList;
+     try {
+       const cached = localStorage.getItem('sheet_sangtai_v1');
        return cached ? JSON.parse(cached) : [];
      } catch { return []; }
   },
@@ -1096,6 +1146,53 @@ export const DataStore = {
       return result.status === 'success';
     } catch (error: any) {
       console.warn('Error syncing TUTI to sheet:', error.message || error);
+      return false;
+    }
+  },
+
+  syncSangTaiToSheet: async (maDiemDo: string, maMoi: string) => {
+    try {
+      const url = DataStore.getAppScriptUrl();
+      if (!url) throw new Error('No Apps Script URL configured');
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8',
+        },
+        body: JSON.stringify({
+           action: 'update_sangtai', 
+           data: {
+             maDiemDo,
+             maMoi
+           }
+        }),
+      });
+      const result = await response.json();
+      return result.status === 'success';
+    } catch (error: any) {
+      console.warn('Error syncing SangTai to sheet:', error.message || error);
+      return false;
+    }
+  },
+
+  syncSangTaiBulkToSheet: async (updates: {maDiemDo: string, maMoi: string}[]) => {
+    try {
+      const url = DataStore.getAppScriptUrl();
+      if (!url) throw new Error('No Apps Script URL configured');
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8',
+        },
+        body: JSON.stringify({
+           action: 'update_sangtai_bulk', 
+           data: updates
+        }),
+      });
+      const result = await response.json();
+      return result.status === 'success';
+    } catch (error: any) {
+      console.warn('Error syncing bulk SangTai to sheet:', error.message || error);
       return false;
     }
   },

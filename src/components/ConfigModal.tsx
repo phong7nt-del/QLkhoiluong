@@ -600,6 +600,82 @@ function doPost(e) {
        
        return ContentService.createTextOutput(JSON.stringify({ status: 'success' })).setMimeType(ContentService.MimeType.JSON);
     }
+
+    if (payload.action === 'update_sangtai') {
+       var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+       var sheet = getSheetFlexibly(ss, ['SangTai', 'Sang Tai', 'Sang Tải', 'sang tải']);
+       if (!sheet) return ContentService.createTextOutput(JSON.stringify({status: 'error'})).setMimeType(ContentService.MimeType.JSON);
+       
+       var data = payload.data;
+       var sheetData = sheet.getDataRange().getValues();
+       var headers = sheetData[0] || [];
+       
+       var maDiemDoCol = -1;
+       var maMoiCol = -1;
+       
+       for (var c = 0; c < headers.length; c++) {
+          var rawH = String(headers[c]).toLowerCase().trim();
+          var h = rawH.normalize('NFD').replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/[\s_]+/g, '');
+          if (h === 'madiemdo16' || h === 'madiemdo') {
+             if (maDiemDoCol === -1) maDiemDoCol = c;
+          }
+          if (h === 'mamoi' || h === 'matrammoi') {
+             maMoiCol = c;
+          }
+       }
+       
+       if (maDiemDoCol > -1 && maMoiCol > -1) {
+          for (var r = 1; r < sheetData.length; r++) {
+              if (String(sheetData[r][maDiemDoCol]).trim() === String(data.maDiemDo).trim()) {
+                  sheet.getRange(r + 1, maMoiCol + 1).setValue(data.maMoi);
+                  return ContentService.createTextOutput(JSON.stringify({ status: 'success' })).setMimeType(ContentService.MimeType.JSON);
+              }
+          }
+       }
+       return ContentService.createTextOutput(JSON.stringify({ status: 'error' })).setMimeType(ContentService.MimeType.JSON);
+    }
+    if (payload.action === 'update_sangtai_bulk') {
+       var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+       var sheet = getSheetFlexibly(ss, ['SangTai', 'Sang Tai', 'Sang Tải', 'sang tải']);
+       if (!sheet) return ContentService.createTextOutput(JSON.stringify({status: 'error'})).setMimeType(ContentService.MimeType.JSON);
+       
+       var dataList = payload.data;
+       if (!Array.isArray(dataList)) {
+           return ContentService.createTextOutput(JSON.stringify({status: 'error', message: 'Data is not an array'})).setMimeType(ContentService.MimeType.JSON);
+       }
+
+       var sheetData = sheet.getDataRange().getValues();
+       var headers = sheetData[0] || [];
+       var maDiemDoCol = -1;
+       var maMoiCol = -1;
+       
+       for (var c = 0; c < headers.length; c++) {
+          var rawH = String(headers[c]).toLowerCase().trim();
+          var h = rawH.normalize('NFD').replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/[\s_]+/g, '');
+          if (h === 'madiemdo16' || h === 'madiemdo') {
+             if (maDiemDoCol === -1) maDiemDoCol = c;
+          }
+          if (h === 'mamoi' || h === 'matrammoi') {
+             maMoiCol = c;
+          }
+       }
+       
+       if (maDiemDoCol > -1 && maMoiCol > -1) {
+          var updatedCount = 0;
+          for (var r = 1; r < sheetData.length; r++) {
+              var sheetMaDiemDo = String(sheetData[r][maDiemDoCol]).trim();
+              for (var i = 0; i < dataList.length; i++) {
+                  if (sheetMaDiemDo === String(dataList[i].maDiemDo).trim()) {
+                      sheet.getRange(r + 1, maMoiCol + 1).setValue(dataList[i].maMoi);
+                      updatedCount++;
+                      break;
+                  }
+              }
+          }
+          return ContentService.createTextOutput(JSON.stringify({ status: 'success', updatedCount: updatedCount })).setMimeType(ContentService.MimeType.JSON);
+       }
+       return ContentService.createTextOutput(JSON.stringify({ status: 'error' })).setMimeType(ContentService.MimeType.JSON);
+    }
     
   } catch (err) {
     return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: err.toString() })).setMimeType(ContentService.MimeType.JSON);
