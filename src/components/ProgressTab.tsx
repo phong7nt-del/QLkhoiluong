@@ -483,7 +483,7 @@ export default function ProgressTab({ refreshToggle, sessionUser, theme }: { ref
            <>
              {pendingViewMode === 'grid' || pendingViewMode === 'slider' ? (
                  <div className={pendingViewMode === 'slider' 
-                      ? "flex overflow-x-auto hide-scrollbar gap-4 pb-4 snap-x snap-mandatory px-1"
+                      ? "flex overflow-x-auto styled-scrollbar gap-4 pb-4 snap-x snap-mandatory px-1"
                       : "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"}>
                     {sortedPendingTasks.map((t, idx) => {
                        const colorClasses = getStatusColor(t.deadline);
