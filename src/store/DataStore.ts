@@ -543,7 +543,7 @@ export const DataStore = {
                                if (v.includes('GMT+') || v.includes('Indochina Time') || v.match(/^[a-zA-Z]{3} [a-zA-Z]{3} \d{1,2} \d{4}/)) {
                                    const d = new Date(v);
                                    if (!isNaN(d.getTime())) {
-                                       return `${d.getDate()}/${d.getMonth() + 1}`;
+                                       return `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getFullYear()}`;
                                    }
                                }
                                return v;
@@ -563,7 +563,7 @@ export const DataStore = {
                                const normalizedK = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
                                if (opts.some(opt => {
                                    const normalizedOpt = opt.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
-                                   return normalizedK.includes(normalizedOpt);
+                                   return normalizedOpt.length > 3 && normalizedK.includes(normalizedOpt) && !normalizedK.includes('kiemtra');
                                })) {
                                    let v = row[k] ? String(row[k]) : '';
                                    if (v.startsWith("'")) v = v.substring(1);
@@ -575,7 +575,14 @@ export const DataStore = {
                        
                        const formatIfDateCSV = (dStr: string) => {
                            if (!dStr) return '';
-                           if (dStr.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) return dStr;
+                           const slashParts = dStr.split('/');
+                           if (slashParts.length === 3) {
+                                const day = slashParts[0].padStart(2, '0');
+                                const month = slashParts[1].padStart(2, '0');
+                                let year = slashParts[2];
+                                if (year.length === 2) year = '20' + year;
+                                return `${day}/${month}/${year}`;
+                           }
                            const d = new Date(dStr);
                            if (!isNaN(d.getTime()) && (dStr.includes('T') || dStr.includes('GMT') || dStr.includes('Z') || dStr.match(/^[a-zA-Z]{3,}/))) {
                                return [
@@ -602,8 +609,8 @@ export const DataStore = {
                               id: `${maTram.trim()}-${tenDiemDo.trim()}-${index}`.replace(/\s+/g, '-').toLowerCase(),
                               maTram: maTram,
                               tenDiemDo: tenDiemDo,
-                              thongSoTU: getVal(['thông số tu']),
-                              thongSoTI: getVal(['thông số ti']),
+                              thongSoTU: getVal(['thông số tu', 'tu', 't.u', 'thong_so_tu', 'thong so tu', 'tỷ số tu', 'thông số tu/ti', 'thong so tu/ti']),
+                              thongSoTI: getVal(['thông số ti', 'ti', 't.i', 'thong_so_ti', 'thong so ti', 'tỷ số ti', 'thông số tu/ti', 'thong so tu/ti']),
                               kiemTraTU: getVal(['kiểm tra tu']),
                               kiemTraTI: getVal(['kiểm tra ti']),
                               khac: getVal(['khác']),
@@ -762,7 +769,7 @@ export const DataStore = {
                     if (v.includes('GMT+') || v.includes('Indochina Time') || v.match(/^[a-zA-Z]{3} [a-zA-Z]{3} \d{1,2} \d{4}/)) {
                         const d = new Date(v);
                         if (!isNaN(d.getTime())) {
-                            return `${d.getDate()}/${d.getMonth() + 1}`;
+                            return `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getFullYear()}`;
                         }
                     }
                     return v;
@@ -779,8 +786,19 @@ export const DataStore = {
                     const normK = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, '').replace(/đ/g, 'd');
                     for (const pk of keys) {
                         const normPk = pk.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, '').replace(/đ/g, 'd');
-                        if (normK === normPk || normK.includes(normPk)) {
-                            let v = String(obj[k]);
+                        if (normK === normPk) {
+                            let v = String(obj[k] || '');
+                            if (v.startsWith("'")) v = v.substring(1);
+                            return cleanVal(v);
+                        }
+                    }
+                }
+                for (const k of allKeys) {
+                    const normK = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, '').replace(/đ/g, 'd');
+                    for (const pk of keys) {
+                        const normPk = pk.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, '').replace(/đ/g, 'd');
+                        if (normPk.length > 3 && normK.includes(normPk) && !normK.includes('kiemtra')) {
+                            let v = String(obj[k] || '');
                             if (v.startsWith("'")) v = v.substring(1);
                             return cleanVal(v);
                         }
@@ -791,8 +809,15 @@ export const DataStore = {
 
             const formatIfDate = (dStr: string) => {
                 if (!dStr) return '';
-                if (dStr.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) return dStr;
-                // If the string starts with a weekday and looks like a full Date string, or is ISO string
+                // Check if it's already in d/m/yyyy, dd/mm/yyyy or d/m/yy format
+                const slashParts = dStr.split('/');
+                if (slashParts.length === 3) {
+                     const day = slashParts[0].padStart(2, '0');
+                     const month = slashParts[1].padStart(2, '0');
+                     let year = slashParts[2];
+                     if (year.length === 2) year = '20' + year;
+                     return `${day}/${month}/${year}`;
+                }
                 const d = new Date(dStr);
                 if (!isNaN(d.getTime()) && (dStr.includes('T') || dStr.includes('GMT') || dStr.includes('Z') || dStr.match(/^[a-zA-Z]{3,}/))) {
                     return [
@@ -816,8 +841,8 @@ export const DataStore = {
                 id: `${getTutiVal(item, ['maTram', 'mã trạm']).trim()}-${getTutiVal(item, ['tenDiemDo', 'tên điểm đo']).trim()}-${index}`.replace(/\s+/g, '-').toLowerCase(),
                 maTram: getTutiVal(item, ['maTram', 'mã trạm']),
                 tenDiemDo: getTutiVal(item, ['tenDiemDo', 'tên điểm đo']),
-                thongSoTU: getTutiVal(item, ['thongSoTU', 'thông số tu']),
-                thongSoTI: getTutiVal(item, ['thongSoTI', 'thông số ti']),
+                thongSoTU: getTutiVal(item, ['thongSoTU', 'thông số tu', 'tu', 't.u', 'thong_so_tu', 'thong so tu', 'tỷ số tu', 'tỷ số biến tu', 'ty so tu', 'Thông số TU', 'Thông số Tu', 'Thong so Tu', 'Thông số TU/TI', 'Thông số Tu/TI']),
+                thongSoTI: getTutiVal(item, ['thongSoTI', 'thông số ti', 'ti', 't.i', 'thong_so_ti', 'thong so ti', 'tỷ số ti', 'tỷ số biến ti', 'ty so ti', 'Thông số TI', 'Thông số Ti', 'Thong so Ti', 'Thông số TU/TI', 'Thông số Tu/TI']),
                 kiemTraTU: getTutiVal(item, ['kiemTraTU', 'kiểm tra tu']),
                 kiemTraTI: getTutiVal(item, ['kiemTraTI', 'kiểm tra ti']),
                 khac: getTutiVal(item, ['khac', 'khác']),
@@ -1290,6 +1315,13 @@ export const DataStore = {
      };
      localTasks.push(newEntry);
      safeSetItem(LOCAL_TUTI_UPDATES_KEY, JSON.stringify(localTasks));
+     
+     // Also update the main TUTI_KEY cache immediately
+     const cached = localStorage.getItem(TUTI_KEY);
+     const remoteTasks: TutiEntry[] = cached ? JSON.parse(cached) : [];
+     remoteTasks.push(newEntry);
+     safeSetItem(TUTI_KEY, JSON.stringify(remoteTasks));
+
      const success = await DataStore.addTutiToSheet(newEntry);
      if (success) {
          // remove from local tasks if sync succeeds
@@ -1332,6 +1364,17 @@ export const DataStore = {
         localTasks.push(updatedEntry);
      }
      safeSetItem(LOCAL_TUTI_UPDATES_KEY, JSON.stringify(localTasks));
+
+     // Also update the main TUTI_KEY cache immediately,
+     // so if sync removes it from LOCAL soon, it doesn't revert.
+     const cached = localStorage.getItem(TUTI_KEY);
+     const remoteTasks: TutiEntry[] = cached ? JSON.parse(cached) : [];
+     const cachedIndex = remoteTasks.findIndex(t => t.id === id);
+     if (cachedIndex > -1) {
+         remoteTasks[cachedIndex] = updatedEntry;
+         safeSetItem(TUTI_KEY, JSON.stringify(remoteTasks));
+     }
+
      const success = await DataStore.syncTutiToSheet(updatedEntry);
      if (success) {
          // remove from local tasks if sync succeeds

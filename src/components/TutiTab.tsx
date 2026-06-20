@@ -110,7 +110,6 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
 
     const formatDate = (dStr: string) => {
         if (!dStr) return '';
-        if (dStr.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) return dStr;
         const d = new Date(dStr);
         if (!isNaN(d.getTime()) && (dStr.includes('T') || dStr.includes('GMT') || dStr.includes('Z') || dStr.match(/^[a-zA-Z]{3,}/))) {
             return [
@@ -122,22 +121,39 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
         if (dStr.includes('T')) {
              const [datePart] = dStr.split('T');
              const p = datePart.split('-');
-             if (p.length === 3) return `${p[2]}/${p[1]}/${p[0]}`;
+             if (p.length === 3) return `${p[2].padStart(2, '0')}/${p[1].padStart(2, '0')}/${p[0]}`;
         }
         const parts = dStr.split('-');
         if (parts.length === 3 && parts[0].length === 4) {
-             return `${parts[2]}/${parts[1]}/${parts[0]}`;
+             return `${parts[2].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[0]}`;
+        }
+        const slashParts = dStr.split('/');
+        if (slashParts.length === 2) {
+             const year = new Date().getFullYear();
+             const day = slashParts[0].padStart(2, '0');
+             const month = slashParts[1].padStart(2, '0');
+             return `${day}/${month}/${year}`;
+        }
+        if (slashParts.length === 3) {
+             const day = slashParts[0].padStart(2, '0');
+             const month = slashParts[1].padStart(2, '0');
+             let year = slashParts[2];
+             if (year.length === 2) year = '20' + year;
+             return `${day}/${month}/${year}`;
         }
         return dStr;
     };
 
-    const isProcessed = (k?: string) => {
-        if (!k) return false;
-        return k.trim().length > 0;
+    const isProcessed = (e: TutiEntry) => {
+        if (e.ketLuan && e.ketLuan.trim().length > 0) return true;
+        if (e.kiemTraTU && e.kiemTraTU.trim().length > 0) return true;
+        if (e.kiemTraTI && e.kiemTraTI.trim().length > 0) return true;
+        if (e.khac && e.khac.trim().length > 0) return true;
+        return false;
     };
 
-    const unprocessed = entries.filter(e => !isProcessed(e.ketLuan));
-    const processed = entries.filter(e => isProcessed(e.ketLuan));
+    const unprocessed = entries.filter(e => !isProcessed(e));
+    const processed = entries.filter(e => isProcessed(e));
     
     // Sort unprocessed ascending
     unprocessed.sort((a, b) => (a.maTram || '').localeCompare(b.maTram || ''));
@@ -396,9 +412,16 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                                         </td>
                                         <td className="px-4 py-3 font-mono text-xs font-bold text-slate-700">{t.maTram}</td>
                                         <td className="px-4 py-3 font-medium text-slate-800">{t.tenDiemDo}</td>
-                                        <td className="px-4 py-3 text-xs">
-                                            <div className="text-slate-600"><span className="font-bold">TU:</span> {t.thongSoTU}</div>
-                                            <div className="text-slate-600"><span className="font-bold">TI:</span> {t.thongSoTI}</div>
+                                        <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">
+                                            {(t.thongSoTU?.trim() && t.thongSoTI?.trim() && t.thongSoTU.trim() === t.thongSoTI.trim()) ? (
+                                                <span className="font-bold">{t.thongSoTU.trim()}</span>
+                                            ) : (
+                                                <div className="flex flex-col gap-0.5">
+                                                    {t.thongSoTU?.trim() ? <div><span className="font-bold">TU:</span> {t.thongSoTU.trim()}</div> : null}
+                                                    {t.thongSoTI?.trim() ? <div><span className="font-bold">TI:</span> {t.thongSoTI.trim()}</div> : null}
+                                                    {!t.thongSoTU?.trim() && !t.thongSoTI?.trim() ? <span className="text-slate-400">Chưa có</span> : null}
+                                                </div>
+                                            )}
                                         </td>
                                         <td className="px-4 py-2">
                                             {isEditing ? (
@@ -482,12 +505,14 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                     <table className="w-full text-sm text-left relative border-collapse">
                         <thead className="bg-slate-50 text-[11px] uppercase font-bold text-slate-500 sticky top-0 z-20 shadow-sm divide-x divide-slate-100">
                             <tr>
+                                <th className="px-4 py-3 text-center sticky left-0 z-20 bg-slate-50 border-r border-slate-100 shadow-[1px_0_0_0_#f1f5f9] w-[100px]">Thao tác</th>
                                 <th className="px-4 py-3 whitespace-nowrap bg-slate-50">Mã trạm</th>
                                 <th className="px-4 py-3 min-w-[200px] bg-slate-50">Tên điểm đo</th>
                                 <th className="px-4 py-3 min-w-[150px] bg-slate-50">Thông số TU/TI</th>
-                                <th className="px-4 py-3 min-w-[150px] bg-slate-50">Kết quả kiểm tra</th>
+                                <th className="px-4 py-3 min-w-[150px] bg-slate-50">Kiểm tra TU</th>
+                                <th className="px-4 py-3 min-w-[150px] bg-slate-50">Kiểm tra TI</th>
                                 <th className="px-4 py-3 min-w-[150px] bg-slate-50">Khác</th>
-                                <th className="px-4 py-3 text-center bg-slate-50">Kết luận</th>
+                                <th className="px-4 py-3 min-w-[120px] bg-slate-50">Kết luận</th>
                                 <th className="px-4 py-3 whitespace-nowrap bg-slate-50">Người đưa lên</th>
                                 <th className="px-4 py-3 whitespace-nowrap bg-slate-50">Ngày đưa lên</th>
                                 <th className="px-4 py-3 whitespace-nowrap bg-slate-50">Người kiểm tra</th>
@@ -497,29 +522,71 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                         <tbody className="divide-y divide-slate-100">
                             {filteredProcessed.length === 0 ? (
                                 <tr>
-                                    <td colSpan={10} className="px-4 py-12 text-center text-slate-500">
+                                    <td colSpan={11} className="px-4 py-12 text-center text-slate-500">
                                         Chưa có biên bản nào được xử lý hoặc không khớp tìm kiếm.
                                     </td>
                                 </tr>
-                            ) : filteredProcessed.map((t) => (
+                            ) : filteredProcessed.map((t) => {
+                                const isEditing = editingId === t.id;
+                                return (
                                 <tr key={t.id} className="hover:bg-slate-50 transition-colors">
+                                    <td className="px-4 py-2 text-center sticky left-0 z-10 bg-white/90 backdrop-blur border-r border-slate-100 group-hover:bg-slate-50 transition-colors">
+                                        {isEditing ? (
+                                            <button onClick={() => handleSaveEdit(t.id)} className="bg-indigo-100 hover:bg-indigo-200 text-indigo-700 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors">
+                                                Lưu
+                                            </button>
+                                        ) : canEditTuti ? (
+                                            <button onClick={() => handleStartEdit(t)} className="text-slate-400 hover:text-indigo-600 p-1.5 rounded-full hover:bg-indigo-50 transition-colors">
+                                                <Edit2 className="w-4 h-4" />
+                                            </button>
+                                        ) : null}
+                                    </td>
                                     <td className="px-4 py-3 font-mono text-xs font-bold text-slate-700">{t.maTram}</td>
                                     <td className="px-4 py-3 font-medium text-slate-800">{t.tenDiemDo}</td>
-                                    <td className="px-4 py-3 text-xs">
-                                        <div className="text-slate-600"><span className="font-bold">TU:</span> {t.thongSoTU}</div>
-                                        <div className="text-slate-600"><span className="font-bold">TI:</span> {t.thongSoTI}</div>
+                                    <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">
+                                        {(t.thongSoTU?.trim() && t.thongSoTI?.trim() && t.thongSoTU.trim() === t.thongSoTI.trim()) ? (
+                                            <span className="font-bold">{t.thongSoTU.trim()}</span>
+                                        ) : (
+                                            <div className="flex flex-col gap-0.5">
+                                                {t.thongSoTU?.trim() ? <div><span className="font-bold">TU:</span> {t.thongSoTU.trim()}</div> : null}
+                                                {t.thongSoTI?.trim() ? <div><span className="font-bold">TI:</span> {t.thongSoTI.trim()}</div> : null}
+                                                {!t.thongSoTU?.trim() && !t.thongSoTI?.trim() ? <span className="text-slate-400">Chưa có</span> : null}
+                                            </div>
+                                        )}
                                     </td>
-                                    <td className="px-4 py-2 text-xs">
-                                        <div className="text-slate-600"><span className="font-bold">TU:</span> {t.kiemTraTU}</div>
-                                        <div className="text-slate-600"><span className="font-bold">TI:</span> {t.kiemTraTI}</div>
+                                    <td className="px-4 py-2">
+                                        {isEditing ? (
+                                            <input value={editData.kiemTraTU || ''} onChange={e => setEditData({...editData, kiemTraTU: e.target.value})} className="w-full text-xs p-1.5 border border-indigo-300 focus:ring-1 focus:ring-indigo-500 rounded bg-indigo-50/30" />
+                                        ) : (
+                                            <span className="text-slate-600">{t.kiemTraTU}</span>
+                                        )}
                                     </td>
-                                    <td className="px-4 py-2 text-slate-600 text-xs">
-                                        {t.khac}
+                                    <td className="px-4 py-2">
+                                        {isEditing ? (
+                                            <input value={editData.kiemTraTI || ''} onChange={e => setEditData({...editData, kiemTraTI: e.target.value})} className="w-full text-xs p-1.5 border border-indigo-300 focus:ring-1 focus:ring-indigo-500 rounded bg-indigo-50/30" />
+                                        ) : (
+                                            <span className="text-slate-600">{t.kiemTraTI}</span>
+                                        )}
                                     </td>
-                                    <td className="px-4 py-2 text-center">
-                                        <span className={`inline-flex items-center justify-center px-2 py-1 rounded-md text-[11px] font-black uppercase ${t.ketLuan?.toLowerCase() === 'sai' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                                            {t.ketLuan}
-                                        </span>
+                                    <td className="px-4 py-2">
+                                        {isEditing ? (
+                                            <input value={editData.khac || ''} onChange={e => setEditData({...editData, khac: e.target.value})} className="w-full text-xs p-1.5 border border-indigo-300 focus:ring-1 focus:ring-indigo-500 rounded bg-indigo-50/30" />
+                                        ) : (
+                                            <span className="text-slate-600">{t.khac}</span>
+                                        )}
+                                    </td>
+                                    <td className="px-4 py-2">
+                                        {isEditing ? (
+                                            <select value={editData.ketLuan || ''} onChange={e => setEditData({...editData, ketLuan: e.target.value})} className="w-full text-xs p-1.5 border border-indigo-300 focus:ring-1 focus:ring-indigo-500 rounded bg-indigo-50/30 font-bold">
+                                                <option value="">- Chọn -</option>
+                                                <option value="Đúng">Đúng</option>
+                                                <option value="Sai">Sai</option>
+                                            </select>
+                                        ) : (
+                                            <span className={`inline-flex items-center justify-center px-2 py-1 rounded-md text-[11px] font-black uppercase ${t.ketLuan?.toLowerCase() === 'sai' ? 'bg-red-100 text-red-700' : t.ketLuan ? 'bg-green-100 text-green-700' : 'text-slate-400 bg-slate-100'}`}>
+                                                {t.ketLuan || 'Chưa có'}
+                                            </span>
+                                        )}
                                     </td>
                                     <td className="px-4 py-2 text-xs font-bold text-slate-600 whitespace-nowrap">
                                         {t.nguoiDuaLen}
@@ -534,7 +601,8 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                                         <div className="flex items-center gap-1"><Calendar className="w-3 h-3 opacity-70" /> {formatDate(t.ngayCapNhat)}</div>
                                     </td>
                                 </tr>
-                            ))}
+                            );
+                            })}
                         </tbody>
                     </table>
                 </div>

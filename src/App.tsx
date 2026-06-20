@@ -146,7 +146,13 @@ export default function App() {
       
       // Calculate tuti stats
       const tutiEntries = DataStore.getTutiEntries();
-      const unprocessed = tutiEntries.filter(e => !e.ketLuan || (e.ketLuan !== 'Đúng' && e.ketLuan !== 'Sai'));
+      const unprocessed = tutiEntries.filter(e => {
+        if (e.ketLuan && e.ketLuan.trim().length > 0) return false;
+        if (e.kiemTraTU && e.kiemTraTU.trim().length > 0) return false;
+        if (e.kiemTraTI && e.kiemTraTI.trim().length > 0) return false;
+        if (e.khac && e.khac.trim().length > 0) return false;
+        return true;
+      });
       setTutiUnprocessedCount(unprocessed.length);
     }
   }, [refreshToggle, isManagement]);
