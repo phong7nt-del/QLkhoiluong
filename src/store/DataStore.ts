@@ -1,4 +1,5 @@
 import Papa from 'papaparse';
+import { get, set } from 'idb-keyval';
 
 export interface Station {
   id: string; // Mã trạm
@@ -69,24 +70,54 @@ let memCacheMatKetNoiList: any[] | null = null;
 let memCacheChiTietMKNList: any[] | null = null;
 let memCacheSangTaiList: any[] | null = null;
 
-const safeSetItem = (key: string, value: string) => {
-    try {
-        localStorage.setItem(key, value);
-    } catch (e) {
-        console.warn('localStorage quota exceeded for key:', key);
+let memoryCache: Record<string, string | null> = {};
+
+export const initDB = async () => {
+    const keys = [
+      STORAGE_KEY, SCRIPT_URL_KEY, TEAMS_KEY, MEMBERS_KEY, STATIONS_KEY,
+      DINHMUC_KEY, PROGRESS_KEY, LOCAL_PROGRESS_UPDATES_KEY, TUTI_KEY,
+      LOCAL_TUTI_UPDATES_KEY, 'sheet_khuvuc_v1', 'sheet_matketnoi_v1',
+      'sheet_chitietmkn_v1', 'sheet_sangtai_v1'
+    ];
+    for (const key of keys) {
+      let val = await get(key);
+      if (val === undefined) {
+         const lsVal = localStorage.getItem(key);
+         if (lsVal) {
+             val = lsVal;
+             try { await set(key, val); } catch (e) {} 
+         }
+      }
+      memoryCache[key] = val || null;
     }
 };
 
+const safeSetItem = (key: string, value: string) => {
+    memoryCache[key] = value;
+    set(key, value).then(() => {
+        try { localStorage.removeItem(key); } catch (e) {} // Clean up old copies
+    }).catch(e => console.warn('IDB quota exceeded for key', key));
+};
+
+const safeGetItem = (key: string): string | null => {
+    // Check if we have it in memCache, if not, try to read from localStorage gracefully just in case
+    if (memoryCache[key] !== undefined) return memoryCache[key];
+    try {
+        return localStorage.getItem(key);
+    } catch { return null; }
+};
+
 export const DataStore = {
+  initDB: initDB,
   getAppScriptUrl: () => { 
-      const url = localStorage.getItem(SCRIPT_URL_KEY);
+      const url = safeGetItem(SCRIPT_URL_KEY);
       return url ? url.trim() : 'https://script.google.com/macros/s/AKfycbyDCcu4I8yfT1g2KOHCRoaDtMMb1gLvfxhP4HJkzFYbqNIg1TSXCyi2HS3D7hDYpInVxQ/exec';
   },
-  setAppScriptUrl: (url: string) => localStorage.setItem(SCRIPT_URL_KEY, url),
+  setAppScriptUrl: (url: string) => safeSetItem(SCRIPT_URL_KEY, url),
 
   getEntries: (): WorkloadEntry[] => {
     try {
-      const data = localStorage.getItem(STORAGE_KEY);
+      const data = safeGetItem(STORAGE_KEY);
       if (data) {
         const parsed = JSON.parse(data);
         if (parsed) {
@@ -527,106 +558,108 @@ export const DataStore = {
             }
 
             // Fetch TUTI via CSV
-            try {
-               const tutiRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("TUTI")}&_t=${new Date().getTime()}`);
-               const tutiText = await tutiRes.text();
-               if (!tutiText.includes('<html') && tutiText.trim()) {
-                   const { data: tutiData } = Papa.parse(tutiText, { header: true });
-                   const tutiList: TutiEntry[] = [];
-                   let index = 0;
-                   for (const row of tutiData as any[]) {
-                       index++;
-                       if (!row || Object.keys(row).length === 0) continue;
-                       const getVal = (opts: string[]) => {
-                           const cleanVal = (v: string) => {
-                               if (!v) return v;
-                               if (v.includes('GMT+') || v.includes('Indochina Time') || v.match(/^[a-zA-Z]{3} [a-zA-Z]{3} \d{1,2} \d{4}/)) {
-                                   const d = new Date(v);
-                                   if (!isNaN(d.getTime())) {
-                                       return `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getFullYear()}`;
-                                   }
-                               }
-                               return v;
-                           };
-                           for (const k of Object.keys(row)) {
-                               const normalizedK = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
-                               if (opts.some(opt => {
-                                   const normalizedOpt = opt.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
-                                   return normalizedK === normalizedOpt;
-                               })) {
-                                   let v = row[k] ? String(row[k]) : '';
-                                   if (v.startsWith("'")) v = v.substring(1);
-                                   return cleanVal(v);
-                               }
-                           }
-                           for (const k of Object.keys(row)) {
-                               const normalizedK = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
-                               if (opts.some(opt => {
-                                   const normalizedOpt = opt.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
-                                   return normalizedOpt.length > 3 && normalizedK.includes(normalizedOpt) && !normalizedK.includes('kiemtra');
-                               })) {
-                                   let v = row[k] ? String(row[k]) : '';
-                                   if (v.startsWith("'")) v = v.substring(1);
-                                   return cleanVal(v);
-                               }
-                           }
-                           return '';
-                       };
-                       
-                       const formatIfDateCSV = (dStr: string) => {
-                           if (!dStr) return '';
-                           const slashParts = dStr.split('/');
-                           if (slashParts.length === 3) {
-                                const day = slashParts[0].padStart(2, '0');
-                                const month = slashParts[1].padStart(2, '0');
-                                let year = slashParts[2];
-                                if (year.length === 2) year = '20' + year;
-                                return `${day}/${month}/${year}`;
-                           }
-                           const d = new Date(dStr);
-                           if (!isNaN(d.getTime()) && (dStr.includes('T') || dStr.includes('GMT') || dStr.includes('Z') || dStr.match(/^[a-zA-Z]{3,}/))) {
-                               return [
-                                   d.getDate().toString().padStart(2, '0'),
-                                   (d.getMonth() + 1).toString().padStart(2, '0'),
-                                   d.getFullYear()
-                               ].join('/');
-                           }
-                           return dStr;
-                       };
-
-                       const normalizeKetLuanCSV = (k: string) => {
-                           if (!k) return '';
-                           const clean = k.trim().toLowerCase();
-                           if (clean === 'đúng') return 'Đúng';
-                           if (clean === 'sai') return 'Sai';
-                           return clean ? k.trim() : '';
-                       };
-
-                       const maTram = getVal(['mã trạm']);
-                       const tenDiemDo = getVal(['tên điểm đo']);
-                       if (maTram || tenDiemDo) {
-                          tutiList.push({
-                              id: `${maTram.trim()}-${tenDiemDo.trim()}-${index}`.replace(/\s+/g, '-').toLowerCase(),
-                              maTram: maTram,
-                              tenDiemDo: tenDiemDo,
-                              thongSoTU: getVal(['thông số tu', 'tu', 't.u', 'thong_so_tu', 'thong so tu', 'tỷ số tu', 'thông số tu/ti', 'thong so tu/ti']),
-                              thongSoTI: getVal(['thông số ti', 'ti', 't.i', 'thong_so_ti', 'thong so ti', 'tỷ số ti', 'thông số tu/ti', 'thong so tu/ti']),
-                              kiemTraTU: getVal(['kiểm tra tu']),
-                              kiemTraTI: getVal(['kiểm tra ti']),
-                              khac: getVal(['khác']),
-                              ketLuan: normalizeKetLuanCSV(getVal(['kết luận'])),
-                              ngayCapNhat: formatIfDateCSV(getVal(['ngày cập nhật'])),
-                              ngayDuaLen: formatIfDateCSV(getVal(['ngày đưa lên'])),
-                              nguoiDuaLen: getVal(['người đưa lên']),
-                              nguoiKiemTra: getVal(['người kiểm tra']),
-                          });
-                       }
-                   }
-                   console.log('TUTI CSV Fetched successfully, rows:', tutiList.length);
-                   safeSetItem(TUTI_KEY, JSON.stringify(tutiList));
+            if (!json.tuti || json.tuti.length === 0) {
+               try {
+                  const tutiRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("TUTI")}&_t=${new Date().getTime()}`);
+                  const tutiText = await tutiRes.text();
+                  if (!tutiText.includes('<html') && tutiText.trim()) {
+                      const { data: tutiData } = Papa.parse(tutiText, { header: true });
+                      const tutiList: TutiEntry[] = [];
+                      let index = 0;
+                      for (const row of tutiData as any[]) {
+                          index++;
+                          if (!row || Object.keys(row).length === 0) continue;
+                          const getVal = (opts: string[]) => {
+                              const cleanVal = (v: string) => {
+                                  if (!v) return v;
+                                  if (v.includes('GMT+') || v.includes('Indochina Time') || v.match(/^[a-zA-Z]{3} [a-zA-Z]{3} \d{1,2} \d{4}/)) {
+                                      const d = new Date(v);
+                                      if (!isNaN(d.getTime())) {
+                                          return `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getFullYear()}`;
+                                      }
+                                  }
+                                  return v;
+                              };
+                              for (const k of Object.keys(row)) {
+                                  let normalizedK = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
+                                  if (opts.some(opt => {
+                                      let normalizedOpt = opt.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
+                                      return normalizedK === normalizedOpt;
+                                  })) {
+                                      let v = row[k] ? String(row[k]) : '';
+                                      if (v.startsWith("'")) v = v.substring(1);
+                                      return cleanVal(v);
+                                  }
+                              }
+                              for (const k of Object.keys(row)) {
+                                  let normalizedK = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
+                                  if (opts.some(opt => {
+                                      let normalizedOpt = opt.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
+                                      return normalizedOpt.length > 3 && normalizedK.includes(normalizedOpt) && !normalizedK.includes('kiemtra');
+                                  })) {
+                                      let v = row[k] ? String(row[k]) : '';
+                                      if (v.startsWith("'")) v = v.substring(1);
+                                      return cleanVal(v);
+                                  }
+                              }
+                              return '';
+                          };
+                          
+                          const formatIfDateCSV = (dStr: string) => {
+                              if (!dStr) return '';
+                              const slashParts = dStr.split('/');
+                              if (slashParts.length === 3) {
+                                   const day = slashParts[0].padStart(2, '0');
+                                   const month = slashParts[1].padStart(2, '0');
+                                   let year = slashParts[2];
+                                   if (year.length === 2) year = '20' + year;
+                                   return `${day}/${month}/${year}`;
+                              }
+                              const d = new Date(dStr);
+                              if (!isNaN(d.getTime()) && (dStr.includes('T') || dStr.includes('GMT') || dStr.includes('Z') || dStr.match(/^[a-zA-Z]{3,}/))) {
+                                  return [
+                                      d.getDate().toString().padStart(2, '0'),
+                                      (d.getMonth() + 1).toString().padStart(2, '0'),
+                                      d.getFullYear()
+                                  ].join('/');
+                              }
+                              return dStr;
+                          };
+  
+                          const normalizeKetLuanCSV = (k: string) => {
+                              if (!k) return '';
+                              const clean = k.trim().toLowerCase();
+                              if (clean === 'đúng') return 'Đúng';
+                              if (clean === 'sai') return 'Sai';
+                              return clean ? k.trim() : '';
+                          };
+  
+                          const maTram = getVal(['mã trạm']);
+                          const tenDiemDo = getVal(['tên điểm đo']);
+                          if (maTram || tenDiemDo) {
+                             tutiList.push({
+                                 id: `${maTram.trim()}-${tenDiemDo.trim()}-${index}`.replace(/\s+/g, '-').toLowerCase(),
+                                 maTram: maTram,
+                                 tenDiemDo: tenDiemDo,
+                                 thongSoTU: getVal(['thông số tu', 'tu', 't.u', 'thong_so_tu', 'thong so tu', 'tỷ số tu', 'thông số tu/ti', 'thong so tu/ti', 'tu/ti', 'tu / ti']),
+                                 thongSoTI: getVal(['thông số ti', 'ti', 't.i', 'thong_so_ti', 'thong so ti', 'tỷ số ti', 'thông số tu/ti', 'thong so tu/ti', 'tu/ti', 'tu / ti']),
+                                 kiemTraTU: getVal(['kiểm tra tu']),
+                                 kiemTraTI: getVal(['kiểm tra ti']),
+                                 khac: getVal(['khác']),
+                                 ketLuan: normalizeKetLuanCSV(getVal(['kết luận'])),
+                                 ngayCapNhat: formatIfDateCSV(getVal(['ngày cập nhật'])),
+                                 ngayDuaLen: formatIfDateCSV(getVal(['ngày đưa lên'])),
+                                 nguoiDuaLen: getVal(['người đưa lên']),
+                                 nguoiKiemTra: getVal(['người kiểm tra']),
+                             });
+                          }
+                      }
+                      console.log('TUTI CSV Fetched successfully, rows:', tutiList.length);
+                      safeSetItem(TUTI_KEY, JSON.stringify(tutiList));
+                  }
+               } catch (e) {
+                  console.error('Error fetching TUTI', e);
                }
-            } catch (e) {
-               console.error('Error fetching TUTI', e);
             }
 
             // Fetch MatKetNoi
@@ -841,8 +874,8 @@ export const DataStore = {
                 id: `${getTutiVal(item, ['maTram', 'mã trạm']).trim()}-${getTutiVal(item, ['tenDiemDo', 'tên điểm đo']).trim()}-${index}`.replace(/\s+/g, '-').toLowerCase(),
                 maTram: getTutiVal(item, ['maTram', 'mã trạm']),
                 tenDiemDo: getTutiVal(item, ['tenDiemDo', 'tên điểm đo']),
-                thongSoTU: getTutiVal(item, ['thongSoTU', 'thông số tu', 'tu', 't.u', 'thong_so_tu', 'thong so tu', 'tỷ số tu', 'tỷ số biến tu', 'ty so tu', 'Thông số TU', 'Thông số Tu', 'Thong so Tu', 'Thông số TU/TI', 'Thông số Tu/TI']),
-                thongSoTI: getTutiVal(item, ['thongSoTI', 'thông số ti', 'ti', 't.i', 'thong_so_ti', 'thong so ti', 'tỷ số ti', 'tỷ số biến ti', 'ty so ti', 'Thông số TI', 'Thông số Ti', 'Thong so Ti', 'Thông số TU/TI', 'Thông số Tu/TI']),
+                thongSoTU: getTutiVal(item, ['thongSoTU', 'thông số tu', 'tu', 't.u', 'thong_so_tu', 'thong so tu', 'tỷ số tu', 'tỷ số biến tu', 'ty so tu', 'Thông số TU', 'Thông số Tu', 'Thong so Tu', 'Thông số TU/TI', 'Thông số Tu/TI', 'tu/ti', 'TU/TI']),
+                thongSoTI: getTutiVal(item, ['thongSoTI', 'thông số ti', 'ti', 't.i', 'thong_so_ti', 'thong so ti', 'tỷ số ti', 'tỷ số biến ti', 'ty so ti', 'Thông số TI', 'Thông số Ti', 'Thong so Ti', 'Thông số TU/TI', 'Thông số Tu/TI', 'tu/ti', 'TU/TI']),
                 kiemTraTU: getTutiVal(item, ['kiemTraTU', 'kiểm tra tu']),
                 kiemTraTI: getTutiVal(item, ['kiemTraTI', 'kiểm tra ti']),
                 khac: getTutiVal(item, ['khac', 'khác']),
@@ -853,14 +886,26 @@ export const DataStore = {
                 nguoiKiemTra: getTutiVal(item, ['nguoiKiemTra', 'người kiểm tra'])
             }));
             safeSetItem(TUTI_KEY, JSON.stringify(formattedTuti));
-            // Wipe stuck local tuti entries when fetching new master data
-            localStorage.removeItem(LOCAL_TUTI_UPDATES_KEY);
+            // Keep local un-synced up to 1 hr
+            const localCached = safeGetItem(LOCAL_TUTI_UPDATES_KEY);
+            if (localCached) {
+                try {
+                    const localTasks = JSON.parse(localCached);
+                    const now = Date.now();
+                    const validLocal = localTasks.filter((t: any) => t.localTimestamp && (now - t.localTimestamp) < 60 * 60 * 1000);
+                    if (validLocal.length > 0) {
+                        safeSetItem(LOCAL_TUTI_UPDATES_KEY, JSON.stringify(validLocal));
+                    } else {
+                        safeSetItem(LOCAL_TUTI_UPDATES_KEY, "");
+                    }
+                } catch(e) { safeSetItem(LOCAL_TUTI_UPDATES_KEY, ""); }
+            }
          }
          if (json.matKetNoi) {
             safeSetItem('sheet_matketnoi_v1', JSON.stringify(json.matKetNoi));
          }
          
-         const localCached = localStorage.getItem(LOCAL_PROGRESS_UPDATES_KEY);
+         const localCached = safeGetItem(LOCAL_PROGRESS_UPDATES_KEY);
          if (localCached) {
              const localTasks: TaskProgress[] = JSON.parse(localCached);
              const now = Date.now();
@@ -868,7 +913,7 @@ export const DataStore = {
              if (validLocal.length > 0) {
                  safeSetItem(LOCAL_PROGRESS_UPDATES_KEY, JSON.stringify(validLocal));
              } else {
-                 localStorage.removeItem(LOCAL_PROGRESS_UPDATES_KEY);
+                 safeSetItem(LOCAL_PROGRESS_UPDATES_KEY, "");
              }
          }
          return true;
@@ -881,10 +926,10 @@ export const DataStore = {
 
   getTeams: (): string[] => {
     try {
-       const cached = localStorage.getItem(TEAMS_KEY);
+       const cached = safeGetItem(TEAMS_KEY);
        let teams = cached ? JSON.parse(cached) : [];
        if (!teams || teams.length === 0) {
-           const membersCached = localStorage.getItem(MEMBERS_KEY);
+           const membersCached = safeGetItem(MEMBERS_KEY);
            if (membersCached) {
                const members = JSON.parse(membersCached);
                const teamSet = new Set<string>();
@@ -898,14 +943,14 @@ export const DataStore = {
 
   getMembers: (): SheetMember[] => {
      try {
-       const cached = localStorage.getItem(MEMBERS_KEY);
+       const cached = safeGetItem(MEMBERS_KEY);
        return cached ? JSON.parse(cached) : [];
      } catch { return []; }
   },
 
   getStations: (): Station[] => {
      try {
-       const cached = localStorage.getItem(STATIONS_KEY);
+       const cached = safeGetItem(STATIONS_KEY);
        return cached ? JSON.parse(cached) : [];
      } catch { return []; }
   },
@@ -913,7 +958,7 @@ export const DataStore = {
   getMatKetNoi: (): any[] => {
      if (memCacheMatKetNoiList) return memCacheMatKetNoiList;
      try {
-       const cached = localStorage.getItem('sheet_matketnoi_v1');
+       const cached = safeGetItem('sheet_matketnoi_v1');
        return cached ? JSON.parse(cached) : [];
      } catch { return []; }
   },
@@ -921,7 +966,7 @@ export const DataStore = {
   getChiTietMKN: (): any[] => {
      if (memCacheChiTietMKNList) return memCacheChiTietMKNList;
      try {
-       const cached = localStorage.getItem('sheet_chitietmkn_v1');
+       const cached = safeGetItem('sheet_chitietmkn_v1');
        return cached ? JSON.parse(cached) : [];
      } catch { return []; }
   },
@@ -929,7 +974,7 @@ export const DataStore = {
   getKhuVuc: (): { MA_DDO: string; TO_QL: string }[] => {
      if (memCacheKhuVucList) return memCacheKhuVucList;
      try {
-       const cached = localStorage.getItem('sheet_khuvuc_v1');
+       const cached = safeGetItem('sheet_khuvuc_v1');
        return cached ? JSON.parse(cached) : [];
      } catch { return []; }
   },
@@ -937,24 +982,24 @@ export const DataStore = {
   getSangTai: (): any[] => {
      if (memCacheSangTaiList) return memCacheSangTaiList;
      try {
-       const cached = localStorage.getItem('sheet_sangtai_v1');
+       const cached = safeGetItem('sheet_sangtai_v1');
        return cached ? JSON.parse(cached) : [];
      } catch { return []; }
   },
 
   getDinhMuc: (): { name: string; quota: number; isGroup?: boolean }[] => {
      try {
-       const cached = localStorage.getItem(DINHMUC_KEY);
+       const cached = safeGetItem(DINHMUC_KEY);
        return cached ? JSON.parse(cached) : [];
      } catch { return []; }
   },
 
   getTasks: (): TaskProgress[] => {
      try {
-       const cached = localStorage.getItem(PROGRESS_KEY);
+       const cached = safeGetItem(PROGRESS_KEY);
        const remoteTasks: TaskProgress[] = cached ? JSON.parse(cached) : [];
        
-       const localCached = localStorage.getItem(LOCAL_PROGRESS_UPDATES_KEY);
+       const localCached = safeGetItem(LOCAL_PROGRESS_UPDATES_KEY);
        let localTasks: TaskProgress[] = localCached ? JSON.parse(localCached) : [];
        
        const remoteMap = new Map();
@@ -1015,7 +1060,7 @@ export const DataStore = {
   },
 
   addTask: (task: Omit<TaskProgress, 'id'>) => {
-     const localCached = localStorage.getItem(LOCAL_PROGRESS_UPDATES_KEY);
+     const localCached = safeGetItem(LOCAL_PROGRESS_UPDATES_KEY);
      const localTasks: TaskProgress[] = localCached ? JSON.parse(localCached) : [];
      const newTask: TaskProgress = {
         ...task,
@@ -1036,7 +1081,7 @@ export const DataStore = {
      
      const updatedTask = { ...task, status, isLocal: true, timestamp: Date.now() };
      
-     const localCached = localStorage.getItem(LOCAL_PROGRESS_UPDATES_KEY);
+     const localCached = safeGetItem(LOCAL_PROGRESS_UPDATES_KEY);
      const localTasks: TaskProgress[] = localCached ? JSON.parse(localCached) : [];
      
      const existingIndex = localTasks.findIndex(t => t.id === id);
@@ -1069,7 +1114,7 @@ export const DataStore = {
      
      const updatedTask = { ...task, explanation: updatedExplanation, isLocal: true, timestamp: Date.now() };
      
-     const localCached = localStorage.getItem(LOCAL_PROGRESS_UPDATES_KEY);
+     const localCached = safeGetItem(LOCAL_PROGRESS_UPDATES_KEY);
      const localTasks: TaskProgress[] = localCached ? JSON.parse(localCached) : [];
      
      const existingIndex = localTasks.findIndex(t => t.id === id);
@@ -1107,7 +1152,7 @@ export const DataStore = {
       if (result && result.status === 'success') {
          // Cập nhật lại MSNV trong local storage
          try {
-           const cached = localStorage.getItem('sheet_members_v1');
+           const cached = safeGetItem('sheet_members_v1');
            if (cached) {
              const members = JSON.parse(cached);
              const updated = members.map((m: any) => {
@@ -1224,10 +1269,10 @@ export const DataStore = {
 
   getTutiEntries: (): TutiEntry[] => {
      try {
-       const cached = localStorage.getItem(TUTI_KEY);
+       const cached = safeGetItem(TUTI_KEY);
        const remoteTasks: TutiEntry[] = cached ? JSON.parse(cached) : [];
        
-       const localCached = localStorage.getItem(LOCAL_TUTI_UPDATES_KEY);
+       const localCached = safeGetItem(LOCAL_TUTI_UPDATES_KEY);
        let localTasks: TutiEntry[] = [];
        if (localCached) {
            try {
@@ -1247,7 +1292,18 @@ export const DataStore = {
        
        // Priority to local tasks
        const mergedMap = new Map(remoteTasks.map(t => [t.id, t]));
-       localTasks.forEach(lt => mergedMap.set(lt.id, lt));
+       localTasks.forEach(lt => {
+           if (mergedMap.has(lt.id)) {
+               mergedMap.set(lt.id, lt);
+           } else {
+               const match = remoteTasks.find(r => r.maTram === lt.maTram && r.tenDiemDo === lt.tenDiemDo);
+               if (match) {
+                   mergedMap.set(match.id, { ...match, ...lt, id: match.id });
+               } else {
+                   mergedMap.set(lt.id, lt);
+               }
+           }
+       });
        
        return Array.from(mergedMap.values());
      } catch { return []; }
@@ -1298,7 +1354,7 @@ export const DataStore = {
   },
 
   addTutiEntry: async (entry: Omit<TutiEntry, 'id'>) => {
-     const localCached = localStorage.getItem(LOCAL_TUTI_UPDATES_KEY);
+     const localCached = safeGetItem(LOCAL_TUTI_UPDATES_KEY);
      let localTasks: TutiEntry[] = [];
      if(localCached) {
          try {
@@ -1311,31 +1367,19 @@ export const DataStore = {
      const newEntry: TutiEntry = {
         ...entry,
         id: `${entry.maTram.trim()}-${entry.tenDiemDo.trim()}-${Date.now()}`.replace(/\s+/g, '-').toLowerCase(),
-        isLocal: true
+        isLocal: true,
+        localTimestamp: Date.now()
      };
      localTasks.push(newEntry);
      safeSetItem(LOCAL_TUTI_UPDATES_KEY, JSON.stringify(localTasks));
      
      // Also update the main TUTI_KEY cache immediately
-     const cached = localStorage.getItem(TUTI_KEY);
+     const cached = safeGetItem(TUTI_KEY);
      const remoteTasks: TutiEntry[] = cached ? JSON.parse(cached) : [];
      remoteTasks.push(newEntry);
      safeSetItem(TUTI_KEY, JSON.stringify(remoteTasks));
 
-     const success = await DataStore.addTutiToSheet(newEntry);
-     if (success) {
-         // remove from local tasks if sync succeeds
-         const currentLocal = localStorage.getItem(LOCAL_TUTI_UPDATES_KEY);
-         let lt: TutiEntry[] = [];
-         if (currentLocal) {
-             try {
-                 lt = JSON.parse(currentLocal);
-                 if (!Array.isArray(lt)) lt = [];
-             } catch(e) { lt = []; }
-         }
-         lt = lt.filter(t => t.id !== newEntry.id);
-         safeSetItem(LOCAL_TUTI_UPDATES_KEY, JSON.stringify(lt));
-     }
+     DataStore.addTutiToSheet(newEntry);
      return newEntry;
   },
 
@@ -1344,9 +1388,10 @@ export const DataStore = {
      const entry = allEntries.find(t => t.id === id);
      if (!entry) return null;
      
-     const updatedEntry = { ...entry, ...updates, isLocal: true };
+     // Thêm timestamp để theo dõi local update
+     const updatedEntry = { ...entry, ...updates, isLocal: true, localTimestamp: Date.now() };
      
-     const localCached = localStorage.getItem(LOCAL_TUTI_UPDATES_KEY);
+     const localCached = safeGetItem(LOCAL_TUTI_UPDATES_KEY);
      let localTasks: TutiEntry[] = [];
      if(localCached) {
          try {
@@ -1363,11 +1408,15 @@ export const DataStore = {
      } else {
         localTasks.push(updatedEntry);
      }
-     safeSetItem(LOCAL_TUTI_UPDATES_KEY, JSON.stringify(localTasks));
+     
+     // Keep local cache up to 1 hour
+     const now = Date.now();
+     const validLocal = localTasks.filter(t => t.localTimestamp && (now - t.localTimestamp) < 60 * 60 * 1000);
+     safeSetItem(LOCAL_TUTI_UPDATES_KEY, JSON.stringify(validLocal));
 
      // Also update the main TUTI_KEY cache immediately,
      // so if sync removes it from LOCAL soon, it doesn't revert.
-     const cached = localStorage.getItem(TUTI_KEY);
+     const cached = safeGetItem(TUTI_KEY);
      const remoteTasks: TutiEntry[] = cached ? JSON.parse(cached) : [];
      const cachedIndex = remoteTasks.findIndex(t => t.id === id);
      if (cachedIndex > -1) {
@@ -1375,20 +1424,7 @@ export const DataStore = {
          safeSetItem(TUTI_KEY, JSON.stringify(remoteTasks));
      }
 
-     const success = await DataStore.syncTutiToSheet(updatedEntry);
-     if (success) {
-         // remove from local tasks if sync succeeds
-         const currentLocal = localStorage.getItem(LOCAL_TUTI_UPDATES_KEY);
-         let lt: TutiEntry[] = [];
-         if (currentLocal) {
-             try {
-                 lt = JSON.parse(currentLocal);
-                 if (!Array.isArray(lt)) lt = [];
-             } catch(e) { lt = []; }
-         }
-         lt = lt.filter(t => t.id !== updatedEntry.id);
-         safeSetItem(LOCAL_TUTI_UPDATES_KEY, JSON.stringify(lt));
-     }
+     DataStore.syncTutiToSheet(updatedEntry);
      return updatedEntry;
   },
 

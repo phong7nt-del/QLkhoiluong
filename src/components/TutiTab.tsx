@@ -413,14 +413,18 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                                         <td className="px-4 py-3 font-mono text-xs font-bold text-slate-700">{t.maTram}</td>
                                         <td className="px-4 py-3 font-medium text-slate-800">{t.tenDiemDo}</td>
                                         <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">
-                                            {(t.thongSoTU?.trim() && t.thongSoTI?.trim() && t.thongSoTU.trim() === t.thongSoTI.trim()) ? (
-                                                <span className="font-bold">{t.thongSoTU.trim()}</span>
+                                            {(t.thongSoTU || t.thongSoTI) ? (
+                                                t.thongSoTU === t.thongSoTI ? (
+                                                    <span className="font-bold">{t.thongSoTU}</span>
+                                                ) : (
+                                                    <span className="font-bold whitespace-nowrap">
+                                                        {t.thongSoTU ? `TU: ${t.thongSoTU}` : ''}
+                                                        {t.thongSoTU && t.thongSoTI ? '; ' : ''}
+                                                        {t.thongSoTI ? `TI: ${t.thongSoTI}` : ''}
+                                                    </span>
+                                                )
                                             ) : (
-                                                <div className="flex flex-col gap-0.5">
-                                                    {t.thongSoTU?.trim() ? <div><span className="font-bold">TU:</span> {t.thongSoTU.trim()}</div> : null}
-                                                    {t.thongSoTI?.trim() ? <div><span className="font-bold">TI:</span> {t.thongSoTI.trim()}</div> : null}
-                                                    {!t.thongSoTU?.trim() && !t.thongSoTI?.trim() ? <span className="text-slate-400">Chưa có</span> : null}
-                                                </div>
+                                                <span className="text-slate-400">Chưa có</span>
                                             )}
                                         </td>
                                         <td className="px-4 py-2">
@@ -544,14 +548,18 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                                     <td className="px-4 py-3 font-mono text-xs font-bold text-slate-700">{t.maTram}</td>
                                     <td className="px-4 py-3 font-medium text-slate-800">{t.tenDiemDo}</td>
                                     <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">
-                                        {(t.thongSoTU?.trim() && t.thongSoTI?.trim() && t.thongSoTU.trim() === t.thongSoTI.trim()) ? (
-                                            <span className="font-bold">{t.thongSoTU.trim()}</span>
+                                        {(t.thongSoTU || t.thongSoTI) ? (
+                                            t.thongSoTU === t.thongSoTI ? (
+                                                <span className="font-bold">{t.thongSoTU}</span>
+                                            ) : (
+                                                <span className="font-bold whitespace-nowrap">
+                                                    {t.thongSoTU ? `TU: ${t.thongSoTU}` : ''}
+                                                    {t.thongSoTU && t.thongSoTI ? '; ' : ''}
+                                                    {t.thongSoTI ? `TI: ${t.thongSoTI}` : ''}
+                                                </span>
+                                            )
                                         ) : (
-                                            <div className="flex flex-col gap-0.5">
-                                                {t.thongSoTU?.trim() ? <div><span className="font-bold">TU:</span> {t.thongSoTU.trim()}</div> : null}
-                                                {t.thongSoTI?.trim() ? <div><span className="font-bold">TI:</span> {t.thongSoTI.trim()}</div> : null}
-                                                {!t.thongSoTU?.trim() && !t.thongSoTI?.trim() ? <span className="text-slate-400">Chưa có</span> : null}
-                                            </div>
+                                            <span className="text-slate-400">Chưa có</span>
                                         )}
                                     </td>
                                     <td className="px-4 py-2">

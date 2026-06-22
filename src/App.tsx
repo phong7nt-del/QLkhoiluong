@@ -84,8 +84,14 @@ export const getSeasonTheme = () => {
 };
 
 export default function App() {
+  const [dbReady, setDbReady] = useState(false);
   const [activeTab, setActiveTab] = useState<"input" | "report" | "stations" | "analysis" | "progress" | "tuti" | "disconnect" | "sangtai">("input");
   const [refreshToggle, setRefreshToggle] = useState(0);
+
+  useEffect(() => {
+    DataStore.initDB().then(() => setDbReady(true));
+  }, []);
+
   const [showConfig, setShowConfig] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -157,6 +163,11 @@ export default function App() {
     }
   }, [refreshToggle, isManagement]);
 
+  const syncData = async () => {
+    await DataStore.syncMasterData();
+    setRefreshToggle(prev => prev + 1);
+  };
+
   // Initial Sync from URL & refresh listener
   useEffect(() => {
     const handleRefresh = () => setRefreshToggle(prev => prev + 1);
@@ -191,11 +202,6 @@ export default function App() {
 
     return () => window.removeEventListener('workload_updated', handleRefresh);
   }, []);
-
-  const syncData = async () => {
-    await DataStore.syncMasterData();
-    setRefreshToggle(prev => prev + 1);
-  };
 
   const showTaskAlert = () => {
       const today = new Date();
@@ -237,6 +243,8 @@ export default function App() {
      sessionStorage.removeItem('workload_user_session');
      setSessionUser(null);
   };
+
+  if (!dbReady) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div></div>;
 
   if (!sessionUser) {
      return <Login onLoginSuccess={handleLogin} />;

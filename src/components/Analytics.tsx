@@ -94,7 +94,7 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
 
   // Compute total tasks summary
   const summaryStats = useMemo(() => {
-    const finalStats: Record<string, number> = {};
+    const finalStats: Record<string, { total: number; isGroup: boolean }> = {};
     
     filteredEntries.forEach(e => {
         if (!e.content) return;
@@ -110,21 +110,46 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
               const cleanTaskName = normalize(taskName);
               
               let mappedTo = taskName;
+              let isGroup = false;
               if (dinhMucList && dinhMucList.length > 0) {
                   let exactDm = dinhMucList.find(d => normalize(d.name || '') === cleanTaskName);
-                  if (exactDm) mappedTo = exactDm.name;
+                  if (exactDm) {
+                      mappedTo = exactDm.name;
+                      isGroup = !!exactDm.isGroup;
+                  } else {
+                     let foundDm = dinhMucList.find(d => {
+                        const cleanDName = normalize(d.name || '');
+                        return cleanDName.includes(cleanTaskName) || cleanTaskName.includes(cleanDName);
+                     });
+                     if (foundDm) {
+                         mappedTo = foundDm.name;
+                         isGroup = !!foundDm.isGroup;
+                     }
+                  }
               }
 
               const qty = parseFloat(match[2].replace(',', '.'));
               if (!isNaN(qty)) {
-                  finalStats[mappedTo] = (finalStats[mappedTo] || 0) + (qty * membersCount);
+                  if (!finalStats[mappedTo]) {
+                      finalStats[mappedTo] = { total: 0, isGroup };
+                  }
+                  finalStats[mappedTo].total += (qty * membersCount);
               }
            }
         });
     });
 
-    return Object.entries(finalStats).sort((a, b) => b[1] - a[1]);
-  }, [filteredEntries]);
+    const result: [string, number][] = [];
+    Object.entries(finalStats).forEach(([name, data]) => {
+        let finalQty = data.total;
+        if (selectedMember === "all" && data.isGroup) {
+            finalQty = finalQty / 2;
+        }
+        result.push([name, Math.ceil(finalQty)]);
+    });
+
+    return result.sort((a, b) => b[1] - a[1]);
+  }, [filteredEntries, selectedMember, dinhMucList]);
 
   const renderContentWithQuota = (content: string, membersCount: number) => {
     if (!content) return null;
