@@ -359,7 +359,7 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
         const totalsContent: string[] = [];
         Object.values(data.taskTotals).forEach((t: any) => {
             const quotaDisplay = getQuotaDisplay(t.cleanName);
-            const formattedTotal = Math.round(t.totalQty * 100) / 100;
+            const formattedTotal = Math.ceil(t.totalQty);
             totalsContent.push(`- ${t.originalName}: ${formattedTotal} ${quotaDisplay}`);
         });
         

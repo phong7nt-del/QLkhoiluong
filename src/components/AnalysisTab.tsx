@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
 import { DataStore } from '../store/DataStore';
 import { format, parseISO, isSameWeek, isSameMonth, isToday } from 'date-fns';
-import { TrendingUp, Trophy, ArrowDown, Award, AlignLeft, BarChart3 } from 'lucide-react';
+import { TrendingUp, Trophy, ArrowDown, Award, AlignLeft, BarChart3, Download } from 'lucide-react';
+import * as XLSX from 'xlsx-js-style';
 
 export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }) {
   const [timeFilter, setTimeFilter] = useState<'day' | 'week' | 'month' | 'all'>('all');
@@ -292,6 +293,73 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
 
   console.log("AnalysisTab Debug:", { rawEntriesLength: rawEntries.length, entriesLength: entries.length, categoryStatsLength: categoryStats.length, teamOverviewLength: teamOverview.length });
 
+  const exportToExcel = () => {
+      if (memberOverview.length === 0 && teamOverview.length === 0) {
+          alert("Không có dữ liệu để xuất");
+          return;
+      }
+
+      const workbook = XLSX.utils.book_new();
+
+      const formatSheet = (worksheet: any) => {
+          Object.keys(worksheet).forEach(address => {
+             if (address === '!ref' || address === '!cols' || address === '!rows') return;
+             const cell = worksheet[address];
+             if (!cell) return;
+             
+             if (!cell.s) cell.s = {};
+             
+             if (address.match(/^[A-Z]+1$/)) {
+                 cell.s = {
+                     font: { bold: true, color: { rgb: "FFFFFF" } },
+                     fill: { fgColor: { rgb: "333333" } },
+                     alignment: { horizontal: "center", vertical: "center" }
+                 };
+             } else {
+                 cell.s = { alignment: { vertical: "top" } };
+             }
+             
+             cell.s.border = {
+                 top: { style: "thin", color: { auto: 1 } },
+                 bottom: { style: "thin", color: { auto: 1 } },
+                 left: { style: "thin", color: { auto: 1 } },
+                 right: { style: "thin", color: { auto: 1 } }
+             };
+          });
+      };
+
+      // 1. Sheet Tổ
+      if (teamOverview.length > 0) {
+          const teamData = teamOverview.map((t, index) => ({
+              "Hạng": index + 1,
+              "Tổ": t.team,
+              "Chu kỳ (ngày)": t.daysWorkedCount,
+              "Năng suất (%)": Number(t.productivityPercent.toFixed(1))
+          }));
+          const teamSheet = XLSX.utils.json_to_sheet(teamData);
+          teamSheet['!cols'] = [{ wch: 10 }, { wch: 30 }, { wch: 15 }, { wch: 15 }];
+          formatSheet(teamSheet);
+          XLSX.utils.book_append_sheet(workbook, teamSheet, "NangSuat_To");
+      }
+
+      // 2. Sheet Cá nhân
+      if (memberOverview.length > 0) {
+          const memberData = memberOverview.map((m, index) => ({
+              "Hạng": index + 1,
+              "Cá nhân": m.member,
+              "Chu kỳ (ngày)": m.daysWorkedCount,
+              "Định mức": Number(m.totalStandardDays.toFixed(1)),
+              "Năng suất (%)": Number(m.productivityPercent.toFixed(1))
+          }));
+          const memberSheet = XLSX.utils.json_to_sheet(memberData);
+          memberSheet['!cols'] = [{ wch: 10 }, { wch: 30 }, { wch: 15 }, { wch: 15 }, { wch: 15 }];
+          formatSheet(memberSheet);
+          XLSX.utils.book_append_sheet(workbook, memberSheet, "NangSuat_CaNhan");
+      }
+
+      XLSX.writeFile(workbook, "PhanTichNangSuat.xlsx");
+  };
+
   return (
     <div className="space-y-6">
       <div className="border border-[#141414] bg-white p-6 shadow-[4px_4px_0_#141414] lg:py-8 lg:px-10">
@@ -361,6 +429,15 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
                   className="px-3 py-1.5 text-sm border border-[#141414] focus:outline-none focus:ring-1 focus:ring-[#141414]"
                 />
              )}
+           </div>
+
+           <div className="ml-auto">
+             <button 
+                onClick={exportToExcel}
+                className="text-[10px] bg-green-600 text-white px-3 py-2 uppercase font-bold tracking-widest hover:bg-green-700 transition-all flex items-center gap-1.5 border border-green-800"
+             >
+                <Download className="w-3 h-3" /> Xuất Excel
+             </button>
            </div>
         </div>
         
