@@ -133,7 +133,20 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
                   if (!finalStats[mappedTo]) {
                       finalStats[mappedTo] = { total: 0, isGroup };
                   }
-                  finalStats[mappedTo].total += (qty * membersCount);
+                  
+                  if (selectedMember === "all") {
+                      if (isGroup) {
+                          finalStats[mappedTo].total += qty;
+                      } else {
+                          finalStats[mappedTo].total += (qty * membersCount);
+                      }
+                  } else {
+                      if (isGroup) {
+                          finalStats[mappedTo].total += (qty / membersCount);
+                      } else {
+                          finalStats[mappedTo].total += qty;
+                      }
+                  }
               }
            }
         });
@@ -142,9 +155,6 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
     const result: [string, number][] = [];
     Object.entries(finalStats).forEach(([name, data]) => {
         let finalQty = data.total;
-        if (selectedMember === "all" && data.isGroup) {
-            finalQty = finalQty / 2;
-        }
         result.push([name, Math.ceil(finalQty)]);
     });
 
@@ -184,11 +194,15 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
 
           const quotaStr = dm ? String(dm.quota).replace(/,/g, '.') : "0";
           const quota = parseFloat(quotaStr) || 0;
+          const isGroup = dm ? !!dm.isGroup : false;
           
           let nsPercent = 0;
           let quotaDisplay = "";
 
-          const qtyPerMember = qty;
+          let qtyPerMember = qty;
+          if (isGroup && membersCount > 0) {
+              qtyPerMember = qty / membersCount;
+          }
 
           if (cleanMatchedName === 'khác') {
               nsPercent = (qtyPerMember / 1) * 100;
@@ -271,7 +285,22 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
                 const cleanTaskName = normalize(taskName);
                 const totalQty = parseFloat(match[2].replace(',', '.'));
                 
-                const qtyPerMember = totalQty;
+                let isGroup = false;
+                const exactDm = dinhMucList.find(d => normalize(d.name || '') === cleanTaskName);
+                if (exactDm) {
+                    isGroup = !!exactDm.isGroup;
+                } else {
+                    const foundDm = dinhMucList.find(d => {
+                        const cleanDName = normalize(d.name || '');
+                        return cleanDName.includes(cleanTaskName) || cleanTaskName.includes(cleanDName);
+                    });
+                    if (foundDm) isGroup = !!foundDm.isGroup;
+                }
+                
+                let qtyPerMember = totalQty;
+                if (isGroup && membersCount > 0) {
+                    qtyPerMember = totalQty / membersCount;
+                }
                 
                 return { isTask: true, taskName, cleanTaskName, qty: qtyPerMember, rawLine: cleanLine };
             }

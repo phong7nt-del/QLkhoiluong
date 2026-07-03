@@ -222,19 +222,18 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
            
            const quotaStr = dm ? String(dm.quota).replace(/,/g, '.') : "0";
            const quota = parseFloat(quotaStr) || 0;
+           const isGroup = dm ? !!dm.isGroup : false;
            
-           // Số liệu làm cho 1 nhóm đều tính cho từng người
-           const qtyPerMember = qty;
+           // Năng suất cá nhân: Giữ nguyên khối lượng nhóm cho mỗi người
+           let qtyPerMember = qty;
            
            members.forEach(m => {
                if (cleanMatchedName === 'khác') {
-                   // Khác assumes 1 unit = 1 day (100% per unit)
                    stats[m].totalStandardDays += (qtyPerMember / 1);
                } else if (quota > 0) {
-                   // Cộng % năng suất (khối lượng / định mức 1 ngày) của từng việc trong ngày
                    stats[m].totalStandardDays += (qtyPerMember / quota);
                } else {
-                   stats[m].totalStandardDays += (qtyPerMember * 0.05); // Default tiny amount for un-quota tasks
+                   stats[m].totalStandardDays += (qtyPerMember * 0.05); 
                }
            });
         });
@@ -255,18 +254,104 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
   // Thống kê tổng quan năng suất Tổ based on its members
   const teamOverview = useMemo(() => {
       const allMembersData = DataStore.getMembers();
+      
+      // Calculate member stats with division for group tasks
+      const teamMemberStats: Record<string, { member: string; daysWorked: Set<string>; totalStandardDays: number }> = {};
+      
+      entries.forEach(e => {
+        let mbrTokens = e.members || (e as any).workGroup || [];
+        if (typeof mbrTokens === 'string') mbrTokens = [mbrTokens];
+        const members = (Array.isArray(mbrTokens) && mbrTokens.length > 0) ? mbrTokens : ['Khuyết danh'];
+        const date = e.date;
+        
+        members.forEach(m => {
+            if (!teamMemberStats[m]) {
+                teamMemberStats[m] = { member: m, daysWorked: new Set(), totalStandardDays: 0 };
+            }
+            if (date) teamMemberStats[m].daysWorked.add(date);
+        });
+        
+        const lines = (e.content || '').split(/\n/).map(l => {
+           let clean = l.trim();
+           if (clean.startsWith('-')) clean = clean.substring(1).trim();
+           return clean;
+        }).filter(l => l.length > 0 && !l.toLowerCase().includes('phát hiện:'));
+        
+        lines.forEach(line => {
+           let qty = 1;
+           let itemContent = line;
+           const kvMatch = line.match(/^(.+?):\s*([\d.,]+)$/);
+           const qtyMatch = line.match(/^([\d.,]+)\s+(.+)$/);
+           const oldQtyMatch = line.match(/^(\d+)\s+/);
+           if (kvMatch) {
+              itemContent = kvMatch[1].trim();
+              const parsed = parseFloat(kvMatch[2].replace(',', '.'));
+              if (!isNaN(parsed) && parsed > 0 && parsed <= 9999) qty = parsed;
+           } else if (qtyMatch) {
+              const parsed = parseFloat(qtyMatch[1].replace(',', '.'));
+              if (!isNaN(parsed) && parsed > 0 && parsed <= 9999) qty = parsed;
+              itemContent = qtyMatch[2].trim();
+           } else if (oldQtyMatch) {
+              const parsed = parseInt(oldQtyMatch[1], 10);
+              if (!isNaN(parsed) && parsed > 0 && parsed <= 9999) qty = parsed;
+           }
+           let matchedName = 'Khác';
+           const cleanItemContent = (itemContent || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+           let exactDm = dinhMucList.find(d => {
+               const cleanDName = (d.name || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+               return cleanDName === cleanItemContent;
+           });
+           if (exactDm) {
+               matchedName = exactDm.name;
+           } else {
+               const foundDm = dinhMucList.find(d => {
+                   const cleanDName = (d.name || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+                   return cleanDName.includes(cleanItemContent) || cleanItemContent.includes(cleanDName);
+               });
+               if (foundDm) matchedName = foundDm.name;
+           }
+           const cleanMatchedName = matchedName.normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+           const dm = dinhMucList.find(d => {
+               const cleanDName = (d.name || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+               return cleanDName === cleanMatchedName;
+           });
+           const quotaStr = dm ? String(dm.quota).replace(/,/g, '.') : "0";
+           const quota = parseFloat(quotaStr) || 0;
+           const isGroup = dm ? !!dm.isGroup : false;
+           
+           // Năng suất Tổ: Chia đều khối lượng nhóm cho số người
+           let qtyPerMember = qty;
+           if (isGroup && members.length > 0) {
+               qtyPerMember = qty / members.length;
+           }
+           
+           members.forEach(m => {
+               if (cleanMatchedName === 'khác') {
+                   teamMemberStats[m].totalStandardDays += (qtyPerMember / 1);
+               } else if (quota > 0) {
+                   teamMemberStats[m].totalStandardDays += (qtyPerMember / quota);
+               } else {
+                   teamMemberStats[m].totalStandardDays += (qtyPerMember * 0.05); 
+               }
+           });
+        });
+      });
+
       const tStats: Record<string, { team: string; membersProductivitySum: number; membersCount: number; maxDaysWork: number }> = {};
       
-      memberOverview.forEach(m => {
+      Object.values(teamMemberStats).forEach(m => {
           const findM = allMembersData.find(x => x.name === m.member);
           const team = findM ? findM.team : 'Khác';
+          
+          const days = m.daysWorked.size || 1;
+          const p = (m.totalStandardDays / days) * 100;
           
           if (!tStats[team]) {
               tStats[team] = { team, membersProductivitySum: 0, membersCount: 0, maxDaysWork: 0 };
           }
-          tStats[team].membersProductivitySum += m.productivityPercent;
+          tStats[team].membersProductivitySum += p;
           tStats[team].membersCount += 1;
-          tStats[team].maxDaysWork = Math.max(tStats[team].maxDaysWork, m.daysWorkedCount);
+          tStats[team].maxDaysWork = Math.max(tStats[team].maxDaysWork, days);
       });
 
       return Object.values(tStats).map(t => {
@@ -279,7 +364,7 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
              total: avgPercent
           };
       }).sort((a, b) => b.productivityPercent - a.productivityPercent);
-  }, [memberOverview]);
+  }, [entries, dinhMucList]);
 
   const maxProductivity = teamOverview.length > 0 ? Number(teamOverview[0].total) : 0;
   const minProductivity = teamOverview.length > 0 ? Number(teamOverview[teamOverview.length - 1].total) : 0;

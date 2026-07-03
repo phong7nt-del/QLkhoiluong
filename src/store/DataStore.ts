@@ -52,6 +52,7 @@ export interface TutiEntry {
   nguoiDuaLen?: string;
   nguoiKiemTra?: string;
   isLocal?: boolean;
+  localTimestamp?: number;
 }
 
 const STORAGE_KEY = 'workload_data_v1';
@@ -742,6 +743,7 @@ export const DataStore = {
                    
                    if (actualMaDdo) {
                        const khuVucList = data.map((row: any) => ({
+                           ...row,
                            MA_DDO: String(row[actualMaDdo] || '').trim(),
                            TO_QL: String(row[actualTql] || '').trim() || 'Khác',
                        })).filter(r => r.MA_DDO);
@@ -971,7 +973,7 @@ export const DataStore = {
      } catch { return []; }
   },
 
-  getKhuVuc: (): { MA_DDO: string; TO_QL: string }[] => {
+  getKhuVuc: (): any[] => {
      if (memCacheKhuVucList) return memCacheKhuVucList;
      try {
        const cached = safeGetItem('sheet_khuvuc_v1');

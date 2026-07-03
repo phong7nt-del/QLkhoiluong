@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from "react";
-import { ClipboardList, BarChart3, Database, TrendingUp, LogOut, User as UserIcon, CheckSquare, Settings, Activity, Menu, WifiOff, ChevronUp, ChevronDown, KeyRound } from "lucide-react";
+import { ClipboardList, BarChart3, Database, TrendingUp, LogOut, User as UserIcon, CheckSquare, Settings, Activity, Menu, WifiOff, ChevronUp, ChevronDown, KeyRound, Search } from "lucide-react";
 import WorkloadForm from "./components/WorkloadForm";
 import Analytics from "./components/Analytics";
 import Stations from "./components/Stations";
 import AnalysisTab from "./components/AnalysisTab";
+import SearchTab from "./components/SearchTab";
 import Login from "./components/Login";
 import ProgressTab from "./components/ProgressTab";
 import ConfigModal from "./components/ConfigModal";
@@ -256,6 +257,7 @@ export default function App() {
     { id: "stations", icon: Database, label: "Link báo cáo", color: "blue" },
     { id: "analysis", icon: TrendingUp, label: "Phân tích", color: "blue" },
     { id: "disconnect", icon: WifiOff, label: "Đo xa", color: "red" },
+    { id: "search", icon: Search, label: "Tìm kiếm", color: "green" },
   ];
 
   if (isManagement) {
@@ -437,6 +439,9 @@ export default function App() {
                 )}
                 {activeTab === "sangtai" && (
                   <SangTaiTab />
+                )}
+                {activeTab === "search" && (
+                  <SearchTab />
                 )}
               </div>
             </div>
