@@ -30,16 +30,32 @@ export default function SearchTab() {
   const columns = useMemo(() => {
     if (searchResults.length === 0) return [];
     
-    const keys = new Set<string>();
+    // Đảm bảo các cột quan trọng xuất hiện trước
+    const baseCols = ['MA_DDO', 'TEN_KHANG', 'Khu vực'];
+    
+    // Tìm cột "SO_TBI" hoặc tương đương
+    const firstRow = searchResults[0];
+    const soTbiKey = Object.keys(firstRow).find(k => k.toLowerCase().includes('tbi') || k.toLowerCase().includes('n0'));
+    if (soTbiKey) {
+      baseCols.splice(2, 0, soTbiKey);
+    }
+    
+    const keys = new Set<string>(baseCols);
     searchResults.forEach(res => {
       Object.keys(res).forEach(k => {
-        if (k !== 'MA_DDO' && k !== 'TO_QL') {
+        if (k !== 'MA_DDO' && k !== 'TO_QL' && !baseCols.includes(k)) {
            keys.add(k);
         }
       });
     });
     return Array.from(keys);
   }, [searchResults]);
+
+  const columnLabels: Record<string, string> = {
+    'MA_DDO': 'Mã ĐĐO',
+    'TEN_KHANG': 'Tên khách hàng',
+    'TO_QL': 'Tổ QL'
+  };
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -113,7 +129,7 @@ export default function SearchTab() {
                       <th className="px-4 py-3 font-bold border-r border-white/20">STT</th>
                       {columns.map(col => (
                         <th key={col} className="px-4 py-3 font-bold border-r border-white/20">
-                          {col}
+                          {columnLabels[col] || col}
                         </th>
                       ))}
                     </tr>
