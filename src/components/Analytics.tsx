@@ -141,11 +141,7 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
                           finalStats[mappedTo].total += (qty * membersCount);
                       }
                   } else {
-                      if (isGroup) {
-                          finalStats[mappedTo].total += (qty / membersCount);
-                      } else {
-                          finalStats[mappedTo].total += qty;
-                      }
+                      finalStats[mappedTo].total += qty;
                   }
               }
            }
@@ -200,9 +196,6 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
           let quotaDisplay = "";
 
           let qtyPerMember = qty;
-          if (isGroup && membersCount > 0) {
-              qtyPerMember = qty / membersCount;
-          }
 
           if (cleanMatchedName === 'khác') {
               nsPercent = (qtyPerMember / 1) * 100;
@@ -298,9 +291,6 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
                 }
                 
                 let qtyPerMember = totalQty;
-                if (isGroup && membersCount > 0) {
-                    qtyPerMember = totalQty / membersCount;
-                }
                 
                 return { isTask: true, taskName, cleanTaskName, qty: qtyPerMember, rawLine: cleanLine };
             }
