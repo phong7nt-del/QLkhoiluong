@@ -127,7 +127,6 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
                      }
                   }
               }
-
               const qty = parseFloat(match[2].replace(',', '.'));
               if (!isNaN(qty)) {
                   if (!finalStats[mappedTo]) {
@@ -136,7 +135,8 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
                   
                   if (selectedMember === "all") {
                       if (isGroup) {
-                          finalStats[mappedTo].total += qty;
+                          const numberOfGroups = Math.ceil(membersCount / 2);
+                          finalStats[mappedTo].total += (qty * numberOfGroups);
                       } else {
                           finalStats[mappedTo].total += (qty * membersCount);
                       }
@@ -196,6 +196,7 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
           let quotaDisplay = "";
 
           let qtyPerMember = qty;
+          let displayQty = qty;
 
           if (cleanMatchedName === 'khác') {
               nsPercent = (qtyPerMember / 1) * 100;
@@ -212,7 +213,7 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
              <div key={i} className="flex justify-between items-center bg-white p-1.5 border border-dashed border-[#141414]/20 mb-1">
                 <div>
                    <span className="font-bold mr-1">{taskName}:</span>
-                   <span>{qty}</span> <span className="text-[10px] opacity-70">{quotaDisplay}</span>
+                   <span>{displayQty}</span> <span className="text-[10px] opacity-70">{quotaDisplay}</span>
                 </div>
                 <div className={`text-[10px] uppercase font-bold px-1.5 py-0.5 ${nsPercent >= 100 ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}`}>
                    {nsPercent.toFixed(1)}% NS
