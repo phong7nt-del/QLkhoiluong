@@ -135,8 +135,7 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
                   
                   if (selectedMember === "all") {
                       if (isGroup) {
-                          const numberOfGroups = Math.ceil(membersCount / 2);
-                          finalStats[mappedTo].total += (qty * numberOfGroups);
+                          finalStats[mappedTo].total += (qty * membersCount) / 2;
                       } else {
                           finalStats[mappedTo].total += (qty * membersCount);
                       }
@@ -190,13 +189,13 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
 
           const quotaStr = dm ? String(dm.quota).replace(/,/g, '.') : "0";
           const quota = parseFloat(quotaStr) || 0;
-          const isGroup = dm ? !!dm.isGroup : false;
+          
           
           let nsPercent = 0;
           let quotaDisplay = "";
 
           let qtyPerMember = qty;
-          let displayQty = qty;
+          let displayQty = qtyPerMember;
 
           if (cleanMatchedName === 'khác') {
               nsPercent = (qtyPerMember / 1) * 100;
@@ -278,18 +277,6 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
                 const taskName = match[1].trim();
                 const cleanTaskName = normalize(taskName);
                 const totalQty = parseFloat(match[2].replace(',', '.'));
-                
-                let isGroup = false;
-                const exactDm = dinhMucList.find(d => normalize(d.name || '') === cleanTaskName);
-                if (exactDm) {
-                    isGroup = !!exactDm.isGroup;
-                } else {
-                    const foundDm = dinhMucList.find(d => {
-                        const cleanDName = normalize(d.name || '');
-                        return cleanDName.includes(cleanTaskName) || cleanTaskName.includes(cleanDName);
-                    });
-                    if (foundDm) isGroup = !!foundDm.isGroup;
-                }
                 
                 let qtyPerMember = totalQty;
                 
