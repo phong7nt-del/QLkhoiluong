@@ -134,10 +134,18 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
                   }
                   
                   if (selectedMember === "all") {
-                      if (isGroup) {
-                          finalStats[mappedTo].total += (qty * membersCount) / 2;
+                      if (e.date >= '2026-08-01') {
+                          if (isGroup) {
+                              finalStats[mappedTo].total += qty;
+                          } else {
+                              finalStats[mappedTo].total += (qty * membersCount);
+                          }
                       } else {
-                          finalStats[mappedTo].total += (qty * membersCount);
+                          if (isGroup) {
+                              finalStats[mappedTo].total += (qty * membersCount) / 2;
+                          } else {
+                              finalStats[mappedTo].total += (qty * membersCount);
+                          }
                       }
                   } else {
                       finalStats[mappedTo].total += qty;
@@ -159,7 +167,7 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
   const renderContentWithQuota = (content: string, membersCount: number) => {
     if (!content) return null;
     const lines = content.split('\n');
-    return lines.map((line, i) => {
+    return lines.filter(line => !/^\d+$/.test(line.trim())).map((line, i) => {
        let cleanLine = line.trim();
        if (cleanLine.startsWith('-')) cleanLine = cleanLine.substring(1).trim();
        
@@ -268,7 +276,7 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
     const processContentLines = (content: string, membersCount: number) => {
         if (!content) return [];
         const lines = content.split('\n');
-        return lines.map(line => {
+        return lines.filter(line => !/^\d+$/.test(line.trim())).map(line => {
             let cleanLine = line.trim();
             if (cleanLine.startsWith('-')) cleanLine = cleanLine.substring(1).trim();
             

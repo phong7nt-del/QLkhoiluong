@@ -57,7 +57,7 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
            let clean = l.trim();
            if (clean.startsWith('-')) clean = clean.substring(1).trim();
            return clean;
-        }).filter(l => l.length > 0 && !l.toLowerCase().includes('phát hiện:'));
+        }).filter(l => l.length > 0 && !l.toLowerCase().includes('phát hiện:') && !/^\d+$/.test(l));
         
         lines.forEach(line => {
            let qty = 1;
@@ -89,14 +89,16 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
            let matchedName = 'Khác';
            
            const cleanContent = (itemContent || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
-
+           
            let exactDm = dinhMucList.find(d => {
                const cleanDName = (d.name || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
                return cleanDName === cleanContent;
            });
-
+           
+           let isGroupTask = false;
            if (exactDm) {
                matchedName = exactDm.name;
+               isGroupTask = !!exactDm.isGroup;
            } else {
                const foundDm = dinhMucList.find(d => {
                    const cleanDName = (d.name || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -104,6 +106,7 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
                });
                if (foundDm) {
                    matchedName = foundDm.name;
+                   isGroupTask = !!foundDm.isGroup;
                }
            }
            
@@ -113,30 +116,36 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
            if (!catData[matchedName].teams[teamName]) {
                catData[matchedName].teams[teamName] = 0;
            }
-           catData[matchedName].teams[teamName] += qty;
-           catData[matchedName].total += qty;
+           
+           const membersCount = e.members?.length || 1;
+           const date = e.date || '';
+           
+           let finalQty = qty;
+           if (date >= '2026-08-01') {
+               if (isGroupTask) {
+                   finalQty = qty;
+               } else {
+                   finalQty = qty * membersCount;
+               }
+           } else {
+               if (isGroupTask) {
+                   finalQty = (qty * membersCount) / 2;
+               } else {
+                   finalQty = qty * membersCount;
+               }
+           }
+           
+           catData[matchedName].teams[teamName] += finalQty;
+           catData[matchedName].total += finalQty;
         });
      });
      
-     // Tính tổng: chia 2 các tổ khối lượng nếu nhóm và trừ tổ tổng hợp
+     // Trừ tổ tổng hợp khỏi total
      Object.values(catData).forEach(cat => {
-         // lookup if this category is a group task
-         const normalize = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase().trim();
-         const cleanCatName = normalize(cat.categoryName);
-         
-         const exactDm = dinhMucList.find(d => normalize(d.name || '') === cleanCatName);
-         let foundDm = exactDm || dinhMucList.find(d => {
-             const cleanDName = normalize(d.name || '');
-             return cleanDName.includes(cleanCatName) || cleanCatName.includes(cleanDName);
-         });
-         const isGroupTask = foundDm ? foundDm.isGroup : false;
-
          let newTotal = 0;
          Object.keys(cat.teams).forEach(team => {
              const isTongHop = team.toLowerCase().includes('tổng hợp') || team.toLowerCase().includes('bộ phận công tác');
-             if (!isTongHop && isGroupTask) {
-                 newTotal += Math.ceil(cat.teams[team] / 2);
-             } else {
+             if (!isTongHop) {
                  newTotal += cat.teams[team];
              }
          });
@@ -173,7 +182,7 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
            let clean = l.trim();
            if (clean.startsWith('-')) clean = clean.substring(1).trim();
            return clean;
-        }).filter(l => l.length > 0 && !l.toLowerCase().includes('phát hiện:'));
+        }).filter(l => l.length > 0 && !l.toLowerCase().includes('phát hiện:') && !/^\d+$/.test(l));
         
         lines.forEach(line => {
            let qty = 1;
@@ -275,7 +284,7 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
            let clean = l.trim();
            if (clean.startsWith('-')) clean = clean.substring(1).trim();
            return clean;
-        }).filter(l => l.length > 0 && !l.toLowerCase().includes('phát hiện:'));
+        }).filter(l => l.length > 0 && !l.toLowerCase().includes('phát hiện:') && !/^\d+$/.test(l));
         
         lines.forEach(line => {
            let qty = 1;

@@ -114,6 +114,25 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
     if (phatHien.trim()) {
        contentLines.push(`Phát hiện: ${phatHien.trim()}`);
     }
+    
+    if (date >= '2026-08-01') {
+       if (members.length === 1) {
+          contentLines.push('0');
+       } else {
+          const dateEntries = existingEntries.filter(e => e.date === date);
+          let maxGroupId = 0;
+          dateEntries.forEach(e => {
+             const lines = e.content.split('\n');
+             const lastLine = lines[lines.length - 1].trim();
+             if (/^\d+$/.test(lastLine)) {
+                const gId = parseInt(lastLine, 10);
+                if (gId > maxGroupId) maxGroupId = gId;
+             }
+          });
+          contentLines.push((maxGroupId + 1).toString());
+       }
+    }
+    
     const content = contentLines.join('\n');
 
     const entry = {
@@ -515,7 +534,8 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
         </div>
 
         <div className="relative group">
-          <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Họ và Tên (Nhóm Công Tác)</label>
+          <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Họ và Tên (Nhóm Công Tác)</label>
+          <p className="text-xs text-orange-600 mb-2 italic">Lưu ý: Nhập 1 người nếu công tác 1 mình; nhập 1 lượt tất cả các thành viên nhóm nếu công tác chung nhóm của ngày đó.</p>
           <div className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 flex flex-wrap gap-2 min-h-[50px] items-center text-sm font-medium focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-500/50 focus-within:border-blue-500 transition-all">
              {members.map(m => (
                <div key={m} className="bg-blue-100 text-blue-700 px-3 py-1.5 rounded-md flex items-center gap-1.5 text-xs font-bold shadow-sm border border-blue-200">
