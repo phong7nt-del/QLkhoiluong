@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { ClipboardList, BarChart3, Database, TrendingUp, LogOut, User as UserIcon, CheckSquare, Settings, Activity, Menu, WifiOff, ChevronUp, ChevronDown, KeyRound, Search } from "lucide-react";
+import { ClipboardList, BarChart3, Database, TrendingUp, LogOut, User as UserIcon, CheckSquare, Settings, Activity, Menu, WifiOff, ChevronUp, ChevronDown, KeyRound, Search, Package } from "lucide-react";
 import WorkloadForm from "./components/WorkloadForm";
 import Analytics from "./components/Analytics";
 import Stations from "./components/Stations";
@@ -11,6 +11,7 @@ import ConfigModal from "./components/ConfigModal";
 import TutiTab from "./components/TutiTab";
 import SangTaiTab from "./components/SangTaiTab";
 import DisconnectRateTab from "./components/DisconnectRateTab";
+import WarehouseTab from "./components/WarehouseTab";
 import ChangePasswordModal from "./components/ChangePasswordModal";
 import { DataStore, SheetMember } from "./store/DataStore";
 
@@ -86,7 +87,7 @@ export const getSeasonTheme = () => {
 
 export default function App() {
   const [dbReady, setDbReady] = useState(false);
-  const [activeTab, setActiveTab] = useState<"input" | "report" | "stations" | "analysis" | "progress" | "tuti" | "disconnect" | "sangtai">("input");
+  const [activeTab, setActiveTab] = useState<"input" | "report" | "stations" | "analysis" | "progress" | "tuti" | "disconnect" | "sangtai" | "warehouse">("input");
   const [refreshToggle, setRefreshToggle] = useState(0);
 
   useEffect(() => {
@@ -258,13 +259,17 @@ export default function App() {
     { id: "analysis", icon: TrendingUp, label: "Phân tích", color: "blue" },
     { id: "disconnect", icon: WifiOff, label: "Đo xa", color: "red" },
     { id: "search", icon: Search, label: "Tìm kiếm", color: "green" },
-  ];
+      ];
 
   if (isManagement) {
     tabs.push({ id: "progress", icon: CheckSquare, label: "Tiến độ CV", color: "amber" });
     tabs.push({ id: "tuti", icon: Activity, label: "KT TU - TI", color: "indigo" });
   }
   tabs.push({ id: "sangtai", icon: Database, label: "KT sang tải", color: "amber" });
+  if (isDoiTruong) {
+    tabs.push({ id: "warehouse", icon: Package, label: "Kho VTTB", color: "amber" });
+  }
+
 
   return (
     <div className={`min-h-screen bg-gradient-to-br ${theme.gradient} text-slate-800 font-sans flex flex-col items-center bg-grid-slate-100`}>
@@ -442,6 +447,9 @@ export default function App() {
                 )}
                 {activeTab === "search" && (
                   <SearchTab />
+                )}
+                {activeTab === "warehouse" && (
+                  <WarehouseTab />
                 )}
               </div>
             </div>

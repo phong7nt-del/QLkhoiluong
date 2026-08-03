@@ -48,6 +48,7 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
         ].join('/');
 
         const newEntry = {
+            id: Math.random().toString(36).substr(2, 9),
             maTram: maTram || '',
             tenDiemDo: tenDiemDo || '',
             thongSoTU: thongSoTU || '',

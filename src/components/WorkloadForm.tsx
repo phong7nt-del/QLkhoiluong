@@ -555,12 +555,7 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
                         const exactMatch = allSheetMembers.find(m => m.name.toLowerCase() === val.toLowerCase());
                         if (exactMatch) {
                            if (!members.includes(exactMatch.name)) {
-                               if (members.length >= 2) {
-                                   setMessage({ type: 'error', text: 'Mỗi nhóm chỉ được tối đa 2 người.' });
-                                   setTimeout(() => setMessage(null), 5000);
-                               } else {
-                                   setMembers(prev => [...prev, exactMatch.name]);
-                               }
+                               setMembers(prev => [...prev, exactMatch.name]);
                            }
                            if (!team && exactMatch.team) {
                                setTeam(exactMatch.team);
@@ -586,12 +581,7 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
                   className="p-3 text-sm border-b border-slate-100 hover:bg-blue-50 hover:text-blue-700 cursor-pointer font-semibold transition-colors"
                   onClick={() => {
                     if (!members.includes(suggestion)) {
-                        if (members.length >= 2) {
-                            setMessage({ type: 'error', text: 'Mỗi nhóm chỉ được tối đa 2 người.' });
-                            setTimeout(() => setMessage(null), 5000);
-                        } else {
-                            setMembers(prev => [...prev, suggestion]);
-                        }
+                        setMembers(prev => [...prev, suggestion]);
                     }
                     if (!team) {
                         const mObj = allSheetMembers.find(x => x.name === suggestion);

@@ -37,6 +37,13 @@ export interface SheetMember {
   [key: string]: any;
 }
 
+export interface LocalTutiUpdate {
+  entryId: string;
+  updates: Partial<TutiEntry>;
+  timestamp: number;
+  synced: boolean;
+}
+
 export interface TutiEntry {
   id: string;
   maTram: string; // Mã trạm
@@ -70,6 +77,8 @@ let memCacheKhuVucList: any[] | null = null;
 let memCacheMatKetNoiList: any[] | null = null;
 let memCacheChiTietMKNList: any[] | null = null;
 let memCacheSangTaiList: any[] | null = null;
+let memCacheKhoList: any[] | null = null;
+let memCacheVTTBList: any[] | null = null;
 
 let memoryCache: Record<string, string | null> = {};
 
@@ -78,7 +87,7 @@ export const initDB = async () => {
       STORAGE_KEY, SCRIPT_URL_KEY, TEAMS_KEY, MEMBERS_KEY, STATIONS_KEY,
       DINHMUC_KEY, PROGRESS_KEY, LOCAL_PROGRESS_UPDATES_KEY, TUTI_KEY,
       LOCAL_TUTI_UPDATES_KEY, 'sheet_khuvuc_v1', 'sheet_matketnoi_v1',
-      'sheet_chitietmkn_v1', 'sheet_sangtai_v1'
+      'sheet_chitietmkn_v1', 'sheet_sangtai_v1', 'sheet_kho_v1', 'sheet_vttb_v1'
     ];
     for (const key of keys) {
       let val = await get(key);
@@ -143,6 +152,32 @@ export const DataStore = {
     }
   },
   
+
+  updateEntry: (id: string, updates: Partial<WorkloadEntry>) => {
+    const entries = DataStore.getEntries();
+    const index = entries.findIndex((e) => e.id === id);
+    if (index !== -1) {
+      entries[index] = { ...entries[index], ...updates };
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+      } catch(e) {}
+    }
+  },
+
+  deleteEntry: (id: string) => {
+    const entries = DataStore.getEntries();
+    const filtered = entries.filter((e) => e.id !== id);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+    } catch(e) {}
+  },
+
+  getUniqueContents: (): string[] => {
+    const entries = DataStore.getEntries();
+    const contents = new Set(entries.map((e) => e.content));
+    return Array.from(contents).filter(Boolean);
+  },
+
   addEntry: (entry: Omit<WorkloadEntry, 'id' | 'timestamp'>) => {
     const entries = DataStore.getEntries();
     const newEntry: WorkloadEntry = {
@@ -778,6 +813,44 @@ export const DataStore = {
                console.error('Error fetching SangTai:', e);
             }
 
+            // Fetch Kho
+            try {
+               const khoRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("Kho")}&_t=${new Date().getTime()}`);
+               const khoText = await khoRes.text();
+               if (!khoText.includes('<html')) {
+                   const { data } = Papa.parse(khoText, { header: true, skipEmptyLines: true });
+                   if (data && data.length > 0) {
+                       memCacheKhoList = data;
+                       try {
+                           safeSetItem('sheet_kho_v1', JSON.stringify(data));
+                       } catch(e) {
+                           console.warn("localStorage quota exceeded for Kho");
+                       }
+                   }
+               }
+            } catch(e) {
+               console.error('Error fetching Kho:', e);
+            }
+
+            // Fetch VTTB
+            try {
+               const vttbRes = await fetch(`https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("VTTB")}&_t=${new Date().getTime()}`);
+               const vttbText = await vttbRes.text();
+               if (!vttbText.includes('<html')) {
+                   const { data } = Papa.parse(vttbText, { header: true, skipEmptyLines: true });
+                   if (data && data.length > 0) {
+                       memCacheVTTBList = data;
+                       try {
+                           safeSetItem('sheet_vttb_v1', JSON.stringify(data));
+                       } catch(e) {
+                           console.warn("localStorage quota exceeded for VTTB");
+                       }
+                   }
+               }
+            } catch(e) {
+               console.error('Error fetching VTTB:', e);
+            }
+
          } catch (e) {
             console.error('Error parsing CBCNV from CSV', e);
          }
@@ -985,6 +1058,22 @@ export const DataStore = {
      if (memCacheSangTaiList) return memCacheSangTaiList;
      try {
        const cached = safeGetItem('sheet_sangtai_v1');
+       return cached ? JSON.parse(cached) : [];
+     } catch { return []; }
+  },
+
+  getKho: (): any[] => {
+     if (memCacheKhoList) return memCacheKhoList;
+     try {
+       const cached = safeGetItem('sheet_kho_v1');
+       return cached ? JSON.parse(cached) : [];
+     } catch { return []; }
+  },
+
+  getVTTB: (): any[] => {
+     if (memCacheVTTBList) return memCacheVTTBList;
+     try {
+       const cached = safeGetItem('sheet_vttb_v1');
        return cached ? JSON.parse(cached) : [];
      } catch { return []; }
   },
@@ -1264,181 +1353,119 @@ export const DataStore = {
       const result = await response.json();
       return result.status === 'success';
     } catch (error: any) {
-      console.warn('Error syncing bulk SangTai to sheet:', error.message || error);
+      console.warn('Error syncing SangTai bulk to sheet:', error.message || error);
       return false;
     }
+  },
+
+
+  addTutiEntry: async (entry: TutiEntry) => {
+     const entries = DataStore.getTutiEntries();
+     entries.unshift(entry);
+     try {
+       localStorage.setItem(TUTI_KEY, JSON.stringify(entries));
+     } catch(e) {}
+     await DataStore.syncTutiToSheet(entry);
+     return entry;
+  },
+
+  updateTutiEntry: async (id: string, updates: Partial<TutiEntry>) => {
+     const entries = DataStore.getTutiEntries();
+     const index = entries.findIndex(e => e.id === id);
+     if (index !== -1) {
+         entries[index] = { ...entries[index], ...updates };
+         try {
+           localStorage.setItem(TUTI_KEY, JSON.stringify(entries));
+         } catch(e) {}
+         await DataStore.syncTutiToSheet(entries[index]);
+     }
   },
 
   getTutiEntries: (): TutiEntry[] => {
      try {
        const cached = safeGetItem(TUTI_KEY);
-       const remoteTasks: TutiEntry[] = cached ? JSON.parse(cached) : [];
-       
-       const localCached = safeGetItem(LOCAL_TUTI_UPDATES_KEY);
-       let localTasks: TutiEntry[] = [];
-       if (localCached) {
-           try {
-               localTasks = JSON.parse(localCached);
-               if (!Array.isArray(localTasks)) localTasks = [];
-           } catch(e) {
-               localTasks = [];
-           }
-       }
-       
-       // Migration: remove any local tasks that use old random IDs (length < 15 and no hyphens)
-       const originalLength = localTasks.length;
-       localTasks = localTasks.filter(t => t && t.id && String(t.id).includes('-'));
-       if (localTasks.length !== originalLength) {
-           safeSetItem(LOCAL_TUTI_UPDATES_KEY, JSON.stringify(localTasks));
-       }
-       
-       // Priority to local tasks
-       const mergedMap = new Map(remoteTasks.map(t => [t.id, t]));
-       localTasks.forEach(lt => {
-           if (mergedMap.has(lt.id)) {
-               mergedMap.set(lt.id, lt);
-           } else {
-               const match = remoteTasks.find(r => r.maTram === lt.maTram && r.tenDiemDo === lt.tenDiemDo);
-               if (match) {
-                   mergedMap.set(match.id, { ...match, ...lt, id: match.id });
-               } else {
-                   mergedMap.set(lt.id, lt);
-               }
-           }
-       });
-       
-       return Array.from(mergedMap.values());
+       return cached ? JSON.parse(cached) : [];
      } catch { return []; }
   },
 
-  addTutiToSheet: async (entry: TutiEntry) => {
-    try {
-      const url = DataStore.getAppScriptUrl();
-      if (!url) return false;
-
-      const prepareString = (str: string) => {
-          if (!str) return '';
-          if (/^\d+\s*\/\s*\d+/.test(str)) {
-              return `'${str}`;
-          }
-          return str;
-      };
-
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'text/plain;charset=utf-8',
-        },
-        body: JSON.stringify({ 
-           action: 'add_tuti', 
-           data: {
-             maTram: entry.maTram,
-             tenDiemDo: entry.tenDiemDo,
-             thongSoTU: prepareString(entry.thongSoTU || ''),
-             thongSoTI: prepareString(entry.thongSoTI || ''),
-             kiemTraTU: prepareString(entry.kiemTraTU || ''),
-             kiemTraTI: prepareString(entry.kiemTraTI || ''),
-             khac: prepareString(entry.khac || ''),
-             ketLuan: entry.ketLuan || '',
-             ngayCapNhat: prepareString(entry.ngayCapNhat || ''),
-             ngayDuaLen: prepareString(entry.ngayDuaLen || ''),
-             nguoiDuaLen: entry.nguoiDuaLen || '',
-             nguoiKiemTra: entry.nguoiKiemTra || ''
-           } 
-        }),
-      });
-      const result = await response.json();
-      return result.status === 'success';
-    } catch (error: any) {
-      console.warn('Error adding TUTI to sheet:', error.message || error);
-      return false;
-    }
+  getLocalTutiUpdates: (): LocalTutiUpdate[] => {
+     try {
+       const cached = safeGetItem(LOCAL_TUTI_UPDATES_KEY);
+       return cached ? JSON.parse(cached) : [];
+     } catch { return []; }
   },
 
-  addTutiEntry: async (entry: Omit<TutiEntry, 'id'>) => {
-     const localCached = safeGetItem(LOCAL_TUTI_UPDATES_KEY);
-     let localTasks: TutiEntry[] = [];
-     if(localCached) {
-         try {
-             localTasks = JSON.parse(localCached);
-             if (!Array.isArray(localTasks)) localTasks = [];
-         } catch(e) {
-             localTasks = [];
-         }
-     }
-     const newEntry: TutiEntry = {
-        ...entry,
-        id: `${entry.maTram.trim()}-${entry.tenDiemDo.trim()}-${Date.now()}`.replace(/\s+/g, '-').toLowerCase(),
-        isLocal: true,
-        localTimestamp: Date.now()
-     };
-     localTasks.push(newEntry);
-     safeSetItem(LOCAL_TUTI_UPDATES_KEY, JSON.stringify(localTasks));
-     
-     // Also update the main TUTI_KEY cache immediately
-     const cached = safeGetItem(TUTI_KEY);
-     const remoteTasks: TutiEntry[] = cached ? JSON.parse(cached) : [];
-     remoteTasks.push(newEntry);
-     safeSetItem(TUTI_KEY, JSON.stringify(remoteTasks));
-
-     DataStore.addTutiToSheet(newEntry);
-     return newEntry;
-  },
-
-  updateTutiEntry: async (id: string, updates: Partial<TutiEntry>) => {
+  updateTutiProgress: (id: string, updates: Partial<TutiEntry>, user: SheetMember | null) => {
      const allEntries = DataStore.getTutiEntries();
      const entry = allEntries.find(t => t.id === id);
      if (!entry) return null;
-     
-     // Thêm timestamp để theo dõi local update
-     const updatedEntry = { ...entry, ...updates, isLocal: true, localTimestamp: Date.now() };
-     
-     const localCached = safeGetItem(LOCAL_TUTI_UPDATES_KEY);
-     let localTasks: TutiEntry[] = [];
-     if(localCached) {
-         try {
-             localTasks = JSON.parse(localCached);
-             if (!Array.isArray(localTasks)) localTasks = [];
-         } catch(e) {
-             localTasks = [];
-         }
-     }
-     
-     const existingIndex = localTasks.findIndex(t => t.id === id);
-     if (existingIndex >= 0) {
-        localTasks[existingIndex] = updatedEntry;
-     } else {
-        localTasks.push(updatedEntry);
-     }
-     
-     // Keep local cache up to 1 hour
-     const now = Date.now();
-     const validLocal = localTasks.filter(t => t.localTimestamp && (now - t.localTimestamp) < 60 * 60 * 1000);
-     safeSetItem(LOCAL_TUTI_UPDATES_KEY, JSON.stringify(validLocal));
 
-     // Also update the main TUTI_KEY cache immediately,
-     // so if sync removes it from LOCAL soon, it doesn't revert.
-     const cached = safeGetItem(TUTI_KEY);
-     const remoteTasks: TutiEntry[] = cached ? JSON.parse(cached) : [];
-     const cachedIndex = remoteTasks.findIndex(t => t.id === id);
-     if (cachedIndex > -1) {
-         remoteTasks[cachedIndex] = updatedEntry;
-         safeSetItem(TUTI_KEY, JSON.stringify(remoteTasks));
+     const now = new Date();
+     const dateStr = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth()+1).toString().padStart(2, '0')}/${now.getFullYear()}`;
+     const isUpdate = (
+         updates.thongSoTU !== undefined || 
+         updates.thongSoTI !== undefined || 
+         updates.kiemTraTU !== undefined || 
+         updates.kiemTraTI !== undefined || 
+         updates.khac !== undefined || 
+         updates.ketLuan !== undefined
+     );
+
+     const updatedEntry = { 
+         ...entry, 
+         ...updates,
+     };
+
+     if (isUpdate && user) {
+         updatedEntry.ngayCapNhat = dateStr;
+         updatedEntry.nguoiKiemTra = user.name;
+         
+         const localUpdates = DataStore.getLocalTutiUpdates();
+         localUpdates.push({
+             entryId: id,
+             updates,
+             timestamp: Date.now(),
+             synced: false
+         });
+         safeSetItem(LOCAL_TUTI_UPDATES_KEY, JSON.stringify(localUpdates));
      }
 
+     const newEntries = allEntries.map(t => t.id === id ? updatedEntry : t);
+     safeSetItem(TUTI_KEY, JSON.stringify(newEntries));
+     
      DataStore.syncTutiToSheet(updatedEntry);
      return updatedEntry;
   },
 
-  deleteEntry: (id: string) => {
-    const entries = DataStore.getEntries();
-    const filtered = entries.filter((e) => e.id !== id);
-    safeSetItem(STORAGE_KEY, JSON.stringify(filtered));
+  syncKhoToSheet: async (khoData: any[]) => {
+    try {
+      const url = DataStore.getAppScriptUrl();
+      if (!url) throw new Error('No Apps Script URL configured');
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'update_kho', data: khoData }),
+      });
+      return response.ok;
+    } catch (e) {
+      console.warn('Error syncing Kho:', e);
+      return false;
+    }
   },
 
-  getUniqueContents: (): string[] => {
-    const entries = DataStore.getEntries();
-    const contents = new Set(entries.map((e) => e.content));
-    return Array.from(contents);
+  syncVttbToSheet: async (vttbData: any[]) => {
+    try {
+      const url = DataStore.getAppScriptUrl();
+      if (!url) throw new Error('No Apps Script URL configured');
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'update_vttb', data: vttbData }),
+      });
+      return response.ok;
+    } catch (e) {
+      console.warn('Error syncing VTTB:', e);
+      return false;
+    }
   }
 };
