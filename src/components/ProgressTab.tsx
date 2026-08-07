@@ -156,6 +156,10 @@ export default function ProgressTab({ refreshToggle, sessionUser, theme }: { ref
   };
 
   // Parse dd/mm/yyyy
+  const isImportantTask = (content: string) => {
+      return content.trim().toLowerCase().startsWith('quan trọng');
+  };
+
   const parseDate = (dStr: string) => {
       if (!dStr) return null;
       const parts = dStr.split('/');
@@ -243,6 +247,10 @@ export default function ProgressTab({ refreshToggle, sessionUser, theme }: { ref
       if (dDays <= 0 && !filterState.overdue) return false;
       return true;
   }).sort((a, b) => {
+      const aImp = isImportantTask(a.content);
+      const bImp = isImportantTask(b.content);
+      if (aImp && !bImp) return -1;
+      if (!aImp && bImp) return 1;
       return getDiffDays(a.deadline) - getDiffDays(b.deadline);
   });
 
@@ -488,7 +496,11 @@ export default function ProgressTab({ refreshToggle, sessionUser, theme }: { ref
                     {sortedPendingTasks.map((t, idx) => {
                        const colorClasses = getStatusColor(t.deadline);
                    return (
-                      <div key={`${t.id || 't'}-${idx}`} className={`p-5 rounded-2xl flex flex-col justify-between shadow-sm hover:shadow-md transition-all ${colorClasses} ${pendingViewMode === 'slider' ? 'shrink-0 w-[85vw] sm:w-[320px] md:w-[380px] snap-center snap-always' : ''}`}>
+                      <div key={`${t.id || 't'}-${idx}`} className={`relative ${pendingViewMode === 'slider' ? 'shrink-0 w-[85vw] sm:w-[320px] md:w-[380px] snap-center snap-always' : ''} ${isImportantTask(t.content) ? 'p-[2px] rounded-2xl overflow-hidden' : ''}`}>
+                         {isImportantTask(t.content) && (
+                            <div className="absolute inset-0 z-0 bg-[conic-gradient(from_0deg_at_50%_50%,transparent_0%,transparent_60%,#fbbf24_100%)] animate-[spin_2s_linear_infinite]" />
+                         )}
+                         <div className={`relative z-10 h-full w-full p-5 rounded-2xl flex flex-col justify-between shadow-sm hover:shadow-md transition-all ${colorClasses} ${isImportantTask(t.content) ? 'bg-white shadow-xl shadow-amber-500/20' : ''}`}>
                          <div>
                             <div className="flex justify-between items-start mb-3">
                                <div className="flex items-center gap-2">
@@ -561,6 +573,7 @@ export default function ProgressTab({ refreshToggle, sessionUser, theme }: { ref
                             )}
                          </div>
                       </div>
+                      </div>
                    );
                 })}
              </div>
@@ -581,7 +594,7 @@ export default function ProgressTab({ refreshToggle, sessionUser, theme }: { ref
                       {sortedPendingTasks.length === 0 ? (
                          <tr><td colSpan={6} className="px-5 py-12 text-center text-slate-500 font-medium">Không có công việc nào cần xử lý.</td></tr>
                       ) : sortedPendingTasks.map((t, idx) => (
-                         <tr key={`${t.id || 't'}-${idx}`} className="hover:bg-blue-50/50 transition-colors">
+                         <tr key={`${t.id || 't'}-${idx}`} className={`${isImportantTask(t.content) ? 'bg-amber-50/50 hover:bg-amber-100/50 border-l-4 border-l-amber-400' : 'hover:bg-blue-50/50'} transition-colors`}>
                             <td className="px-5 py-4 font-mono text-[11px] font-bold text-slate-400 text-center">{idx + 1}</td>
                             <td className="px-4 py-3">{getStatusBadge(t.deadline)}</td>
                             <td className="px-4 py-3 min-w-[200px]">

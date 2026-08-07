@@ -309,7 +309,7 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
            });
            
            if (bestMatch && !currentMembers.includes(bestMatch)) {
-              currentMembers = [bestMatch]; // Thay thế hoàn toàn list members
+              currentMembers.push(bestMatch);
               const matchedMemberObj = allSheetMembers.find(m => m.name === bestMatch);
               if (matchedMemberObj && matchedMemberObj.team) {
                   currentTeam = matchedMemberObj.team;
