@@ -3,7 +3,7 @@ import { DataStore, SheetMember } from '../store/DataStore';
 import { PlusCircle, Search, CheckSquare, Square, Mic, ClipboardList, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { format } from 'date-fns';
 
-export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () => void, refreshToggle: number }) {
+export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: { onSaved: () => void, refreshToggle: number, isManagement?: boolean }) {
   const [availableTeams, setAvailableTeams] = useState<string[]>([]);
   const [allSheetMembers, setAllSheetMembers] = useState<SheetMember[]>([]);
   const [dinhMucList, setDinhMucList] = useState<{name: string, quota: number}[]>([]);
@@ -43,7 +43,7 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
     const teams = DataStore.getTeams();
     const sm = DataStore.getMembers();
     const dm = DataStore.getDinhMuc();
-    setAvailableTeams(teams);
+    setAvailableTeams(['Đội', ...teams.filter(t => t !== 'Đội')]);
     setAllSheetMembers(sm);
     setDinhMucList(dm);
     
@@ -78,13 +78,81 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
     }
   }, [memberInput, team, allSheetMembers, members]);
 
+  
+  const [isSubmittingPlan, setIsSubmittingPlan] = useState(false);
+  const handlePlanSubmit = async () => {
+    const entries = Object.entries(selectedTasks) as [string, {selected: boolean, quantity: number | string}][];
+    const selectedList = entries.filter(([_, data]: [string, any]) => data.selected && typeof data.quantity === 'number' && data.quantity > 0).map(([name, data]: [string, any]) => ({name, quantity: data.quantity as number}));
+    
+    if (!team) {
+      setMessage({ type: 'error', text: "Vui lòng chọn Đội hoặc Tổ công tác để lưu kế hoạch" });
+      setTimeout(() => setMessage(null), 5000);
+      return;
+    }
+
+    if (selectedList.length === 0) {
+      setMessage({ type: 'error', text: "Vui lòng chọn ít nhất 1 nội dung để lập kế hoạch" });
+      setTimeout(() => setMessage(null), 5000);
+      return;
+    }
+
+    if (!date) {
+      setMessage({ type: 'error', text: "Vui lòng chọn ngày để lấy thông tin Tháng/Năm" });
+      setTimeout(() => setMessage(null), 5000);
+      return;
+    }
+
+    const d = new Date(date);
+    let prefix = "Tháng";
+    if (team === 'Đội') prefix = "D -";
+    else if (team.includes("Phú Mỹ")) prefix = "P -";
+    else if (team.includes("Bà Rịa") || team.includes("Bà Ria")) prefix = "B -";
+    else if (team.includes("Vũng Tàu")) prefix = "V -";
+    const monthYear = `${prefix} ${d.getMonth() + 1}/${d.getFullYear()}`;
+    
+    // Check if plan already exists for this team and month
+    const existingPlan = dinhMucList.some(dm => dm.history && dm.history[monthYear] !== undefined && dm.history[monthYear] > 0);
+    if (existingPlan) {
+      setMessage({ type: 'error', text: `Kế hoạch cho ${team} trong tháng ${d.getMonth() + 1}/${d.getFullYear()} đã tồn tại.` });
+      setTimeout(() => setMessage(null), 5000);
+      return;
+    }
+    
+    // window.confirm blocked in iframe
+
+    setIsSubmittingPlan(true);
+    const success = await DataStore.syncPlanToSheet(monthYear, selectedList);
+    if (success) {
+       await DataStore.syncMasterData(); // Refresh to get newly added plan data
+    }
+    setIsSubmittingPlan(false);
+
+    if (success) {
+       setMessage({ type: 'success', text: "Đã lưu kế hoạch tháng thành công!" });
+       setTimeout(() => setMessage(null), 5000);
+       // Reset form
+       setTeam('');
+       setMembers([]);
+       const resetTasks: any = {};
+       Object.keys(selectedTasks).forEach(k => {
+          resetTasks[k] = { selected: false, quantity: '' };
+       });
+       setSelectedTasks(resetTasks);
+       onSaved();
+    } else {
+       setMessage({ type: 'error', text: "Có lỗi xảy ra khi lưu kế hoạch." });
+       setTimeout(() => setMessage(null), 5000);
+    }
+  };
+
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const hasSelectedTasks = Object.values(selectedTasks).some(data => data.selected && typeof data.quantity === 'number' && data.quantity > 0);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     const entries = Object.entries(selectedTasks) as [string, {selected: boolean, quantity: number | string}][];
-    const selectedList = entries.filter(([_, data]) => data.selected && typeof data.quantity === 'number' && data.quantity > 0);
+    const selectedList = entries.filter(([_, data]: [string, any]) => data.selected && typeof data.quantity === 'number' && data.quantity > 0);
     
     if (!team || members.length === 0 || !date || selectedList.length === 0) {
       setMessage({ type: 'error', text: "Vui lòng điền đầy đủ thông tin nội dung và có ít nhất 1 nội dung được chọn" });
@@ -523,9 +591,8 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
                  setTeam(e.target.value);
                  setMembers([]); // reset members when team changes
               }}
-              className="w-full bg-slate-100 border border-slate-300 rounded-lg px-4 py-2.5 font-semibold text-slate-600 focus:outline-none transition-all cursor-not-allowed opacity-90"
+              className="w-full bg-white border border-slate-300 rounded-lg px-4 py-2.5 font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
               required
-              disabled
             >
               <option value="" disabled>Chọn tổ...</option>
               {availableTeams.length > 0 ? availableTeams.map(t => <option key={t} value={t}>{t}</option>) : <option disabled>Chưa có dữ liệu Tổ</option>}
@@ -667,18 +734,28 @@ export default function WorkloadForm({ onSaved, refreshToggle }: { onSaved: () =
            </div>
         </div>
 
-        <div className="pt-6">
+        
+        <div className="pt-6 flex gap-3 flex-col sm:flex-row">
           <button 
             type="submit"
             disabled={isSubmitting || members.length === 0}
-            className={`w-full py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold text-lg rounded-xl transition-all shadow-lg shadow-blue-500/30 flex items-center justify-center gap-2 ${isSubmitting ? 'opacity-50 cursor-not-allowed text-white/50' : 'hover:shadow-blue-500/40 hover:-translate-y-0.5 active:translate-y-0'}`}
+            className={`flex-1 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold text-lg rounded-xl transition-all shadow-lg shadow-blue-500/30 flex items-center justify-center gap-2 ${isSubmitting ? 'opacity-50 cursor-not-allowed text-white/50' : 'hover:shadow-blue-500/40 hover:-translate-y-0.5 active:translate-y-0'}`}
           >
             {isSubmitting ? 'ĐANG ĐỒNG BỘ...' : 'Cập Nhật Lên Hệ Thống [Enter]'}
           </button>
-          <p className="text-center text-xs font-medium text-slate-400 mt-4 tracking-wide uppercase">
-             Vui lòng kiểm tra kỹ danh sách thành viên trước khi gửi
-          </p>
+          
+          {isManagement && (
+              <button 
+                type="button"
+                onClick={handlePlanSubmit}
+                disabled={isSubmittingPlan || !hasSelectedTasks}
+                className={`sm:w-1/3 py-4 bg-gradient-to-r text-white font-bold text-lg rounded-xl transition-all flex items-center justify-center gap-2 ${(isSubmittingPlan || !hasSelectedTasks) ? 'from-slate-400 to-slate-500 opacity-50 cursor-not-allowed shadow-none' : 'from-amber-500 to-orange-500 shadow-lg shadow-amber-500/30 hover:shadow-amber-500/40 hover:-translate-y-0.5 active:translate-y-0'}`}
+              >
+                {isSubmittingPlan ? 'ĐANG LƯU...' : 'Lưu Kế hoạch Tháng'}
+              </button>
+          )}
         </div>
+
       </form>
     </div>
   );

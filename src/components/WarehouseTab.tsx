@@ -492,7 +492,7 @@ export default function WarehouseTab() {
                   </div>
                   <button 
                     onClick={() => {
-                       if (window.confirm("Bạn có chắc muốn reset toàn bộ sơ đồ kho?")) {
+                       if (true) { // window.confirm blocked in iframe
                           saveKhoToLocal([], warehouseWidth, warehouseHeight);
                        }
                     }}

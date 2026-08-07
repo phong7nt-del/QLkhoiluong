@@ -228,6 +228,50 @@ export const DataStore = {
     }
   },
 
+  
+  syncPlanToSheet: async (monthYear: string, items: {name: string, quantity: number}[]) => {
+     try {
+         const url = DataStore.getAppScriptUrl();
+         if (!url) return false;
+         
+         const payload = {
+            action: 'update_plan_month',
+            monthYear,
+            items
+         };
+         
+         const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify(payload)
+         });
+         const resData = await response.json();
+         if (resData && resData.status === 'success') {
+             try {
+                let dmList = DataStore.getDinhMuc();
+                let updated = false;
+                for (const item of items) {
+                    const dm = dmList.find(d => d.name === item.name);
+                    if (dm) {
+                        if (!dm.history) dm.history = {};
+                        dm.history[monthYear] = item.quantity;
+                        updated = true;
+                    }
+                }
+                if (updated) {
+                    safeSetItem(DINHMUC_KEY, JSON.stringify(dmList));
+                }
+             } catch(err) {
+                 console.error('Error updating local cache for plan:', err);
+             }
+             return true;
+         }
+         return false;
+     } catch (e) {
+         console.error('syncPlanToSheet error:', e);
+         return false;
+     }
+  },
   syncMasterData: async () => {
     try {
       let json: any = { status: 'success', members: [], teams: [] };
@@ -550,7 +594,7 @@ export const DataStore = {
                   const dmText = await dmRes.text();
                   if (!dmText.includes('<html') && dmText.trim() && dmText.length > 50) {
                      const dmData: any[] = Papa.parse(dmText, { header: true }).data as any[];
-                     const newDinhMuc: {name: string, quota: number, isGroup: boolean}[] = [];
+                     const newDinhMuc: any[] = [];
                      if (dmData && dmData.length > 0) {
                          const firstRow = dmData[0];
                          const keys = Object.keys(firstRow);
@@ -574,11 +618,20 @@ export const DataStore = {
                                  let val2 = parseFloat(quotaStr);
                                  if (isNaN(val2)) val2 = 0;
                                  
+                                 
                                  let isGroupStr = groupKey ? String(row[groupKey] || '').toLowerCase().trim() : '';
                                  let isGroup = isGroupStr === 'x';
                                  
+                                 let history: Record<string, number> = {};
+                                 keys.forEach(k => {
+                                     if (k.toLowerCase().includes('tháng') || k.toLowerCase().includes('thang') || /\d+\/\d{4}/.test(k)) {
+                                         let hVal = parseFloat(String(row[k] || '0').replace(/,/g, '.'));
+                                         if (!isNaN(hVal)) history[k.trim()] = hVal;
+                                     }
+                                 });
+
                                  if (val1 && val1.toLowerCase() !== 'stt') {
-                                     newDinhMuc.push({ name: val1, quota: val2, isGroup });
+                                     newDinhMuc.push({ name: val1, quota: val2, isGroup, history });
                                  }
                              }
                              if (newDinhMuc.length > 0) {
@@ -1078,7 +1131,7 @@ export const DataStore = {
      } catch { return []; }
   },
 
-  getDinhMuc: (): { name: string; quota: number; isGroup?: boolean }[] => {
+  getDinhMuc: (): { name: string; quota: number; isGroup?: boolean; history?: Record<string, number> }[] => {
      try {
        const cached = safeGetItem(DINHMUC_KEY);
        return cached ? JSON.parse(cached) : [];

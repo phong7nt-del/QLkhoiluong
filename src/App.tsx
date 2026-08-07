@@ -12,6 +12,7 @@ import TutiTab from "./components/TutiTab";
 import SangTaiTab from "./components/SangTaiTab";
 import DisconnectRateTab from "./components/DisconnectRateTab";
 import WarehouseTab from "./components/WarehouseTab";
+import PlanProgressTab from "./components/PlanProgressTab";
 import ChangePasswordModal from "./components/ChangePasswordModal";
 import { DataStore, SheetMember } from "./store/DataStore";
 
@@ -91,7 +92,10 @@ export default function App() {
   const [refreshToggle, setRefreshToggle] = useState(0);
 
   useEffect(() => {
-    DataStore.initDB().then(() => setDbReady(true));
+    DataStore.initDB().then(() => {
+      setDbReady(true);
+      DataStore.syncMasterData().then(() => setRefreshToggle(prev => prev + 1));
+    });
   }, []);
 
   const [showConfig, setShowConfig] = useState(false);
@@ -264,6 +268,7 @@ export default function App() {
   if (isManagement) {
     tabs.push({ id: "progress", icon: CheckSquare, label: "Tiến độ CV", color: "amber" });
     tabs.push({ id: "tuti", icon: Activity, label: "KT TU - TI", color: "indigo" });
+    tabs.push({ id: "plan_progress", icon: TrendingUp, label: "Tiến độ kế hoạch", color: "blue" });
   }
   tabs.push({ id: "sangtai", icon: Database, label: "KT sang tải", color: "amber" });
   if (isDoiTruong) {
@@ -422,7 +427,7 @@ export default function App() {
             <div className="flex-1 p-4 md:p-6 lg:p-8 relative">
               <div className="max-w-6xl mx-auto h-full">
                 {activeTab === "input" && (
-                  <WorkloadForm onSaved={() => setRefreshToggle(prev => prev + 1)} refreshToggle={refreshToggle} />
+                  <WorkloadForm onSaved={() => setRefreshToggle(prev => prev + 1)} refreshToggle={refreshToggle} isManagement={isManagement} />
                 )}
                 {activeTab === "report" && (
                   <Analytics refreshToggle={refreshToggle} />
@@ -435,6 +440,9 @@ export default function App() {
                 )}
                 {activeTab === "progress" && isManagement && (
                   <ProgressTab refreshToggle={refreshToggle} sessionUser={sessionUser} theme={theme} />
+                )}
+                {activeTab === "plan_progress" && isManagement && (
+                  <PlanProgressTab refreshToggle={refreshToggle} />
                 )}
                 {activeTab === "tuti" && isManagement && (
                   <TutiTab refreshToggle={refreshToggle} sessionUser={sessionUser} />
