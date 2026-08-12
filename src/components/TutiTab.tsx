@@ -26,7 +26,11 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
 
     const userRole = (sessionUser?.role || '').toLowerCase();
     const userTeam = (sessionUser?.team || '').toLowerCase();
-    const canEditTuti = userRole.includes('đội trưởng') || userRole.includes('đội phó') || (userRole.includes('tổ trưởng') && userTeam.includes('đo xa'));
+    const canEditTuti = userRole.includes('đội trưởng') || 
+                        userRole.includes('đội phó') || 
+                        userRole.includes('giám đốc') ||
+                        userRole.includes('tổ trưởng') || 
+                        userRole.includes('tổ phó');
 
     useEffect(() => {
         setEntries(DataStore.getTutiEntries());
