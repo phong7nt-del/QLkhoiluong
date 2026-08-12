@@ -140,8 +140,13 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
        setSelectedTasks(resetTasks);
        onSaved();
     } else {
-       setMessage({ type: 'error', text: "Có lỗi xảy ra khi lưu kế hoạch." });
-       setTimeout(() => setMessage(null), 5000);
+       const isDefault = DataStore.getAppScriptUrl() === 'https://script.google.com/macros/s/AKfycbyDCcu4I8yfT1g2KOHCRoaDtMMb1gLvfxhP4HJkzFYbqNIg1TSXCyi2HS3D7hDYpInVxQ/exec';
+       if (isDefault) {
+           setMessage({ type: 'error', text: "Lỗi: Máy này chưa cấu hình Link App Script mới. Vào phần Cài đặt (bánh răng) để cập nhật Link App Script!" });
+       } else {
+           setMessage({ type: 'error', text: "Có lỗi xảy ra. Hãy kiểm tra kết nối mạng hoặc đảm bảo Link App Script (trong Cài đặt) đã chính xác." });
+       }
+       setTimeout(() => setMessage(null), 8000);
     }
   };
 
