@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html>
+<body>
+<script>
+window.handleData = function(data) {
+  console.log("Success!", data.table.rows.length);
+  document.body.innerHTML = "Success! Rows: " + data.table.rows.length;
+}
+</script>
+<script src="https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:json;responseHandler=handleData&sheet=CBCNV"></script>
+</body>
+</html>

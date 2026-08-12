@@ -289,11 +289,12 @@ export const DataStore = {
       }
 
       if (json.status === 'success') {
+         const sheetId = json.spreadsheetId || "1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ";
          // Lấy MSNV và Nhóm từ CSV
          try {
             let cbcnvMap = new Map<string, {msnv: string, role: string}>();
             try {
-               const cbcnvRes = await fetch(`/api/proxy/gviz?sheet=${encodeURIComponent('CBCNV')}`);
+               const cbcnvRes = await fetch(`/api/proxy/gviz?sheet=${encodeURIComponent('CBCNV')}&sheetId=${sheetId}`);
                const csvText = await cbcnvRes.text();
                if (!csvText.includes('<html')) {
                    const { data } = Papa.parse(csvText, { header: false });
@@ -342,7 +343,7 @@ export const DataStore = {
             try {
                const ctSheets = ['CongTac', 'Cong Tac', 'Công tác', 'Công Tác', 'Con Tác'];
                for (const sheetName of ctSheets) {
-                   const ctRes = await fetch(`/api/proxy/gviz?sheet=${encodeURIComponent(sheetName)}`);
+                   const ctRes = await fetch(`/api/proxy/gviz?sheet=${encodeURIComponent(sheetName)}&sheetId=${sheetId}`);
                    const tempText = await ctRes.text();
                    if (!tempText.includes('<html') && tempText.trim() && tempText.length > 50) {
                       ctText = tempText;
@@ -518,7 +519,7 @@ export const DataStore = {
 
             // Fetch "Tiến độ" sheet
             try {
-               const progRes = await fetch(`/api/proxy/gviz?sheet=${encodeURIComponent("Tiến độ")}`);
+               const progRes = await fetch(`/api/proxy/gviz?sheet=${encodeURIComponent("Tiến độ")}&sheetId=${sheetId}`);
                const progText = await progRes.text();
                const { data: progData } = Papa.parse(progText, { header: true });
                const progressList: TaskProgress[] = [];
@@ -590,7 +591,7 @@ export const DataStore = {
             try {
                const dmSheets = ['DinhMuc', 'Định Mức', 'Dinh muc', 'Định mức'];
                for (const sheetName of dmSheets) {
-                  const dmRes = await fetch(`/api/proxy/gviz?sheet=${encodeURIComponent(sheetName)}`);
+                  const dmRes = await fetch(`/api/proxy/gviz?sheet=${encodeURIComponent(sheetName)}&sheetId=${sheetId}`);
                   const dmText = await dmRes.text();
                   if (!dmText.includes('<html') && dmText.trim() && dmText.length > 50) {
                      const dmData: any[] = Papa.parse(dmText, { header: true }).data as any[];
@@ -649,7 +650,7 @@ export const DataStore = {
             // Fetch TUTI via CSV
             if (!json.tuti || json.tuti.length === 0) {
                try {
-                  const tutiRes = await fetch(`/api/proxy/gviz?sheet=${encodeURIComponent("TUTI")}`);
+                  const tutiRes = await fetch(`/api/proxy/gviz?sheet=${encodeURIComponent("TUTI")}&sheetId=${sheetId}`);
                   const tutiText = await tutiRes.text();
                   if (!tutiText.includes('<html') && tutiText.trim()) {
                       const { data: tutiData } = Papa.parse(tutiText, { header: true });
@@ -753,7 +754,7 @@ export const DataStore = {
 
             // Fetch MatKetNoi
             try {
-               const mknRes = await fetch(`/api/proxy/gviz?sheet=${encodeURIComponent("MatKetNoi")}`);
+               const mknRes = await fetch(`/api/proxy/gviz?sheet=${encodeURIComponent("MatKetNoi")}&sheetId=${sheetId}`);
                const mknText = await mknRes.text();
                if (!mknText.includes('<html')) {
                    const { data, meta } = Papa.parse(mknText, { header: true, skipEmptyLines: true });
@@ -788,7 +789,7 @@ export const DataStore = {
 
             // Fetch ChiTietMKN
             try {
-               const chiTietRes = await fetch(`/api/proxy/gviz?sheet=${encodeURIComponent("ChiTietMKN")}`);
+               const chiTietRes = await fetch(`/api/proxy/gviz?sheet=${encodeURIComponent("ChiTietMKN")}&sheetId=${sheetId}`);
                const chiTietText = await chiTietRes.text();
                if (!chiTietText.includes('<html')) {
                    const { data } = Papa.parse(chiTietText, { header: true, skipEmptyLines: true });
@@ -808,7 +809,7 @@ export const DataStore = {
 
             // Fetch KhuVuc
             try {
-               const kvRes = await fetch(`/api/proxy/gviz?sheet=${encodeURIComponent("KhuVuc")}`);
+               const kvRes = await fetch(`/api/proxy/gviz?sheet=${encodeURIComponent("KhuVuc")}&sheetId=${sheetId}`);
                const kvText = await kvRes.text();
                if (!kvText.includes('<html')) {
                    const { data, meta } = Papa.parse(kvText, { header: true, skipEmptyLines: true });
@@ -849,7 +850,7 @@ export const DataStore = {
 
             // Fetch SangTai
             try {
-               const stRes = await fetch(`/api/proxy/gviz?sheet=${encodeURIComponent("SangTai")}`);
+               const stRes = await fetch(`/api/proxy/gviz?sheet=${encodeURIComponent("SangTai")}&sheetId=${sheetId}`);
                const stText = await stRes.text();
                if (!stText.includes('<html')) {
                    const { data } = Papa.parse(stText, { header: true, skipEmptyLines: true });
@@ -868,7 +869,7 @@ export const DataStore = {
 
             // Fetch Kho
             try {
-               const khoRes = await fetch(`/api/proxy/gviz?sheet=${encodeURIComponent("Kho")}`);
+               const khoRes = await fetch(`/api/proxy/gviz?sheet=${encodeURIComponent("Kho")}&sheetId=${sheetId}`);
                const khoText = await khoRes.text();
                if (!khoText.includes('<html')) {
                    const { data } = Papa.parse(khoText, { header: true, skipEmptyLines: true });
@@ -887,7 +888,7 @@ export const DataStore = {
 
             // Fetch VTTB
             try {
-               const vttbRes = await fetch(`/api/proxy/gviz?sheet=${encodeURIComponent("VTTB")}`);
+               const vttbRes = await fetch(`/api/proxy/gviz?sheet=${encodeURIComponent("VTTB")}&sheetId=${sheetId}`);
                const vttbText = await vttbRes.text();
                if (!vttbText.includes('<html')) {
                    const { data } = Papa.parse(vttbText, { header: true, skipEmptyLines: true });

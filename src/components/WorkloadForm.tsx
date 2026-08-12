@@ -151,7 +151,7 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
   };
 
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const hasSelectedTasks = Object.values(selectedTasks).some(data => data.selected && typeof data.quantity === 'number' && data.quantity > 0);
+  const hasSelectedTasks = Object.values(selectedTasks).some((data: any) => data.selected && typeof data.quantity === 'number' && data.quantity > 0);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

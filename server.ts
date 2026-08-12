@@ -10,12 +10,13 @@ async function startServer() {
   app.get("/api/proxy/gviz", async (req, res) => {
     try {
       const sheet = req.query.sheet as string;
+      const sheetId = req.query.sheetId as string || "1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ";
       if (!sheet) {
         res.status(400).send("Missing sheet parameter");
         return;
       }
       
-      const url = `https://docs.google.com/spreadsheets/d/1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheet)}`;
+      const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheet)}`;
       const fetchRes = await fetch(url);
       
       if (!fetchRes.ok) {
