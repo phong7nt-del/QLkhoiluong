@@ -71,7 +71,9 @@ function doGet(e) {
           if (teams.indexOf(assignTeam) === -1) {
              teams.push(assignTeam);
           }
-          members.push({ team: assignTeam, name: name });
+          var msnv = msnvIdx !== -1 ? String(data[i][msnvIdx]).trim() : '';
+        var role = roleIdx !== -1 ? String(data[i][roleIdx]).trim() : '';
+        members.push({ team: assignTeam, name: name, msnv: msnv, role: role });
           memberTeamMap[name] = assignTeam;
         }
       }

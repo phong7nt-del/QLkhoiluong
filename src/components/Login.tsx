@@ -109,8 +109,9 @@ export default function Login({ onLoginSuccess }: LoginProps) {
          // Also check if we found MSNV or not. (Wait, the above `if(mMsnv)` guarantees foundMember has it).
          onLoginSuccess(foundMember);
       } else {
-         const nameExists = members.some(m => normalizeStr(m.name) === normalizedInputName);
-         if (nameExists) {
+         if (memberByName && !getMsnv(memberByName)) {
+             setError('Lỗi hệ thống: Dữ liệu chưa có MSNV. Quản trị viên cần cập nhật mã Google Apps Script mới trong mục Cấu hình!');
+         } else if (memberByName) {
              setError('Sai mật khẩu (MSNV). Vui lòng thử lại!');
          } else {
              setError('Không tìm thấy nhân viên này trong danh sách!');
@@ -229,8 +230,14 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
                           <User className="w-5 h-5" />
                        </div>
+                       <datalist id="members-list">
+                          {DataStore.getMembers().map((m, i) => (
+                              <option key={i} value={m.name} />
+                          ))}
+                       </datalist>
                        <input
                           type="text"
+                          list="members-list"
                           value={username}
                           onChange={(e) => setUsername(e.target.value)}
                           placeholder="Nhập họ tên của bạn..."
