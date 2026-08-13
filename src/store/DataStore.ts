@@ -31,6 +31,17 @@ export interface TaskProgress {
   timestamp?: number;
 }
 
+export interface XuLyDoXaEntry {
+  stt?: number;
+  loaiXl: string;
+  nguoiXl: string;
+  thoiGianXl: string;
+  maDd: string;
+  cachXl: string;
+  ketQua?: string;
+  ghiChu: string;
+}
+
 export interface SheetMember {
   team: string;
   name: string;
@@ -188,6 +199,47 @@ export const DataStore = {
     entries.push(newEntry);
     safeSetItem(STORAGE_KEY, JSON.stringify(entries));
     return newEntry;
+  },
+
+  getXuLyDoXa: async () => {
+     try {
+         const sheetId = localStorage.getItem('SPREADSHEET_ID') || "1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ";
+         const res = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("XuLyDoXa")}`);
+         if (!res.ok) return [];
+         const text = await res.text();
+         if (text.includes('<html')) return [];
+         const data = Papa.parse(text, { header: true }).data;
+         const filtered = data.filter((row: any) => row && Object.keys(row).length > 0 && (row['STT'] || row['stt'] || row['Người XL'] || row['Nguoi XL'] || row['Mã DD'] || row['Ma DD']));
+         return filtered.map((row: any) => ({
+            stt: row['STT'] || row['stt'],
+            loaiXl: row['Loại XL'] || row['Loai XL'] || row['loaiXl'],
+            nguoiXl: row['Người XL'] || row['Nguoi XL'] || row['nguoiXl'],
+            thoiGianXl: row['Thời gian XL'] || row['Thoi gian XL'] || row['thoiGianXl'],
+            maDd: row['Mã DD'] || row['Ma DD'] || row['maDd'],
+            cachXl: row['Cách XL'] || row['Cach XL'] || row['cachXl'],
+            ketQua: row['Kết quả'] || row['Ket qua'] || row['KetQua'] || row['ketQua'],
+            ghiChu: row['Ghi chú'] || row['Ghi chu'] || row['ghiChu']
+         }));
+     } catch (e) {
+         console.error('Error fetching XuLyDoXa', e);
+         return [];
+     }
+  },
+  
+  syncXuLyDoXaToSheet: async (entry: XuLyDoXaEntry) => {
+    try {
+      const url = DataStore.getAppScriptUrl();
+      if (!url) throw new Error('No Apps Script URL configured');
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'add_xulydoxa', data: entry }),
+      });
+      return response.ok;
+    } catch (e) {
+      console.error('Failed to sync XuLyDoXa to sheet', e);
+      return false;
+    }
   },
 
   syncToSheet: async (entry: Omit<WorkloadEntry, 'id' | 'timestamp'>) => {

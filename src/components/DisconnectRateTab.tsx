@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Papa from 'papaparse';
-import { DataStore } from '../store/DataStore';
+import { DataStore, XuLyDoXaEntry } from '../store/DataStore';
 import { RefreshCw, AlertCircle, WifiOff, Users, ChevronRight, Search, Filter, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
+import XuLyDoXaView from './XuLyDoXaView';
 import {
   PieChart,
   Pie,
@@ -30,7 +31,8 @@ interface ChiTietMKN {
 }
 
 export default function DisconnectRateTab({ refreshToggle }: { refreshToggle?: number }) {
-  const [subTab, setSubTab] = useState<'overview' | 'details' | 'statistics'>('overview');
+  const [subTab, setSubTab] = useState<'xuly' | 'overview' | 'details' | 'statistics'>('xuly');
+  const [xuLyList, setXuLyList] = useState<XuLyDoXaEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   
@@ -58,7 +60,18 @@ export default function DisconnectRateTab({ refreshToggle }: { refreshToggle?: n
       return area;
   };
 
-  const fetchData = async () => {
+  
+  const fetchXuLyData = async () => {
+      try {
+          const data = await DataStore.getXuLyDoXa();
+          setXuLyList(data);
+      } catch (e) {
+          console.error(e);
+      }
+  };
+
+  const fetchData = async (force = false) => {
+    if (overviewStats && !force) return;
     setLoading(true);
     setError('');
     
@@ -68,6 +81,7 @@ export default function DisconnectRateTab({ refreshToggle }: { refreshToggle?: n
       const mknData = DataStore.getMatKetNoi();
       const chiTietData = DataStore.getChiTietMKN();
       const stations = DataStore.getStations();
+  
       
       // -- OVERVIEW STATS (Legacy computation for Thống kê khu vực) --
       const maKhangToKhuVuc: Record<string, string> = {};
@@ -271,13 +285,33 @@ export default function DisconnectRateTab({ refreshToggle }: { refreshToggle?: n
   };
 
   useEffect(() => {
-     fetchData();
+    if (subTab === 'xuly') {
+        fetchXuLyData();
+    } else {
+        fetchData();
+    }
   }, [refreshToggle]);
+
+  useEffect(() => {
+      if (subTab !== 'xuly') {
+          fetchData();
+      }
+  }, [subTab]);
 
   return (
     <div className="space-y-6">
       {/* Sub-tab Navigation */}
       <div className="flex border-b border-[#141414]/20 bg-white shadow-sm overflow-x-auto">
+         <button 
+            onClick={() => setSubTab('xuly')}
+            className={`px-6 py-3.5 font-extrabold uppercase tracking-widest text-sm transition-all whitespace-nowrap ${
+                subTab === 'xuly' 
+                ? 'bg-[#141414] text-white' 
+                : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+            }`}
+         >
+            Xử lý
+         </button>
          <button 
             onClick={() => setSubTab('overview')}
             className={`px-6 py-3.5 font-extrabold uppercase tracking-widest text-sm transition-all whitespace-nowrap ${
@@ -323,12 +357,16 @@ export default function DisconnectRateTab({ refreshToggle }: { refreshToggle?: n
               <h3 className="font-bold text-lg">Lỗi tải dữ liệu</h3>
             </div>
             <p>{error}</p>
-            <button onClick={fetchData} className="mt-4 bg-[#141414] text-white px-4 py-2 text-sm font-bold shadow-[2px_2px_0_#A0A0A0] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-none transition-all">
+            <button onClick={() => fetchData(true)} className="mt-4 bg-[#141414] text-white px-4 py-2 text-sm font-bold shadow-[2px_2px_0_#A0A0A0] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-none transition-all">
                Thử lại
             </button>
           </div>
          )}
          
+         {!loading && !error && subTab === 'xuly' && (
+            <XuLyDoXaView xuLyList={xuLyList} refreshData={fetchXuLyData} />
+         )}
+
          {!loading && !error && overviewStats && subTab === 'overview' && (
             <OverviewSubTab stats={overviewStats} statsNhanh={overviewStatsNhanh} fetchData={fetchData} loading={loading} />
          )}
@@ -427,7 +465,7 @@ function OverviewSubTab({ stats, statsNhanh, fetchData, loading }: { stats: any,
          <div className="bg-white border border-[#141414] shadow-[4px_4px_0_#141414] overflow-hidden">
             <div className="p-4 bg-[#F5F4F2] border-b border-[#141414] flex justify-between items-center">
                <h3 className="font-bold uppercase tracking-widest text-sm">Chi tiết theo Khu vực</h3>
-               <button onClick={fetchData} className="text-[#141414]/60 hover:text-[#141414]" disabled={loading}>
+               <button onClick={() => fetchData(true)} className="text-[#141414]/60 hover:text-[#141414]" disabled={loading}>
                   <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
                </button>
             </div>

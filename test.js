@@ -1,8 +1,4 @@
-import React, { useState } from 'react';
-import { DataStore } from '../store/DataStore';
-import { Copy, Check, DownloadCloud, AlertTriangle, X } from 'lucide-react';
-
-const SCRIPT_TEMPLATE = `// XÓA TẤT CẢ MÃ CŨ (XÓA function myFunction() { ... })
+// XÓA TẤT CẢ MÃ CŨ (XÓA function myFunction() { ... })
 // CHỈ DÁN ĐOẠN MÃ DƯỚI ĐÂY VÀO:
 var SPREADSHEET_ID = '1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ';
 
@@ -250,7 +246,7 @@ function doGet(e) {
          var thm = {};
          for (var c = 0; c < tHeaders.length; c++) {
             var rawH = String(tHeaders[c]).toLowerCase().trim();
-            var h = rawH.normalize('NFD').replace(/[̀-ͯ]/g, "").replace(/đ/g, "d").replace(/\\s+/g, ' ');
+            var h = rawH.normalize('NFD').replace(/[̀-ͯ]/g, "").replace(/đ/g, "d").replace(/\s+/g, ' ');
             if (h === 'ma tram') thm.maTramCol = c;
             if (h === 'ten diem do' || h === 'ten tram') thm.tenDiemDoCol = c;
             if (h.indexOf('thong so tu') > -1 || h === 'tu') thm.tuCol = c;
@@ -568,7 +564,7 @@ function doPost(e) {
           var updated = false;
           for (var i = headerRow + 1; i < dataValues.length; i++) {
              var rowName = String(dataValues[i][nameCol]).toLowerCase().trim();
-             if (rowName.replace(/\\s+/g, '') === nameToChange.replace(/\\s+/g, '')) {
+             if (rowName.replace(/\s+/g, '') === nameToChange.replace(/\s+/g, '')) {
                 sheet.getRange(i + 1, msnvCol + 1).setValue(newPass);
                 updated = true;
              }
@@ -640,7 +636,7 @@ function doPost(e) {
         if (rowIndex !== -1) {
            var cell = sheet.getRange(rowIndex + 1, dateColIndex + 1);
            var currentVal = String(cell.getValue() || '');
-           var newVal = currentVal ? currentVal + "\\n- " + data.content : "- " + data.content;
+           var newVal = currentVal ? currentVal + "\n- " + data.content : "- " + data.content;
            cell.setValue(newVal);
         }
       }
@@ -726,7 +722,7 @@ function doPost(e) {
        var hm = {};
        for (var c = 0; c < headers.length; c++) {
           var rawH = String(headers[c]).toLowerCase().trim();
-          var h = rawH.normalize('NFD').replace(/[̀-ͯ]/g, "").replace(/đ/g, "d").replace(/\\s+/g, ' ');
+          var h = rawH.normalize('NFD').replace(/[̀-ͯ]/g, "").replace(/đ/g, "d").replace(/\s+/g, ' ');
           if (h === 'tt' || h === 'stt') hm.ttCol = c;
           if (h === 'ma tram') hm.maTramCol = c;
           if (h === 'ten diem do' || h === 'ten tram') hm.tenDiemDoCol = c;
@@ -809,7 +805,7 @@ function doPost(e) {
        
        for (var c = 0; c < headers.length; c++) {
           var rawH = String(headers[c]).toLowerCase().trim();
-          var h = rawH.normalize('NFD').replace(/[̀-ͯ]/g, "").replace(/đ/g, "d").replace(/[\\s_]+/g, '');
+          var h = rawH.normalize('NFD').replace(/[̀-ͯ]/g, "").replace(/đ/g, "d").replace(/[\s_]+/g, '');
           if (h === 'madiemdo16' || h === 'madiemdo') {
              if (maDiemDoCol === -1) maDiemDoCol = c;
           }
@@ -834,7 +830,7 @@ function doPost(e) {
        var sheet = getSheetFlexibly(ss, ['XuLyDoXa', 'Xu Ly Do Xa', 'Xử lý đo xa']);
        if (!sheet) {
            sheet = ss.insertSheet('XuLyDoXa');
-           sheet.appendRow(['STT', 'Loại XL', 'Người XL', 'Thời gian XL', 'Mã DD', 'Cách XL', 'Kết quả', 'Ghi chú']);
+           sheet.appendRow(['STT', 'Loại XL', 'Người XL', 'Thời gian XL', 'Mã DD', 'Cách XL', 'Ghi chú']);
        }
        var data = payload.data;
        var lastRow = sheet.getLastRow();
@@ -847,7 +843,6 @@ function doPost(e) {
           data.thoiGianXl || '',
           data.maDd || '',
           data.cachXl || '',
-          data.ketQua || '',
           data.ghiChu || ''
        ]);
        
@@ -872,7 +867,7 @@ function doPost(e) {
        
        for (var c = 0; c < headers.length; c++) {
           var rawH = String(headers[c]).toLowerCase().trim();
-          var h = rawH.normalize('NFD').replace(/[̀-ͯ]/g, "").replace(/đ/g, "d").replace(/[\\s_]+/g, '');
+          var h = rawH.normalize('NFD').replace(/[̀-ͯ]/g, "").replace(/đ/g, "d").replace(/[\s_]+/g, '');
           if (h === 'madiemdo16' || h === 'madiemdo') {
              if (maDiemDoCol === -1) maDiemDoCol = c;
           }
@@ -902,105 +897,4 @@ function doPost(e) {
   } catch (err) {
     return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: err.toString() })).setMimeType(ContentService.MimeType.JSON);
   }
-}
-`;
-
-export default function ConfigModal({ onClose }: { onClose: () => void }) {
-  const [url, setUrl] = useState(DataStore.getAppScriptUrl());
-  const [copied, setCopied] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const [syncResult, setSyncResult] = useState<string | null>(null);
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(SCRIPT_TEMPLATE);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 3000);
-  };
-
-  const handleSaveAndSync = async () => {
-    DataStore.setAppScriptUrl(url);
-    setSyncing(true);
-    setSyncResult(null);
-    const success = await DataStore.syncMasterData();
-    setSyncing(false);
-    if (success) {
-       setSyncResult('success');
-    } else {
-       setSyncResult('error');
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-[#E4E3E0]/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white border-[4px] border-[#141414] shadow-[8px_8px_0_rgba(20,20,20,1)] max-w-4xl w-full max-h-[90vh] overflow-y-auto relative">
-        
-        <button 
-          onClick={onClose}
-          className="absolute top-4 right-4 text-[#141414] hover:bg-[#E4E3E0] p-2 transition-colors z-10"
-        >
-          <X className="w-6 h-6" />
-        </button>
-
-        <div className="p-6 lg:p-10">
-          <h2 className="font-serif italic text-2xl mb-6 pr-12">
-             Cấu hình Hệ Thống & Google Scripts
-          </h2>
-          
-          <div className="space-y-6 text-sm font-sans">
-            <div className="bg-[#FFF4E5] border border-orange-400 p-4 rounded-none flex gap-3 text-orange-900 border-l-[6px] shadow-[4px_4px_0_rgba(0,0,0,0.1)]">
-               <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-               <div>
-                  <p className="font-bold mb-1 text-base uppercase text-red-600">BẮT BUỘC: Cập nhật lại mã nguồn App Script</p>
-                  <p className="mb-2">Mã mới đã bổ sung nhận diện <strong>Bảng Định Mức công việc</strong> và <strong>Nhật ký công việc</strong> từ Google Sheet.</p>
-                  <ul className="list-decimal pl-5 space-y-1 mb-2">
-                     <li>Đảm bảo bạn đã có Sheet <strong>DinhMuc</strong> (Cột A: Tên định mức/nội dung).</li>
-                     <li>Copy toàn bộ mã trong ô màu đen bên dưới.</li>
-                     <li>Dán đè vào <a href="https://script.google.com" target="_blank" rel="noreferrer" className="underline font-bold text-blue-700">Google Apps Script</a> của bạn.</li>
-                     <li>Bấm <strong>Deploy {'->'} New deployment</strong>. (Không được chọn Manage Deployments bản cũ)</li>
-                     <li>Sao chép Web App URL <strong>MỚI NHẤT</strong> và dán vào ô bên dưới rồi TẢI LẠI DỮ LIỆU.</li>
-                  </ul>
-               </div>
-            </div>
-
-            <div className="space-y-2">
-              <label className="block text-[10px] font-mono opacity-50 uppercase font-bold">1. Chép URL App Script Mới cập nhật vào đây (bắt buộc tải lại dữ liệu)</label>
-              <input 
-                type="text" 
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://script.google.com/macros/s/..."
-                className="w-full bg-[#E4E3E0] bg-opacity-30 border border-[#141414] p-3 text-sm focus:outline-none focus:ring-1 focus:ring-[#141414] font-mono"
-              />
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-               <button 
-                  onClick={handleSaveAndSync}
-                  disabled={syncing}
-                  className="bg-[#141414] text-[#E4E3E0] px-6 py-3 uppercase font-bold tracking-widest hover:invert transition-all flex items-center gap-2 text-sm disabled:opacity-50"
-               >
-                  <DownloadCloud className="w-4 h-4" />
-                  {syncing ? 'Đang Tải Dữ Liệu...' : 'Lưu URL & Tải Danh Sách Tổ/NV'}
-               </button>
-               {syncResult === 'success' && <div className="text-green-700 font-bold flex items-center bg-green-50 px-3 py-2 border border-green-200">✓ Đã tải dữ liệu Tổ & NV thành công!</div>}
-               {syncResult === 'error' && <div className="text-red-700 font-bold flex items-center bg-red-50 px-3 py-2 border border-red-200">✗ Lỗi tải dữ liệu. Hãy kiểm tra URL hoặc App Script.</div>}
-            </div>
-            
-            <div className="border border-[#141414] mt-8 bg-[#141414] text-[#E4E3E0] shadow-inner">
-              <div className="flex justify-between items-center p-3 border-b border-[#E4E3E0]/20 bg-black">
-                 <span className="text-[10px] font-mono uppercase opacity-50">2. Mã Code Apps Script Mới (Code.gs)</span>
-                 <button onClick={handleCopy} className="text-xs font-mono flex items-center gap-1 hover:text-white transition-colors bg-white/10 px-3 py-1">
-                    {copied ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
-                    {copied ? 'Đã chép' : 'Sao chép mã'}
-                 </button>
-              </div>
-              <pre className="p-4 text-[11px] font-mono overflow-auto max-h-[300px]">
-                 <code>{SCRIPT_TEMPLATE}</code>
-              </pre>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
 }
