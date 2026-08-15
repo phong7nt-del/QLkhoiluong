@@ -204,22 +204,28 @@ export const DataStore = {
   getXuLyDoXa: async () => {
      try {
          const sheetId = localStorage.getItem('SPREADSHEET_ID') || "1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ";
-         const res = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("XuLyDoXa")}`);
+         const res = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("XuLyDoXa")}&_=${Date.now()}`);
          if (!res.ok) return [];
          const text = await res.text();
          if (text.includes('<html')) return [];
          const data = Papa.parse(text, { header: true }).data;
-         const filtered = data.filter((row: any) => row && Object.keys(row).length > 0 && (row['STT'] || row['stt'] || row['Người XL'] || row['Nguoi XL'] || row['Mã DD'] || row['Ma DD']));
-         return filtered.map((row: any) => ({
-            stt: row['STT'] || row['stt'],
-            loaiXl: row['Loại XL'] || row['Loai XL'] || row['loaiXl'],
-            nguoiXl: row['Người XL'] || row['Nguoi XL'] || row['nguoiXl'],
-            thoiGianXl: row['Thời gian XL'] || row['Thoi gian XL'] || row['thoiGianXl'],
-            maDd: row['Mã DD'] || row['Ma DD'] || row['maDd'],
-            cachXl: row['Cách XL'] || row['Cach XL'] || row['cachXl'],
-            ketQua: row['Kết quả'] || row['Ket qua'] || row['KetQua'] || row['ketQua'],
-            ghiChu: row['Ghi chú'] || row['Ghi chu'] || row['ghiChu']
-         }));
+         const filtered = data.filter((row: any) => row && Object.keys(row).length > 0);
+         return filtered.map((row: any) => {
+            const getVal = (possibleKeys) => {
+                const rowKey = Object.keys(row).find(k => possibleKeys.includes(k.trim().toLowerCase().replace(/[\s_]+/g, '')));
+                return rowKey ? row[rowKey] : undefined;
+            };
+            return {
+                stt: getVal(['stt']),
+                loaiXl: getVal(['loaixl', 'loạixl']),
+                nguoiXl: getVal(['nguoixl', 'ngườixl']),
+                thoiGianXl: getVal(['thoigianxl', 'thờigianxl']),
+                maDd: getVal(['madd', 'mãdd', 'mãđđ']),
+                cachXl: getVal(['cachxl', 'cáchxl']),
+                ketQua: getVal(['ketqua', 'kếtquả']),
+                ghiChu: getVal(['ghichu', 'ghichú'])
+            };
+         }).filter(item => item.stt || item.maDd || item.nguoiXl);
      } catch (e) {
          console.error('Error fetching XuLyDoXa', e);
          return [];
@@ -235,7 +241,8 @@ export const DataStore = {
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ action: 'add_xulydoxa', data: entry }),
       });
-      return response.ok;
+      const result = await response.json();
+      return result.status === 'success';
     } catch (e) {
       console.error('Failed to sync XuLyDoXa to sheet', e);
       return false;
@@ -252,7 +259,8 @@ export const DataStore = {
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ action: 'add_xulydoxa_bulk', data: entries }),
       });
-      return response.ok;
+      const result = await response.json();
+      return result.status === 'success';
     } catch (e) {
       console.error('Failed to sync bulk XuLyDoXa to sheet', e);
       return false;
@@ -268,7 +276,8 @@ export const DataStore = {
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ action: 'update_xulydoxa', data: entry }),
       });
-      return response.ok;
+      const result = await response.json();
+      return { ok: result.status === 'success', message: result.message || JSON.stringify(result) };
     } catch (e) {
       console.error('Failed to update XuLyDoXa to sheet', e);
       return false;

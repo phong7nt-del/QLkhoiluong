@@ -38,6 +38,64 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
 
   const [filteredMembers, setFilteredMembers] = useState<string[]>([]);
   const [message, setMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
+  const [sessionUser, setSessionUser] = useState<SheetMember | null>(null);
+  
+  useEffect(() => {
+    const stored = sessionStorage.getItem('workload_user_session');
+    if (stored) {
+       try { setSessionUser(JSON.parse(stored)); } catch(e){}
+    }
+  }, []);
+  
+  const isDeleteAllowed = () => {
+      if (!sessionUser) return false;
+      const roleStr = sessionUser.role ? sessionUser.role.toLowerCase() : '';
+      const isTeamLeader = roleStr.includes('tổ trưởng') || roleStr.includes('tổ phó');
+      const isDeptLeader = roleStr.includes('đội trưởng') || roleStr.includes('đội phó') || roleStr.includes('giám đốc');
+      
+      if (isDeptLeader) return true;
+      if (isTeamLeader) {
+          const allM = DataStore.getMembers();
+          for (const m of members) {
+              const memberInfo = allM.find(x => x.name === m);
+              if (memberInfo && memberInfo.team === sessionUser.team) {
+                  return true;
+              }
+          }
+      }
+      return false;
+  };
+  
+  const handleDeleteGroup = async () => {
+      if (members.length === 0) {
+          setMessage({ type: 'error', text: "Bạn phải nhập tên của ít nhất 1 thành viên nhóm để xóa báo cáo."});
+          return;
+      }
+      
+      const dateParts = date.split('-');
+      const formattedDate = dateParts[2] + '/' + dateParts[1] + '/' + dateParts[0];
+      
+      if (!window.confirm(`Bạn có muốn xóa nhóm gồm ${members.length} thành viên trong ngày ${formattedDate} không?`)) {
+          return;
+      }
+      
+      setIsSubmitting(true);
+      setMessage(null);
+      try {
+          const ok = await DataStore.deleteWorkloadGroup({ date, members });
+          if (ok) {
+              setMessage({ type: 'success', text: "Đã xóa báo cáo nhóm thành công!" });
+              setMembers([]); // reset
+              onSaved();
+          } else {
+              setMessage({ type: 'error', text: "Có lỗi xảy ra khi xóa báo cáo nhóm." });
+          }
+      } catch (e) {
+          setMessage({ type: 'error', text: "Lỗi hệ thống khi xóa báo cáo." });
+      } finally {
+          setIsSubmitting(false);
+      }
+  };
 
   useEffect(() => {
     const teams = DataStore.getTeams();

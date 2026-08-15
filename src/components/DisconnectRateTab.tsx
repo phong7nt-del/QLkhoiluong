@@ -364,7 +364,7 @@ export default function DisconnectRateTab({ refreshToggle }: { refreshToggle?: n
          )}
          
          {!loading && !error && subTab === 'xuly' && (
-            <XuLyDoXaView xuLyList={xuLyList} refreshData={fetchXuLyData} />
+            <XuLyDoXaView xuLyList={xuLyList} refreshData={fetchXuLyData} setXuLyList={setXuLyList} />
          )}
 
          {!loading && !error && overviewStats && subTab === 'overview' && (

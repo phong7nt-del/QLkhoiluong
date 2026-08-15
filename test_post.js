@@ -1,0 +1,1 @@
+const url = 'https://script.google.com/macros/s/AKfycbz_dG59Vw_y8xZtH3kK-1O8_1bH_yqV6eU59J9w6v-n_Kz6v-q6j_y_pXW3n6Z_m/exec'; // Need to get the actual URL from localStorage or something, wait I don't know it! 

@@ -646,6 +646,64 @@ function doPost(e) {
       }
       return ContentService.createTextOutput(JSON.stringify({ status: 'success' })).setMimeType(ContentService.MimeType.JSON);
     }
+
+    if (action === 'delete_workload_group') {
+      var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+      var sheet = getSheetFlexibly(ss, ['CongTac', 'Cong Tac', 'Công tác']);
+      if (!sheet) return ContentService.createTextOutput(JSON.stringify({status: 'error'})).setMimeType(ContentService.MimeType.JSON);
+      
+      var data = payload.data;
+      var sheetData = sheet.getDataRange().getValues();
+      var nameIdx = -1;
+      var headerRowIndex = -1;
+      for (var r = 0; r < Math.min(5, sheetData.length); r++) {
+        for (var c = 0; c < sheetData[r].length; c++) {
+           var h = String(sheetData[r][c]).toLowerCase();
+           if (h.includes('họ và tên') || h.includes('ho va ten')) {
+              nameIdx = c; headerRowIndex = r; break;
+           }
+        }
+        if (nameIdx !== -1) break;
+      }
+      if (nameIdx === -1) { nameIdx = 1; headerRowIndex = 1; }
+      
+      var headers = sheetData[headerRowIndex] || [];
+      var dateParts = data.date.split('-');
+      var targetDateStr = dateParts[2] + '/' + dateParts[1] + '/' + dateParts[0];
+      var targetDateStrAlt = dateParts[2] + '/' + dateParts[1];
+      
+      var dateColIndex = -1;
+      for (var i = 0; i < headers.length; i++) {
+         var h = headers[i];
+         var cellDateStr = '';
+         if (Object.prototype.toString.call(h) === '[object Date]') {
+            cellDateStr = Utilities.formatDate(h, Session.getScriptTimeZone(), "dd/MM/yyyy");
+         } else {
+            cellDateStr = String(h).trim();
+         }
+         
+         if (cellDateStr === targetDateStr || cellDateStr === targetDateStrAlt || cellDateStr === data.date) {
+            dateColIndex = i;
+            break;
+         }
+      }
+      
+      if (dateColIndex !== -1) {
+          for (var m = 0; m < data.members.length; m++) {
+              var memberName = data.members[m];
+              var rowIndex = -1;
+              for(var r = headerRowIndex + 1; r < sheetData.length; r++) {
+                 if(String(sheetData[r][nameIdx]).trim() === memberName.trim()) {
+                    rowIndex = r; break;
+                 }
+              }
+              if (rowIndex !== -1) {
+                  sheet.getRange(rowIndex + 1, dateColIndex + 1).setValue('');
+              }
+          }
+      }
+      return ContentService.createTextOutput(JSON.stringify({ status: 'success' })).setMimeType(ContentService.MimeType.JSON);
+    }
     
     if (action === 'update_progress') {
        var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -893,33 +951,85 @@ function doPost(e) {
     if (action === 'update_xulydoxa') {
        var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
        var sheet = getSheetFlexibly(ss, ['XuLyDoXa', 'Xu Ly Do Xa', 'Xử lý đo xa']);
-       if (!sheet) return ContentService.createTextOutput(JSON.stringify({status: 'error'})).setMimeType(ContentService.MimeType.JSON);
+       if (!sheet) return ContentService.createTextOutput(JSON.stringify({status: 'error', message: 'Sheet not found'})).setMimeType(ContentService.MimeType.JSON);
        
        var data = payload.data;
-       var sheetData = sheet.getDataRange().getValues();
-       var headers = sheetData[0] || [];
+       var sheetDataDisplay = sheet.getDataRange().getDisplayValues(); // Get as string
        
-       var sttCol = -1, loaiXlCol = -1, nguoiXlCol = -1, thoiGianXlCol = -1, maDdCol = -1, cachXlCol = -1, ketQuaCol = -1, ghiChuCol = -1;
+       var loaiXlCol = -1, nguoiXlCol = -1, thoiGianXlCol = -1, maDdCol = -1, cachXlCol = -1, ketQuaCol = -1, ghiChuCol = -1;
+       var headerRowIdx = 0;
        
-       for (var c = 0; c < headers.length; c++) {
-           var h = String(headers[c]).toLowerCase().replace(/[\s_]+/g, '');
-           if (h === 'stt') sttCol = c;
-           else if (h === 'loaixl' || h === 'loạixl') loaiXlCol = c;
-           else if (h === 'nguoixl' || h === 'ngườixl') nguoiXlCol = c;
-           else if (h === 'thoigianxl' || h === 'thờigianxl') thoiGianXlCol = c;
-           else if (h === 'madd' || h === 'mãđđ' || h === 'mãdd') maDdCol = c;
-           else if (h === 'cachxl' || h === 'cáchxl') cachXlCol = c;
-           else if (h === 'ketqua' || h === 'kếtquả') ketQuaCol = c;
-           else if (h === 'ghichu' || h === 'ghichú') ghiChuCol = c;
+       function normalizeHeader(raw) {
+           var s = String(raw).toLowerCase();
+           if (s.normalize) {
+               s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, "");
+           }
+           s = s.replace(/đ/g, "d");
+           s = s.replace(/[^a-z0-9]/g, "");
+           return s;
+       }
+
+       // Scan first 5 rows for headers
+       for (var rIdx = 0; rIdx < Math.min(5, sheetDataDisplay.length); rIdx++) {
+           var tempHeaders = sheetDataDisplay[rIdx] || [];
+           var tempMaDdCol = -1, tempThoiGianCol = -1;
+           for (var c = 0; c < tempHeaders.length; c++) {
+               var h = normalizeHeader(tempHeaders[c]);
+               if (h === 'madd') tempMaDdCol = c;
+               else if (h === 'thoigianxl') tempThoiGianCol = c;
+           }
+           if (tempMaDdCol > -1) {
+               headerRowIdx = rIdx;
+               break;
+           }
        }
        
-       if (sttCol > -1 && data.stt) {
-          for (var r = 1; r < sheetData.length; r++) {
-              if (String(sheetData[r][sttCol]).trim() === String(data.stt).trim()) {
+       var headers = sheetDataDisplay[headerRowIdx] || [];
+       for (var c = 0; c < headers.length; c++) {
+           var h = normalizeHeader(headers[c]);
+           if (h === 'loaixl') loaiXlCol = c;
+           else if (h === 'nguoixl') nguoiXlCol = c;
+           else if (h === 'thoigianxl') thoiGianXlCol = c;
+           else if (h === 'madd') maDdCol = c;
+           else if (h === 'cachxl') cachXlCol = c;
+           else if (h === 'ketqua') ketQuaCol = c;
+           else if (h === 'ghichu') ghiChuCol = c;
+       }
+       
+       function normalizeDateStr(dStr) {
+           if (!dStr) return '';
+           var s = String(dStr).trim().split(' ')[0];
+           if (s.indexOf('T') !== -1) s = s.split('T')[0];
+           var parts = s.indexOf('-') !== -1 ? s.split('-') : s.split('/');
+           if (parts.length >= 3) {
+               var d, m, y;
+               if (parts[0].length === 4) { y = parts[0]; m = parts[1]; d = parts[2]; } 
+               else { d = parts[0]; m = parts[1]; y = parts[2]; }
+               d = parseInt(d, 10); m = parseInt(m, 10);
+               if (m > 12 && d <= 12) { var tmp = m; m = d; d = tmp; }
+               return (d < 10 ? '0'+d : ''+d) + '/' + (m < 10 ? '0'+m : ''+m) + '/' + y;
+           }
+           return s;
+       }
+       
+       var inputDateStr = normalizeDateStr(data.thoiGianXl);
+       var inputMaDd = String(data.maDd).trim().toLowerCase();
+       
+       if (maDdCol > -1 && thoiGianXlCol > -1 && data.maDd) {
+          var seenDates = [];
+          for (var r = headerRowIdx + 1; r < sheetDataDisplay.length; r++) {
+              var rMaDd = String(sheetDataDisplay[r][maDdCol]).trim().toLowerCase();
+              var rawDate = String(sheetDataDisplay[r][thoiGianXlCol]);
+              var rDateStr = normalizeDateStr(rawDate);
+              
+              if (rMaDd === inputMaDd) {
+                  seenDates.push(rawDate + " => " + rDateStr);
+              }
+              
+              if (rMaDd === inputMaDd && rDateStr === inputDateStr) {
+                  // Found! Update values
                   if (loaiXlCol > -1 && data.loaiXl !== undefined) sheet.getRange(r + 1, loaiXlCol + 1).setValue(data.loaiXl);
                   if (nguoiXlCol > -1 && data.nguoiXl !== undefined) sheet.getRange(r + 1, nguoiXlCol + 1).setValue(data.nguoiXl);
-                  if (thoiGianXlCol > -1 && data.thoiGianXl !== undefined) sheet.getRange(r + 1, thoiGianXlCol + 1).setValue(data.thoiGianXl);
-                  if (maDdCol > -1 && data.maDd !== undefined) sheet.getRange(r + 1, maDdCol + 1).setValue(data.maDd);
                   if (cachXlCol > -1 && data.cachXl !== undefined) sheet.getRange(r + 1, cachXlCol + 1).setValue(data.cachXl);
                   if (ketQuaCol > -1 && data.ketQua !== undefined) sheet.getRange(r + 1, ketQuaCol + 1).setValue(data.ketQua);
                   if (ghiChuCol > -1 && data.ghiChu !== undefined) sheet.getRange(r + 1, ghiChuCol + 1).setValue(data.ghiChu);
@@ -927,8 +1037,14 @@ function doPost(e) {
                   return ContentService.createTextOutput(JSON.stringify({ status: 'success' })).setMimeType(ContentService.MimeType.JSON);
               }
           }
+          if (seenDates.length > 0) {
+             return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Mã ĐĐ có tồn tại, nhưng sai ngày. Của bạn gửi: ' + inputDateStr + '. Trên sheet là: ' + seenDates.join(', ') })).setMimeType(ContentService.MimeType.JSON);
+          }
        }
-       return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Not found' })).setMimeType(ContentService.MimeType.JSON);
+       if (maDdCol === -1 || thoiGianXlCol === -1) {
+           return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Lỗi cấu trúc Sheet: maDdCol=' + maDdCol + ', thoiGianCol=' + thoiGianXlCol + '. Các cột tìm thấy: ' + headers.join(', ') })).setMimeType(ContentService.MimeType.JSON);
+       }
+       return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Không tìm thấy mã ĐĐ: ' + inputMaDd + ' trong ' + (sheetDataDisplay.length - headerRowIdx - 1) + ' dòng (bỏ qua ' + headerRowIdx + ' dòng đầu).' })).setMimeType(ContentService.MimeType.JSON);
     }
 
     if (action === 'update_sangtai_bulk') {
