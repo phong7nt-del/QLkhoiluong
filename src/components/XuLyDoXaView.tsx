@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { DataStore, XuLyDoXaEntry } from '../store/DataStore';
-import { Save, FileDown, Search, Filter } from 'lucide-react';
+import { Save, FileDown, Search, Filter, Upload } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 export default function XuLyDoXaView({ xuLyList, refreshData }: { xuLyList: XuLyDoXaEntry[], refreshData: () => void }) {
@@ -26,6 +26,49 @@ export default function XuLyDoXaView({ xuLyList, refreshData }: { xuLyList: XuLy
   const [sortField, setSortField] = useState<keyof XuLyDoXaEntry | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [filterText, setFilterText] = useState('');
+  const [listMode, setListMode] = useState<'processed' | 'pending'>('pending');
+  const [isImporting, setIsImporting] = useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = async (evt) => {
+          const bstr = evt.target?.result;
+          const wb = XLSX.read(bstr, { type: 'binary' });
+          const wsname = wb.SheetNames[0];
+          const ws = wb.Sheets[wsname];
+          const data = XLSX.utils.sheet_to_json(ws, { raw: false });
+          
+          const formattedData = data.map((row: any) => ({
+              loaiXl: row['Loại xử lý'] || row['Loại XL'] || row['Loai XL'] || 'Trạm',
+              nguoiXl: row['Người thực hiện'] || row['Người XL'] || row['Nguoi XL'] || currentUserName,
+              thoiGianXl: row['Thời gian thực hiện'] || row['Thời gian XL'] || row['thời gian thực hiện'] || defaultThoiGian,
+              maDd: row['Mã điểm đo'] || row['Mã ĐĐ'] || row['Ma DD'] || row['Mã DD'] || '',
+              cachXl: '',
+              ketQua: 'Chưa',
+              ghiChu: row['Ghi chú'] || row['Ghi chu'] || ''
+          })).filter(r => r.maDd);
+          
+          if (formattedData.length > 0) {
+              setIsImporting(true);
+              const ok = await DataStore.syncXuLyDoXaBulkToSheet(formattedData);
+              setIsImporting(false);
+              if (ok) {
+                  alert("Đã import " + formattedData.length + " dòng thành công!");
+                  refreshData();
+              } else {
+                  alert("Có lỗi khi import Excel!");
+              }
+          } else {
+              alert("File Excel không có dữ liệu hợp lệ (Cột Mã điểm đo bị trống)!");
+          }
+      };
+      reader.readAsBinaryString(file);
+      e.target.value = '';
+  };
+
 
   const now = new Date();
   const localYYYY = now.getFullYear();
@@ -33,6 +76,8 @@ export default function XuLyDoXaView({ xuLyList, refreshData }: { xuLyList: XuLy
   const localDD = now.getDate().toString().padStart(2, '0');
   const defaultThoiGian = `${localYYYY}-${localMM}-${localDD}`;
 
+  
+  
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.maDd || !formData.cachXl) {
@@ -44,6 +89,7 @@ export default function XuLyDoXaView({ xuLyList, refreshData }: { xuLyList: XuLy
     setSaveSuccess(false);
     
     const entry: XuLyDoXaEntry = {
+        stt: formData.stt,
         loaiXl: formData.loaiXl || 'Trạm',
         nguoiXl: formData.nguoiXl || currentUserName,
         thoiGianXl: formData.thoiGianXl || defaultThoiGian,
@@ -53,22 +99,61 @@ export default function XuLyDoXaView({ xuLyList, refreshData }: { xuLyList: XuLy
         ghiChu: formData.ghiChu || ''
     };
     
-    const ok = await DataStore.syncXuLyDoXaToSheet(entry);
+    let nextItem = null;
+    if (formData.stt) {
+        const currentIndex = sortedAndFiltered.findIndex(item => item.stt === formData.stt);
+        if (currentIndex !== -1 && currentIndex + 1 < sortedAndFiltered.length) {
+            nextItem = sortedAndFiltered[currentIndex + 1];
+        }
+    }
+    
+    const ok = entry.stt ? await DataStore.updateXuLyDoXaToSheet(entry) : await DataStore.syncXuLyDoXaToSheet(entry);
     setSaving(false);
     
     if (ok) {
         setSaveSuccess(true);
-        setFormData({ ...formData, maDd: '', cachXl: '', ghiChu: '' });
+        if (entry.stt && nextItem) {
+            setFormData({...nextItem, thoiGianXl: formData.thoiGianXl || defaultThoiGian});
+        } else {
+            setFormData({ ...formData, stt: undefined, maDd: '', cachXl: '', ketQua: 'Xong', ghiChu: '' });
+        }
         refreshData();
         setTimeout(() => setSaveSuccess(false), 3000);
     } else {
         alert("Có lỗi xảy ra khi lưu!");
     }
   };
+
+
   
+
   const sortedAndFiltered = useMemo(() => {
     let result = [...xuLyList];
+    
+    
+    const targetDate = formData.thoiGianXl || defaultThoiGian;
+    const dateParts = targetDate.split('-');
+    let targetFormats = [targetDate];
+    if (dateParts.length === 3) {
+        const [tY, tM, tD] = dateParts;
+        targetFormats.push(`${tD}/${tM}/${tY}`);
+        targetFormats.push(`${parseInt(tD, 10)}/${parseInt(tM, 10)}/${tY}`);
+    }
+
+    result = result.filter(item => {
+        const itemDate = String(item.thoiGianXl).trim();
+        return targetFormats.some(f => itemDate.includes(f));
+    });
+
+
+    if (listMode === 'processed') {
+        result = result.filter(item => item.ketQua === 'Xong');
+    } else {
+        result = result.filter(item => item.ketQua !== 'Xong');
+    }
+
     if (filterText) {
+
         const lower = filterText.toLowerCase();
         result = result.filter(item => 
            (item.maDd?.toLowerCase().includes(lower)) ||
@@ -133,7 +218,10 @@ export default function XuLyDoXaView({ xuLyList, refreshData }: { xuLyList: XuLy
   return (
     <div className="space-y-6">
       <div className="bg-white border border-[#141414] shadow-[4px_4px_0_#141414] p-6">
-         <h2 className="text-xl font-black uppercase mb-4 text-[#141414]">Nhập thông tin xử lý điểm đo</h2>
+         <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-black uppercase text-[#141414]">Nhập thông tin xử lý điểm đo {formData.stt ? `(Cập nhật STT: ${formData.stt})` : ''}</h2>
+            {formData.stt && <button type="button" onClick={() => setFormData({ loaiXl: 'Trạm', nguoiXl: currentUserName, thoiGianXl: defaultThoiGian, maDd: '', cachXl: '', ketQua: 'Xong', ghiChu: '' })} className="text-sm font-bold text-red-600 hover:underline">Hủy cập nhật</button>}
+         </div>
          <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div>
@@ -176,6 +264,7 @@ export default function XuLyDoXaView({ xuLyList, refreshData }: { xuLyList: XuLy
                 <div>
                    <label className="block text-sm font-bold text-slate-700 mb-1">Kết quả xử lý</label>
                    <select value={formData.ketQua} onChange={e => setFormData({...formData, ketQua: e.target.value})} className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg focus:border-[#141414] outline-none text-[#141414] font-medium" required>
+                       <option value="">-- Chọn kết quả --</option>
                        <option value="Xong">Xong</option>
                        <option value="Chưa">Chưa</option>
                    </select>
@@ -188,24 +277,42 @@ export default function XuLyDoXaView({ xuLyList, refreshData }: { xuLyList: XuLy
             </div>
             
             <div className="flex gap-4 items-center">
-                <button type="submit" disabled={saving} className="flex items-center gap-2 bg-[#141414] text-white px-6 py-2.5 font-bold shadow-[2px_2px_0_#A0A0A0] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-none transition-all disabled:opacity-50">
-                    <Save className="w-4 h-4" /> {saving ? 'Đang lưu...' : 'Lưu thông tin'}
+                <button type="submit" disabled={saving || !!formData.stt} className="flex items-center gap-2 bg-[#141414] text-white px-6 py-2.5 font-bold shadow-[2px_2px_0_#A0A0A0] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-none transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                    <Save className="w-4 h-4" /> {saving && !formData.stt ? 'Đang lưu...' : 'Lưu thông tin'}
                 </button>
-                {saveSuccess && <span className="text-green-600 font-bold text-sm">✓ Đã lưu thành công!</span>}
+                <button type="submit" disabled={saving || !formData.stt} className="flex items-center gap-2 bg-blue-600 text-white px-6 py-2.5 font-bold shadow-[2px_2px_0_#A0A0A0] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-none transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                    <Save className="w-4 h-4" /> {saving && formData.stt ? 'Đang cập nhật...' : 'Cập nhật'}
+                </button>
+                {saveSuccess && <span className="text-green-600 font-bold text-sm">✓ {formData.stt ? 'Cập nhật' : 'Đã lưu'} thành công!</span>}
             </div>
          </form>
       </div>
 
       <div className="bg-white border border-[#141414] shadow-[4px_4px_0_#141414] flex flex-col">
+
           <div className="p-4 border-b border-[#141414] flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-[#F5F4F2]">
-             <h3 className="font-black uppercase text-[#141414]">Danh sách đã xử lý ({sortedAndFiltered.length})</h3>
+             <div className="flex items-center gap-4">
+                 <h3 className="font-black uppercase text-[#141414]">Danh sách</h3>
+                 <div className="flex bg-slate-200 p-1 rounded-lg">
+                     <button onClick={() => setListMode('pending')} className={`px-3 py-1 text-sm font-bold rounded-md transition-all ${listMode === 'pending' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600'}`}>Đang phân công</button>
+                     <button onClick={() => setListMode('processed')} className={`px-3 py-1 text-sm font-bold rounded-md transition-all ${listMode === 'processed' ? 'bg-white text-green-600 shadow-sm' : 'text-slate-600'}`}>Đã xử lý</button>
+                 </div>
+                 <span className="font-bold text-[#141414]">({sortedAndFiltered.length})</span>
+             </div>
              
              <div className="flex items-center gap-3">
                  <div className="relative">
                      <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                      <input type="text" placeholder="Tìm kiếm..." value={filterText} onChange={e => setFilterText(e.target.value)} className="pl-9 pr-4 py-1.5 border-2 border-slate-200 rounded-lg text-sm focus:border-[#141414] outline-none" />
                  </div>
+                 
+                 <input type="file" ref={fileInputRef} accept=".xlsx,.xls" className="hidden" onChange={handleImportExcel} />
+                 <button onClick={() => fileInputRef.current?.click()} disabled={isImporting} className="flex items-center gap-2 bg-[#141414] text-white px-3 py-1.5 font-bold text-sm shadow-[2px_2px_0_#A0A0A0] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-none transition-all disabled:opacity-50">
+                     <Upload className="w-4 h-4" /> {isImporting ? 'Đang Import...' : 'Import Excel'}
+                 </button>
+                 
                  <button onClick={exportExcel} className="flex items-center gap-2 bg-green-600 text-white px-3 py-1.5 font-bold text-sm shadow-[2px_2px_0_#A0A0A0] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-none transition-all">
+
                      <FileDown className="w-4 h-4" /> Xuất Excel
                  </button>
              </div>
@@ -227,7 +334,7 @@ export default function XuLyDoXaView({ xuLyList, refreshData }: { xuLyList: XuLy
                   </thead>
                   <tbody>
                       {sortedAndFiltered.map((row, idx) => (
-                          <tr key={idx} className="border-b border-slate-200 hover:bg-slate-50 transition-colors">
+                          <tr key={idx} className="border-b border-slate-200 hover:bg-slate-100 transition-colors cursor-pointer" onClick={() => { setFormData(row); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>
                               <td className="px-4 py-2 font-medium">{row.stt}</td>
                               <td className="px-4 py-2">{row.loaiXl}</td>
                               <td className="px-4 py-2 font-bold text-red-600">{row.maDd}</td>
