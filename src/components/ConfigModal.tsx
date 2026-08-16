@@ -607,6 +607,10 @@ function doPost(e) {
       var targetDateStr = dateParts[2] + '/' + dateParts[1] + '/' + dateParts[0]; // DD/MM/YYYY
       var targetDateStrAlt = dateParts[2] + '/' + dateParts[1]; // DD/MM
       
+      var stripZero = function(s) { return String(s).replace(/(^|\\/)0+(\\d)/g, '$1$2'); };
+      var cleanTarget = stripZero(targetDateStr);
+      var cleanTargetAlt = stripZero(targetDateStrAlt);
+      
       var dateColIndex = -1;
       for (var i = 0; i < headers.length; i++) {
          var h = headers[i];
@@ -617,7 +621,8 @@ function doPost(e) {
             cellDateStr = String(h).trim();
          }
          
-         if (cellDateStr === targetDateStr || cellDateStr === targetDateStrAlt || cellDateStr === data.date) {
+         var cleanCell = stripZero(cellDateStr);
+         if (cleanCell === cleanTarget || cleanCell === cleanTargetAlt || cleanCell === stripZero(data.date) || cellDateStr.includes(targetDateStrAlt) || cleanCell.includes(cleanTargetAlt)) {
             dateColIndex = i;
             break;
          }
@@ -647,9 +652,9 @@ function doPost(e) {
       return ContentService.createTextOutput(JSON.stringify({ status: 'success' })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    if (action === 'delete_workload_group') {
+        if (action === 'delete_workload_group') {
       var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-      var sheet = getSheetFlexibly(ss, ['CongTac', 'Cong Tac', 'Công tác']);
+      var sheet = getSheetFlexibly(ss, ['CongTac', 'Cong Tac', 'Công tác', 'Công Tác']);
       if (!sheet) return ContentService.createTextOutput(JSON.stringify({status: 'error'})).setMimeType(ContentService.MimeType.JSON);
       
       var data = payload.data;
@@ -672,6 +677,10 @@ function doPost(e) {
       var targetDateStr = dateParts[2] + '/' + dateParts[1] + '/' + dateParts[0];
       var targetDateStrAlt = dateParts[2] + '/' + dateParts[1];
       
+      var stripZero = function(s) { return String(s).replace(/(^|\\/)0+(\\d)/g, '$1$2'); };
+      var cleanTarget = stripZero(targetDateStr);
+      var cleanTargetAlt = stripZero(targetDateStrAlt);
+      
       var dateColIndex = -1;
       for (var i = 0; i < headers.length; i++) {
          var h = headers[i];
@@ -682,29 +691,34 @@ function doPost(e) {
             cellDateStr = String(h).trim();
          }
          
-         if (cellDateStr === targetDateStr || cellDateStr === targetDateStrAlt || cellDateStr === data.date) {
+         var cleanCell = stripZero(cellDateStr);
+         if (cleanCell === cleanTarget || cleanCell === cleanTargetAlt || cleanCell === stripZero(data.date) || cellDateStr.includes(targetDateStrAlt) || cleanCell.includes(cleanTargetAlt)) {
             dateColIndex = i;
             break;
          }
       }
       
       if (dateColIndex !== -1) {
+          var deletedCount = 0;
           for (var m = 0; m < data.members.length; m++) {
-              var memberName = data.members[m];
+              var memberName = String(data.members[m]).trim().toLowerCase();
               var rowIndex = -1;
               for(var r = headerRowIndex + 1; r < sheetData.length; r++) {
-                 if(String(sheetData[r][nameIdx]).trim() === memberName.trim()) {
+                 var cellName = String(sheetData[r][nameIdx]).trim().toLowerCase();
+                 if(cellName === memberName || cellName.includes(memberName) || memberName.includes(cellName)) {
                     rowIndex = r; break;
                  }
               }
               if (rowIndex !== -1) {
                   sheet.getRange(rowIndex + 1, dateColIndex + 1).setValue('');
+                  deletedCount++;
               }
           }
+          return ContentService.createTextOutput(JSON.stringify({ status: 'success', deleted: deletedCount, dateColIndex: dateColIndex })).setMimeType(ContentService.MimeType.JSON);
       }
-      return ContentService.createTextOutput(JSON.stringify({ status: 'success' })).setMimeType(ContentService.MimeType.JSON);
+      return ContentService.createTextOutput(JSON.stringify({ status: 'error', reason: 'date_not_found', headers: headers.map(String) })).setMimeType(ContentService.MimeType.JSON);
     }
-    
+
     if (action === 'update_progress') {
        var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
        var sheet = getSheetFlexibly(ss, ['Tiến độ', 'Tien do', 'Tien độ', 'Tiến do']);

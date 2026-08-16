@@ -164,6 +164,24 @@ export const DataStore = {
   },
   
 
+    deleteWorkloadGroup: async (data: { date: string, members: string[] }) => {
+    try {
+      const url = DataStore.getAppScriptUrl();
+      if (!url) throw new Error('No Apps Script URL configured');
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8',
+        },
+        body: JSON.stringify({ action: 'delete_workload_group', data }),
+      });
+      const result = await response.json();
+      return result;
+    } catch (error: any) {
+      console.warn('Error deleting workload group:', error);
+      return false;
+    }
+  },
   updateEntry: (id: string, updates: Partial<WorkloadEntry>) => {
     const entries = DataStore.getEntries();
     const index = entries.findIndex((e) => e.id === id);

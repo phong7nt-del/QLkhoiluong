@@ -171,19 +171,7 @@ export default function XuLyDoXaView({ xuLyList, refreshData, setXuLyList }: { x
     let result = [...xuLyList];
     
     
-    const targetDate = formData.thoiGianXl || defaultThoiGian;
-    const dateParts = targetDate.split('-');
-    let targetFormats = [targetDate];
-    if (dateParts.length === 3) {
-        const [tY, tM, tD] = dateParts;
-        targetFormats.push(`${tD}/${tM}/${tY}`);
-        targetFormats.push(`${parseInt(tD, 10)}/${parseInt(tM, 10)}/${tY}`);
-    }
 
-    result = result.filter(item => {
-        const itemDate = String(item.thoiGianXl).trim();
-        return targetFormats.some(f => itemDate.includes(f));
-    });
 
 
     if (listMode === 'processed') {
@@ -201,7 +189,8 @@ export default function XuLyDoXaView({ xuLyList, refreshData, setXuLyList }: { x
            (item.nguoiXl?.toLowerCase().includes(lower)) ||
            (item.loaiXl?.toLowerCase().includes(lower)) ||
            (item.ghiChu?.toLowerCase().includes(lower)) ||
-           (item.ketQua?.toLowerCase().includes(lower))
+           (item.ketQua?.toLowerCase().includes(lower)) ||
+           (item.thoiGianXl?.toLowerCase().includes(lower))
         );
     }
     
@@ -315,7 +304,7 @@ export default function XuLyDoXaView({ xuLyList, refreshData, setXuLyList }: { x
                 
                 <div>
                    <label className="block text-sm font-bold text-slate-700 mb-1">Ghi chú</label>
-                   <input type="text" value={formData.ghiChu} onChange={e => setFormData({...formData, ghiChu: e.target.value})} className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg focus:border-[#141414] outline-none text-[#141414] font-medium" />
+                   <textarea rows={2} value={formData.ghiChu} onChange={e => setFormData({...formData, ghiChu: e.target.value})} className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg focus:border-[#141414] outline-none text-[#141414] font-medium resize-none" placeholder="Nhập ghi chú..."></textarea>
                 </div>
             </div>
             

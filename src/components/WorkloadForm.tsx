@@ -66,27 +66,26 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
       return false;
   };
   
-  const handleDeleteGroup = async () => {
+  const triggerDeleteConfirm = () => {
       if (members.length === 0) {
           setMessage({ type: 'error', text: "Bạn phải nhập tên của ít nhất 1 thành viên nhóm để xóa báo cáo."});
           return;
       }
-      
-      const dateParts = date.split('-');
-      const formattedDate = dateParts[2] + '/' + dateParts[1] + '/' + dateParts[0];
-      
-      if (!window.confirm(`Bạn có muốn xóa nhóm gồm ${members.length} thành viên trong ngày ${formattedDate} không?`)) {
-          return;
-      }
-      
+      setShowDeleteConfirm(true);
+  };
+
+  const executeDeleteGroup = async () => {
+      setShowDeleteConfirm(false);
       setIsSubmitting(true);
       setMessage(null);
       try {
-          const ok = await DataStore.deleteWorkloadGroup({ date, members });
-          if (ok) {
+          const res = await DataStore.deleteWorkloadGroup({ date, members });
+          if (res && res.status === 'success') {
               setMessage({ type: 'success', text: "Đã xóa báo cáo nhóm thành công!" });
               setMembers([]); // reset
               onSaved();
+          } else if (res && res.reason === 'date_not_found') {
+              setMessage({ type: 'error', text: "Không tìm thấy cột ngày tương ứng trong file Google Sheets (" + date.split('-').reverse().join('/') + ")" });
           } else {
               setMessage({ type: 'error', text: "Có lỗi xảy ra khi xóa báo cáo nhóm." });
           }
@@ -209,6 +208,7 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
   };
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const hasSelectedTasks = Object.values(selectedTasks).some((data: any) => data.selected && typeof data.quantity === 'number' && data.quantity > 0);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -799,13 +799,26 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
 
         
         <div className="pt-6 flex gap-3 flex-col sm:flex-row">
-          <button 
-            type="submit"
-            disabled={isSubmitting || members.length === 0}
-            className={`flex-1 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold text-lg rounded-xl transition-all shadow-lg shadow-blue-500/30 flex items-center justify-center gap-2 ${isSubmitting ? 'opacity-50 cursor-not-allowed text-white/50' : 'hover:shadow-blue-500/40 hover:-translate-y-0.5 active:translate-y-0'}`}
-          >
-            {isSubmitting ? 'ĐANG ĐỒNG BỘ...' : 'Cập Nhật Lên Hệ Thống [Enter]'}
-          </button>
+          <div className="flex-1 flex gap-3">
+              <button 
+                type="submit"
+                disabled={isSubmitting || members.length === 0}
+                className={`flex-1 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold text-lg rounded-xl transition-all shadow-lg shadow-blue-500/30 flex items-center justify-center gap-2 ${isSubmitting ? 'opacity-50 cursor-not-allowed text-white/50' : 'hover:shadow-blue-500/40 hover:-translate-y-0.5 active:translate-y-0'}`}
+              >
+                {isSubmitting ? 'ĐANG ĐỒNG BỘ...' : 'Cập Nhật Lên Hệ Thống [Enter]'}
+              </button>
+              
+              {isDeleteAllowed() && (
+                  <button
+                     type="button"
+                     disabled={isSubmitting}
+                     onClick={triggerDeleteConfirm}
+                     className={`px-6 py-4 bg-red-100 text-red-600 font-bold text-base rounded-xl transition-all shadow-sm border border-red-200 flex items-center justify-center gap-2 ${isSubmitting ? 'opacity-50 cursor-not-allowed' : 'hover:bg-red-200 hover:text-red-700 hover:-translate-y-0.5'}`}
+                  >
+                     Xóa báo cáo
+                  </button>
+              )}
+          </div>
           
           {isManagement && (
               <button 
@@ -820,6 +833,36 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
         </div>
 
       </form>
+
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-6">
+              <h3 className="text-lg font-bold text-slate-800 mb-2">Xác nhận xóa báo cáo</h3>
+              <p className="text-slate-600 text-sm mb-6">
+                Bạn có chắc chắn muốn xóa báo cáo của nhóm gồm <strong className="text-red-600">{members.length}</strong> thành viên trong ngày <strong className="text-blue-600">{date.split('-').reverse().join('/')}</strong> không?
+                Hành động này sẽ xóa dữ liệu trên Google Sheets và không thể hoàn tác.
+              </p>
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="px-4 py-2 font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  type="button"
+                  onClick={executeDeleteGroup}
+                  className="px-4 py-2 font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors shadow-sm shadow-red-600/20"
+                >
+                  Đồng ý xóa
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
