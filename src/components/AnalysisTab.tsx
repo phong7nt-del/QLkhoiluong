@@ -233,8 +233,13 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
            const quota = parseFloat(quotaStr) || 0;
            const isGroup = dm ? !!dm.isGroup : false;
            
-           // Năng suất cá nhân: Giữ nguyên khối lượng nhóm cho mỗi người
+           // Năng suất cá nhân:
+           // - Nhóm 1 hoặc 2 người: giữ nguyên khối lượng
+           // - Nhóm >= 3 người: khối lượng * 2 / số người
            let qtyPerMember = qty;
+           if (members.length >= 3) {
+               qtyPerMember = (qty * 2) / members.length;
+           }
            
            members.forEach(m => {
                if (cleanMatchedName === 'khác') {
@@ -328,10 +333,12 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
            const quota = parseFloat(quotaStr) || 0;
            const isGroup = dm ? !!dm.isGroup : false;
            
-           // Năng suất Tổ: Chia đều khối lượng nhóm cho số người
+           // Năng suất Tổ: Áp dụng cùng công thức năng suất cá nhân
+           // - Nhóm 1 hoặc 2 người: giữ nguyên khối lượng
+           // - Nhóm >= 3 người: khối lượng * 2 / số người
            let qtyPerMember = qty;
-           if (isGroup && members.length > 0) {
-               qtyPerMember = qty / members.length;
+           if (members.length >= 3) {
+               qtyPerMember = (qty * 2) / members.length;
            }
            
            members.forEach(m => {

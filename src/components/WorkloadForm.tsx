@@ -66,11 +66,43 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
       return false;
   };
   
+  const [membersToDelete, setMembersToDelete] = useState<string[]>([]);
   const triggerDeleteConfirm = () => {
       if (members.length === 0) {
-          setMessage({ type: 'error', text: "Bạn phải nhập tên của ít nhất 1 thành viên nhóm để xóa báo cáo."});
+          setMessage({ type: 'error', text: "Bạn phải chọn 1 thành viên để xóa báo cáo."});
           return;
       }
+      if (members.length >= 2) {
+          setMessage({ type: 'error', text: "Vui lòng chỉ chọn 1 thành viên để xóa. Hệ thống sẽ tự động tìm và xóa cả nhóm nếu làm chung." });
+          return;
+      }
+      
+      const targetMember = members[0];
+      const existingEntries = DataStore.getEntries();
+      const dateEntries = existingEntries.filter(e => e.date === date);
+      
+      const memberEntry = dateEntries.find(e => e.members.includes(targetMember));
+      let groupToDelete = [targetMember];
+      
+      if (memberEntry && memberEntry.content) {
+          const lines = memberEntry.content.split('\n');
+          const lastLine = lines[lines.length - 1].trim();
+          if (/^\d+$/.test(lastLine)) {
+              // This is a group report, find everyone with the same group ID
+              const groupId = lastLine;
+              groupToDelete = [];
+              dateEntries.forEach(e => {
+                  const elines = e.content.split('\n');
+                  if (elines[elines.length - 1].trim() === groupId) {
+                      groupToDelete.push(...e.members);
+                  }
+              });
+              // remove duplicates
+              groupToDelete = [...new Set(groupToDelete)];
+          }
+      }
+      
+      setMembersToDelete(groupToDelete);
       setShowDeleteConfirm(true);
   };
 
@@ -79,7 +111,7 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
       setIsSubmitting(true);
       setMessage(null);
       try {
-          const res = await DataStore.deleteWorkloadGroup({ date, members });
+          const res = await DataStore.deleteWorkloadGroup({ date, members: membersToDelete });
           if (res && res.status === 'success') {
               setMessage({ type: 'success', text: "Đã xóa báo cáo nhóm thành công!" });
               setMembers([]); // reset
@@ -219,6 +251,12 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
     
     if (!team || members.length === 0 || !date || selectedList.length === 0) {
       setMessage({ type: 'error', text: "Vui lòng điền đầy đủ thông tin nội dung và có ít nhất 1 nội dung được chọn" });
+      setTimeout(() => setMessage(null), 5000);
+      return;
+    }
+    
+    if (sessionUser && sessionUser.name && !members.includes(sessionUser.name)) {
+      setMessage({ type: 'error', text: "Bạn chỉ được phép nhập báo cáo cho chính mình hoặc nhóm mà bạn là thành viên." });
       setTimeout(() => setMessage(null), 5000);
       return;
     }
@@ -840,7 +878,7 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
             <div className="p-6">
               <h3 className="text-lg font-bold text-slate-800 mb-2">Xác nhận xóa báo cáo</h3>
               <p className="text-slate-600 text-sm mb-6">
-                Bạn có chắc chắn muốn xóa báo cáo của nhóm gồm <strong className="text-red-600">{members.length}</strong> thành viên trong ngày <strong className="text-blue-600">{date.split('-').reverse().join('/')}</strong> không?
+                Bạn có chắc chắn muốn xóa báo cáo của {membersToDelete.length > 1 ? 'nhóm' : 'cá nhân'} gồm <strong className="text-red-600">{membersToDelete.length}</strong> thành viên ({membersToDelete.join(', ')}) trong ngày <strong className="text-blue-600">{date.split('-').reverse().join('/')}</strong> không?
                 Hành động này sẽ xóa dữ liệu trên Google Sheets và không thể hoàn tác.
               </p>
               <div className="flex justify-end gap-3">
