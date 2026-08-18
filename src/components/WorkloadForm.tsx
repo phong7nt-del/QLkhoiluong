@@ -88,17 +88,18 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
           const lines = memberEntry.content.split('\n');
           const lastLine = lines[lines.length - 1].trim();
           if (/^\d+$/.test(lastLine)) {
-              // This is a group report, find everyone with the same group ID
               const groupId = lastLine;
-              groupToDelete = [];
-              dateEntries.forEach(e => {
-                  const elines = e.content.split('\n');
-                  if (elines[elines.length - 1].trim() === groupId) {
-                      groupToDelete.push(...e.members);
-                  }
-              });
-              // remove duplicates
-              groupToDelete = [...new Set(groupToDelete)];
+              // Only group them if groupId is strictly greater than 0
+              if (parseInt(groupId, 10) > 0) {
+                  groupToDelete = [];
+                  dateEntries.forEach(e => {
+                      const elines = e.content.split('\n');
+                      if (elines[elines.length - 1].trim() === groupId) {
+                          groupToDelete.push(...e.members);
+                      }
+                  });
+                  groupToDelete = [...new Set(groupToDelete)];
+              }
           }
       }
       

@@ -202,7 +202,14 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
           let nsPercent = 0;
           let quotaDisplay = "";
 
+          const linesAll = content.split('\n');
+          const lastLine = linesAll[linesAll.length - 1].trim();
+          const isGroupReport = /^\d+$/.test(lastLine) && parseInt(lastLine, 10) > 0;
+
           let qtyPerMember = qty;
+          if (isGroupReport && membersCount >= 3) {
+              qtyPerMember = (qty * 2) / membersCount;
+          }
           let displayQty = qtyPerMember;
 
           if (cleanMatchedName === 'khác') {
@@ -286,7 +293,14 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
                 const cleanTaskName = normalize(taskName);
                 const totalQty = parseFloat(match[2].replace(',', '.'));
                 
+                const linesAll = content.split('\n');
+                const lastLine = linesAll[linesAll.length - 1].trim();
+                const isGroupReport = /^\d+$/.test(lastLine) && parseInt(lastLine, 10) > 0;
+
                 let qtyPerMember = totalQty;
+                if (isGroupReport && membersCount >= 3) {
+                    qtyPerMember = (totalQty * 2) / membersCount;
+                }
                 
                 return { isTask: true, taskName, cleanTaskName, qty: qtyPerMember, rawLine: cleanLine };
             }
