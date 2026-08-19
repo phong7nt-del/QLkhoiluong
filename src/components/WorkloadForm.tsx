@@ -33,6 +33,7 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
   };
   
   const [selectedTasks, setSelectedTasks] = useState<Record<string, {selected: boolean, quantity: number | string}>>({});
+  const [taskSearch, setTaskSearch] = useState('');
   
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
 
@@ -120,10 +121,10 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
           } else if (res && res.reason === 'date_not_found') {
               setMessage({ type: 'error', text: "Không tìm thấy cột ngày tương ứng trong file Google Sheets (" + date.split('-').reverse().join('/') + ")" });
           } else {
-              setMessage({ type: 'error', text: "Có lỗi xảy ra khi xóa báo cáo nhóm." });
+              setMessage({ type: 'error', text: "Lỗi từ server: " + JSON.stringify(res) });
           }
       } catch (e) {
-          setMessage({ type: 'error', text: "Lỗi hệ thống khi xóa báo cáo." });
+          setMessage({ type: 'error', text: "Lỗi hệ thống khi xóa báo cáo: " + e.message });
       } finally {
           setIsSubmitting(false);
       }
@@ -768,9 +769,18 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
 
         <div>
            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-3">Các Nội Dung Công Việc</label>
+           <div className="mb-3 relative">
+               <input 
+                 type="text" 
+                 value={taskSearch} 
+                 onChange={e => setTaskSearch(e.target.value)}
+                 placeholder="Tìm nhanh nội dung công việc..."
+                 className="w-full bg-[#E4E3E0]/50 border border-[#141414]/20 p-2 text-sm focus:outline-none focus:border-[#141414]"
+               />
+           </div>
            <div className="space-y-1.5 bg-slate-50/50 rounded-xl p-3 border border-slate-200 max-h-[28rem] overflow-y-auto">
              {dinhMucList.length > 0 ? (
-               dinhMucList.map(dm => {
+               dinhMucList.filter(dm => dm.name.toLowerCase().includes(taskSearch.toLowerCase())).map(dm => {
                  const isChecked = selectedTasks[dm.name]?.selected || false;
                  const qty = selectedTasks[dm.name]?.quantity || 1;
                  
