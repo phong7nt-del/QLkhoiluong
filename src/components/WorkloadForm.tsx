@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { DataStore, SheetMember } from '../store/DataStore';
+import { PermissionStore } from '../store/PermissionStore';
 import { PlusCircle, Search, CheckSquare, Square, Mic, ClipboardList, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -51,19 +52,10 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
   const isDeleteAllowed = () => {
       if (!sessionUser) return false;
       const roleStr = sessionUser.role ? sessionUser.role.toLowerCase() : '';
-      const isTeamLeader = roleStr.includes('tổ trưởng') || roleStr.includes('tổ phó');
-      const isDeptLeader = roleStr.includes('đội trưởng') || roleStr.includes('đội phó') || roleStr.includes('giám đốc');
+      // isManagement logic replaced with PermissionStore check
+      const canEditOthers = PermissionStore.hasActionAccess('edit_others_workload', roleStr);
       
-      if (isDeptLeader) return true;
-      if (isTeamLeader) {
-          const allM = DataStore.getMembers();
-          for (const m of members) {
-              const memberInfo = allM.find(x => x.name === m);
-              if (memberInfo && memberInfo.team === sessionUser.team) {
-                  return true;
-              }
-          }
-      }
+      if (canEditOthers) return true;
       return false;
   };
   
@@ -173,7 +165,7 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
   const [isSubmittingPlan, setIsSubmittingPlan] = useState(false);
   const handlePlanSubmit = async () => {
     const entries = Object.entries(selectedTasks) as [string, {selected: boolean, quantity: number | string}][];
-    const selectedList = entries.filter(([_, data]: [string, any]) => data.selected && typeof data.quantity === 'number' && data.quantity > 0).map(([name, data]: [string, any]) => ({name, quantity: data.quantity as number}));
+    const selectedList = entries.filter(([_, data]: [string, any]) => data.selected && Number(data.quantity) > 0).map(([name, data]: [string, any]) => ({name, quantity: Number(data.quantity)}));
     
     if (!team) {
       setMessage({ type: 'error', text: "Vui lòng chọn Đội hoặc Tổ công tác để lưu kế hoạch" });
@@ -242,14 +234,15 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
   };
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isBaoCaoHo, setIsBaoCaoHo] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const hasSelectedTasks = Object.values(selectedTasks).some((data: any) => data.selected && typeof data.quantity === 'number' && data.quantity > 0);
+  const hasSelectedTasks = Object.values(selectedTasks).some((data: any) => data.selected && Number(data.quantity) > 0);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     const entries = Object.entries(selectedTasks) as [string, {selected: boolean, quantity: number | string}][];
-    const selectedList = entries.filter(([_, data]: [string, any]) => data.selected && typeof data.quantity === 'number' && data.quantity > 0);
+    const selectedList = entries.filter(([_, data]: [string, any]) => data.selected && Number(data.quantity) > 0);
     
     if (!team || members.length === 0 || !date || selectedList.length === 0) {
       setMessage({ type: 'error', text: "Vui lòng điền đầy đủ thông tin nội dung và có ít nhất 1 nội dung được chọn" });
@@ -257,7 +250,7 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
       return;
     }
     
-    if (sessionUser && sessionUser.name && !members.includes(sessionUser.name)) {
+    if (!isBaoCaoHo && sessionUser && sessionUser.name && !members.includes(sessionUser.name)) {
       setMessage({ type: 'error', text: "Bạn chỉ được phép nhập báo cáo cho chính mình hoặc nhóm mà bạn là thành viên." });
       setTimeout(() => setMessage(null), 5000);
       return;
@@ -284,6 +277,9 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
     const contentLines = selectedList.map(([name, data]) => `${name}: ${(data as any).quantity}`);
     if (phatHien.trim()) {
        contentLines.push(`Phát hiện: ${phatHien.trim()}`);
+    }
+    if (isBaoCaoHo && sessionUser?.name) {
+       contentLines.push(`(Báo cáo hộ bởi: ${sessionUser.name})`);
     }
     
     if (date >= '2026-08-01') {
@@ -332,6 +328,7 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
     setMembers([]);
     setMemberInput('');
     setPhatHien('không có');
+    setIsBaoCaoHo(false);
     
     // Reset selected tasks
     const rTasks = { ...selectedTasks };
@@ -806,11 +803,10 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
                          {isChecked && (
                             <input 
                               type="number"
-                              min="1"
+                              min="0" step="any"
                               value={qty}
                               onChange={e => {
-                                 const val = e.target.value;
-                                 updateQuantity(dm.name, val === '' ? '' : (parseInt(val) || 1));
+                                 updateQuantity(dm.name, e.target.value);
                               }}
                               className="w-full bg-[#141414] text-[#E4E3E0] font-bold p-1 text-center text-sm focus:outline-none"
                               placeholder="K.Lượng"
@@ -846,6 +842,19 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
            </div>
         </div>
 
+        
+        <div className="flex items-center gap-2 pt-2">
+          <input
+            type="checkbox"
+            id="baocaoho"
+            checked={isBaoCaoHo}
+            onChange={(e) => setIsBaoCaoHo(e.target.checked)}
+            className="w-5 h-5 text-blue-600 bg-slate-50 border-slate-300 rounded focus:ring-blue-500 focus:ring-2 cursor-pointer"
+          />
+          <label htmlFor="baocaoho" className="text-sm font-bold text-slate-700 cursor-pointer select-none">
+             Cập nhật báo cáo hộ (nhập công việc thay người khác)
+          </label>
+        </div>
         
         <div className="pt-6 flex gap-3 flex-col sm:flex-row">
           <div className="flex-1 flex gap-3">

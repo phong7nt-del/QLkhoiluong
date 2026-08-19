@@ -8,6 +8,7 @@ import SearchTab from "./components/SearchTab";
 import Login from "./components/Login";
 import ProgressTab from "./components/ProgressTab";
 import ConfigModal from "./components/ConfigModal";
+import SystemTab from "./components/SystemTab";
 import TutiTab from "./components/TutiTab";
 import SangTaiTab from "./components/SangTaiTab";
 import DisconnectRateTab from "./components/DisconnectRateTab";
@@ -15,6 +16,7 @@ import WarehouseTab from "./components/WarehouseTab";
 import PlanProgressTab from "./components/PlanProgressTab";
 import ChangePasswordModal from "./components/ChangePasswordModal";
 import { DataStore, SheetMember } from "./store/DataStore";
+import { PermissionStore } from './store/PermissionStore';
 
 export type SeasonTheme = ReturnType<typeof getSeasonTheme>;
 
@@ -116,6 +118,7 @@ export default function App() {
   const scrollToBottom = () => scrollRef.current?.scrollTo({ top: scrollRef.current?.scrollHeight, behavior: 'smooth' });
 
   const roleStr = sessionUser?.role ? sessionUser.role.toLowerCase() : '';
+  // Fallback vars (deprecated by PermissionStore but kept for backwards compatibility in other parts)
   const isManagement = ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'].some(r => roleStr.includes(r));
   const isDoiTruong = ['đội trưởng', 'giám đốc'].some(r => roleStr.includes(r));
 
@@ -229,7 +232,10 @@ export default function App() {
           }
       });
       setTimeout(() => {
-          alert(`TIẾN ĐỘ CÔNG VIỆC:\n- Số lượng Quá hạn: ${overdue}\n- Sắp quá hạn (1-3 ngày): ${warning}\n- Còn hạn: ${ok}`);
+          alert(`TIẾN ĐỘ CÔNG VIỆC:
+- Số lượng Quá hạn: ${overdue}
+- Sắp quá hạn (1-3 ngày): ${warning}
+- Còn hạn: ${ok}`);
       }, 500);
   };
 
@@ -256,24 +262,22 @@ export default function App() {
      return <Login onLoginSuccess={handleLogin} />;
   }
 
-  const tabs: any[] = [
+  const allTabs = [
     { id: "input", icon: ClipboardList, label: "Cập nhật", color: "blue" },
     { id: "report", icon: BarChart3, label: "Báo cáo", color: "blue" },
     { id: "stations", icon: Database, label: "Link báo cáo", color: "blue" },
     { id: "analysis", icon: TrendingUp, label: "Phân tích", color: "blue" },
     { id: "disconnect", icon: WifiOff, label: "Đo xa", color: "red" },
     { id: "search", icon: Search, label: "Tìm kiếm", color: "green" },
-      ];
+    { id: "progress", icon: CheckSquare, label: "Tiến độ CV", color: "amber" },
+    { id: "tuti", icon: Activity, label: "KT TU - TI", color: "indigo" },
+    { id: "plan_progress", icon: TrendingUp, label: "Tiến độ kế hoạch", color: "blue" },
+    { id: "sangtai", icon: Database, label: "KT sang tải", color: "amber" },
+    { id: "warehouse", icon: Package, label: "Kho VTTB", color: "amber" },
+    { id: "system", icon: Settings, label: "Hệ thống", color: "slate" }
+  ];
 
-  if (isManagement) {
-    tabs.push({ id: "progress", icon: CheckSquare, label: "Tiến độ CV", color: "amber" });
-    tabs.push({ id: "tuti", icon: Activity, label: "KT TU - TI", color: "indigo" });
-    tabs.push({ id: "plan_progress", icon: TrendingUp, label: "Tiến độ kế hoạch", color: "blue" });
-  }
-  tabs.push({ id: "sangtai", icon: Database, label: "KT sang tải", color: "amber" });
-  if (isDoiTruong) {
-    tabs.push({ id: "warehouse", icon: Package, label: "Kho VTTB", color: "amber" });
-  }
+  const tabs = allTabs.filter(tab => PermissionStore.hasTabAccess(tab.id, roleStr));
 
 
   return (
@@ -336,6 +340,7 @@ export default function App() {
             >
               <KeyRound className="w-5 h-5" />
             </button>
+            {PermissionStore.hasActionAccess('config_system', roleStr) && (
             <button 
               onClick={() => setShowConfig(true)}
               className="text-white hover:text-white hover:bg-white/20 p-2 rounded-full transition-colors border border-transparent hover:border-white/30 backdrop-blur-md"
@@ -343,6 +348,7 @@ export default function App() {
             >
               <Settings className="w-5 h-5" />
             </button>
+            )}
             <button 
               onClick={handleLogout}
               className="text-white hover:text-red-300 hover:bg-white/20 p-2 rounded-full transition-all hover:scale-105 border border-transparent hover:border-white/30 backdrop-blur-md"
@@ -438,13 +444,13 @@ export default function App() {
                 {activeTab === "analysis" && (
                   <AnalysisTab refreshToggle={refreshToggle} />
                 )}
-                {activeTab === "progress" && isManagement && (
+                {activeTab === "progress" && (
                   <ProgressTab refreshToggle={refreshToggle} sessionUser={sessionUser} theme={theme} />
                 )}
-                {activeTab === "plan_progress" && isManagement && (
+                {activeTab === "plan_progress" && (
                   <PlanProgressTab refreshToggle={refreshToggle} />
                 )}
-                {activeTab === "tuti" && isManagement && (
+                {activeTab === "tuti" && (
                   <TutiTab refreshToggle={refreshToggle} sessionUser={sessionUser} />
                 )}
                 {activeTab === "disconnect" && (
@@ -458,6 +464,9 @@ export default function App() {
                 )}
                 {activeTab === "warehouse" && (
                   <WarehouseTab />
+                )}
+                {activeTab === "system" && (
+                  <SystemTab />
                 )}
               </div>
             </div>
