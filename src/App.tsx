@@ -102,7 +102,7 @@ export default function App() {
 
   const [showConfig, setShowConfig] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth >= 768);
   const theme = getSeasonTheme();
   const [sessionUser, setSessionUser] = useState<SheetMember | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -242,6 +242,7 @@ export default function App() {
   const handleLogin = (user: SheetMember) => {
      sessionStorage.setItem('workload_user_session', JSON.stringify(user));
      setSessionUser(user);
+     if (window.innerWidth < 768) setIsSidebarOpen(false);
      const _roleStr = user?.role ? user.role.toLowerCase() : '';
      const _isManagement = ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'].some(r => _roleStr.includes(r));
      if (_isManagement) {
@@ -370,7 +371,7 @@ export default function App() {
                    return (
                       <button
                          key={tab.id}
-                         onClick={() => setActiveTab(tab.id as any)}
+                         onClick={() => { setActiveTab(tab.id as any); if (window.innerWidth < 768) setIsSidebarOpen(false); }}
                          className={`relative flex flex-col xl:flex-row items-center xl:items-start xl:justify-start gap-1.5 xl:gap-2.5 py-3 px-2 xl:px-4 text-sm font-bold transition-all group rounded-l-2xl ${
                            isActive 
                              ? `text-[#005a9c] bg-white z-20 -mr-[1px]` 

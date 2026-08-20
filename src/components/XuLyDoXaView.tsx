@@ -26,7 +26,9 @@ export default function XuLyDoXaView({ xuLyList, refreshData, setXuLyList }: { x
 
   const [sortField, setSortField] = useState<keyof XuLyDoXaEntry | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-  const [filterText, setFilterText] = useState('');
+  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({
+    stt: '', loaiXl: '', maDd: '', cachXl: '', nguoiXl: '', thoiGianXl: '', ketQua: '', ghiChu: ''
+  });
   const [listMode, setListMode] = useState<'processed' | 'pending'>('pending');
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 20;
@@ -194,7 +196,7 @@ export default function XuLyDoXaView({ xuLyList, refreshData, setXuLyList }: { x
 
   
 
-  React.useEffect(() => { setCurrentPage(1); }, [listMode, filterText, sortField, sortDir, formData.thoiGianXl]);
+  React.useEffect(() => { setCurrentPage(1); }, [listMode, columnFilters, sortField, sortDir, formData.thoiGianXl]);
 
   const sortedAndFiltered = useMemo(() => {
     let result = [...xuLyList];
@@ -209,19 +211,15 @@ export default function XuLyDoXaView({ xuLyList, refreshData, setXuLyList }: { x
         result = result.filter(item => String(item.ketQua).trim().toLowerCase() !== 'xong');
     }
 
-    if (filterText) {
-
-        const lower = filterText.toLowerCase();
-        result = result.filter(item => 
-           (item.maDd?.toLowerCase().includes(lower)) ||
-           (item.cachXl?.toLowerCase().includes(lower)) ||
-           (item.nguoiXl?.toLowerCase().includes(lower)) ||
-           (item.loaiXl?.toLowerCase().includes(lower)) ||
-           (item.ghiChu?.toLowerCase().includes(lower)) ||
-           (item.ketQua?.toLowerCase().includes(lower)) ||
-           (item.thoiGianXl?.toLowerCase().includes(lower))
-        );
-    }
+    Object.entries(columnFilters).forEach(([key, value]) => {
+        if (value.trim() !== '') {
+            const lower = value.toLowerCase();
+            result = result.filter((item: any) => {
+                const itemValue = String(item[key] || '').toLowerCase();
+                return itemValue.includes(lower);
+            });
+        }
+    });
     
     if (sortField) {
         result.sort((a, b) => {
@@ -241,7 +239,7 @@ export default function XuLyDoXaView({ xuLyList, refreshData, setXuLyList }: { x
         result.sort((a,b) => (Number(b.stt) || 0) - (Number(a.stt) || 0));
     }
     return result;
-  }, [xuLyList, filterText, sortField, sortDir, listMode, formData.thoiGianXl, defaultThoiGian]);
+  }, [xuLyList, columnFilters, sortField, sortDir, listMode, formData.thoiGianXl, defaultThoiGian]);
 
   const handleSort = (field: keyof XuLyDoXaEntry) => {
       if (sortField === field) {
@@ -331,7 +329,7 @@ export default function XuLyDoXaView({ xuLyList, refreshData, setXuLyList }: { x
                    </select>
                 </div>
                 
-                <div>
+                <div className="md:col-span-2 lg:col-span-3">
                    <label className="block text-sm font-bold text-slate-700 mb-1">Ghi chú</label>
                    <textarea rows={2} value={formData.ghiChu} onChange={e => setFormData({...formData, ghiChu: e.target.value})} className="w-full px-3 py-2 border-2 border-slate-200 rounded-lg focus:border-[#141414] outline-none text-[#141414] font-medium resize-none" placeholder="Nhập ghi chú..."></textarea>
                 </div>
@@ -363,10 +361,7 @@ export default function XuLyDoXaView({ xuLyList, refreshData, setXuLyList }: { x
              </div>
              
              <div className="flex items-center gap-3">
-                 <div className="relative">
-                     <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                     <input type="text" placeholder="Tìm kiếm..." value={filterText} onChange={e => setFilterText(e.target.value)} className="pl-9 pr-4 py-1.5 border-2 border-slate-200 rounded-lg text-sm focus:border-[#141414] outline-none" />
-                 </div>
+                 
                  
                  <input type="file" ref={fileInputRef} accept=".xlsx,.xls" className="hidden" onChange={handleImportExcel} />
                  <div className="relative group">
@@ -401,7 +396,17 @@ Cấu trúc file Excel mẫu:
                           <th className="px-4 py-3 cursor-pointer hover:bg-slate-800" onClick={() => handleSort('nguoiXl')}>Người XL {sortField === 'nguoiXl' && (sortDir === 'asc' ? '↑' : '↓')}</th>
                           <th className="px-4 py-3 cursor-pointer hover:bg-slate-800" onClick={() => handleSort('thoiGianXl')}>Thời gian XL {sortField === 'thoiGianXl' && (sortDir === 'asc' ? '↑' : '↓')}</th>
                           <th className="px-4 py-3 cursor-pointer hover:bg-slate-800" onClick={() => handleSort('ketQua')}>Kết quả {sortField === 'ketQua' && (sortDir === 'asc' ? '↑' : '↓')}</th>
-                          <th className="px-4 py-3">Ghi chú</th>
+                          <th className="px-4 py-3 cursor-pointer hover:bg-slate-800" onClick={() => handleSort('ghiChu')}>Ghi chú {sortField === 'ghiChu' && (sortDir === 'asc' ? '↑' : '↓')}</th>
+                      </tr>
+                      <tr className="bg-slate-800">
+                          <th className="px-2 py-2"><input type="text" className="w-full px-2 py-1.5 text-sm bg-white text-slate-900 font-bold border-2 border-blue-200 focus:border-blue-500 rounded outline-none placeholder-slate-400" placeholder="Lọc..." value={columnFilters.stt} onChange={e => setColumnFilters({...columnFilters, stt: e.target.value})} /></th>
+                          <th className="px-2 py-2"><input type="text" className="w-full px-2 py-1.5 text-sm bg-white text-slate-900 font-bold border-2 border-blue-200 focus:border-blue-500 rounded outline-none placeholder-slate-400" placeholder="Lọc..." value={columnFilters.loaiXl} onChange={e => setColumnFilters({...columnFilters, loaiXl: e.target.value})} /></th>
+                          <th className="px-2 py-2"><input type="text" className="w-full px-2 py-1.5 text-sm bg-white text-slate-900 font-bold border-2 border-blue-200 focus:border-blue-500 rounded outline-none placeholder-slate-400" placeholder="Lọc..." value={columnFilters.maDd} onChange={e => setColumnFilters({...columnFilters, maDd: e.target.value})} /></th>
+                          <th className="px-2 py-2"><input type="text" className="w-full px-2 py-1.5 text-sm bg-white text-slate-900 font-bold border-2 border-blue-200 focus:border-blue-500 rounded outline-none placeholder-slate-400" placeholder="Lọc..." value={columnFilters.cachXl} onChange={e => setColumnFilters({...columnFilters, cachXl: e.target.value})} /></th>
+                          <th className="px-2 py-2"><input type="text" className="w-full px-2 py-1.5 text-sm bg-white text-slate-900 font-bold border-2 border-blue-200 focus:border-blue-500 rounded outline-none placeholder-slate-400" placeholder="Lọc..." value={columnFilters.nguoiXl} onChange={e => setColumnFilters({...columnFilters, nguoiXl: e.target.value})} /></th>
+                          <th className="px-2 py-2"><input type="text" className="w-full px-2 py-1.5 text-sm bg-white text-slate-900 font-bold border-2 border-blue-200 focus:border-blue-500 rounded outline-none placeholder-slate-400" placeholder="Lọc..." value={columnFilters.thoiGianXl} onChange={e => setColumnFilters({...columnFilters, thoiGianXl: e.target.value})} /></th>
+                          <th className="px-2 py-2"><input type="text" className="w-full px-2 py-1.5 text-sm bg-white text-slate-900 font-bold border-2 border-blue-200 focus:border-blue-500 rounded outline-none placeholder-slate-400" placeholder="Lọc..." value={columnFilters.ketQua} onChange={e => setColumnFilters({...columnFilters, ketQua: e.target.value})} /></th>
+                          <th className="px-2 py-2"><input type="text" className="w-full px-2 py-1.5 text-sm bg-white text-slate-900 font-bold border-2 border-blue-200 focus:border-blue-500 rounded outline-none placeholder-slate-400" placeholder="Lọc..." value={columnFilters.ghiChu} onChange={e => setColumnFilters({...columnFilters, ghiChu: e.target.value})} /></th>
                       </tr>
                   </thead>
                   <tbody>
