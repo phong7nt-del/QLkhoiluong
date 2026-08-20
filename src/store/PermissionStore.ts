@@ -26,6 +26,7 @@ export const DEFAULT_RBAC: RBACConfig = {
   actions: {
     'config_system': ['đội trưởng'], // access settings gear
     'edit_others_workload': ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'],
+    'bao_cao_ho': ['đội trưởng', 'giám đốc'],
     // more can be added later
   }
 };

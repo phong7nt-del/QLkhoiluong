@@ -19,7 +19,8 @@ const TABS_INFO = [
 
 const ACTIONS_INFO = [
     { id: 'config_system', label: 'Nút Cài đặt (Bánh răng)' },
-    { id: 'edit_others_workload', label: 'Chỉnh sửa/Xóa báo cáo của người khác' }
+    { id: 'edit_others_workload', label: 'Chỉnh sửa/Xóa báo cáo của người khác' },
+    { id: 'bao_cao_ho', label: 'Cập nhật báo cáo hộ' }
 ];
 
 export default function SystemTab() {

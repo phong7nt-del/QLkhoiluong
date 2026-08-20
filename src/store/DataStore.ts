@@ -175,11 +175,17 @@ export const DataStore = {
         },
         body: JSON.stringify({ action: 'delete_workload_group', data }),
       });
-      const result = await response.json();
-      return result;
+      
+      const rawText = await response.text();
+      try {
+          return JSON.parse(rawText);
+      } catch (parseError) {
+          console.error("Non-JSON response from GS:", rawText);
+          return { status: 'error', reason: 'html_response', text: rawText };
+      }
     } catch (error: any) {
       console.warn('Error deleting workload group:', error);
-      return false;
+      return { status: 'error', reason: 'network_error', text: error.message };
     }
   },
   updateEntry: (id: string, updates: Partial<WorkloadEntry>) => {
