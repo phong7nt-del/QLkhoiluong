@@ -57,8 +57,20 @@ export default function XuLyDoXaView({ xuLyList, refreshData, setXuLyList }: { x
           
           if (formattedData.length > 0) {
               setIsImporting(true);
-              const ok = await DataStore.syncXuLyDoXaBulkToSheet(formattedData);
+              const res = await DataStore.syncXuLyDoXaBulkToSheet(formattedData) as any;
               setIsImporting(false);
+              let ok = false;
+              let errMsg = "";
+              if (res && res.ok !== undefined) {
+                  ok = res.ok;
+                  if (res.message === 'html_response' || (res.message && res.message.includes('Unknown action'))) {
+                      errMsg = "Mã App Script chưa được cập nhật phiên bản mới nhất! Hãy vào Cài đặt -> Copy mã mới -> Dán vào App Script và bấm [Deploy -> New version].";
+                  } else {
+                      errMsg = res.message || "";
+                  }
+              } else {
+                  ok = !!res;
+              }
               if (ok) {
                   alert("Đã import " + formattedData.length + " dòng thành công!");
                   if (setXuLyList) {
@@ -66,7 +78,7 @@ export default function XuLyDoXaView({ xuLyList, refreshData, setXuLyList }: { x
                   }
                   refreshData();
               } else {
-                  alert("Có lỗi khi import Excel!");
+                  alert("Có lỗi khi import Excel! " + (errMsg || ""));
               }
           } else {
               alert("File Excel không có dữ liệu hợp lệ (Cột Mã điểm đo bị trống)!");
@@ -136,7 +148,18 @@ export default function XuLyDoXaView({ xuLyList, refreshData, setXuLyList }: { x
             errMsg = err.message || String(err);
         }
     } else {
-        ok = await DataStore.syncXuLyDoXaToSheet(entry);
+        const res = await DataStore.syncXuLyDoXaToSheet(entry) as any;
+        if (res && res.ok !== undefined) {
+            ok = res.ok;
+            if (res.message === 'html_response' || (res.message && res.message.includes('Unknown action'))) {
+                errMsg = "Mã App Script chưa được cập nhật phiên bản mới nhất! Hãy vào Cài đặt -> Copy mã mới -> Dán vào App Script và bấm [Deploy -> New version].";
+            } else {
+                errMsg = res.message || "";
+            }
+        } else {
+            ok = !!res;
+            if (!ok) errMsg = "Lỗi không xác định từ máy chủ.";
+        }
     }
     setSaving(false);
     

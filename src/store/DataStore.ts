@@ -265,11 +265,16 @@ export const DataStore = {
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ action: 'add_xulydoxa', data: entry }),
       });
-      const result = await response.json();
-      return result.status === 'success';
-    } catch (e) {
+      const rawText = await response.text();
+      try {
+         const result = JSON.parse(rawText);
+         return { ok: result.status === 'success', message: result.message || JSON.stringify(result) };
+      } catch(parseErr) {
+         return { ok: false, message: 'html_response' };
+      }
+    } catch (e: any) {
       console.error('Failed to sync XuLyDoXa to sheet', e);
-      return false;
+      return { ok: false, message: e.message || String(e) };
     }
   },
 
@@ -283,11 +288,16 @@ export const DataStore = {
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ action: 'add_xulydoxa_bulk', data: entries }),
       });
-      const result = await response.json();
-      return result.status === 'success';
-    } catch (e) {
+      const rawText = await response.text();
+      try {
+         const result = JSON.parse(rawText);
+         return { ok: result.status === 'success', message: result.message || JSON.stringify(result) };
+      } catch(parseErr) {
+         return { ok: false, message: 'html_response' };
+      }
+    } catch (e: any) {
       console.error('Failed to sync bulk XuLyDoXa to sheet', e);
-      return false;
+      return { ok: false, message: e.message || String(e) };
     }
   },
 
