@@ -132,7 +132,7 @@ export const DataStore = {
   initDB: initDB,
   getAppScriptUrl: () => { 
       const url = safeGetItem(SCRIPT_URL_KEY);
-      return url ? url.trim() : 'https://script.google.com/macros/s/AKfycbyDCcu4I8yfT1g2KOHCRoaDtMMb1gLvfxhP4HJkzFYbqNIg1TSXCyi2HS3D7hDYpInVxQ/exec';
+      return url ? url.trim() : 'https://script.google.com/macros/s/AKfycbzpw3SlqJxXYC29qjPRqH8ehfJp764bNvQFUzqIgMW_rMrpitMKvvRvWbbGrP505Sdi/exec';
   },
   setAppScriptUrl: (url: string) => safeSetItem(SCRIPT_URL_KEY, url),
 

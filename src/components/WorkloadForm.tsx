@@ -225,7 +225,7 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
        setSelectedTasks(resetTasks);
        onSaved();
     } else {
-       const isDefault = DataStore.getAppScriptUrl() === 'https://script.google.com/macros/s/AKfycbyDCcu4I8yfT1g2KOHCRoaDtMMb1gLvfxhP4HJkzFYbqNIg1TSXCyi2HS3D7hDYpInVxQ/exec';
+       const isDefault = DataStore.getAppScriptUrl() === 'https://script.google.com/macros/s/AKfycbzpw3SlqJxXYC29qjPRqH8ehfJp764bNvQFUzqIgMW_rMrpitMKvvRvWbbGrP505Sdi/exec';
        if (isDefault) {
            setMessage({ type: 'error', text: "Lỗi: Máy này chưa cấu hình Link App Script mới. Vào phần Cài đặt (bánh răng) để cập nhật Link App Script!" });
        } else {
