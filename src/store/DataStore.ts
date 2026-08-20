@@ -300,11 +300,17 @@ export const DataStore = {
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ action: 'update_xulydoxa', data: entry }),
       });
-      const result = await response.json();
-      return { ok: result.status === 'success', message: result.message || JSON.stringify(result) };
-    } catch (e) {
+      const rawText = await response.text();
+      try {
+         const result = JSON.parse(rawText);
+         return { ok: result.status === 'success', message: result.message || JSON.stringify(result) };
+      } catch(parseErr) {
+         console.error('Non-JSON response from GS:', rawText);
+         return { ok: false, message: 'html_response' };
+      }
+    } catch (e: any) {
       console.error('Failed to update XuLyDoXa to sheet', e);
-      return false;
+      return { ok: false, message: e.message || String(e) };
     }
   },
 

@@ -119,11 +119,17 @@ export default function XuLyDoXaView({ xuLyList, refreshData, setXuLyList }: { x
             const res = await DataStore.updateXuLyDoXaToSheet(entry) as any;
             if (res && res.ok !== undefined) {
                 ok = res.ok;
-                errMsg = res.message || "";
+                if (res.message === 'html_response' || (res.message && res.message.includes('Unknown action'))) {
+                    errMsg = "Mã App Script chưa được cập nhật phiên bản mới nhất! Hãy vào Cài đặt -> Copy mã mới -> Dán vào App Script và bấm [Deploy -> New version].";
+                } else if (res.message && res.message.includes("Unknown name")) {
+                    errMsg = "Lỗi tiêu đề cột trên Google Sheet không khớp. Vui lòng kiểm tra lại.";
+                } else {
+                    errMsg = res.message || "";
+                }
             } else {
                 // Backward compatibility if it returns boolean
                 ok = !!res;
-                if (!ok) errMsg = "Unknown error (returned false)";
+                if (!ok) errMsg = "Lỗi không xác định từ máy chủ.";
             }
         } catch (err: any) {
             ok = false;
