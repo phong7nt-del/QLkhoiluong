@@ -1,41 +1,40 @@
 const fs = require('fs');
 let code = fs.readFileSync('src/store/DataStore.ts', 'utf8');
 
-const newMethods = `
-  syncXuLyDoXaBulkToSheet: async (entries: XuLyDoXaEntry[]) => {
-    try {
-      const url = DataStore.getAppScriptUrl();
-      if (!url) throw new Error('No Apps Script URL configured');
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'add_xulydoxa_bulk', data: entries }),
-      });
-      return response.ok;
-    } catch (e) {
-      console.error('Failed to sync bulk XuLyDoXa to sheet', e);
-      return false;
-    }
-  },
+const oldGetDinhMuc = `getDinhMuc: (): { name: string; quota: number; isGroup?: boolean; history?: Record<string, number> }[] => {`;
+const newGetDinhMuc = `getDinhMuc: (): { name: string; quota: number; isGroup?: boolean; history?: Record<string, number>; relation?: string }[] => {`;
+code = code.replace(oldGetDinhMuc, newGetDinhMuc);
 
-  updateXuLyDoXaToSheet: async (entry: XuLyDoXaEntry) => {
-    try {
-      const url = DataStore.getAppScriptUrl();
-      if (!url) throw new Error('No Apps Script URL configured');
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'update_xulydoxa', data: entry }),
-      });
-      return response.ok;
-    } catch (e) {
-      console.error('Failed to update XuLyDoXa to sheet', e);
-      return false;
-    }
-  },
+const oldKeys = `                         const groupKey = keys.find(k => {
+                             const nk = k.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
+                             return nk.includes('chung nhom');
+                         });`;
+const newKeys = `                         const groupKey = keys.find(k => {
+                             const nk = k.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
+                             return nk.includes('chung nhom');
+                         });
+                         const relationKey = keys.find(k => {
+                             const nk = k.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
+                             return nk.includes('quan he');
+                         });`;
+if(code.includes(oldKeys)) {
+    code = code.replace(oldKeys, newKeys);
+} else {
+    console.log("Could not find oldKeys");
+}
 
-  syncToSheet: async (entry: Omit<WorkloadEntry, 'id' | 'timestamp'>) => {`;
-
-code = code.replace("  syncToSheet: async (entry: Omit<WorkloadEntry, 'id' | 'timestamp'>) => {", newMethods);
+const oldPush = `                                 if (val1 && val1.toLowerCase() !== 'stt') {
+                                     newDinhMuc.push({ name: val1, quota: val2, isGroup, history });
+                                 }`;
+const newPush = `                                 let relation = relationKey ? String(row[relationKey] || '').trim() : '';
+                                 if (val1 && val1.toLowerCase() !== 'stt') {
+                                     newDinhMuc.push({ name: val1, quota: val2, isGroup, history, relation });
+                                 }`;
+if(code.includes(oldPush)) {
+    code = code.replace(oldPush, newPush);
+} else {
+    console.log("Could not find oldPush");
+}
 
 fs.writeFileSync('src/store/DataStore.ts', code, 'utf8');
+console.log("Patched DataStore.ts");

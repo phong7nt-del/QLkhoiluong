@@ -745,6 +745,10 @@ export const DataStore = {
                              const nk = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
                              return nk.includes('chung nhom');
                          });
+                         const relationKey = keys.find(k => {
+                             const nk = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
+                             return nk.includes('quan he');
+                         });
                          
                          if (nameKey) {
                              for (const row of dmData) {
@@ -765,8 +769,9 @@ export const DataStore = {
                                      }
                                  });
 
+                                 let relation = relationKey ? String(row[relationKey] || '').trim() : '';
                                  if (val1 && val1.toLowerCase() !== 'stt') {
-                                     newDinhMuc.push({ name: val1, quota: val2, isGroup, history });
+                                     newDinhMuc.push({ name: val1, quota: val2, isGroup, history, relation });
                                  }
                              }
                              if (newDinhMuc.length > 0) {
@@ -1266,7 +1271,7 @@ export const DataStore = {
      } catch { return []; }
   },
 
-  getDinhMuc: (): { name: string; quota: number; isGroup?: boolean; history?: Record<string, number> }[] => {
+  getDinhMuc: (): { name: string; quota: number; isGroup?: boolean; history?: Record<string, number>; relation?: string }[] => {
      try {
        const cached = safeGetItem(DINHMUC_KEY);
        return cached ? JSON.parse(cached) : [];
