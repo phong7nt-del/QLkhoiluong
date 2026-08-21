@@ -7,7 +7,7 @@ function replaceInFile(file, regex, replacement) {
     console.log(`Updated ${file}`);
 }
 
-replaceInFile('src/components/Login.tsx', /2026\.08\.01/g, '2026.08.02');
-replaceInFile('src/App.tsx', /2026\.08\.01/g, '2026.08.02');
-replaceInFile('src/components/ConfigModal.tsx', /2026\.08\.01/g, '2026.08.02');
+replaceInFile('src/components/Login.tsx', /2026\.08\.03/g, '2026.08.04');
+replaceInFile('src/App.tsx', /2026\.08\.03/g, '2026.08.04');
+replaceInFile('src/components/ConfigModal.tsx', /2026\.08\.03/g, '2026.08.04');
 

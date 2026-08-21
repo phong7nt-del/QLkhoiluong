@@ -76,6 +76,27 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
   }, [entries, selectedTeam]);
 
   // Compute unique dates for columns
+    const groupSizes = useMemo(() => {
+    const sizes: Record<string, Record<number, Set<string>>> = {};
+    filteredEntries.forEach(e => {
+        let mbrTokens = e.members || (e as any).workGroup || [];
+        if (typeof mbrTokens === 'string') mbrTokens = [mbrTokens];
+        const members = (Array.isArray(mbrTokens) && mbrTokens.length > 0) ? mbrTokens : ['Khuyết danh'];
+        const linesAll = (e.content || '').split(/\n/);
+        const lastLine = linesAll[linesAll.length - 1].trim();
+        if (/^\d+$/.test(lastLine)) {
+            const groupId = parseInt(lastLine, 10);
+            if (groupId > 0) {
+                const date = e.date;
+                if (!sizes[date]) sizes[date] = {};
+                if (!sizes[date][groupId]) sizes[date][groupId] = new Set();
+                members.forEach(m => sizes[date][groupId].add(m));
+            }
+        }
+    });
+    return sizes;
+  }, [filteredEntries]);
+
   const allDates = useMemo(() => {
     const dates = new Set<string>(filteredEntries.map(e => e.date));
     return Array.from(dates).sort((a, b) => new Date(b).getTime() - new Date(a).getTime()); // sort descending
@@ -164,7 +185,7 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
     return result.sort((a, b) => b[1] - a[1]);
   }, [filteredEntries, selectedMember, dinhMucList]);
 
-  const renderContentWithQuota = (content: string, membersCount: number) => {
+  const renderContentWithQuota = (content: string, membersCount: number, date: string) => {
     if (!content) return null;
     const lines = content.split('\n');
     return lines.filter(line => !/^\d+$/.test(line.trim())).map((line, i) => {
@@ -205,10 +226,14 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
           const linesAll = content.split('\n');
           const lastLine = linesAll[linesAll.length - 1].trim();
           const isGroupReport = /^\d+$/.test(lastLine) && parseInt(lastLine, 10) > 0;
+          const groupId = isGroupReport ? parseInt(lastLine, 10) : 0;
+          const trueMembersCount = isGroupReport && groupSizes[date] && groupSizes[date][groupId] 
+                                   ? groupSizes[date][groupId].size 
+                                   : membersCount;
 
           let qtyPerMember = qty;
-          if (isGroupReport && membersCount >= 3) {
-              qtyPerMember = (qty * 2) / membersCount;
+          if (isGroupReport && trueMembersCount >= 3) {
+              qtyPerMember = (qty * 2) / trueMembersCount;
           }
           let displayQty = qtyPerMember;
 
@@ -280,7 +305,7 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
         return quotaDisplay;
     };
 
-    const processContentLines = (content: string, membersCount: number) => {
+    const processContentLines = (content: string, membersCount: number, date: string) => {
         if (!content) return [];
         const lines = content.split('\n');
         return lines.filter(line => !/^\d+$/.test(line.trim())).map(line => {
@@ -296,10 +321,14 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
                 const linesAll = content.split('\n');
                 const lastLine = linesAll[linesAll.length - 1].trim();
                 const isGroupReport = /^\d+$/.test(lastLine) && parseInt(lastLine, 10) > 0;
+                const groupId = isGroupReport ? parseInt(lastLine, 10) : 0;
+                const trueMembersCount = isGroupReport && groupSizes[date] && groupSizes[date][groupId] 
+                                         ? groupSizes[date][groupId].size 
+                                         : membersCount;
 
                 let qtyPerMember = totalQty;
-                if (isGroupReport && membersCount >= 3) {
-                    qtyPerMember = (totalQty * 2) / membersCount;
+                if (isGroupReport && trueMembersCount >= 3) {
+                    qtyPerMember = (totalQty * 2) / trueMembersCount;
                 }
                 
                 return { isTask: true, taskName, cleanTaskName, qty: qtyPerMember, rawLine: cleanLine };
@@ -342,7 +371,7 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
                 memberObj.dailyContent[dateColDef.colName] = [];
             }
             
-            const parsedLines = processContentLines(e.content, membersCount);
+            const parsedLines = processContentLines(e.content, membersCount, e.date);
             parsedLines.forEach(item => {
                 if (item.isTask) {
                     const quotaDisplay = getQuotaDisplay(item.cleanTaskName);
@@ -643,7 +672,7 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
                             <td className="py-3 px-4 border-r border-[#141414]/10 align-top opacity-70">{row.team}</td>
                             <td className="py-3 px-4 align-top">
                                <div className="whitespace-pre-wrap leading-relaxed space-y-1">
-                                  {renderContentWithQuota(row.content, row.entry.members?.length || 1)}
+                                  {renderContentWithQuota(row.content, row.entry.members?.length || 1, row.entry.date)}
                                </div>
                             </td>
                          </tr>
@@ -706,7 +735,7 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
                                                 {memberEntries.map(e => (
                                                    <div key={e.id} className="relative group text-[#141414] p-2 bg-[#F5F4F2] border border-[#141414]/10">
                                                       <div className="pr-8 whitespace-pre-wrap leading-relaxed space-y-1">
-                                                         {renderContentWithQuota(e.content, e.members?.length || 1)}
+                                                         {renderContentWithQuota(e.content, e.members?.length || 1, e.date)}
                                                       </div>
                                                       <button 
                                                          onClick={() => alert("Để xóa nội dung tác nghiệp này, vui lòng xóa trực tiếp ô dữ liệu tương ứng trên Google Sheets để đảm bảo nhất quán.")}

@@ -165,6 +165,25 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
   const memberOverview = useMemo(() => {
      const stats: Record<string, { member: string; daysWorked: Set<string>; totalStandardDays: number }> = {};
      
+     // Build true group sizes across all entries for the same date and group ID
+     const groupSizes: Record<string, Record<number, Set<string>>> = {};
+     entries.forEach(e => {
+        let mbrTokens = e.members || (e as any).workGroup || [];
+        if (typeof mbrTokens === 'string') mbrTokens = [mbrTokens];
+        const members = (Array.isArray(mbrTokens) && mbrTokens.length > 0) ? mbrTokens : ['Khuyết danh'];
+        const linesAll = (e.content || '').split(/\n/);
+        const lastLine = linesAll[linesAll.length - 1].trim();
+        if (/^\d+$/.test(lastLine)) {
+            const groupId = parseInt(lastLine, 10);
+            if (groupId > 0) {
+                const date = e.date;
+                if (!groupSizes[date]) groupSizes[date] = {};
+                if (!groupSizes[date][groupId]) groupSizes[date][groupId] = new Set();
+                members.forEach(m => groupSizes[date][groupId].add(m));
+            }
+        }
+     });
+
      entries.forEach(e => {
         let mbrTokens = e.members || (e as any).workGroup || [];
         if (typeof mbrTokens === 'string') mbrTokens = [mbrTokens];
@@ -237,6 +256,10 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
            const linesAll = (e.content || '').split(/\n/);
            const lastLine = linesAll[linesAll.length - 1].trim();
            const isGroupReport = /^\d+$/.test(lastLine) && parseInt(lastLine, 10) > 0;
+           const groupId = isGroupReport ? parseInt(lastLine, 10) : 0;
+           const trueMembersCount = isGroupReport && groupSizes[e.date] && groupSizes[e.date][groupId] 
+                                    ? groupSizes[e.date][groupId].size 
+                                    : members.length;
 
            // Năng suất cá nhân:
            // - Nếu đi riêng (ID = 0): Không chia (giữ nguyên khối lượng cho mỗi người)
@@ -244,8 +267,8 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
            //    - Nhóm 1 hoặc 2 người: giữ nguyên khối lượng
            //    - Nhóm >= 3 người: khối lượng * 2 / số người
            let qtyPerMember = qty;
-           if (isGroupReport && members.length >= 3) {
-               qtyPerMember = (qty * 2) / members.length;
+           if (isGroupReport && trueMembersCount >= 3) {
+               qtyPerMember = (qty * 2) / trueMembersCount;
            }
            
            members.forEach(m => {
@@ -275,6 +298,25 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
   // Thống kê tổng quan năng suất Tổ based on its members
   const teamOverview = useMemo(() => {
       const allMembersData = DataStore.getMembers();
+      
+      // Build true group sizes across all entries for the same date and group ID
+      const groupSizes: Record<string, Record<number, Set<string>>> = {};
+      entries.forEach(e => {
+        let mbrTokens = e.members || (e as any).workGroup || [];
+        if (typeof mbrTokens === 'string') mbrTokens = [mbrTokens];
+        const members = (Array.isArray(mbrTokens) && mbrTokens.length > 0) ? mbrTokens : ['Khuyết danh'];
+        const linesAll = (e.content || '').split(/\n/);
+        const lastLine = linesAll[linesAll.length - 1].trim();
+        if (/^\d+$/.test(lastLine)) {
+            const groupId = parseInt(lastLine, 10);
+            if (groupId > 0) {
+                const date = e.date;
+                if (!groupSizes[date]) groupSizes[date] = {};
+                if (!groupSizes[date][groupId]) groupSizes[date][groupId] = new Set();
+                members.forEach(m => groupSizes[date][groupId].add(m));
+            }
+        }
+      });
       
       // Calculate member stats with division for group tasks
       const teamMemberStats: Record<string, { member: string; daysWorked: Set<string>; totalStandardDays: number }> = {};
@@ -344,13 +386,17 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
            const linesAll = (e.content || '').split(/\n/);
            const lastLine = linesAll[linesAll.length - 1].trim();
            const isGroupReport = /^\d+$/.test(lastLine) && parseInt(lastLine, 10) > 0;
+           const groupId = isGroupReport ? parseInt(lastLine, 10) : 0;
+           const trueMembersCount = isGroupReport && groupSizes[e.date] && groupSizes[e.date][groupId] 
+                                    ? groupSizes[e.date][groupId].size 
+                                    : members.length;
 
            // Năng suất Tổ: Áp dụng cùng công thức năng suất cá nhân
            // - Nếu đi riêng (ID = 0): Không chia
            // - Nếu làm nhóm >= 3 người: khối lượng * 2 / số người
            let qtyPerMember = qty;
-           if (isGroupReport && members.length >= 3) {
-               qtyPerMember = (qty * 2) / members.length;
+           if (isGroupReport && trueMembersCount >= 3) {
+               qtyPerMember = (qty * 2) / trueMembersCount;
            }
            
            members.forEach(m => {
