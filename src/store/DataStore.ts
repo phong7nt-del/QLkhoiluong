@@ -136,6 +136,17 @@ export const DataStore = {
   },
   setAppScriptUrl: (url: string) => safeSetItem(SCRIPT_URL_KEY, url),
 
+  getExcludeSaturday: () => {
+      const val = safeGetItem('config_exclude_saturday');
+      return val === 'true'; // Default is false
+  },
+  setExcludeSaturday: (val: boolean) => safeSetItem('config_exclude_saturday', val ? 'true' : 'false'),
+  getExcludeSunday: () => {
+      const val = safeGetItem('config_exclude_sunday');
+      return val === 'true'; // Default is false
+  },
+  setExcludeSunday: (val: boolean) => safeSetItem('config_exclude_sunday', val ? 'true' : 'false'),
+
   getEntries: (): WorkloadEntry[] => {
     try {
       const data = safeGetItem(STORAGE_KEY);
@@ -633,23 +644,36 @@ export const DataStore = {
                                    const gId = parseInt(lastLine, 10);
                                    if (gId > 0) {
                                        const coreContent = lines.slice(0, lines.length - 1).join('\n').trim();
-                                       // We use a global registry for this parsing session to assign unique IDs per date + coreContent
-                                       if (!json._tempGroupIds) json._tempGroupIds = {};
-                                       if (!json._tempGroupIds[formattedDate]) json._tempGroupIds[formattedDate] = {};
-                                       if (!json._tempGroupIds[formattedDate][coreContent]) {
-                                           const count = Object.keys(json._tempGroupIds[formattedDate]).length + 1;
-                                           json._tempGroupIds[formattedDate][coreContent] = 10000 + count; // Use a high unique ID like 10001, 10002
-                                       }
-                                       const uniqueId = json._tempGroupIds[formattedDate][coreContent];
-                                       normalizedContent = coreContent + '\n' + uniqueId;
+                                       normalizedContent = coreContent + '\n' + gId;
                                    }
                                }
 
                                // Combine duplicate entries using normalized content
-                               let existing = newWorkloads.find(w => w.date === formattedDate && w.team === finalTeam && w.content === normalizedContent);
+                               let existing = null;
+                               const linesNorm = normalizedContent.split('\n');
+                               const lastLineNorm = linesNorm[linesNorm.length - 1].trim();
+                               const gIdNorm = /^\d+$/.test(lastLineNorm) ? parseInt(lastLineNorm, 10) : 0;
+                               
+                               // new behavior: merge by gId AND EXACT CONTENT across different teams
+                               // NEVER merge ID 0
+                               if (gIdNorm > 0) {
+                                   existing = newWorkloads.find(w => {
+                                       if (w.date !== formattedDate) return false;
+                                       if (w.content !== normalizedContent) return false;
+                                       const wLines = w.content.split('\n');
+                                       const wLast = wLines[wLines.length - 1].trim();
+                                       const wId = /^\d+$/.test(wLast) ? parseInt(wLast, 10) : 0;
+                                       return wId === gIdNorm;
+                                   });
+                               }
+
                                if (existing) {
                                    if (!existing.members.includes(memberName)) {
                                        existing.members.push(memberName);
+                                   }
+                                   const existingTeams = existing.team.split(',').map(t => t.trim());
+                                   if (!existingTeams.includes(finalTeam)) {
+                                       existing.team = existing.team + ', ' + finalTeam;
                                    }
                                } else {
                                    newWorkloads.push({
@@ -666,6 +690,22 @@ export const DataStore = {
                        }
                    }
                }
+               
+               // Post-processing: Ensure any report with only 1 member has ID 0
+               newWorkloads.forEach(w => {
+                   if (w.members.length === 1) {
+                       const lines = w.content.split('\n');
+                       const lastLine = lines[lines.length - 1].trim();
+                       if (/^\d+$/.test(lastLine)) {
+                           const gId = parseInt(lastLine, 10);
+                           if (gId !== 0) {
+                               lines[lines.length - 1] = '0';
+                               w.content = lines.join('\n');
+                           }
+                       }
+                   }
+               });
+
                json.workloads = newWorkloads;
             } catch (e) {
                console.error('Error parsing CongTac for Workloads', e);

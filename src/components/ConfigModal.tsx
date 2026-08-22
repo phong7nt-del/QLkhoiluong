@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { DataStore } from '../store/DataStore';
 import { Copy, Check, DownloadCloud, AlertTriangle, X } from 'lucide-react';
 
-const SCRIPT_TEMPLATE = `// VERSION: 2026.08.04
+const SCRIPT_TEMPLATE = `// VERSION: 2026.08.14
 // XÓA TẤT CẢ MÃ CŨ (XÓA function myFunction() { ... })
 // CHỈ DÁN ĐOẠN MÃ DƯỚI ĐÂY VÀO:
 var SPREADSHEET_ID = '1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ';
@@ -1180,6 +1180,8 @@ export default function ConfigModal({ onClose }: { onClose: () => void }) {
                 className="w-full bg-[#E4E3E0] bg-opacity-30 border border-[#141414] p-3 text-sm focus:outline-none focus:ring-1 focus:ring-[#141414] font-mono"
               />
             </div>
+
+
 
             <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
                <button 

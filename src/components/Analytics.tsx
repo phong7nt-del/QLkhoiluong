@@ -23,7 +23,7 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
   const [selectedMonth, setSelectedMonth] = useState<string>('');
   const [selectedYear, setSelectedYear] = useState<string>('');
   const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set());
-  const [detailViewMode, setDetailViewMode] = useState<'grouped' | 'list'>('grouped');
+  const [detailViewMode, setDetailViewMode] = useState<'grouped' | 'list' | 'by_workgroup'>('grouped');
 
   const entries = useMemo(() => DataStore.getEntries().sort((a, b) => b.timestamp - a.timestamp), [refreshToggle]);
   const dinhMucList = useMemo(() => DataStore.getDinhMuc(), [refreshToggle]);
@@ -44,12 +44,16 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
     });
   };
 
+
+
+
   const filteredEntries = useMemo(() => {
     return entries.filter(e => {
-      const eTeamNormalized = (e.team || '').normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
       const selectedTeamNormalized = selectedTeam.normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
-
-      if (selectedTeam !== 'all' && eTeamNormalized !== selectedTeamNormalized) return false;
+      if (selectedTeam !== 'all') {
+         const hasTeam = (e.team || '').split(',').some(t => t.normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim() === selectedTeamNormalized);
+         if (!hasTeam) return false;
+      }
       
       if (filterMode === 'day' && selectedDate && e.date !== selectedDate) return false;
       if (filterMode === 'week' && selectedWeek && getWeekString(e.date) !== selectedWeek) return false;
@@ -61,14 +65,73 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
     });
   }, [entries, selectedTeam, selectedMember, filterMode, selectedDate, selectedWeek, selectedMonth, selectedYear]);
 
+  const groupedByWorkgroup = useMemo(() => {
+    if (filterMode !== 'day' || detailViewMode !== 'by_workgroup' || !selectedDate) return [];
+    
+    const groups = new Map();
+    
+    // Scan ALL entries for the day to build groups, not just filtered ones
+    const dayEntries = entries.filter(e => e.date === selectedDate);
+    
+    dayEntries.forEach(e => {
+        const linesAll = (e.content || '').split('\n');
+        const lastLine = linesAll[linesAll.length - 1].trim();
+        const gId = /^\d+$/.test(lastLine) ? parseInt(lastLine, 10) : 0;
+        
+        let key = gId > 0 ? gId.toString() : e.id;
+        
+        if (!groups.has(key)) {
+            groups.set(key, {
+                id: e.id,
+                date: e.date,
+                members: new Set(e.members || []),
+                teams: new Set([e.team || '']),
+                content: e.content,
+                timestamp: e.timestamp
+            });
+        } else {
+            const g = groups.get(key);
+            (e.members || []).forEach(m => g.members.add(m));
+            if (e.team) g.teams.add(e.team);
+            if (e.timestamp > g.timestamp) g.timestamp = e.timestamp;
+        }
+    });
+    
+    let resultGroups = Array.from(groups.values());
+    
+    // If a specific team is selected, only show groups that contain someone from that team
+    if (selectedTeam !== 'all') {
+       const selectedTeamNormalized = selectedTeam.normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
+       resultGroups = resultGroups.filter(g => {
+           // We need to check if any original entry in this group was from the selected team
+           // e.team might not have all the info, but g.teams has all the teams in the group
+           return Array.from(g.teams).some(t => t.normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim() === selectedTeamNormalized);
+       });
+    }
+    
+    // If a specific member is selected, only show groups containing that member
+    if (selectedMember !== 'all') {
+       resultGroups = resultGroups.filter(g => g.members.has(selectedMember));
+    }
+    
+    return resultGroups.map(g => ({
+        id: g.id,
+        date: g.date,
+        members: Array.from(g.members).sort(),
+        team: Array.from(g.teams).join(', '),
+        content: g.content,
+        timestamp: g.timestamp
+    })).sort((a, b) => b.timestamp - a.timestamp);
+  }, [entries, filterMode, detailViewMode, selectedDate, selectedTeam, selectedMember]);
+
   const uniqueTeams = useMemo(() => DataStore.getTeams(), [refreshToggle]);
   const uniqueMembers = useMemo(() => {
     const mems = new Set<string>();
     entries.forEach(e => {
-       const eTeamNormalized = (e.team || '').normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
        const selectedTeamNormalized = selectedTeam.normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
+       const hasTeam = (e.team || '').split(',').some(t => t.normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim() === selectedTeamNormalized);
        
-       if ((selectedTeam === 'all' || eTeamNormalized === selectedTeamNormalized) && e.members) {
+       if ((selectedTeam === 'all' || hasTeam) && e.members) {
           e.members.forEach(m => mems.add(m));
        }
     });
@@ -622,12 +685,12 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
              <h3 className="font-bold uppercase tracking-widest text-sm">
                 Chi tiết báo cáo
              </h3>
-             <div className="flex gap-2">
+             <div className="flex gap-2 flex-wrap">
                 <button 
                   onClick={() => setDetailViewMode('grouped')}
                   className={`text-[10px] px-3 py-1.5 uppercase font-bold tracking-widest transition-all border ${detailViewMode === 'grouped' ? 'bg-[#141414] text-white border-[#141414]' : 'bg-white text-[#141414] border-[#141414]/20 hover:border-[#141414]'}`}
                 >
-                  Dạng nhóm
+                  Dạng nhóm cá nhân
                 </button>
                 <button 
                   onClick={() => setDetailViewMode('list')}
@@ -635,6 +698,14 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
                 >
                   Dạng bảng
                 </button>
+                {filterMode === 'day' && (
+                  <button 
+                    onClick={() => setDetailViewMode('by_workgroup')}
+                    className={`text-[10px] px-3 py-1.5 uppercase font-bold tracking-widest transition-all border ${detailViewMode === 'by_workgroup' ? 'bg-[#141414] text-white border-[#141414]' : 'bg-white text-[#141414] border-[#141414]/20 hover:border-[#141414]'}`}
+                  >
+                    Theo tổ nhóm
+                  </button>
+                )}
              </div>
           </div>
 
@@ -642,6 +713,49 @@ export default function Analytics({ refreshToggle }: { refreshToggle: number }) 
           {allDates.length === 0 ? (
              <div className="text-center py-12 text-sm opacity-50 italic uppercase bg-white border border-[#141414] shadow-[4px_4px_0_#141414]">
                 Hệ thống chưa ghi nhận<br/>hoạt động nào.
+             </div>
+          ) : (detailViewMode === 'by_workgroup' && filterMode === 'day') ? (
+             <div className="bg-white border border-[#141414] shadow-[4px_4px_0_#141414] overflow-x-auto">
+                <table className="w-full text-left border-collapse min-w-[800px]">
+                   <thead className="bg-[#141414] text-[#E4E3E0]">
+                      <tr className="text-[10px] font-mono uppercase tracking-widest">
+                         <th className="py-3 px-4 border-b border-[#141414] whitespace-nowrap w-12 text-center">STT</th>
+                         <th className="py-3 px-4 border-b border-[#141414] whitespace-nowrap">Ngày</th>
+                         <th className="py-3 px-4 border-b border-[#141414] whitespace-nowrap">Thành viên trong nhóm</th>
+                         <th className="py-3 px-4 border-b border-[#141414]">Khu vực / Tổ</th>
+                         <th className="py-3 px-4 border-b border-[#141414]">Nội dung công việc</th>
+                      </tr>
+                   </thead>
+                   <tbody className="font-sans text-xs">
+                      {groupedByWorkgroup.map((e, i) => {
+                         const displayDate = e.date.includes('-') ? e.date.split('-').reverse().join('/') : e.date;
+                         return (
+                         <tr key={e.id} className={`border-b border-[#141414]/10 hover:bg-[#E4E3E0]/30 transition-colors ${i % 2 === 0 ? 'bg-white' : 'bg-[#F9F9F9]'}`}>
+                            <td className="py-3 px-4 border-r border-[#141414]/10 align-top text-center font-bold opacity-60">{i + 1}</td>
+                            <td className="py-3 px-4 border-r border-[#141414]/10 align-top whitespace-nowrap font-mono">{displayDate}</td>
+                            <td className="py-3 px-4 border-r border-[#141414]/10 align-top font-bold">
+                               <div className="flex flex-col gap-1">
+                                 {e.members?.map(m => <span key={m}>{m}</span>)}
+                               </div>
+                            </td>
+                            <td className="py-3 px-4 border-r border-[#141414]/10 align-top opacity-70">{e.team}</td>
+                            <td className="py-3 px-4 align-top">
+                               <div className="whitespace-pre-wrap leading-relaxed space-y-1 relative group">
+                                  {renderContentWithQuota(e.content, e.members?.length || 1, e.date)}
+                                  <button 
+                                     onClick={() => alert("Để xóa nội dung tác nghiệp này, vui lòng xóa trực tiếp ô dữ liệu tương ứng trên Google Sheets để đảm bảo nhất quán.")}
+                                     title="Thông tin xoá"
+                                     className="absolute top-0 right-0 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-1 bg-white border border-red-200 hover:bg-red-50"
+                                  >
+                                     <Trash2 className="w-3 h-3" />
+                                  </button>
+                               </div>
+                            </td>
+                         </tr>
+                         );
+                      })}
+                   </tbody>
+                </table>
              </div>
           ) : detailViewMode === 'list' ? (
              <div className="bg-white border border-[#141414] shadow-[4px_4px_0_#141414] overflow-x-auto">

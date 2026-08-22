@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { PermissionStore, RBACConfig, ALL_ROLES, AppRole } from '../store/PermissionStore';
 import { Shield, Save, CheckSquare, Square, RotateCcw } from 'lucide-react';
+import { DataStore } from '../store/DataStore';
 
 const TABS_INFO = [
     { id: 'input', label: 'Cập nhật' },
@@ -26,6 +27,8 @@ const ACTIONS_INFO = [
 export default function SystemTab() {
     const [config, setConfig] = useState<RBACConfig>(PermissionStore.getConfig());
     const [message, setMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
+    const [excludeSat, setExcludeSat] = useState(DataStore.getExcludeSaturday());
+    const [excludeSun, setExcludeSun] = useState(DataStore.getExcludeSunday());
 
     const handleToggleTab = (tabId: string, role: AppRole) => {
         const newConfig = { ...config };
@@ -134,6 +137,38 @@ export default function SystemTab() {
                                 ))}
                             </tbody>
                         </table>
+                    </div>
+                </div>
+
+                <div className="mb-6">
+                    <h3 className="text-sm font-bold text-slate-800 mb-3 border-l-4 border-slate-800 pl-2">Cấu hình Năng Suất</h3>
+                    <div className="bg-slate-50/50 rounded-xl border border-slate-200 p-4 space-y-3">
+                        <label className="flex items-center gap-3 text-sm cursor-pointer hover:bg-slate-100 p-2 rounded-lg transition-colors -ml-2">
+                            <input 
+                                type="checkbox" 
+                                checked={!excludeSat} 
+                                onChange={(e) => {
+                                    const newVal = !e.target.checked;
+                                    setExcludeSat(newVal);
+                                    DataStore.setExcludeSaturday(newVal);
+                                }} 
+                                className="w-4 h-4 text-slate-800 rounded border-slate-300 focus:ring-slate-800"
+                            />
+                            <span className="font-medium text-slate-700">Tính năng suất cho ngày Thứ Bảy</span>
+                        </label>
+                        <label className="flex items-center gap-3 text-sm cursor-pointer hover:bg-slate-100 p-2 rounded-lg transition-colors -ml-2">
+                            <input 
+                                type="checkbox" 
+                                checked={!excludeSun} 
+                                onChange={(e) => {
+                                    const newVal = !e.target.checked;
+                                    setExcludeSun(newVal);
+                                    DataStore.setExcludeSunday(newVal);
+                                }} 
+                                className="w-4 h-4 text-slate-800 rounded border-slate-300 focus:ring-slate-800"
+                            />
+                            <span className="font-medium text-slate-700">Tính năng suất cho ngày Chủ Nhật</span>
+                        </label>
                     </div>
                 </div>
 

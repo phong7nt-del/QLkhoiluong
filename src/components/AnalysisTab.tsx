@@ -9,6 +9,8 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
   const [selectedDay, setSelectedDay] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
   const [selectedWeekDate, setSelectedWeekDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
   const [selectedMonth, setSelectedMonth] = useState<string>(format(new Date(), 'yyyy-MM'));
+  const excludeSat = useMemo(() => DataStore.getExcludeSaturday(), [refreshToggle]);
+  const excludeSun = useMemo(() => DataStore.getExcludeSunday(), [refreshToggle]);
   
   const rawEntries = useMemo(() => DataStore.getEntries(), [refreshToggle]);
   
@@ -194,7 +196,17 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
             if (!stats[m]) {
                 stats[m] = { member: m, daysWorked: new Set(), totalStandardDays: 0 };
             }
-            if (date) stats[m].daysWorked.add(date);
+            if (date) {
+                const parts = date.split('-');
+                const dObj = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+                const day = dObj.getDay();
+                let shouldCount = true;
+                if (day === 0 && excludeSun) shouldCount = false;
+                if (day === 6 && excludeSat) shouldCount = false;
+                if (shouldCount) {
+                    stats[m].daysWorked.add(date);
+                }
+            }
         });
         
         const lines = (e.content || '').split(/\n/).map(l => {
@@ -331,7 +343,17 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
             if (!teamMemberStats[m]) {
                 teamMemberStats[m] = { member: m, daysWorked: new Set(), totalStandardDays: 0 };
             }
-            if (date) teamMemberStats[m].daysWorked.add(date);
+            if (date) {
+                const parts = date.split('-');
+                const dObj = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+                const day = dObj.getDay();
+                let shouldCount = true;
+                if (day === 0 && excludeSun) shouldCount = false;
+                if (day === 6 && excludeSat) shouldCount = false;
+                if (shouldCount) {
+                    teamMemberStats[m].daysWorked.add(date);
+                }
+            }
         });
         
         const lines = (e.content || '').split(/\n/).map(l => {
