@@ -119,6 +119,8 @@ export default function PlanProgressTab({ refreshToggle }: { refreshToggle?: num
           }
           
           const actualQty = actualQtyMap.get(dm.name) || 0;
+          const quotaStr = dm ? String(dm.quota).replace(/,/g, '.') : "0";
+          const quota = parseFloat(quotaStr) || 0;
           
           return {
               name: dm.name,
@@ -126,7 +128,8 @@ export default function PlanProgressTab({ refreshToggle }: { refreshToggle?: num
               actualQty,
               progress: 0,
               isGroup: dm.isGroup,
-              relation: (dm.relation || '').trim()
+              relation: (dm.relation || '').trim(),
+              quota: quota
           };
       });
       
@@ -171,15 +174,7 @@ export default function PlanProgressTab({ refreshToggle }: { refreshToggle?: num
   
   const exportToExcel = () => {
     // Tổng quát
-    let totalPlan = 0;
-    let totalActual = 0;
-    planData.forEach(d => {
-       if (d.planQty > 0 || d.actualQty > 0) {
-          totalPlan += d.planQty;
-          totalActual += d.actualQty;
-       }
-    });
-    const avgProgress = totalPlan > 0 ? (totalActual / totalPlan) * 100 : 0;
+    const { totalPlan, totalActual, avgProgress } = summaryStats;
     
     const summaryData = [
        ["BÁO CÁO TIẾN ĐỘ KẾ HOẠCH"],
@@ -217,15 +212,26 @@ export default function PlanProgressTab({ refreshToggle }: { refreshToggle?: num
   };
 
   const summaryStats = useMemo(() => {
-    let totalPlan = 0;
-    let totalActual = 0;
+    let totalPlanRaw = 0;
+    let totalActualRaw = 0;
+    let totalPlanStandard = 0;
+    let totalActualStandard = 0;
+
     planData.forEach(d => {
        if (d.planQty > 0 || d.actualQty > 0) {
-          totalPlan += d.planQty;
-          totalActual += d.actualQty;
+          totalPlanRaw += d.planQty;
+          totalActualRaw += d.actualQty;
+          
+          if (d.quota > 0) {
+              totalPlanStandard += d.planQty / d.quota;
+              totalActualStandard += d.actualQty / d.quota;
+          } else {
+              totalPlanStandard += d.planQty * 0.05;
+              totalActualStandard += d.actualQty * 0.05;
+          }
        }
     });
-    const avgProgress = totalPlan > 0 ? (totalActual / totalPlan) * 100 : 0;
+    const avgProgress = totalPlanStandard > 0 ? (totalActualStandard / totalPlanStandard) * 100 : 0;
     
     let statusColor = "";
     let statusText = "";
@@ -243,7 +249,7 @@ export default function PlanProgressTab({ refreshToggle }: { refreshToggle?: num
         statusText = "Chậm tiến độ";
     }
 
-    return { totalPlan, totalActual, avgProgress, statusColor, statusText };
+    return { totalPlan: totalPlanRaw, totalActual: totalActualRaw, totalPlanStandard, totalActualStandard, avgProgress, statusColor, statusText };
   }, [planData]);
 
   const requestSort = (key: string) => {
@@ -404,13 +410,15 @@ export default function PlanProgressTab({ refreshToggle }: { refreshToggle?: num
                         Nhận định tỷ lệ thực hiện của {selectedTeam}
                     </p>
                     <div className="flex items-end gap-4 justify-end">
-                        <div className="flex flex-col text-right">
+                        <div className="flex flex-col text-right" title="Giá trị thô (chưa quy đổi định mức)">
                             <span className="text-[10px] text-slate-400 font-medium">Tổng Kế Hoạch</span>
                             <span className="text-sm font-bold text-slate-600">{summaryStats.totalPlan}</span>
+                            <span className="text-[9px] text-slate-500 font-medium">~ {summaryStats.totalPlanStandard.toFixed(1)} ngày</span>
                         </div>
-                        <div className="flex flex-col text-right">
+                        <div className="flex flex-col text-right" title="Giá trị thô (chưa quy đổi định mức)">
                             <span className="text-[10px] text-slate-400 font-medium">Tổng Thực Hiện</span>
                             <span className="text-sm font-bold text-indigo-600">{summaryStats.totalActual}</span>
+                            <span className="text-[9px] text-indigo-400 font-medium">~ {summaryStats.totalActualStandard.toFixed(1)} ngày</span>
                         </div>
                         <div className="flex flex-col text-right ml-2 border-l border-slate-300 pl-4">
                             <span className="text-[10px] text-slate-400 font-medium">Tỷ lệ hoàn thành</span>
