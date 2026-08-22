@@ -23,6 +23,9 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
     // Collapse states
     const [isUnprocessedExpanded, setIsUnprocessedExpanded] = useState(true);
     const [isProcessedExpanded, setIsProcessedExpanded] = useState(true);
+    const [toastMessage, setToastMessage] = useState<string | null>(null);
+    const [unprocessedLimit, setUnprocessedLimit] = useState(30);
+    const [processedLimit, setProcessedLimit] = useState(30);
 
     const userRole = (sessionUser?.role || '').toLowerCase();
     const userTeam = (sessionUser?.team || '').toLowerCase();
@@ -70,8 +73,12 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
         await DataStore.addTutiEntry(newEntry);
         setEntries(DataStore.getTutiEntries());
         window.dispatchEvent(new Event('workload_updated'));
+        setToastMessage("Lưu thành công!");
+        setTimeout(() => setToastMessage(null), 3000);
         
         setIsSubmitting(false);
+        setToastMessage("Thêm mới thành công!");
+        setTimeout(() => setToastMessage(null), 3000);
         // Reset and hide
         setMaTram('');
         setTenDiemDo('');
@@ -157,14 +164,15 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
         return false;
     };
 
-    const unprocessed = entries.filter(e => !isProcessed(e));
+    const unprocessedAll = entries.filter(e => !isProcessed(e));
     const processed = entries.filter(e => isProcessed(e));
     
     // Sort unprocessed ascending
-    unprocessed.sort((a, b) => (a.maTram || '').localeCompare(b.maTram || ''));
+    unprocessedAll.sort((a, b) => (a.maTram || '').localeCompare(b.maTram || ''));
+    const unprocessed = unprocessedAll.slice(0, unprocessedLimit);
 
     // Filter processed
-    const filteredProcessed = processed.filter(e => {
+    const filteredProcessedAll = processed.filter(e => {
         if (!filter) return true;
         const search = filter.toLowerCase();
         return (
@@ -173,6 +181,7 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
             e.ketLuan.toLowerCase().includes(search)
         );
     });
+    const filteredProcessed = filteredProcessedAll.slice(0, processedLimit);
 
     const missingWarnings = React.useMemo(() => {
         const workloads = DataStore.getEntries();
@@ -370,7 +379,7 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                 >
                     <h3 className="font-bold text-slate-800 flex items-center gap-2">
                         <RefreshCw className="w-4 h-4 text-indigo-500" />
-                        Danh sách cần xử lý ({unprocessed.length})
+                        Danh sách cần xử lý ({unprocessedAll.length})
                     </h3>
                     <div className="text-slate-500">
                         {isUnprocessedExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
@@ -479,6 +488,11 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                     </table>
                 </div>
                 )}
+                {isUnprocessedExpanded && unprocessedAll.length > unprocessedLimit && (
+                    <div className="flex justify-center p-3 border-t border-slate-100">
+                        <button onClick={() => setUnprocessedLimit(prev => prev + 50)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-colors">Hiển thị thêm</button>
+                    </div>
+                )}
             </div>
 
             {/* C. Bottom Part: Processed */}
@@ -493,7 +507,7 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                     >
                         <h3 className="font-bold text-slate-800 flex items-center gap-2">
                             <CheckCircle className="w-4 h-4 text-green-500" />
-                            Danh sách đã xử lý ({filteredProcessed.length})
+                            Danh sách đã xử lý ({filteredProcessedAll.length})
                         </h3>
                         <div className="text-slate-500 ml-2">
                             {isProcessedExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
@@ -620,8 +634,18 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                     </table>
                 </div>
                 )}
+                {isProcessedExpanded && filteredProcessedAll.length > processedLimit && (
+                    <div className="flex justify-center p-3 border-t border-slate-100">
+                        <button onClick={() => setProcessedLimit(prev => prev + 50)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-colors">Hiển thị thêm</button>
+                    </div>
+                )}
             </div>
-            
+            {toastMessage && (
+                <div className="fixed bottom-4 right-4 bg-green-600 text-white px-6 py-3 rounded-xl shadow-lg shadow-green-900/20 font-bold text-sm animate-in slide-in-from-bottom-4 flex items-center gap-2 z-50">
+                    <CheckCircle className="w-5 h-5" />
+                    {toastMessage}
+                </div>
+            )}
         </div>
     );
 }

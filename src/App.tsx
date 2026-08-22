@@ -271,7 +271,7 @@ export default function App() {
     { id: "disconnect", icon: WifiOff, label: "Đo xa", color: "red" },
     { id: "search", icon: Search, label: "Tìm kiếm", color: "green" },
     { id: "progress", icon: CheckSquare, label: "Tiến độ CV", color: "amber" },
-    { id: "tuti", icon: Activity, label: "KT TU - TI", color: "indigo" },
+    { id: "tuti", icon: Activity, label: "TU - TI", color: "indigo" },
     { id: "plan_progress", icon: TrendingUp, label: "Tiến độ kế hoạch", color: "blue" },
     { id: "sangtai", icon: Database, label: "KT sang tải", color: "amber" },
     { id: "warehouse", icon: Package, label: "Kho VTTB", color: "amber" },
@@ -476,7 +476,7 @@ export default function App() {
             <footer className={`${theme.footerBg} p-4 mt-auto shrink-0 z-10 border-t border-white/10`}>
               <div className={`flex flex-col md:flex-row justify-between items-center text-[10px] sm:text-[11px] font-medium ${theme.footerText} uppercase tracking-wider gap-2`}>
                 <div className={`text-center md:text-left ${theme.footerAccent} font-bold`}>
-                   Mùa {theme.season === 'summer' ? 'Hạ' : theme.season === 'spring' ? 'Xuân' : theme.season === 'autumn' ? 'Thu' : 'Đông'} • Phiên bản 2026.08.14
+                   Mùa {theme.season === 'summer' ? 'Hạ' : theme.season === 'spring' ? 'Xuân' : theme.season === 'autumn' ? 'Thu' : 'Đông'} • Phiên bản 2026.08.16
                 </div>
                 <div className="text-center opacity-80">
                   Bản quyền thuộc EVN PCVT @2026

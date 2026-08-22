@@ -12,7 +12,7 @@ const TABS_INFO = [
     { id: 'search', label: 'Tìm kiếm' },
     { id: 'sangtai', label: 'KT sang tải' },
     { id: 'progress', label: 'Tiến độ CV' },
-    { id: 'tuti', label: 'KT TU - TI' },
+    { id: 'tuti', label: 'TU - TI' },
     { id: 'plan_progress', label: 'Tiến độ kế hoạch' },
     { id: 'warehouse', label: 'Kho VTTB' },
     { id: 'system', label: 'Hệ thống' }
