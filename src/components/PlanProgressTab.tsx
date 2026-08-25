@@ -10,6 +10,7 @@ export default function PlanProgressTab({ refreshToggle }: { refreshToggle?: num
   const [availableTeams, setAvailableTeams] = useState<string[]>([]);
   const [search, setSearch] = useState('');
   const [showAllTasks, setShowAllTasks] = useState(false);
+  const [onlyPlannedTasks, setOnlyPlannedTasks] = useState(false);
   const [sortConfig, setSortConfig] = useState<{key: string, direction: 'asc'|'desc'} | null>(null);
 
   const dinhMucList = useMemo(() => DataStore.getDinhMuc(), [refreshToggle]);
@@ -218,7 +219,7 @@ export default function PlanProgressTab({ refreshToggle }: { refreshToggle?: num
     let totalActualStandard = 0;
 
     planData.forEach(d => {
-       if (d.planQty > 0 || d.actualQty > 0) {
+       if (d.planQty > 0 || (d.actualQty > 0 && !onlyPlannedTasks)) {
           totalPlanRaw += d.planQty;
           totalActualRaw += d.actualQty;
           
@@ -250,7 +251,7 @@ export default function PlanProgressTab({ refreshToggle }: { refreshToggle?: num
     }
 
     return { totalPlan: totalPlanRaw, totalActual: totalActualRaw, totalPlanStandard, totalActualStandard, avgProgress, statusColor, statusText };
-  }, [planData]);
+  }, [planData, onlyPlannedTasks]);
 
   const requestSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
@@ -403,8 +404,17 @@ export default function PlanProgressTab({ refreshToggle }: { refreshToggle?: num
             </table>
          </div>
          
-         <div className="bg-slate-50 border-t border-slate-200 p-4 sm:p-5 flex justify-end items-center shrink-0">
-            <div className="flex items-center gap-6">
+         <div className="bg-slate-50 border-t border-slate-200 p-4 sm:p-5 flex flex-col md:flex-row justify-between items-center shrink-0 gap-4">
+            <label className="flex items-center gap-2 text-sm cursor-pointer hover:bg-slate-200/50 p-2 rounded-lg transition-colors -ml-2 self-start md:self-auto">
+                <input 
+                    type="checkbox" 
+                    checked={onlyPlannedTasks} 
+                    onChange={(e) => setOnlyPlannedTasks(e.target.checked)} 
+                    className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+                />
+                <span className="font-medium text-slate-700">Chỉ tính tỷ lệ trên các mục có giao Kế hoạch</span>
+            </label>
+            <div className="flex items-center gap-6 self-end md:self-auto">
                 <div className="text-right">
                     <p className="text-[11px] text-slate-500 font-bold uppercase tracking-wider mb-2">
                         Nhận định tỷ lệ thực hiện của {selectedTeam}
