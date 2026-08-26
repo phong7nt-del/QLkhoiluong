@@ -37,6 +37,7 @@ export interface XuLyDoXaEntry {
   nguoiXl: string;
   thoiGianXl: string;
   maDd: string;
+  tenKh?: string;
   cachXl: string;
   ketQua?: string;
   ghiChu: string;
@@ -256,6 +257,7 @@ export const DataStore = {
                 nguoiXl: getVal(['nguoixl', 'ngườixl']),
                 thoiGianXl: getVal(['thoigianxl', 'thờigianxl']),
                 maDd: getVal(['madd', 'mãdd', 'mãđđ']),
+                tenKh: getVal(['tenkh', 'tênkh', 'tênkháchhàng']),
                 cachXl: getVal(['cachxl', 'cáchxl']),
                 ketQua: getVal(['ketqua', 'kếtquả']),
                 ghiChu: getVal(['ghichu', 'ghichú'])

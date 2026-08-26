@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { DataStore } from '../store/DataStore';
 import { Copy, Check, DownloadCloud, AlertTriangle, X } from 'lucide-react';
 
-const SCRIPT_TEMPLATE = `// VERSION: 2026.08.21
+const SCRIPT_TEMPLATE = `// VERSION: 2026.08.23
 // XÓA TẤT CẢ MÃ CŨ (XÓA function myFunction() { ... })
 // CHỈ DÁN ĐOẠN MÃ DƯỚI ĐÂY VÀO:
 var SPREADSHEET_ID = '1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ';
@@ -907,7 +907,7 @@ function doPost(e) {
        var sheet = getSheetFlexibly(ss, ['XuLyDoXa', 'Xu Ly Do Xa', 'Xử lý đo xa']);
        if (!sheet) {
            sheet = ss.insertSheet('XuLyDoXa');
-           sheet.appendRow(['STT', 'Loại XL', 'Người XL', 'Thời gian XL', 'Mã DD', 'Cách XL', 'Kết quả', 'Ghi chú']);
+           sheet.appendRow(['STT', 'Loại XL', 'Người XL', 'Thời gian XL', 'Mã DD', 'Tên KH', 'Cách XL', 'Kết quả', 'Ghi chú']);
        }
        var data = payload.data;
        var lastRow = sheet.getLastRow();
@@ -919,6 +919,7 @@ function doPost(e) {
           data.nguoiXl || '',
           data.thoiGianXl || '',
           data.maDd || '',
+          data.tenKh || '',
           data.cachXl || '',
           data.ketQua || '',
           data.ghiChu || ''
@@ -933,7 +934,7 @@ function doPost(e) {
        var sheet = getSheetFlexibly(ss, ['XuLyDoXa', 'Xu Ly Do Xa', 'Xử lý đo xa']);
        if (!sheet) {
            sheet = ss.insertSheet('XuLyDoXa');
-           sheet.appendRow(['STT', 'Loại XL', 'Người XL', 'Thời gian XL', 'Mã DD', 'Cách XL', 'Kết quả', 'Ghi chú']);
+           sheet.appendRow(['STT', 'Loại XL', 'Người XL', 'Thời gian XL', 'Mã DD', 'Tên KH', 'Cách XL', 'Kết quả', 'Ghi chú']);
        }
        var dataList = payload.data;
        if (!Array.isArray(dataList)) return ContentService.createTextOutput(JSON.stringify({status: 'error'})).setMimeType(ContentService.MimeType.JSON);
@@ -950,6 +951,7 @@ function doPost(e) {
              d.nguoiXl || '',
              d.thoiGianXl || '',
              d.maDd || '',
+             d.tenKh || '',
              d.cachXl || '',
              d.ketQua || '',
              d.ghiChu || ''
@@ -971,7 +973,7 @@ function doPost(e) {
        var data = payload.data;
        var sheetDataDisplay = sheet.getDataRange().getDisplayValues(); // Get as string
        
-       var loaiXlCol = -1, nguoiXlCol = -1, thoiGianXlCol = -1, maDdCol = -1, cachXlCol = -1, ketQuaCol = -1, ghiChuCol = -1;
+       var loaiXlCol = -1, nguoiXlCol = -1, thoiGianXlCol = -1, maDdCol = -1, tenKhCol = -1, cachXlCol = -1, ketQuaCol = -1, ghiChuCol = -1;
        var headerRowIdx = 0;
        
        function normalizeHeader(raw) {
@@ -1006,6 +1008,7 @@ function doPost(e) {
            else if (h === 'nguoixl') nguoiXlCol = c;
            else if (h === 'thoigianxl') thoiGianXlCol = c;
            else if (h === 'madd') maDdCol = c;
+           else if (h === 'tenkh') tenKhCol = c;
            else if (h === 'cachxl') cachXlCol = c;
            else if (h === 'ketqua') ketQuaCol = c;
            else if (h === 'ghichu') ghiChuCol = c;
