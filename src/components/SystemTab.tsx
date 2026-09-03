@@ -29,6 +29,7 @@ export default function SystemTab() {
     const [message, setMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
     const [excludeSat, setExcludeSat] = useState(DataStore.getExcludeSaturday());
     const [excludeSun, setExcludeSun] = useState(DataStore.getExcludeSunday());
+    const [excludeNghi, setExcludeNghi] = useState(DataStore.getExcludeNghi());
 
     const handleToggleTab = (tabId: string, role: AppRole) => {
         const newConfig = { ...config };
@@ -169,6 +170,21 @@ export default function SystemTab() {
                             />
                             <span className="font-medium text-slate-700">Tính năng suất cho ngày Chủ Nhật</span>
                         </label>
+
+                        <label className="flex items-center gap-3 text-sm cursor-pointer hover:bg-slate-100 p-2 rounded-lg transition-colors -ml-2">
+                            <input 
+                                type="checkbox" 
+                                checked={!excludeNghi} 
+                                onChange={(e) => {
+                                    const newVal = !e.target.checked;
+                                    setExcludeNghi(newVal);
+                                    DataStore.setExcludeNghi(newVal);
+                                }} 
+                                className="w-4 h-4 text-slate-800 rounded border-slate-300 focus:ring-slate-800"
+                            />
+                            <span className="font-medium text-slate-700">Tính năng suất cho các ngày nghỉ (Báo cáo nội dung: Nghỉ)</span>
+                        </label>
+
                     </div>
                 </div>
 

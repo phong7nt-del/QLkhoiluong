@@ -11,6 +11,7 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
   const [selectedMonth, setSelectedMonth] = useState<string>(format(new Date(), 'yyyy-MM'));
   const excludeSat = useMemo(() => DataStore.getExcludeSaturday(), [refreshToggle]);
   const excludeSun = useMemo(() => DataStore.getExcludeSunday(), [refreshToggle]);
+  const excludeNghi = useMemo(() => DataStore.getExcludeNghi(), [refreshToggle]);
   
   const rawEntries = useMemo(() => DataStore.getEntries(), [refreshToggle]);
   
@@ -200,9 +201,21 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
                 const parts = date.split('-');
                 const dObj = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
                 const day = dObj.getDay();
+                
+                
+                
                 let shouldCount = true;
                 if (day === 0 && excludeSun) shouldCount = false;
                 if (day === 6 && excludeSat) shouldCount = false;
+                
+                if (excludeNghi && e.content) {
+                    const cleanContent = e.content.toLowerCase().trim();
+                    const isNghi = cleanContent.length < 30 && /(^|\s)(nghỉ|nghi|ốm|phép)($|\s)/i.test(cleanContent);
+                    if (isNghi) shouldCount = false;
+                }
+
+                
+                
                 if (shouldCount) {
                     stats[m].daysWorked.add(date);
                 }
@@ -347,9 +360,19 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
                 const parts = date.split('-');
                 const dObj = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
                 const day = dObj.getDay();
+                
+                
                 let shouldCount = true;
                 if (day === 0 && excludeSun) shouldCount = false;
                 if (day === 6 && excludeSat) shouldCount = false;
+                
+                if (excludeNghi && e.content) {
+                    const cleanContent = e.content.toLowerCase().trim();
+                    const isNghi = cleanContent.length < 30 && /(^|\s)(nghỉ|nghi|ốm|phép)($|\s)/i.test(cleanContent);
+                    if (isNghi) shouldCount = false;
+                }
+
+                
                 if (shouldCount) {
                     teamMemberStats[m].daysWorked.add(date);
                 }

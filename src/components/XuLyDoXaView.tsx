@@ -51,7 +51,7 @@ export default function XuLyDoXaView({ xuLyList, refreshData, setXuLyList }: { x
           const formattedData = data.map((row: any) => ({
               loaiXl: row['Loại xử lý'] || row['Loại XL'] || row['Loai XL'] || 'Trạm',
               nguoiXl: row['Người thực hiện'] || row['Người XL'] || row['Nguoi XL'] || currentUserName,
-              thoiGianXl: row['Thời gian thực hiện'] || row['Thời gian XL'] || row['thời gian thực hiện'] || defaultThoiGian,
+              thoiGianXl: row['Thời gian thực hiện'] || row['Thời gian XL'] || row['thời gian thực hiện'] || '',
               maDd: row['Mã điểm đo'] || row['Mã ĐĐ'] || row['Ma DD'] || row['Mã DD'] || '',
               tenKh: row['Tên khách hàng'] || row['Tên KH'] || row['Ten KH'] || '',
               cachXl: '',

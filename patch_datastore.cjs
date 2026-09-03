@@ -1,40 +1,35 @@
 const fs = require('fs');
-let code = fs.readFileSync('src/store/DataStore.ts', 'utf8');
+let content = fs.readFileSync('src/store/DataStore.ts', 'utf8');
 
-const oldGetDinhMuc = `getDinhMuc: (): { name: string; quota: number; isGroup?: boolean; history?: Record<string, number> }[] => {`;
-const newGetDinhMuc = `getDinhMuc: (): { name: string; quota: number; isGroup?: boolean; history?: Record<string, number>; relation?: string }[] => {`;
-code = code.replace(oldGetDinhMuc, newGetDinhMuc);
+// 1. Add keys to initDB
+content = content.replace(
+    "'sheet_chitietmkn_v1', 'sheet_sangtai_v1', 'sheet_kho_v1', 'sheet_vttb_v1'",
+    "'sheet_chitietmkn_v1', 'sheet_sangtai_v1', 'sheet_kho_v1', 'sheet_vttb_v1', 'config_exclude_saturday', 'config_exclude_sunday', 'config_exclude_nghi'"
+);
 
-const oldKeys = `                         const groupKey = keys.find(k => {
-                             const nk = k.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
-                             return nk.includes('chung nhom');
-                         });`;
-const newKeys = `                         const groupKey = keys.find(k => {
-                             const nk = k.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
-                             return nk.includes('chung nhom');
-                         });
-                         const relationKey = keys.find(k => {
-                             const nk = k.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
-                             return nk.includes('quan he');
-                         });`;
-if(code.includes(oldKeys)) {
-    code = code.replace(oldKeys, newKeys);
-} else {
-    console.log("Could not find oldKeys");
-}
+// 2. Add getExcludeNghi / setExcludeNghi
+const newMethods = `
+  getExcludeSaturday: () => {
+      const val = safeGetItem('config_exclude_saturday');
+      return val === 'true'; // Default is false
+  },
+  setExcludeSaturday: (val: boolean) => safeSetItem('config_exclude_saturday', val ? 'true' : 'false'),
+  getExcludeSunday: () => {
+      const val = safeGetItem('config_exclude_sunday');
+      return val === 'true'; // Default is false
+  },
+  setExcludeSunday: (val: boolean) => safeSetItem('config_exclude_sunday', val ? 'true' : 'false'),
+  getExcludeNghi: () => {
+      const val = safeGetItem('config_exclude_nghi');
+      return val !== 'false'; // Default is true (không tính)
+  },
+  setExcludeNghi: (val: boolean) => safeSetItem('config_exclude_nghi', val ? 'true' : 'false'),
+`;
 
-const oldPush = `                                 if (val1 && val1.toLowerCase() !== 'stt') {
-                                     newDinhMuc.push({ name: val1, quota: val2, isGroup, history });
-                                 }`;
-const newPush = `                                 let relation = relationKey ? String(row[relationKey] || '').trim() : '';
-                                 if (val1 && val1.toLowerCase() !== 'stt') {
-                                     newDinhMuc.push({ name: val1, quota: val2, isGroup, history, relation });
-                                 }`;
-if(code.includes(oldPush)) {
-    code = code.replace(oldPush, newPush);
-} else {
-    console.log("Could not find oldPush");
-}
+content = content.replace(
+    /getExcludeSaturday: \(\) => \{[\s\S]*?setExcludeSunday: \(val: boolean\) => safeSetItem\('config_exclude_sunday', val \? 'true' : 'false'\),/,
+    newMethods.trim()
+);
 
-fs.writeFileSync('src/store/DataStore.ts', code, 'utf8');
+fs.writeFileSync('src/store/DataStore.ts', content, 'utf8');
 console.log("Patched DataStore.ts");

@@ -99,7 +99,7 @@ export const initDB = async () => {
       STORAGE_KEY, SCRIPT_URL_KEY, TEAMS_KEY, MEMBERS_KEY, STATIONS_KEY,
       DINHMUC_KEY, PROGRESS_KEY, LOCAL_PROGRESS_UPDATES_KEY, TUTI_KEY,
       LOCAL_TUTI_UPDATES_KEY, 'sheet_khuvuc_v1', 'sheet_matketnoi_v1',
-      'sheet_chitietmkn_v1', 'sheet_sangtai_v1', 'sheet_kho_v1', 'sheet_vttb_v1'
+      'sheet_chitietmkn_v1', 'sheet_sangtai_v1', 'sheet_kho_v1', 'sheet_vttb_v1', 'config_exclude_saturday', 'config_exclude_sunday', 'config_exclude_nghi'
     ];
     for (const key of keys) {
       let val = await get(key);
@@ -147,6 +147,11 @@ export const DataStore = {
       return val === 'true'; // Default is false
   },
   setExcludeSunday: (val: boolean) => safeSetItem('config_exclude_sunday', val ? 'true' : 'false'),
+  getExcludeNghi: () => {
+      const val = safeGetItem('config_exclude_nghi');
+      return val !== 'false'; // Default is true (không tính)
+  },
+  setExcludeNghi: (val: boolean) => safeSetItem('config_exclude_nghi', val ? 'true' : 'false'),
 
   getEntries: (): WorkloadEntry[] => {
     try {
