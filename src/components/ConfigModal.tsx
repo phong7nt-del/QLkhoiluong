@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { DataStore } from '../store/DataStore';
 import { Copy, Check, DownloadCloud, AlertTriangle, X } from 'lucide-react';
 
-const SCRIPT_TEMPLATE = `// VERSION: 2026.08.23
+const SCRIPT_TEMPLATE = `// VERSION: 2026.08.24
 // XÓA TẤT CẢ MÃ CŨ (XÓA function myFunction() { ... })
 // CHỈ DÁN ĐOẠN MÃ DƯỚI ĐÂY VÀO:
 var SPREADSHEET_ID = '1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ';
@@ -959,7 +959,7 @@ function doPost(e) {
        }
        
        if (rows.length > 0) {
-          sheet.getRange(lastRow + 1, 1, rows.length, 8).setValues(rows);
+          sheet.getRange(lastRow + 1, 1, rows.length, rows[0].length).setValues(rows);
        }
        
        return ContentService.createTextOutput(JSON.stringify({ status: 'success' })).setMimeType(ContentService.MimeType.JSON);
