@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { DataStore } from '../store/DataStore';
 import { Copy, Check, DownloadCloud, AlertTriangle, X } from 'lucide-react';
 
-const SCRIPT_TEMPLATE = `// VERSION: 2026.09.03
+const SCRIPT_TEMPLATE = `// VERSION: 2026.09.04
 // XÓA TẤT CẢ MÃ CŨ (XÓA function myFunction() { ... })
 // CHỈ DÁN ĐOẠN MÃ DƯỚI ĐÂY VÀO:
 var SPREADSHEET_ID = '1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ';

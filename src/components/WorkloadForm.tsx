@@ -135,7 +135,7 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
     // Initialize task selection state
     const tTasks: Record<string, {selected: boolean, quantity: number | string}> = {};
     dm.forEach(item => {
-        tTasks[item.name] = { selected: false, quantity: item.quota || 1 };
+        tTasks[item.name] = { selected: false, quantity: '' };
     });
     setSelectedTasks(tTasks);
   }, [refreshToggle]);
@@ -329,10 +329,18 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
   };
 
   const toggleTask = (name: string) => {
-     setSelectedTasks(prev => ({
-        ...prev,
-        [name]: { ...prev[name], selected: !prev[name].selected }
-     }));
+     setSelectedTasks(prev => {
+        const isCurrentlySelected = prev[name]?.selected;
+        if (!isCurrentlySelected) {
+           setTimeout(() => {
+               document.getElementById(`task-qty-${name}`)?.focus();
+           }, 50);
+        }
+        return {
+          ...prev,
+          [name]: { ...prev[name], selected: !isCurrentlySelected }
+        };
+     });
   };
 
   const updateQuantity = (name: string, val: number | string) => {
@@ -769,7 +777,7 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
              {dinhMucList.length > 0 ? (
                dinhMucList.filter(dm => dm.name.toLowerCase().includes(taskSearch.toLowerCase())).map(dm => {
                  const isChecked = selectedTasks[dm.name]?.selected || false;
-                 const qty = selectedTasks[dm.name]?.quantity || 1;
+                 const qty = selectedTasks[dm.name]?.quantity ?? '';
                  
                  return (
                    <div key={dm.name} className={`flex items-center justify-between py-1.5 px-3 border ${isChecked ? 'bg-white border-[#141414] shadow-[2px_2px_0_#141414]' : 'bg-transparent border-[#141414]/20 hover:border-[#141414]/50 hover:bg-[#E4E3E0]/30'} transition-all`}>
@@ -792,6 +800,7 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
                       <div className="w-20">
                          {isChecked && (
                             <input 
+                              id={`task-qty-${dm.name}`}
                               type="number"
                               min="0" step="any"
                               value={qty}
