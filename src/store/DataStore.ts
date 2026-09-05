@@ -266,14 +266,15 @@ export const DataStore = {
              };
              
              return {
-                 stt: findKey(['STT']),
+                 stt: findKey(['STT', 'TT', 'Số TT', 'SOTT']),
                  id: findKey(['ID']),
                  ten: findKey(['Tên', 'Ten', 'Tên DCU']),
                  diaChi: findKey(['Địa chỉ', 'Dia chi', 'Địa Chỉ']),
                  toadoX: findKey(['Tọa độ X', 'toadoX', 'Vĩ độ']),
                  toadoY: findKey(['Tọa độ Y', 'toadoY', 'Kinh độ']),
                  hinhAnh: findKey(['Hình ảnh', 'hinhAnh', 'Ảnh']),
-                 ghiChu: findKey(['Ghi chú', 'ghiChu'])
+                 ghiChu: findKey(['Ghi chú', 'ghiChu']),
+                 user: findKey(['User', 'Người cập nhật', 'user', 'Người thực hiện', 'Nhân viên', 'Người được giao'])
              };
          });
      } catch (e) {
@@ -282,6 +283,50 @@ export const DataStore = {
      }
   },
   
+  
+  importDcu: async (dataList: any[]) => {
+      try {
+          const url = DataStore.getAppScriptUrl();
+          if (!url) return false;
+          const res = await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify({
+                  action: 'import_dcu',
+                  data: dataList
+              })
+          });
+          const json = await res.json();
+          return json.status === 'success';
+      } catch(e) {
+          console.error(e);
+          return false;
+      }
+  },
+  
+  updateDcu: async (data: any) => {
+      try {
+          const url = DataStore.getAppScriptUrl();
+          if (!url) return false;
+          const userObj = JSON.parse(localStorage.getItem('sessionUser') || '{}');
+          const finalData = { ...data, user: userObj.name || userObj.email || '' };
+          
+          const res = await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify({
+                  action: 'update_dcu',
+                  data: finalData
+              })
+          });
+          const json = await res.json();
+          return json.status === 'success';
+      } catch(e) {
+          console.error(e);
+          return false;
+      }
+  },
+
   addDcu: async (data: any) => {
      try {
          const url = DataStore.getAppScriptUrl();

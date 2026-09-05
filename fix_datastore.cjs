@@ -1,5 +1,9 @@
 const fs = require('fs');
+
 let content = fs.readFileSync('src/store/DataStore.ts', 'utf8');
-content = content.replace(/require\('papaparse'\)/g, 'Papa');
+content = content.replace(
+    /stt: findKey\(\['STT'\]\),/,
+    "stt: findKey(['STT', 'TT', 'Số TT', 'SOTT']),"
+);
 fs.writeFileSync('src/store/DataStore.ts', content, 'utf8');
-console.log("Fixed Papa in DataStore.ts");
+console.log('Fixed DataStore.ts');

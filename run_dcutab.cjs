@@ -103,7 +103,6 @@ content = content.replace(
           setMessage({ type: 'success', text: isUpdateMode ? 'Đã cập nhật DCU thành công!' : 'Đã lưu thông tin DCU thành công!' });
           
           if (isUpdateMode) {
-             // Auto-load next unassigned item
              const currentIndex = filteredData.findIndex(d => d.id === id);
              if (currentIndex >= 0 && currentIndex < filteredData.length - 1) {
                  const nextItem = filteredData[currentIndex + 1];
@@ -158,19 +157,18 @@ const tabsHtml = `
         </div>
 `;
 
-// Inject before "2. Danh sách DCU"
 content = content.replace(
     /<div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">(\s*)<div className="bg-slate-50 border-b border-slate-200 px-4 py-3 flex flex-col md:flex-row md:items-center justify-between gap-3">(\s*)<h3 className="text-sm font-bold text-slate-800 uppercase flex items-center gap-2">(\s*)2\. Danh sách DCU/,
     tabsHtml + '\n<div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">\n<div className="bg-slate-50 border-b border-slate-200 px-4 py-3 flex flex-col md:flex-row md:items-center justify-between gap-3">\n<h3 className="text-sm font-bold text-slate-800 uppercase flex items-center gap-2">\n2. Danh sách DCU'
 );
 
-// Add Import button near search bar
 content = content.replace(
     /<div className="relative">\s*<Search className="w-4 h-4 text-slate-400 absolute left-3 top-1\/2 -translate-y-1\/2" \/>/,
     `<div className="flex items-center gap-2">
-      <label className="cursor-pointer bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-1 transition-colors">
+      <label className="cursor-pointer bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-1 transition-colors whitespace-nowrap">
           <Upload className="w-4 h-4" />
-          Import
+          Import 
+          {isImporting && <span className="ml-1 animate-pulse">...</span>}
           <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={handleImport} disabled={isImporting} />
       </label>
       <div className="relative">
@@ -181,17 +179,11 @@ content = content.replace(
     `focus:border-slate-800" /></div></div></div>`
 );
 
-// Update Form title and submit button text
 content = content.replace(
     /<h3 className="text-sm font-bold text-slate-800 uppercase">1\. Nhập thông tin DCU<\/h3>/,
-    `<h3 className="text-sm font-bold text-slate-800 uppercase flex items-center gap-2">{isUpdateMode ? <><Edit className="w-4 h-4 text-blue-600" /> Cập nhật DCU (Chưa phân công)</> : '1. Nhập thông tin DCU'}</h3>
-     {isUpdateMode && <button type="button" onClick={() => { setIsUpdateMode(false); setId(''); setTen(''); setDiaChi(''); setToadoX(''); setToadoY(''); setGhiChu(''); setImagePreview(null); setImageFile(null); }} className="text-xs text-blue-600 hover:underline">Hủy cập nhật / Thêm mới</button>}`
+    `<div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 w-full"><h3 className="text-sm font-bold text-slate-800 uppercase flex items-center gap-2">{isUpdateMode ? <><Edit className="w-4 h-4 text-blue-600" /> Cập nhật DCU (Chưa phân công)</> : '1. Nhập thông tin DCU'}</h3>
+     {isUpdateMode && <button type="button" onClick={() => { setIsUpdateMode(false); setId(''); setTen(''); setDiaChi(''); setToadoX(''); setToadoY(''); setGhiChu(''); setImagePreview(null); setImageFile(null); }} className="text-xs text-blue-600 hover:underline">Hủy cập nhật / Thêm mới</button>}</div>`
 );
-content = content.replace(
-    /<h3 className="text-sm font-bold text-slate-800 uppercase flex items-center gap-2">\{isUpdateMode \? <><Edit className="w-4 h-4 text-blue-600" \/> Cập nhật DCU \(Chưa phân công\)<\/> : '1. Nhập thông tin DCU'\}<\/h3>(\s*)\{isUpdateMode && <button type="button" onClick=\{\(\) => \{ setIsUpdateMode\(false\); setId\(''\); setTen\(''\); setDiaChi\(''\); setToadoX\(''\); setToadoY\(''\); setGhiChu\(''\); setImagePreview\(null\); setImageFile\(null\); \}\} className="text-xs text-blue-600 hover:underline">Hủy cập nhật \/ Thêm mới<\/button>\}/,
-    `<div className="flex items-center justify-between"><h3 className="text-sm font-bold text-slate-800 uppercase flex items-center gap-2">{isUpdateMode ? <><Edit className="w-4 h-4 text-blue-600" /> Cập nhật DCU (Chưa phân công)</> : '1. Nhập thông tin DCU'}</h3>{isUpdateMode && <button type="button" onClick={() => { setIsUpdateMode(false); setId(''); setTen(''); setDiaChi(''); setToadoX(''); setToadoY(''); setGhiChu(''); setImagePreview(null); setImageFile(null); }} className="text-xs text-blue-600 hover:underline">Hủy cập nhật / Thêm mới</button>}</div>`
-);
-
 
 content = content.replace(
     /<Save className="w-4 h-4" \/>\s*Lưu dữ liệu/,
@@ -199,7 +191,6 @@ content = content.replace(
      {isUpdateMode ? 'Lưu cập nhật' : 'Lưu dữ liệu'}`
 );
 
-// Click row logic
 content = content.replace(
     /setId\(row\.id \|\| ''\);/,
     `setId(row.id || '');
@@ -207,20 +198,14 @@ content = content.replace(
      else setIsUpdateMode(false);`
 );
 
-// Disable updating for "Đã phân công" - just viewing
-content = content.replace(
-    /className={`hover:bg-blue-50 cursor-pointer transition-colors \$\{idx % 2 === 0 \? 'bg-white' : 'bg-slate-50\/30'\}`}
-                                title="Bấm để xem chi tiết trên form"/g,
-    `className={\`hover:bg-blue-50 cursor-pointer transition-colors \${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}\`}
-                                title={listType === 'chua_phan_cong' ? "Bấm để cập nhật" : "Bấm để xem chi tiết"}`
-);
+const targetHover = "className={`hover:bg-blue-50 cursor-pointer transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}`}\n                                title=\"Bấm để xem chi tiết trên form\"";
+const replaceHover = "className={`hover:bg-blue-50 cursor-pointer transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}`}\n                                title={listType === 'chua_phan_cong' ? \"Bấm để cập nhật\" : \"Bấm để xem chi tiết\"}";
+content = content.replace(targetHover, replaceHover);
 
-
-// ID field read-only in update mode
 content = content.replace(
     /<input type="text" value=\{id\} onChange=\{e => setId\(e\.target\.value\)\} required className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-slate-800" \/>/,
     `<input type="text" value={id} onChange={e => setId(e.target.value)} required disabled={isUpdateMode} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-slate-800 disabled:opacity-60" />`
 );
 
 fs.writeFileSync('src/components/DcuTab.tsx', content, 'utf8');
-console.log('Fixed DcuTab.tsx');
+console.log('Fixed DcuTab.tsx completely');
