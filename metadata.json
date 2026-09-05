@@ -1,6 +1,12 @@
 {
   "name": "Workload Tracker (Quản lý Khối lượng)",
   "description": "Ứng dụng cập nhật và quản lý khối lượng công tác hàng ngày cho các tổ, kèm theo báo cáo thống kê.",
-  "requestFramePermissions": ["microphone"],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "requestFramePermissions": [
+    "microphone",
+    "geolocation",
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

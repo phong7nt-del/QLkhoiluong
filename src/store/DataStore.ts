@@ -242,6 +242,92 @@ export const DataStore = {
     return newEntry;
   },
 
+  
+  getDcu: async () => {
+     try {
+         const sheetId = localStorage.getItem('SPREADSHEET_ID') || "1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ";
+         const res = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("DCU")}&_=${Date.now()}`);
+         if (!res.ok) return [];
+         const text = await res.text();
+         if (text.includes('<html')) return [];
+         
+         const { data } = Papa.parse(text, { header: true, skipEmptyLines: true });
+         return data.map((r: any) => {
+             // Hàm hỗ trợ tìm key linh hoạt (bỏ qua hoa thường, khoảng trắng)
+             const findKey = (possibleNames: string[]) => {
+                 const keys = Object.keys(r);
+                 for (let k of keys) {
+                     const lowerK = k.toLowerCase().trim();
+                     if (possibleNames.some(p => lowerK === p.toLowerCase().trim())) {
+                         return r[k];
+                     }
+                 }
+                 return '';
+             };
+             
+             return {
+                 stt: findKey(['STT']),
+                 id: findKey(['ID']),
+                 ten: findKey(['Tên', 'Ten', 'Tên DCU']),
+                 diaChi: findKey(['Địa chỉ', 'Dia chi', 'Địa Chỉ']),
+                 toadoX: findKey(['Tọa độ X', 'toadoX', 'Vĩ độ']),
+                 toadoY: findKey(['Tọa độ Y', 'toadoY', 'Kinh độ']),
+                 hinhAnh: findKey(['Hình ảnh', 'hinhAnh', 'Ảnh']),
+                 ghiChu: findKey(['Ghi chú', 'ghiChu'])
+             };
+         });
+     } catch (e) {
+         console.error('Lỗi khi tải DCU:', e);
+         return [];
+     }
+  },
+  
+  addDcu: async (data: any) => {
+     try {
+         const url = DataStore.getAppScriptUrl();
+         const res = await fetch(url, {
+             method: 'POST',
+             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+             body: JSON.stringify({
+                 action: 'add_dcu', data: data
+             })
+         });
+         const json = await res.json();
+         if (json.status !== 'success') {
+             throw new Error(json.message || 'Lưu thất bại');
+         }
+         return true;
+     } catch(e) {
+         console.error('Lỗi lưu DCU:', e);
+         return false;
+     }
+  },
+  
+  uploadImageToDrive: async (base64: string, fileName: string, mimeType: string) => {
+     try {
+         const url = DataStore.getAppScriptUrl();
+         // we need to use cors to get the response JSON, but Apps Script might not return CORS properly if not deployed as Web App with 'Anyone' access.
+         // Usually Apps script web apps deployed as "Execute as: me", "Who has access: anyone" do return CORS if configured, but fetch handles follow-redirects.
+         // wait, previously we used 'no-cors' for POSTs to Apps Script because of CORS issues.
+         // If we use no-cors, we can't read the response to get the URL!
+         // Let's try 'cors' first. 
+         const res = await fetch(url, {
+             method: 'POST',
+             // mode: 'cors', // Let's omit mode, let fetch default or use cors
+             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+             body: JSON.stringify({
+                 action: 'upload_image', base64, fileName, mimeType
+             })
+         });
+         const json = await res.json();
+         if (json.status === 'success') return json.url;
+         throw new Error(json.message || 'Upload failed');
+     } catch(e) {
+         console.error('Lỗi upload ảnh:', e);
+         throw e;
+     }
+  },
+
   getXuLyDoXa: async () => {
      try {
          const sheetId = localStorage.getItem('SPREADSHEET_ID') || "1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ";

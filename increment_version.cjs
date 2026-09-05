@@ -5,6 +5,6 @@ function replaceInFile(file, regex, replacement) {
     fs.writeFileSync(file, content, 'utf8');
     console.log(`Updated ${file}`);
 }
-replaceInFile('src/components/Login.tsx', /2026\.09\.03/g, '2026.09.04');
-replaceInFile('src/App.tsx', /2026\.09\.03/g, '2026.09.04');
-replaceInFile('src/components/ConfigModal.tsx', /2026\.09\.03/g, '2026.09.04');
+replaceInFile('src/components/Login.tsx', /2026\.09\.13/g, '2026.09.14');
+replaceInFile('src/App.tsx', /2026\.09\.13/g, '2026.09.14');
+replaceInFile('src/components/ConfigModal.tsx', /2026\.09\.13/g, '2026.09.14');

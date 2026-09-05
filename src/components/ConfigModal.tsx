@@ -2,10 +2,18 @@ import React, { useState } from 'react';
 import { DataStore } from '../store/DataStore';
 import { Copy, Check, DownloadCloud, AlertTriangle, X } from 'lucide-react';
 
-const SCRIPT_TEMPLATE = `// VERSION: 2026.09.04
+const SCRIPT_TEMPLATE = `// VERSION: 2026.09.19
 // XÓA TẤT CẢ MÃ CŨ (XÓA function myFunction() { ... })
 // CHỈ DÁN ĐOẠN MÃ DƯỚI ĐÂY VÀO:
 var SPREADSHEET_ID = '1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ';
+
+
+function capQuyen() {
+  // Chạy hàm này một lần duy nhất trong trình chỉnh sửa Apps Script
+  // để cấp quyền truy cập Google Drive cho script.
+  var folder = DriveApp.getRootFolder();
+  Logger.log("Đã cấp quyền thành công!");
+}
 
 function getSheetFlexibly(ss, possibleNames) {
   if (!ss || !possibleNames || !possibleNames.length) return null;
@@ -27,7 +35,7 @@ function getSheetFlexibly(ss, possibleNames) {
 function doGet(e) {
   try {
     if (e.parameter.action === 'getData') {
-      var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+      var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
       var sheet = getSheetFlexibly(ss, ['CongTac', 'Cong Tac', 'Công tác', 'Công Tác', 'Con Tác']);
       if (!sheet) return ContentService.createTextOutput(JSON.stringify({ spreadsheetId: SPREADSHEET_ID, error: "Not found sheet CongTac"})).setMimeType(ContentService.MimeType.JSON);
       var data = sheet.getDataRange().getValues();
@@ -326,6 +334,15 @@ function doGet(e) {
   return ContentService.createTextOutput("Valid Endpoint");
 }
 
+// --- BƯỚC QUAN TRỌNG ĐỂ LƯU ẢNH: CẤP QUYỀN TRUY CẬP (CHẠY 1 LẦN DUY NHẤT) ---
+// 1. Trên thanh công cụ, chọn hàm "setup" (thay vì doPost).
+// 2. Bấm "Chạy" (Run). Trình duyệt sẽ hiển thị thông báo "Yêu cầu cấp quyền".
+// 3. Chọn "Xem lại quyền" -> Chọn Tài khoản Google của bạn -> Bấm "Nâng cao" (Advanced) -> Chọn "Đi tới dự án (Không an toàn)" -> Bấm "Cho phép" (Allow).
+function setup() {
+  DriveApp.createFolder("App_Images_Test_Permission").setTrashed(true);
+  SpreadsheetApp.getActive();
+}
+
 function doPost(e) {
   try {
     var payload;
@@ -337,7 +354,7 @@ function doPost(e) {
 
     var action = payload.action;
     if (action === 'savePlan') {
-       var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+       var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
        var sheet = getSheetFlexibly(ss, ['Nhật ký/CongTac', 'Nhat ky/CongTac', 'CongTac', 'Cong Tac', 'Công tác']);
        if (!sheet) return ContentService.createTextOutput(JSON.stringify({status: 'error', message: 'Not found'})).setMimeType(ContentService.MimeType.JSON);
        
@@ -528,7 +545,7 @@ function doPost(e) {
     if (action === "change_password") {
        var possibleNames = ["CongTac", "Cong Tac", "Công tác", "Công Tác", "Con Tác"];
        var sheetName = payload.sheetName;
-       var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+       var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
        var sheet = null;
        if (sheetName) {
           sheet = ss.getSheetByName(sheetName);
@@ -582,7 +599,7 @@ function doPost(e) {
     }
 
     if (action === 'add_workload') {
-      var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+      var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
       var sheet = getSheetFlexibly(ss, ['CongTac', 'Cong Tac', 'Công tác', 'Công Tác', 'Con Tác']);
       if (!sheet) return ContentService.createTextOutput(JSON.stringify({status: 'error'})).setMimeType(ContentService.MimeType.JSON);
       var data = payload.data;
@@ -654,7 +671,7 @@ function doPost(e) {
     }
 
         if (action === 'delete_workload_group') {
-      var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+      var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
       var sheet = getSheetFlexibly(ss, ['CongTac', 'Cong Tac', 'Công tác', 'Công Tác']);
       if (!sheet) return ContentService.createTextOutput(JSON.stringify({status: 'error'})).setMimeType(ContentService.MimeType.JSON);
       
@@ -721,7 +738,7 @@ function doPost(e) {
     }
 
     if (action === 'update_progress') {
-       var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+       var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
        var sheet = getSheetFlexibly(ss, ['Tiến độ', 'Tien do', 'Tien độ', 'Tiến do']);
        if (!sheet) return ContentService.createTextOutput(JSON.stringify({status: 'error'})).setMimeType(ContentService.MimeType.JSON);
        
@@ -788,7 +805,7 @@ function doPost(e) {
     }
     
     if (action === 'add_tuti' || action === 'update_tuti') {
-       var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+       var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
        var sheet = getSheetFlexibly(ss, ['TUTI', 'Tuti', 'TuTi', 'tu ti']);
        if (!sheet) return ContentService.createTextOutput(JSON.stringify({status: 'error'})).setMimeType(ContentService.MimeType.JSON);
        
@@ -869,7 +886,7 @@ function doPost(e) {
     }
 
     if (action === 'update_sangtai') {
-       var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+       var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
        var sheet = getSheetFlexibly(ss, ['SangTai', 'Sang Tai', 'Sang Tải', 'sang tải']);
        if (!sheet) return ContentService.createTextOutput(JSON.stringify({status: 'error'})).setMimeType(ContentService.MimeType.JSON);
        
@@ -902,8 +919,71 @@ function doPost(e) {
        return ContentService.createTextOutput(JSON.stringify({ status: 'error' })).setMimeType(ContentService.MimeType.JSON);
     }
 
+    
+    if (action === 'upload_image') {
+       try {
+           // Tìm hoặc tạo thư mục "App_Images" ở thư mục gốc của Drive
+           var folder = DriveApp.getFolderById("1eze4kVWtdUr0gjKSEAB_BKSfm5CNg3fv");
+           var b64 = payload.base64.split(',')[1] || payload.base64;
+           var bytes = Utilities.base64Decode(b64);
+           var mime = payload.mimeType || 'image/jpeg';
+           var fName = payload.fileName || ('IMG_' + new Date().getTime() + '.jpg');
+           var blob = Utilities.newBlob(bytes, mime, fName);
+           var file = folder.createFile(blob);
+           try {
+               file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+           } catch(shareErr) {
+               console.warn("Could not set public sharing (might be blocked by domain): ", shareErr);
+           }
+           return ContentService.createTextOutput(JSON.stringify({ 
+               status: 'success', 
+               url: "https://drive.google.com/thumbnail?id=" + file.getId() + "&sz=w1200" 
+           })).setMimeType(ContentService.MimeType.JSON);
+       } catch(e) {
+           return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: e.toString() })).setMimeType(ContentService.MimeType.JSON);
+       }
+    }
+
+    if (action === 'add_dcu') {
+       var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
+       var sheet = getSheetFlexibly(ss, ['DCU', 'dcu']);
+       if (!sheet) {
+           sheet = ss.insertSheet('DCU');
+           sheet.appendRow(['STT', 'ID', 'Tên', 'Địa chỉ', 'Tọa độ X', 'Tọa độ Y', 'Hình ảnh', 'Ghi chú']);
+       }
+       var data = payload.data;
+       var lastRow = sheet.getLastRow();
+       var headers = [];
+       if (lastRow > 0) {
+           headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(function(h) { return String(h).toLowerCase().trim(); });
+       }
+       
+       if (headers.length === 0) {
+           headers = ['stt', 'id', 'tên', 'địa chỉ', 'tọa độ x', 'tọa độ y', 'hình ảnh', 'ghi chú'];
+           sheet.appendRow(['STT', 'ID', 'Tên', 'Địa chỉ', 'Tọa độ X', 'Tọa độ Y', 'Hình ảnh', 'Ghi chú']);
+       }
+
+       var nextStt = lastRow > 0 ? lastRow : 1;
+       var newRow = new Array(headers.length).fill('');
+       
+       for (var i = 0; i < headers.length; i++) {
+           var h = headers[i];
+           if (h === 'stt' || h === 'số tt' || h === 'sott' || h === 'so tt') newRow[i] = nextStt;
+           else if (h === 'id') newRow[i] = data.id || '';
+           else if (h === 'tên' || h === 'ten' || h === 'tên dcu') newRow[i] = data.ten || '';
+           else if (h === 'địa chỉ' || h === 'dia chi') newRow[i] = data.diaChi || '';
+           else if (h === 'tọa độ x' || h === 'toạ độ x' || h === 'vĩ độ') newRow[i] = data.toadoX || '';
+           else if (h === 'tọa độ y' || h === 'toạ độ y' || h === 'kinh độ') newRow[i] = data.toadoY || '';
+           else if (h === 'hình ảnh' || h === 'hinh anh' || h === 'ảnh') newRow[i] = data.hinhAnh || '';
+           else if (h === 'ghi chú' || h === 'ghi chu') newRow[i] = data.ghiChu || '';
+       }
+       
+       sheet.appendRow(newRow);
+       return ContentService.createTextOutput(JSON.stringify({ status: 'success' })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     if (action === 'add_xulydoxa') {
-       var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+       var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
        var sheet = getSheetFlexibly(ss, ['XuLyDoXa', 'Xu Ly Do Xa', 'Xử lý đo xa']);
        if (!sheet) {
            sheet = ss.insertSheet('XuLyDoXa');
@@ -930,7 +1010,7 @@ function doPost(e) {
 
 
     if (action === 'add_xulydoxa_bulk') {
-       var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+       var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
        var sheet = getSheetFlexibly(ss, ['XuLyDoXa', 'Xu Ly Do Xa', 'Xử lý đo xa']);
        if (!sheet) {
            sheet = ss.insertSheet('XuLyDoXa');
@@ -966,7 +1046,7 @@ function doPost(e) {
     }
 
     if (action === 'update_xulydoxa') {
-       var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+       var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
        var sheet = getSheetFlexibly(ss, ['XuLyDoXa', 'Xu Ly Do Xa', 'Xử lý đo xa']);
        if (!sheet) return ContentService.createTextOutput(JSON.stringify({status: 'error', message: 'Sheet not found'})).setMimeType(ContentService.MimeType.JSON);
        
@@ -1067,7 +1147,7 @@ function doPost(e) {
 
     if (action === 'update_sangtai_bulk') {
 
-       var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+       var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
        var sheet = getSheetFlexibly(ss, ['SangTai', 'Sang Tai', 'Sang Tải', 'sang tải']);
        if (!sheet) return ContentService.createTextOutput(JSON.stringify({status: 'error'})).setMimeType(ContentService.MimeType.JSON);
        
@@ -1164,11 +1244,10 @@ export default function ConfigModal({ onClose }: { onClose: () => void }) {
                   <p className="font-bold mb-1 text-base uppercase text-red-600">BẮT BUỘC: Cập nhật lại mã nguồn App Script</p>
                   <p className="mb-2">Mã mới đã bổ sung nhận diện <strong>Bảng Định Mức công việc</strong> và <strong>Nhật ký công việc</strong> từ Google Sheet.</p>
                   <ul className="list-decimal pl-5 space-y-1 mb-2">
-                     <li>Đảm bảo bạn đã có Sheet <strong>DinhMuc</strong> (Cột A: Tên định mức/nội dung).</li>
                      <li>Copy toàn bộ mã trong ô màu đen bên dưới.</li>
-                     <li>Dán đè vào <a href="https://script.google.com" target="_blank" rel="noreferrer" className="underline font-bold text-blue-700">Google Apps Script</a> của bạn.</li>
-                     <li>Bấm <strong>Deploy {'->'} New deployment</strong>. (Không được chọn Manage Deployments bản cũ)</li>
-                     <li>Sao chép Web App URL <strong>MỚI NHẤT</strong> và dán vào ô bên dưới rồi TẢI LẠI DỮ LIỆU.</li>
+                     <li>Dán đè vào <a href="https://script.google.com" target="_blank" rel="noreferrer" className="underline font-bold text-blue-700">Google Apps Script</a> của bạn. Bấm nút Lưu (💾).</li>
+                     <li><strong>CẤP QUYỀN LƯU ẢNH:</strong> Trên thanh công cụ, chọn hàm <strong>setup</strong> thay vì doPost. Bấm nút <strong>Run (Chạy)</strong>. Cửa sổ yêu cầu quyền hiện ra: Chọn <strong>Review permissions</strong> {'->'} <strong>Advanced</strong> {'->'} <strong>Go to Project (unsafe)</strong> {'->'} <strong>Allow</strong>.</li>
+                     <li>Bấm <strong>Deploy {'->'} Manage deployments</strong>. Bấm nút chỉnh sửa (Cây bút), chọn <strong>New version</strong> và bấm Deploy.</li>
                   </ul>
                </div>
             </div>

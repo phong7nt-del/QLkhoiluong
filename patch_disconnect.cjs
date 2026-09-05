@@ -1,63 +1,48 @@
 const fs = require('fs');
-let code = fs.readFileSync('src/components/DisconnectRateTab.tsx', 'utf8');
+let content = fs.readFileSync('src/components/DisconnectRateTab.tsx', 'utf8');
 
-const newFetchLogics = `
-  const fetchXuLyData = async () => {
-      try {
-          const data = await DataStore.getXuLyDoXa();
-          setXuLyList(data);
-      } catch (e) {
-          console.error(e);
-      }
-  };
+// 1. Import DcuTab
+content = content.replace(
+    "import XuLyDoXaView from './XuLyDoXaView';",
+    "import XuLyDoXaView from './XuLyDoXaView';\nimport DcuTab from './DcuTab';"
+);
 
-  const fetchData = async () => {
-    setLoading(true);
-    setError('');
-    
-    try {
-      await DataStore.syncMasterData(); 
-      const khuVucList = DataStore.getKhuVuc();
-      const mknData = DataStore.getMatKetNoi();
-      const chiTietData = DataStore.getChiTietMKN();
-      const stations = DataStore.getStations();
-      
-      // Wait, let's keep fetchXuLyData separate and call it in useEffect.
+// 2. Change subTab type
+content = content.replace(
+    "const [subTab, setSubTab] = useState<'xuly' | 'overview' | 'details' | 'statistics'>('xuly');",
+    "const [subTab, setSubTab] = useState<'xuly' | 'overview' | 'details' | 'statistics' | 'dcu'>('xuly');"
+);
+
+// 3. Add button in navigation
+const btnStr = `
+         <button 
+            onClick={() => setSubTab('dcu')}
+            className={\`px-6 py-3.5 font-extrabold uppercase tracking-widest text-sm transition-all whitespace-nowrap \${
+                subTab === 'dcu' 
+                ? 'bg-[#141414] text-white' 
+                : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+            }\`}
+         >
+            Thông tin DCU
+         </button>
 `;
 
-code = code.replace(
-  "const fetchData = async () => {\n    setLoading(true);\n    setError('');\n    \n    try {\n      await DataStore.syncMasterData(); \n      const khuVucList = DataStore.getKhuVuc();\n      const mknData = DataStore.getMatKetNoi();\n      const chiTietData = DataStore.getChiTietMKN();\n      const stations = DataStore.getStations();\n      const xuLyData = await DataStore.getXuLyDoXa();\n      setXuLyList(xuLyData);",
-  `
-  const fetchXuLyData = async () => {
-      try {
-          const data = await DataStore.getXuLyDoXa();
-          setXuLyList(data);
-      } catch (e) {
-          console.error(e);
-      }
-  };
-
-  const fetchData = async (force = false) => {
-    if (overviewStats && !force) return;
-    setLoading(true);
-    setError('');
-    
-    try {
-      await DataStore.syncMasterData(); 
-      const khuVucList = DataStore.getKhuVuc();
-      const mknData = DataStore.getMatKetNoi();
-      const chiTietData = DataStore.getChiTietMKN();
-      const stations = DataStore.getStations();
-  `
+content = content.replace(
+    /(<button\s+onClick=\{\(\) => setSubTab\('statistics'\)\}[\s\S]*?<\/button>)/,
+    `$1\n${btnStr}`
 );
 
-code = code.replace(
-  "  useEffect(() => {\n    fetchData();\n  }, [refreshToggle]);",
-  "  useEffect(() => {\n    if (subTab === 'xuly') {\n        fetchXuLyData();\n    } else {\n        fetchData();\n    }\n  }, [refreshToggle]);\n\n  useEffect(() => {\n      if (subTab !== 'xuly') {\n          fetchData();\n      }\n  }, [subTab]);"
+// 4. Add rendering condition for DcuTab
+const dcuRender = `
+         {!loading && !error && subTab === 'dcu' && (
+            <DcuTab />
+         )}
+`;
+
+content = content.replace(
+    /(\{\!loading && \!error && subTab === 'xuly' && \([\s\S]*?<\/XuLyDoXaView>\s*\)\})/,
+    `$1\n${dcuRender}`
 );
 
-// We need to also check if we missed `const fetchData = async () => {` without force
-// wait, we also have buttons calling `fetchData`. `onClick={fetchData}` needs to be changed to `onClick={() => fetchData(true)}` if they want to force. 
-// Or since they don't have arguments, `onClick={() => { if (subTab==='xuly') fetchXuLyData(); else fetchData(true); }}` is better.
-
-fs.writeFileSync('src/components/DisconnectRateTab.tsx', code, 'utf8');
+fs.writeFileSync('src/components/DisconnectRateTab.tsx', content, 'utf8');
+console.log("Patched DisconnectRateTab.tsx");
