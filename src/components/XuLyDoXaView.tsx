@@ -10,10 +10,13 @@ export default function XuLyDoXaView({ xuLyList, refreshData, setXuLyList }: { x
     try { currentUserName = JSON.parse(currentUserStr).name; } catch(e){}
   }
   
+  const now = new Date();
+  const defaultThoiGian = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getFullYear()}`;
+
   const [formData, setFormData] = useState<Partial<XuLyDoXaEntry>>({
     loaiXl: 'Trạm',
     nguoiXl: currentUserName,
-    thoiGianXl: '',
+    thoiGianXl: defaultThoiGian,
     maDd: '',
     tenKh: '',
     cachXl: '',
@@ -93,11 +96,6 @@ export default function XuLyDoXaView({ xuLyList, refreshData, setXuLyList }: { x
   };
 
 
-  const now = new Date();
-  const defaultThoiGian = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getFullYear()}`;
-
-  
-  
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.maDd || !formData.cachXl) {
