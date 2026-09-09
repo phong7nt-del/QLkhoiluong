@@ -103,6 +103,18 @@ export default function XuLyDoXaView({ xuLyList, refreshData, setXuLyList }: { x
         return;
     }
     
+    if (!editingItem) {
+        // Check uniqueness for new items
+        const isDuplicate = xuLyList.some(item => 
+            item.maDd.toLowerCase() === formData.maDd.toLowerCase() && 
+            item.thoiGianXl === (formData.thoiGianXl || defaultThoiGian)
+        );
+        if (isDuplicate) {
+            alert(`Mã điểm đo "${formData.maDd}" với ngày xử lý "${formData.thoiGianXl || defaultThoiGian}" đã tồn tại!`);
+            return;
+        }
+    }
+    
     setSaving(true);
     setSaveSuccess(false);
     

@@ -1125,6 +1125,59 @@ function doPost(e) {
            sheet.appendRow(['STT', 'Loại XL', 'Người XL', 'Thời gian XL', 'Mã DD', 'Tên KH', 'Cách XL', 'Kết quả', 'Ghi chú']);
        }
        var data = payload.data;
+       
+       var sheetDataDisplay = sheet.getDataRange().getDisplayValues();
+       var tempMaDdCol = -1, tempThoiGianCol = -1;
+       var headerRowIdx = 0;
+       
+       function normalizeHeaderAdd(raw) {
+           var s = String(raw).toLowerCase();
+           if (s.normalize) s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, "");
+           return s.replace(/đ/g, "d").replace(/[^a-z0-9]/g, "");
+       }
+       
+       for (var rIdx = 0; rIdx < Math.min(5, sheetDataDisplay.length); rIdx++) {
+           var tempHeaders = sheetDataDisplay[rIdx] || [];
+           for (var c = 0; c < tempHeaders.length; c++) {
+               var h = normalizeHeaderAdd(tempHeaders[c]);
+               if (h === 'madd') tempMaDdCol = c;
+               else if (h === 'thoigianxl') tempThoiGianCol = c;
+           }
+           if (tempMaDdCol > -1) {
+               headerRowIdx = rIdx;
+               break;
+           }
+       }
+       
+       function normalizeDateStrAdd(dStr) {
+           if (!dStr) return '';
+           var s = String(dStr).trim().split(' ')[0];
+           if (s.indexOf('T') !== -1) s = s.split('T')[0];
+           var parts = s.indexOf('-') !== -1 ? s.split('-') : s.split('/');
+           if (parts.length >= 3) {
+               var d = parts[0].length === 4 ? parts[2] : parts[0];
+               var m = parts[1];
+               var y = parts[0].length === 4 ? parts[0] : parts[2];
+               d = parseInt(d, 10); m = parseInt(m, 10);
+               if (m > 12 && d <= 12) { var tmp = m; m = d; d = tmp; }
+               return (d < 10 ? '0'+d : ''+d) + '/' + (m < 10 ? '0'+m : ''+m) + '/' + y;
+           }
+           return s;
+       }
+       
+       var inputMaDd = String(data.maDd || '').trim().toLowerCase();
+       var inputDateStr = normalizeDateStrAdd(data.thoiGianXl || '');
+       
+       if (tempMaDdCol > -1 && tempThoiGianCol > -1 && inputMaDd) {
+           for (var r = headerRowIdx + 1; r < sheetDataDisplay.length; r++) {
+               var rMaDd = String(sheetDataDisplay[r][tempMaDdCol]).trim().toLowerCase();
+               var rDateStr = normalizeDateStrAdd(sheetDataDisplay[r][tempThoiGianCol]);
+               if (rMaDd === inputMaDd && rDateStr === inputDateStr) {
+                   return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Mã ĐĐ ' + data.maDd + ' với ngày ' + (data.thoiGianXl || '') + ' đã tồn tại trên Sheet!' })).setMimeType(ContentService.MimeType.JSON);
+               }
+           }
+       }
+
        var lastRow = sheet.getLastRow();
        var nextStt = lastRow;
        
@@ -1142,7 +1195,6 @@ function doPost(e) {
        
        return ContentService.createTextOutput(JSON.stringify({ status: 'success' })).setMimeType(ContentService.MimeType.JSON);
     }
-
 
     if (action === 'add_xulydoxa_bulk') {
        var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
@@ -1188,13 +1240,13 @@ function doPost(e) {
        var data = payload.data;
        var sheetDataDisplay = sheet.getDataRange().getDisplayValues(); // Get as string
        
-       var loaiXlCol = -1, nguoiXlCol = -1, thoiGianXlCol = -1, maDdCol = -1, tenKhCol = -1, cachXlCol = -1, ketQuaCol = -1, ghiChuCol = -1;
+       var sttCol = -1, loaiXlCol = -1, nguoiXlCol = -1, thoiGianXlCol = -1, maDdCol = -1, tenKhCol = -1, cachXlCol = -1, ketQuaCol = -1, ghiChuCol = -1;
        var headerRowIdx = 0;
        
-       function normalizeHeader(raw) {
+       function normalizeHeaderUpdate(raw) {
            var s = String(raw).toLowerCase();
            if (s.normalize) {
-               s = s.normalize('NFD').replace(/[\\u0300-\\u036f]/g, "");
+               s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, "");
            }
            s = s.replace(/đ/g, "d");
            s = s.replace(/[^a-z0-9]/g, "");
@@ -1204,11 +1256,10 @@ function doPost(e) {
        // Scan first 5 rows for headers
        for (var rIdx = 0; rIdx < Math.min(5, sheetDataDisplay.length); rIdx++) {
            var tempHeaders = sheetDataDisplay[rIdx] || [];
-           var tempMaDdCol = -1, tempThoiGianCol = -1;
+           var tempMaDdCol = -1;
            for (var c = 0; c < tempHeaders.length; c++) {
-               var h = normalizeHeader(tempHeaders[c]);
+               var h = normalizeHeaderUpdate(tempHeaders[c]);
                if (h === 'madd') tempMaDdCol = c;
-               else if (h === 'thoigianxl') tempThoiGianCol = c;
            }
            if (tempMaDdCol > -1) {
                headerRowIdx = rIdx;
@@ -1218,8 +1269,9 @@ function doPost(e) {
        
        var headers = sheetDataDisplay[headerRowIdx] || [];
        for (var c = 0; c < headers.length; c++) {
-           var h = normalizeHeader(headers[c]);
-           if (h === 'loaixl') loaiXlCol = c;
+           var h = normalizeHeaderUpdate(headers[c]);
+           if (h === 'stt' || h === 'sott') sttCol = c;
+           else if (h === 'loaixl') loaiXlCol = c;
            else if (h === 'nguoixl') nguoiXlCol = c;
            else if (h === 'thoigianxl') thoiGianXlCol = c;
            else if (h === 'madd') maDdCol = c;
@@ -1229,40 +1281,17 @@ function doPost(e) {
            else if (h === 'ghichu') ghiChuCol = c;
        }
        
-       function normalizeDateStr(dStr) {
-           if (!dStr) return '';
-           var s = String(dStr).trim().split(' ')[0];
-           if (s.indexOf('T') !== -1) s = s.split('T')[0];
-           var parts = s.indexOf('-') !== -1 ? s.split('-') : s.split('/');
-           if (parts.length >= 3) {
-               var d, m, y;
-               if (parts[0].length === 4) { y = parts[0]; m = parts[1]; d = parts[2]; } 
-               else { d = parts[0]; m = parts[1]; y = parts[2]; }
-               d = parseInt(d, 10); m = parseInt(m, 10);
-               if (m > 12 && d <= 12) { var tmp = m; m = d; d = tmp; }
-               return (d < 10 ? '0'+d : ''+d) + '/' + (m < 10 ? '0'+m : ''+m) + '/' + y;
-           }
-           return s;
-       }
-       
-       var inputDateStr = normalizeDateStr(data.thoiGianXl);
-       var inputMaDd = String(data.maDd).trim().toLowerCase();
-       
-       if (maDdCol > -1 && thoiGianXlCol > -1 && data.maDd) {
-          var seenDates = [];
+       if (sttCol > -1 && data.stt !== undefined && data.stt !== null && data.stt !== '') {
+          var targetStt = String(data.stt).trim();
           for (var r = headerRowIdx + 1; r < sheetDataDisplay.length; r++) {
-              var rMaDd = String(sheetDataDisplay[r][maDdCol]).trim().toLowerCase();
-              var rawDate = String(sheetDataDisplay[r][thoiGianXlCol]);
-              var rDateStr = normalizeDateStr(rawDate);
-              
-              if (rMaDd === inputMaDd) {
-                  seenDates.push(rawDate + " => " + rDateStr);
-              }
-              
-              if (rMaDd === inputMaDd && rDateStr === inputDateStr) {
+              var rStt = String(sheetDataDisplay[r][sttCol]).trim();
+              if (rStt === targetStt) {
                   // Found! Update values
                   if (loaiXlCol > -1 && data.loaiXl !== undefined) sheet.getRange(r + 1, loaiXlCol + 1).setValue(data.loaiXl);
                   if (nguoiXlCol > -1 && data.nguoiXl !== undefined) sheet.getRange(r + 1, nguoiXlCol + 1).setValue(data.nguoiXl);
+                  if (thoiGianXlCol > -1 && data.thoiGianXl !== undefined) sheet.getRange(r + 1, thoiGianXlCol + 1).setValue(data.thoiGianXl);
+                  if (maDdCol > -1 && data.maDd !== undefined) sheet.getRange(r + 1, maDdCol + 1).setValue(data.maDd);
+                  if (tenKhCol > -1 && data.tenKh !== undefined) sheet.getRange(r + 1, tenKhCol + 1).setValue(data.tenKh);
                   if (cachXlCol > -1 && data.cachXl !== undefined) sheet.getRange(r + 1, cachXlCol + 1).setValue(data.cachXl);
                   if (ketQuaCol > -1 && data.ketQua !== undefined) sheet.getRange(r + 1, ketQuaCol + 1).setValue(data.ketQua);
                   if (ghiChuCol > -1 && data.ghiChu !== undefined) sheet.getRange(r + 1, ghiChuCol + 1).setValue(data.ghiChu);
@@ -1270,14 +1299,10 @@ function doPost(e) {
                   return ContentService.createTextOutput(JSON.stringify({ status: 'success' })).setMimeType(ContentService.MimeType.JSON);
               }
           }
-          if (seenDates.length > 0) {
-             return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Mã ĐĐ có tồn tại, nhưng sai ngày. Của bạn gửi: ' + inputDateStr + '. Trên sheet là: ' + seenDates.join(', ') })).setMimeType(ContentService.MimeType.JSON);
-          }
+          return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Không tìm thấy dòng có STT = ' + targetStt })).setMimeType(ContentService.MimeType.JSON);
        }
-       if (maDdCol === -1 || thoiGianXlCol === -1) {
-           return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Lỗi cấu trúc Sheet: maDdCol=' + maDdCol + ', thoiGianCol=' + thoiGianXlCol + '. Các cột tìm thấy: ' + headers.join(', ') })).setMimeType(ContentService.MimeType.JSON);
-       }
-       return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Không tìm thấy mã ĐĐ: ' + inputMaDd + ' trong ' + (sheetDataDisplay.length - headerRowIdx - 1) + ' dòng (bỏ qua ' + headerRowIdx + ' dòng đầu).' })).setMimeType(ContentService.MimeType.JSON);
+       
+       return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Lỗi: Không tìm thấy STT hoặc cấu trúc Sheet sai.' })).setMimeType(ContentService.MimeType.JSON);
     }
 
     if (action === 'update_sangtai_bulk') {
