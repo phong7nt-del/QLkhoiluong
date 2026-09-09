@@ -35,9 +35,24 @@ export default function Analytics({ refreshToggle, sessionUser }: { refreshToggl
     const isDoiPhoTruong = role.includes('đội trưởng') || role.includes('đội phó') || role.includes('giám đốc');
     
     if (!isToPhoTruong && !isDoiPhoTruong) return null;
+    
+    if (filterMode !== 'day' && filterMode !== 'week') return null;
 
     const todayStr = format(new Date(), 'yyyy-MM-dd');
-    const checkDate = (filterMode === 'day' && selectedDate) ? selectedDate : todayStr;
+    let targetEntries: any[] = [];
+    let displayDateLabel = '';
+    
+    if (filterMode === 'day') {
+        const d = selectedDate || todayStr;
+        targetEntries = entries.filter(e => e.date === d);
+        displayDateLabel = d.split('-').reverse().join('/');
+    } else if (filterMode === 'week') {
+        const currentWeek = getWeekString(todayStr);
+        const w = selectedWeek || currentWeek;
+        targetEntries = entries.filter(e => getWeekString(e.date) === w);
+        displayDateLabel = `Tuần ${w.split('-W')[1]}/${w.split('-W')[0]}`;
+    }
+
     const allMembers = DataStore.getMembers().filter(m => {
         const r = (m.role || '').toLowerCase();
         return !r.includes('tổ trưởng') && 
@@ -48,10 +63,9 @@ export default function Analytics({ refreshToggle, sessionUser }: { refreshToggl
                !r.includes('phó giám đốc') &&
                !r.includes('pgđ');
     });
-    const dayEntries = entries.filter(e => e.date === checkDate);
-    
+
     const reportedMembers = new Set<string>();
-    dayEntries.forEach(e => {
+    targetEntries.forEach(e => {
         (e.members || []).forEach(m => reportedMembers.add(m));
     });
 
@@ -63,7 +77,7 @@ export default function Analytics({ refreshToggle, sessionUser }: { refreshToggl
             teamName: sessionUser.team,
             count: missing.length,
             members: missing.map(m => m.name),
-            checkDate
+            displayDateLabel
         };
     }
 
@@ -80,7 +94,7 @@ export default function Analytics({ refreshToggle, sessionUser }: { refreshToggl
         return {
             type: 'all_teams',
             teams: Array.from(teamsMap.entries()).map(([team, missing]) => ({ team, count: missing.length, members: missing })).sort((a, b) => b.count - a.count),
-            checkDate
+            displayDateLabel
         };
     }
     
@@ -623,7 +637,7 @@ export default function Analytics({ refreshToggle, sessionUser }: { refreshToggl
         <div className="bg-[#141414] text-[#E4E3E0] p-4 sm:p-6 shadow-[4px_4px_0_rgba(0,0,0,0.3)] animate-in fade-in slide-in-from-top-2 border border-[#E4E3E0]/20">
           <div className="font-bold flex items-center gap-2 mb-3">
             <AlertCircle className="w-5 h-5 text-amber-400" />
-            <span className="uppercase tracking-widest text-sm text-amber-400">Thông tin nhân viên chưa báo cáo ({missingReportsInfo.checkDate.split('-').reverse().join('/')})</span>
+            <span className="uppercase tracking-widest text-sm text-amber-400">Thông tin nhân viên chưa báo cáo ({missingReportsInfo.displayDateLabel})</span>
           </div>
           
           {missingReportsInfo.type === 'team' && (
