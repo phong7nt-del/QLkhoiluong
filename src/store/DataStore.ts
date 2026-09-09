@@ -310,7 +310,7 @@ export const DataStore = {
                  toadoY: findKey(['Tọa độ Y', 'toadoY', 'Kinh độ']),
                  hinhAnh: findKey(['Hình ảnh', 'hinhAnh', 'Ảnh']),
                  ghiChu: findKey(['Ghi chú', 'ghiChu']),
-                 user: findKey(['User', 'Người cập nhật', 'user', 'Người thực hiện', 'Nhân viên', 'Người được giao'])
+                 user: findKey(['User', 'Người cập nhật', 'user', 'Người thực hiện', 'Nhân viên', 'Người được giao', 'Người XL'])
              };
          });
      } catch (e) {

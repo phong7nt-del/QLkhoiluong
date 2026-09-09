@@ -176,7 +176,7 @@ export default function DcuTab() {
       }
       
       
-      const sessionUser = JSON.parse(localStorage.getItem('sessionUser') || '{}');
+      const sessionUser = JSON.parse(sessionStorage.getItem('workload_user_session') || '{}');
       const currentName = sessionUser.name || sessionUser.email || '';
       const newDcu = { id, ten, diaChi, 
           toadoX: formatCoord(toadoX),
@@ -243,7 +243,7 @@ export default function DcuTab() {
   };
 
   const { userSpecificData, filteredData } = useMemo(() => {
-      const sessionUser = JSON.parse(localStorage.getItem('sessionUser') || '{}');
+      const sessionUser = JSON.parse(sessionStorage.getItem('workload_user_session') || '{}');
       const roleStr = String(sessionUser.role || '').toLowerCase();
       const isManagement = ['tổ trưởng', 'tổ phó', 'đội trưởng', 'đội phó', 'phó giám đốc', 'giám đốc', 'admin', 'quản trị'].some(role => roleStr.includes(role));
 
@@ -534,13 +534,16 @@ export default function DcuTab() {
                         </th>
                         <th className="px-4 py-3 border-b border-slate-200">Tọa độ</th>
                         <th className="px-4 py-3 border-b border-slate-200 text-center">Hình ảnh</th>
+                        <th className="px-4 py-3 border-b border-slate-200 cursor-pointer hover:bg-slate-200" onClick={() => handleSort('user')}>
+                            <div className="flex items-center gap-1">Người XL {sortCol === 'user' && (sortDir === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}</div>
+                        </th>
                         <th className="px-4 py-3 border-b border-slate-200">Ghi chú</th>
                     </tr>
                 </thead>
                 <tbody>
                     {loading ? (
                         <tr>
-                            <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                            <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
                                 <div className="flex items-center justify-center gap-2">
                                     <div className="w-5 h-5 border-2 border-slate-300 border-t-slate-800 rounded-full animate-spin" />
                                     <span>Đang tải dữ liệu...</span>
@@ -549,18 +552,16 @@ export default function DcuTab() {
                         </tr>
                     ) : filteredData.length === 0 ? (
                         <tr>
-                            <td colSpan={7} className="px-4 py-8 text-center text-slate-500 italic">Không có dữ liệu DCU</td>
+                            <td colSpan={8} className="px-4 py-8 text-center text-slate-500 italic">Không có dữ liệu DCU</td>
                         </tr>
                     ) : (
                         paginatedData.map((row, idx) => (
                             <tr 
-                                key={idx} 
-                                onClick={(e) => {
+                                 key={idx} 
+                                 onClick={(e) => {
                                     // Bỏ qua nếu click vào link hoặc hình ảnh
                                     if ((e.target as HTMLElement).closest('a') || (e.target as HTMLElement).closest('button')) return;
-                                    setId(row.id || '');
-     if (listType === 'chua_phan_cong') setIsUpdateMode(true);
-     else setIsUpdateMode(false);
+                                    setId(row.id || '');     if (listType === 'chua_phan_cong') setIsUpdateMode(true);     else setIsUpdateMode(false);
                                     setTen(row.ten || '');
                                     setDiaChi(row.diaChi || '');
                                     setToadoX(row.toadoX || '');
@@ -604,6 +605,7 @@ export default function DcuTab() {
                                         <span className="text-slate-400">-</span>
                                     )}
                                 </td>
+                                <td className="px-4 py-3 text-slate-700 font-medium border-b border-slate-100">{row.user}</td>
                                 <td className="px-4 py-3 text-slate-600 border-b border-slate-100">{row.ghiChu}</td>
                             </tr>
                         ))

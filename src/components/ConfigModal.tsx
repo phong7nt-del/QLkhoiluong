@@ -993,9 +993,8 @@ function doPost(e) {
            else if (h === 'tọa độ y' || h === 'toạ độ y' || h === 'kinh độ' || h === 'tọa độy' || h === 'toạ độy') yCol = c;
            else if (h === 'hình ảnh' || h === 'hinh anh' || h === 'ảnh' || h === 'hinhảnh') imgCol = c;
            else if (h === 'ghi chú' || h === 'ghi chu') noteCol = c;
-           
+           else if (h === 'user' || h === 'người cập nhật' || h === 'nguoi cap nhat' || h === 'người xl' || h === 'nguoi xl') userCol = c;
        }
-       
        
        
        var sheetData = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
@@ -1006,6 +1005,7 @@ function doPost(e) {
                if (yCol > -1) sheet.getRange(r + 2, yCol + 1).setValue(data.toadoY || '');
                if (imgCol > -1) sheet.getRange(r + 2, imgCol + 1).setValue(data.hinhAnh || '');
                if (noteCol > -1) sheet.getRange(r + 2, noteCol + 1).setValue(data.ghiChu || '');
+               if (userCol > -1 && data.user) sheet.getRange(r + 2, userCol + 1).setValue(data.user);
                
                updated = true;
                break;
@@ -1106,7 +1106,7 @@ function doPost(e) {
            else if (h === 'id') newRow[i] = data.id || '';
            else if (h === 'tên' || h === 'ten' || h === 'tên dcu') newRow[i] = data.ten || '';
            else if (h === 'địa chỉ' || h === 'dia chi') newRow[i] = data.diaChi || '';
-               else if (h === 'user' || h === 'người cập nhật' || h === 'nguoi cap nhat' || h === 'người thực hiện' || h === 'nguoi thuc hien' || h === 'nhân viên' || h === 'nhan vien' || h === 'người được giao' || h === 'nguoi duoc giao') newRow[i] = data.user || '';
+               else if (h === 'user' || h === 'người cập nhật' || h === 'nguoi cap nhat' || h === 'người thực hiện' || h === 'nguoi thuc hien' || h === 'nhân viên' || h === 'nhan vien' || h === 'người được giao' || h === 'nguoi duoc giao' || h === 'người xl' || h === 'nguoi xl') newRow[i] = data.user || '';
            else if (h === 'tọa độ x' || h === 'toạ độ x' || h === 'vĩ độ') newRow[i] = data.toadoX || '';
            else if (h === 'tọa độ y' || h === 'toạ độ y' || h === 'kinh độ') newRow[i] = data.toadoY || '';
            else if (h === 'hình ảnh' || h === 'hinh anh' || h === 'ảnh') newRow[i] = data.hinhAnh || '';
