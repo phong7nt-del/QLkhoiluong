@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { DataStore, SheetMember } from '../store/DataStore';
+import { DataStore, SheetMember, getTeamPrefix } from '../store/DataStore';
 import { PermissionStore } from '../store/PermissionStore';
 import { PlusCircle, Search, CheckSquare, Square, Mic, ClipboardList, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { format } from 'date-fns';
@@ -188,11 +188,8 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
     }
 
     const d = new Date(date);
-    let prefix = "Tháng";
-    if (team === 'Đội') prefix = "D -";
-    else if (team.includes("Phú Mỹ")) prefix = "P -";
-    else if (team.includes("Bà Rịa") || team.includes("Bà Ria")) prefix = "B -";
-    else if (team.includes("Vũng Tàu")) prefix = "V -";
+    const pChar = getTeamPrefix(team);
+    const prefix = pChar ? `${pChar} -` : "Tháng";
     const monthYear = `${prefix} ${d.getMonth() + 1}/${d.getFullYear()}`;
     
     // Check if plan already exists for this team and month

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { DataStore } from '../store/DataStore';
+import { DataStore, getTeamPrefix } from '../store/DataStore';
 import * as XLSX from 'xlsx';
 import { Calendar, FileSpreadsheet, Eye, EyeOff, Search, TrendingUp, AlertCircle, CheckCircle, Clock, Users } from 'lucide-react';
 
@@ -61,11 +61,8 @@ export default function PlanProgressTab({ refreshToggle }: { refreshToggle?: num
       }
       
       // Determine the plan key prefix based on selectedTeam
-      let prefix = "Tháng";
-      if (selectedTeam === 'Đội') prefix = "D -";
-      else if (selectedTeam.includes("Phú Mỹ")) prefix = "P -";
-      else if (selectedTeam.includes("Bà Rịa") || selectedTeam.includes("Bà Ria")) prefix = "B -";
-      else if (selectedTeam.includes("Vũng Tàu")) prefix = "V -";
+      const pChar = getTeamPrefix(selectedTeam);
+      const prefix = pChar ? `${pChar} -` : "Tháng";
       
       const planColumnKey = `${prefix} ${selectedMonth}`;
       

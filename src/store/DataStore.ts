@@ -129,7 +129,43 @@ const safeGetItem = (key: string): string | null => {
     } catch { return null; }
 };
 
+
+export function getTeamPrefix(teamName: string): string {
+    if (!teamName) return "";
+    const t = teamName.toUpperCase().trim();
+    
+    if (t === 'ĐỘI' || t === 'DOI') return "D";
+    if (t.includes("PHÚ MỸ") || t.includes("PHU MY")) return "P";
+    if (t.includes("BÀ RỊA") || t.includes("BA RIA")) return "B";
+    if (t.includes("VŨNG TÀU") || t.includes("VUNG TAU")) return "V";
+    if (t.includes("ĐO XA") || t.includes("DO XA")) return "X";
+    
+    let coreName = teamName.replace(/^(Tổ|Đội|Trạm)\s+/i, '').trim();
+    if (!coreName) coreName = teamName.trim();
+    
+    const words = coreName.split(/\s+/);
+    if (words.length === 0) return "";
+    
+    const getChar = (word: string) => word.charAt(0).toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/Đ/g, 'D');
+    
+    let char = getChar(words[0]);
+    const taken = ['D', 'P', 'B', 'V', 'X']; 
+    
+    if (taken.includes(char) && words.length > 1) {
+        let secondChar = getChar(words[1]);
+        if (!taken.includes(secondChar)) {
+            char = secondChar;
+        } else if (words.length > 2) {
+            let thirdChar = getChar(words[2]);
+            if (!taken.includes(thirdChar)) char = thirdChar;
+        }
+    }
+    
+    return char;
+}
+
 export const DataStore = {
+
   initDB: initDB,
   getAppScriptUrl: () => { 
       const url = safeGetItem(SCRIPT_URL_KEY);
