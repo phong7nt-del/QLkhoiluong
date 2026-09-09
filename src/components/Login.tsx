@@ -195,7 +195,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
            </div>
 
            <div className="relative z-10 text-xs font-mono text-white/60 uppercase tracking-widest">
-              Phiên bản 2026.09.28 • Secure Login
+              Phiên bản 2026.10.01 • Secure Login
            </div>
            
            {/* Animated decorative shapes */}

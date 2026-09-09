@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { DataStore } from '../store/DataStore';
 import { Copy, Check, DownloadCloud, AlertTriangle, X } from 'lucide-react';
 
-const SCRIPT_TEMPLATE = `// VERSION: 2026.09.28
+const SCRIPT_TEMPLATE = `// VERSION: 2026.10.01
 // XÓA TẤT CẢ MÃ CŨ (XÓA function myFunction() { ... })
 // CHỈ DÁN ĐOẠN MÃ DƯỚI ĐÂY VÀO:
 var SPREADSHEET_ID = '1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ';
@@ -224,28 +224,57 @@ function doGet(e) {
       var sheetDinhMuc = getSheetFlexibly(ss, ['DinhMuc', 'Định Mức', 'Dinh muc', 'Định mức']);
       if (sheetDinhMuc) {
         var dmData = sheetDinhMuc.getDataRange().getValues();
-        var headers = dmData[0] || [];
         var nameCol = -1;
         var quotaCol = -1;
-        for (var j = 0; j < headers.length; j++) {
-           var h = String(headers[j]).toLowerCase();
-           if (h.indexOf('nội dung') > -1 || h.indexOf('danh mục') > -1 || h.indexOf('tên') > -1) {
-               if (nameCol === -1) nameCol = j;
-           }
-           if (h.indexOf('định mức') > -1 || h.indexOf('khối lượng') > -1 || h.indexOf('chỉ tiêu') > -1) {
-               quotaCol = j;
-           }
+        var groupCol = -1;
+        var relationCol = -1;
+        var startRow = 1;
+        var historyCols = {};
+        
+        for (var r = 0; r < 5 && r < dmData.length; r++) {
+            var row = dmData[r] || [];
+            for (var j = 0; j < row.length; j++) {
+               var rawVal = String(row[j]).trim();
+               var h = rawVal.toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').replace(/đ/g, 'd');
+               
+               if (h.indexOf('noi dung') > -1 || h.indexOf('danh muc') > -1 || h.indexOf('ten') > -1) {
+                   if (nameCol === -1) nameCol = j;
+               }
+               if (h.indexOf('dinh muc') > -1 || h.indexOf('khoi luong') > -1 || h.indexOf('chi tieu') > -1 || h.indexOf('quota') > -1 || h.indexOf('diem') > -1) {
+                   if (quotaCol === -1) quotaCol = j;
+               }
+               if (h.indexOf('chung nhom') > -1) groupCol = j;
+               if (h.indexOf('quan he') > -1) relationCol = j;
+               if (h.indexOf('thang') > -1 || /\\d+\\/\\d{4}/.test(h)) {
+                   historyCols[rawVal] = j;
+               }
+            }
+            if (nameCol !== -1) {
+                startRow = r + 1;
+                break;
+            }
         }
         if (nameCol === -1) nameCol = 0;
-        if (quotaCol === -1 && dmData[0].length > 1) quotaCol = 1;
+        if (quotaCol === -1 && dmData[0] && dmData[0].length > 1) quotaCol = 1;
         
-        for (var d = 1; d < dmData.length; d++) {
+        for (var d = startRow; d < dmData.length; d++) {
            var val1 = String(dmData[d][nameCol] || '').trim();
-           var val2 = quotaCol > -1 ? Number(dmData[d][quotaCol]) : 0;
+           var val2 = quotaCol > -1 ? Number(String(dmData[d][quotaCol]).replace(/,/g, '.')) : 0;
            if (isNaN(val2)) val2 = 0;
            
-           if (val1 && val1.toLowerCase() !== 'stt') {
-              dinhMucList.push({ name: val1, quota: val2 });
+           var isGroupStr = groupCol !== -1 ? String(dmData[d][groupCol] || '').toLowerCase().trim() : '';
+           var isGroup = isGroupStr === 'x';
+           var relation = relationCol !== -1 ? String(dmData[d][relationCol] || '').trim() : '';
+           
+           var history = {};
+           for (var k in historyCols) {
+               var colIdx = historyCols[k];
+               var hVal = parseFloat(String(dmData[d][colIdx] || '0').replace(/,/g, '.'));
+               if (!isNaN(hVal)) history[k] = hVal;
+           }
+           
+           if (val1 && val1.toLowerCase() !== 'stt' && val1.toLowerCase() !== 'tổng' && val1.toLowerCase() !== 'tong') {
+              dinhMucList.push({ name: val1, quota: val2, isGroup: isGroup, relation: relation, history: history });
            }
         }
       }
@@ -1165,7 +1194,7 @@ function doPost(e) {
        function normalizeHeader(raw) {
            var s = String(raw).toLowerCase();
            if (s.normalize) {
-               s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, "");
+               s = s.normalize('NFD').replace(/[\\u0300-\\u036f]/g, "");
            }
            s = s.replace(/đ/g, "d");
            s = s.replace(/[^a-z0-9]/g, "");
