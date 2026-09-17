@@ -1,81 +1,33 @@
 const fs = require('fs');
+let code = fs.readFileSync('src/components/ConfigModal.tsx', 'utf8');
 
-let content = fs.readFileSync('full-apps-script.js', 'utf8');
+code = code.replace(/var nameIdx = -1;\n\s*var teamIdx = -1;\n\s*var startRow = 1;/, `var nameIdx = -1;
+      var teamIdx = -1;
+      var msnvIdx = -1;
+      var roleIdx = -1;
+      var sinhNhatIdx = -1;
+      var startRow = 1;`);
 
-// 1. Add spreadsheetId to doGet response
-content = content.replace(
-    "return ContentService.createTextOutput(JSON.stringify({",
-    "return ContentService.createTextOutput(JSON.stringify({ spreadsheetId: SPREADSHEET_ID, "
-);
+code = code.replace(/if \(val\.includes\('khu vực'\) \|\| val === 'khu vuc' \|\| val\.includes\('tổ công tác'\) \|\| val\.includes\('bộ phận công tác'\)\) teamIdx = c;/, `if (val.includes('khu vực') || val === 'khu vuc' || val.includes('tổ công tác') || val.includes('bộ phận công tác')) teamIdx = c;
+          if (val === 'msnv' || val.includes('mã nhân viên')) msnvIdx = c;
+          if (val === 'chức danh' || val === 'chuc danh') roleIdx = c;
+          if (val === 'sinh nhật' || val === 'sinh nhat' || val === 'ngày sinh' || val === 'ngay sinh') sinhNhatIdx = c;`);
 
-// 2. Add savePlan to doPost
-const savePlanCode = `
-    if (action === 'savePlan') {
-       var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-       var sheet = getSheetFlexibly(ss, ['Nhật ký/CongTac', 'Nhat ky/CongTac', 'CongTac', 'Cong Tac', 'Công tác']);
-       if (!sheet) return ContentService.createTextOutput(JSON.stringify({status: 'error', message: 'Not found'})).setMimeType(ContentService.MimeType.JSON);
-       
-       var data = sheet.getDataRange().getValues();
-       var nameIdx = -1;
-       var startRow = 1;
-       for (var r = 0; r < 5 && r < data.length; r++) {
-         for (var c = 0; c < data[r].length; c++) {
-           var val = String(data[r][c]).toLowerCase().trim();
-           if (val.includes('họ và tên') || val === 'họ tên') nameIdx = c;
-         }
-         if (nameIdx !== -1) { startRow = r + 1; break; }
-       }
-       if (nameIdx === -1) { nameIdx = 1; startRow = 2; }
-       
-       var dateCols = {};
-       var headerRowIndex = startRow - 1;
-       if (headerRowIndex >= 0) {
-          var headers = data[headerRowIndex] || [];
-          for (var c = nameIdx + 1; c < headers.length; c++) {
-             var h = headers[c];
-             var dateStr = '';
-             if (Object.prototype.toString.call(h) === '[object Date]') {
-                dateStr = Utilities.formatDate(h, Session.getScriptTimeZone(), "yyyy-MM-dd");
-             } else {
-                var s = String(h).replace(/'/g, '').trim();
-                var p1 = s.split('/');
-                if (p1.length === 3) {
-                   dateStr = p1[2] + '-' + (p1[1].length===1?'0'+p1[1]:p1[1]) + '-' + (p1[0].length===1?'0'+p1[0]:p1[0]);
-                } else if (p1.length === 2) {
-                   var year = new Date().getFullYear();
-                   dateStr = year + '-' + (p1[1].length===1?'0'+p1[1]:p1[1]) + '-' + (p1[0].length===1?'0'+p1[0]:p1[0]);
-                } else if (s.indexOf('-') > -1) {
-                   dateStr = s; 
-                }
+code = code.replace(/var msnv = msnvIdx !== -1 \? String\(data\[i\]\[msnvIdx\]\)\.trim\(\) : '';\n\s*var role = roleIdx !== -1 \? String\(data\[i\]\[roleIdx\]\)\.trim\(\) : '';\n\s*members\.push\(\{ team: assignTeam, name: name, msnv: msnv, role: role \}\);/, `var msnv = msnvIdx !== -1 ? String(data[i][msnvIdx]).trim() : '';
+        var role = roleIdx !== -1 ? String(data[i][roleIdx]).trim() : '';
+        var sinhNhat = sinhNhatIdx !== -1 ? data[i][sinhNhatIdx] : '';
+        
+        // Format SinhNhat to string dd/MM/yyyy if it's a date object
+        if (Object.prototype.toString.call(sinhNhat) === '[object Date]') {
+             sinhNhat = Utilities.formatDate(sinhNhat, Session.getScriptTimeZone(), "dd/MM/yyyy");
+        } else if (sinhNhat) {
+             sinhNhat = String(sinhNhat).trim();
+             var p = sinhNhat.split('/');
+             if (p.length === 3) {
+                 sinhNhat = (p[0].length === 1 ? '0' + p[0] : p[0]) + '/' + (p[1].length === 1 ? '0' + p[1] : p[1]) + '/' + p[2];
              }
-             if (dateStr && dateStr.length >= 8 && dateStr.indexOf('-') > -1) {
-                dateCols[dateStr] = c;
-             }
-          }
-       }
-       
-       var workloads = payload.workloads || [];
-       for (var i = 0; i < workloads.length; i++) {
-          var wl = workloads[i];
-          var dateCol = dateCols[wl.date];
-          if (dateCol !== undefined) {
-             for (var r = startRow; r < data.length; r++) {
-                var rowName = String(data[r][nameIdx] || '').trim();
-                if (rowName === wl.members[0]) {
-                   sheet.getRange(r + 1, dateCol + 1).setValue(wl.content);
-                   break;
-                }
-             }
-          }
-       }
-       return ContentService.createTextOutput(JSON.stringify({ status: 'success' })).setMimeType(ContentService.MimeType.JSON);
-    }
-`;
+        }
+        
+        members.push({ team: assignTeam, name: name, msnv: msnv, role: role, sinhNhat: sinhNhat });`);
 
-content = content.replace(
-    "var action = payload.action;",
-    "var action = payload.action;" + savePlanCode
-);
-
-fs.writeFileSync('full-apps-script.js', content, 'utf8');
-
+fs.writeFileSync('src/components/ConfigModal.tsx', code);

@@ -21,6 +21,7 @@ export const DEFAULT_RBAC: RBACConfig = {
     'tuti': ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'],
     'plan_progress': ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'],
     'warehouse': ['đội trưởng', 'giám đốc'],
+    'birthday': ALL_ROLES,
     'system': ['đội trưởng'], // specifically requested
   },
   actions: {
@@ -38,7 +39,14 @@ export const PermissionStore = {
     try {
       const stored = localStorage.getItem(RBAC_STORAGE_KEY);
       if (stored) {
-        return JSON.parse(stored) as RBACConfig;
+        const parsed = JSON.parse(stored) as RBACConfig;
+        // Merge with default to ensure new tabs/actions are included
+        const merged: RBACConfig = {
+           tabs: { ...DEFAULT_RBAC.tabs, ...(parsed.tabs || {}) },
+           actions: { ...DEFAULT_RBAC.actions, ...(parsed.actions || {}) }
+        };
+        // Special case: if birthday was missing in parsed.tabs, it will now take DEFAULT_RBAC.tabs['birthday']
+        return merged;
       }
     } catch (e) {}
     return DEFAULT_RBAC;

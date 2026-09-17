@@ -682,6 +682,7 @@ export const DataStore = {
                    let nameColIdx = -1;
                    let msnvColIdx = -1;
                    let teamColIdx = 5;
+                   let sinhNhatColIdx = -1;
                    
                    for(let r=0; r<5; r++) {
                        if(ctData[r]) {
@@ -697,6 +698,9 @@ export const DataStore = {
                                }
                                if(val.includes('khu vực') || val.includes('khu vuc') || val === 'tổ công tác') {
                                    teamColIdx = c;
+                               }
+                               if(val.includes('sinh') || val.includes('ngàysinh')) {
+                                   sinhNhatColIdx = c;
                                }
                            }
                        }
@@ -733,11 +737,26 @@ export const DataStore = {
                               memberMsnv = String(row[msnvColIdx]).trim();
                           }
 
+                          let sinhNhat = '';
+                          const existingMember = (json.members || []).find((m: any) => m.name === rawName);
+                          if (existingMember && existingMember.sinhNhat) {
+                              sinhNhat = existingMember.sinhNhat;
+                          } else if (sinhNhatColIdx !== -1 && row[sinhNhatColIdx]) {
+                              sinhNhat = String(row[sinhNhatColIdx]).trim().replace(/[\-\.]/g, '/');
+                              var p = sinhNhat.split('/');
+                              if (p.length >= 2) {
+                                  var day = p[0].length === 1 ? '0' + p[0] : p[0];
+                                  var month = p[1].length === 1 ? '0' + p[1] : p[1];
+                                  sinhNhat = day + '/' + month + (p.length === 3 ? '/' + p[2] : '');
+                              }
+                          }
+
                           newMembers.push({
                               name: rawName,
                               team: finalTeam,
                               msnv: memberMsnv,
-                              role: cbcnvInfo.role
+                              role: cbcnvInfo.role,
+                              sinhNhat: sinhNhat
                           });
                        }
                    }
@@ -1303,6 +1322,12 @@ export const DataStore = {
          }
          if (json.stations && json.stations.length > 0) {
            safeSetItem(STATIONS_KEY, JSON.stringify(json.stations));
+         }
+         if (json.headerDebug) {
+           safeSetItem('HEADER_DEBUG', JSON.stringify(json.headerDebug));
+         }
+         if (json.idxDebug) {
+           safeSetItem('IDX_DEBUG', JSON.stringify(json.idxDebug));
          }
          if (json.workloads) {
            safeSetItem(STORAGE_KEY, JSON.stringify(json.workloads));

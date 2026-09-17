@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { ClipboardList, BarChart3, Database, TrendingUp, LogOut, User as UserIcon, CheckSquare, Settings, Activity, Menu, WifiOff, ChevronUp, ChevronDown, KeyRound, Search, Package } from "lucide-react";
+import { ClipboardList, BarChart3, Database, TrendingUp, LogOut, User as UserIcon, CheckSquare, Settings, Activity, Menu, WifiOff, ChevronUp, ChevronDown, KeyRound, Search, Package, Gift } from "lucide-react";
 import WorkloadForm from "./components/WorkloadForm";
 import Analytics from "./components/Analytics";
 import Stations from "./components/Stations";
@@ -14,6 +14,7 @@ import SangTaiTab from "./components/SangTaiTab";
 import DisconnectRateTab from "./components/DisconnectRateTab";
 import WarehouseTab from "./components/WarehouseTab";
 import PlanProgressTab from "./components/PlanProgressTab";
+import BirthdayTab from "./components/BirthdayTab";
 import ChangePasswordModal from "./components/ChangePasswordModal";
 import { DataStore, SheetMember } from "./store/DataStore";
 import { PermissionStore } from './store/PermissionStore';
@@ -296,12 +297,26 @@ export default function App() {
     { id: "progress", icon: CheckSquare, label: "Tiến độ CV", color: "amber" },
     { id: "tuti", icon: Activity, label: "TU - TI", color: "indigo" },
     { id: "plan_progress", icon: TrendingUp, label: "Tiến độ kế hoạch", color: "blue" },
+    { id: "birthday", icon: Gift, label: "Chúc mừng Sinh nhật", color: "rose" },
     { id: "sangtai", icon: Database, label: "KT sang tải", color: "amber" },
     { id: "warehouse", icon: Package, label: "Kho VTTB", color: "amber" },
     { id: "system", icon: Settings, label: "Hệ thống", color: "slate" }
   ];
 
-  const tabs = allTabs.filter(tab => PermissionStore.hasTabAccess(tab.id, roleStr));
+    const tabs = allTabs.filter(tab => PermissionStore.hasTabAccess(tab.id, roleStr));
+
+  const members = DataStore.getMembers();
+  const today = new Date();
+  const currDay = today.getDate();
+  const currMonth = today.getMonth() + 1;
+  const todayBirthdaysCount = members.filter(m => {
+     if (!m.sinhNhat) return false;
+     const parts = String(m.sinhNhat).split('/');
+     if (parts.length >= 2) {
+         return parseInt(parts[0], 10) === currDay && parseInt(parts[1], 10) === currMonth;
+     }
+     return false;
+  }).length;
 
 
   return (
@@ -404,6 +419,11 @@ export default function App() {
                            boxShadow: isActive ? '-8px 6px 12px -6px rgba(0,0,0,0.12)' : 'none'
                          }}
                       >
+                         {tab.id === 'birthday' && todayBirthdaysCount > 0 && (
+                            <span className="absolute top-1 right-2 w-5 h-5 bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center rounded-full animate-bounce shadow-md z-30 pointer-events-none">
+                                {todayBirthdaysCount}
+                            </span>
+                         )}
                          {/* Tech/Digital Indicator for Active Tab */}
                          {isActive && (
                             <>
@@ -507,6 +527,9 @@ export default function App() {
                 )}
                 {activeTab === "warehouse" && (
                   <WarehouseTab />
+                )}
+                {activeTab === "birthday" && (
+                  <BirthdayTab />
                 )}
                 {activeTab === "system" && (
                   <SystemTab />

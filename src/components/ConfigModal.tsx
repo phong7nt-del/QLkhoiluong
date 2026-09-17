@@ -42,13 +42,22 @@ function doGet(e) {
       
       var nameIdx = -1;
       var teamIdx = -1;
+      var msnvIdx = -1;
+      var roleIdx = -1;
+      var sinhNhatIdx = -1;
       var startRow = 1;
 
       for (var r = 0; r < 5 && r < data.length; r++) {
         for (var c = 0; c < data[r].length; c++) {
           var val = String(data[r][c]).toLowerCase().trim();
-          if (val.includes('họ và tên') || val === 'họ tên') nameIdx = c;
-          if (val.includes('khu vực') || val === 'khu vuc' || val.includes('tổ công tác') || val.includes('bộ phận công tác')) teamIdx = c;
+          
+          var cleanVal = val.replace(/\s+/g, '');
+          if (cleanVal.includes('họvàtên') || cleanVal === 'họtên') nameIdx = c;
+          if (cleanVal.includes('khuvực') || cleanVal === 'khuvuc' || cleanVal.includes('tổcôngtác') || cleanVal.includes('bộphậncôngtác')) teamIdx = c;
+          if (cleanVal === 'msnv' || cleanVal.includes('mãnhânviên')) msnvIdx = c;
+          if (cleanVal === 'chứcdanh' || cleanVal === 'chucdanh') roleIdx = c;
+          if (cleanVal.includes('sinh') || cleanVal.includes('ngàysinh')) sinhNhatIdx = c;
+
         }
         if (nameIdx !== -1 && teamIdx !== -1) {
           startRow = r + 1;
@@ -57,8 +66,11 @@ function doGet(e) {
       }
       
       if (nameIdx === -1) { nameIdx = 1; startRow = 2; }
-      if (teamIdx === -1) { teamIdx = 2; }
+            if (teamIdx === -1) { teamIdx = 2; }
       
+      var headerRowDebug = data[startRow > 1 ? startRow - 2 : 0] || [];
+      var debugPayload = { headerDebug: headerRowDebug, idxDebug: { nameIdx: nameIdx, teamIdx: teamIdx, msnvIdx: msnvIdx, roleIdx: roleIdx, sinhNhatIdx: sinhNhatIdx } };
+
       var teams = [];
       var members = [];
       var memberTeamMap = {};
@@ -82,12 +94,29 @@ function doGet(e) {
           }
           var msnv = msnvIdx !== -1 ? String(data[i][msnvIdx]).trim() : '';
         var role = roleIdx !== -1 ? String(data[i][roleIdx]).trim() : '';
-        members.push({ team: assignTeam, name: name, msnv: msnv, role: role });
+        var sinhNhat = sinhNhatIdx !== -1 ? data[i][sinhNhatIdx] : '';
+        var originalSinhNhat = sinhNhat; // DEBUG
+        
+        // Format SinhNhat to string dd/MM/yyyy if it's a date object
+        if (Object.prototype.toString.call(sinhNhat) === '[object Date]') {
+             sinhNhat = Utilities.formatDate(sinhNhat, Session.getScriptTimeZone(), "dd/MM/yyyy");
+        } else if (sinhNhat) {
+             sinhNhat = String(sinhNhat).trim().replace(/[\-\.]/g, '/');
+             var p = sinhNhat.split('/');
+             if (p.length >= 2) {
+                 var day = p[0].length === 1 ? '0' + p[0] : p[0];
+                 var month = p[1].length === 1 ? '0' + p[1] : p[1];
+                 sinhNhat = day + '/' + month + (p.length === 3 ? '/' + p[2] : '');
+             }
+        }
+        
+        members.push({ team: assignTeam, name: name, msnv: msnv, role: role, sinhNhat: sinhNhat, _rawSinhNhat: String(originalSinhNhat) });
           memberTeamMap[name] = assignTeam;
         }
       }
       
       var workloads = [];
+      var headerRowDebug = data[startRow > 1 ? startRow - 2 : 0] || [];
       var dateCols = [];
       var headerRowIndex = startRow - 1;
       if (headerRowIndex >= 0) {
@@ -348,6 +377,8 @@ function doGet(e) {
       
       return ContentService.createTextOutput(JSON.stringify({
         status: 'success',
+        headerDebug: debugPayload.headerDebug,
+        idxDebug: debugPayload.idxDebug,
         teams: teams,
         members: members,
         stations: stations,
@@ -411,17 +442,20 @@ function doPost(e) {
                sheet.getRange("B1").setValue(0);
                sheet.getRange("A2").setValue("Ngày");
                sheet.getRange("B2").setValue("Số lượng");
+               sheet.getRange("C2").setValue("Chi tiết đăng nhập");
            }
            
            var tz = Session.getScriptTimeZone();
            var today = Utilities.formatDate(new Date(), tz, "dd/MM/yyyy");
+           var timeNow = Utilities.formatDate(new Date(), tz, "dd/MM/yyyy HH:mm:ss");
+           var loginDetail = username + " - " + timeNow;
            
            var totalRange = sheet.getRange("B1");
            var total = parseInt(totalRange.getValue()) || 0;
            totalRange.setValue(total + 1);
            
            var lastRow = sheet.getLastRow();
-           var data = lastRow > 2 ? sheet.getRange(3, 1, lastRow - 2, 2).getValues() : [];
+           var data = lastRow > 2 ? sheet.getRange(3, 1, lastRow - 2, 3).getValues() : [];
            var found = false;
            for (var i = 0; i < data.length; i++) {
                var cellDate = data[i][0];
@@ -438,13 +472,19 @@ function doPost(e) {
                if (String(cellDate).trim() === today) {
                    var count = parseInt(data[i][1]) || 0;
                    sheet.getRange(i + 3, 2).setValue(count + 1);
+                   var currentDetails = data[i][2] || "";
+                   if (currentDetails) {
+                       sheet.getRange(i + 3, 3).setValue(currentDetails + "; " + loginDetail);
+                   } else {
+                       sheet.getRange(i + 3, 3).setValue(loginDetail);
+                   }
                    found = true;
                    break;
                }
            }
            
            if (!found) {
-               sheet.appendRow(["'" + today, 1]);
+               sheet.appendRow(["'" + today, 1, loginDetail]);
            }
            
            return ContentService.createTextOutput(JSON.stringify({ 
