@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { DataStore, getTeamPrefix } from '../store/DataStore';
+import { DataStore, getTeamPrefix, SheetMember } from '../store/DataStore';
 import * as XLSX from 'xlsx';
 import { Calendar, FileSpreadsheet, Eye, EyeOff, Search, TrendingUp, AlertCircle, CheckCircle, Clock, Users } from 'lucide-react';
 
@@ -11,6 +11,18 @@ export default function PlanProgressTab({ refreshToggle }: { refreshToggle?: num
   const [search, setSearch] = useState('');
   const [showAllTasks, setShowAllTasks] = useState(false);
   const [onlyPlannedTasks, setOnlyPlannedTasks] = useState(false);
+  const [isLocking, setIsLocking] = useState(false);
+  const [lockConfirm, setLockConfirm] = useState({ isOpen: false, isYear: false, lockedKey: '', items: [] as any[] });
+  const [message, setMessage] = useState<{type: 'success'|'error', text: string}|null>(null);
+  const [sessionUser, setSessionUser] = useState<SheetMember | null>(null);
+  const allowAllLock = DataStore.getAllowAllLockPlan();
+  
+  useEffect(() => {
+    const stored = sessionStorage.getItem('workload_user_session');
+    if (stored) {
+       try { setSessionUser(JSON.parse(stored)); } catch(e){}
+    }
+  }, []);
   const [sortConfig, setSortConfig] = useState<{key: string, direction: 'asc'|'desc'} | null>(null);
 
   const dinhMucList = useMemo(() => DataStore.getDinhMuc(), [refreshToggle]);
@@ -22,30 +34,37 @@ export default function PlanProgressTab({ refreshToggle }: { refreshToggle?: num
      setAvailableTeams(['Đội', ...teams.filter(t => t !== 'Đội')]);
 
      // Extract unique months (e.g. "8/2026") from dinhMuc history
-     const months = new Set<string>();
+     const periods = new Set<string>();
      dinhMucList.forEach(dm => {
          if (dm.history) {
              Object.keys(dm.history).forEach(k => {
-                 const m = k.match(/(\d+)\/(\d{4})/);
-                 if (m) {
-                     months.add(`${m[1]}/${m[2]}`);
+                 const mMonth = k.match(/(\d+)\/(\d{4})/);
+                 if (mMonth) {
+                     periods.add(`${mMonth[1]}/${mMonth[2]}`);
+                 } else {
+                     const mYear = k.match(/(?:Năm| -)\s*(\d{4})/);
+                     if (mYear) {
+                         periods.add(mYear[1]);
+                     }
                  }
              });
          }
      });
-     
-     const monthsArr = Array.from(months).sort((a, b) => {
-         const parseStr = (s: string) => {
+         
+     const periodsArr = Array.from(periods).sort((a, b) => {
+         const parseStr = (s) => {
              const m = s.match(/(\d+)\/(\d{4})/);
              if (m) return parseInt(m[2]) * 100 + parseInt(m[1]);
+             const y = s.match(/^(\d{4})$/);
+             if (y) return parseInt(y[1]) * 100 + 13;
              return 0;
          }
-         return parseStr(b) - parseStr(a); // desc
+         return parseStr(b) - parseStr(a);
      });
-     
-     setAvailableMonths(monthsArr);
-     if (monthsArr.length > 0 && !selectedMonth) {
-         setSelectedMonth(monthsArr[0]);
+         
+     setAvailableMonths(periodsArr);
+     if (periodsArr.length > 0 && !selectedMonth) {
+         setSelectedMonth(periodsArr[0]);
      }
   }, [dinhMucList]);
 
@@ -53,30 +72,35 @@ export default function PlanProgressTab({ refreshToggle }: { refreshToggle?: num
       if (!selectedMonth) return [];
       
       const mMatch = selectedMonth.match(/(\d+)\/(\d{4})/);
+      const yMatch = selectedMonth.match(/^(\d{4})$/);
       let targetMonth = -1;
       let targetYear = -1;
+      let isYearPlan = false;
       if (mMatch) {
           targetMonth = parseInt(mMatch[1]);
           targetYear = parseInt(mMatch[2]);
+      } else if (yMatch) {
+          targetYear = parseInt(yMatch[1]);
+          isYearPlan = true;
       }
       
       // Determine the plan key prefix based on selectedTeam
       const pChar = getTeamPrefix(selectedTeam);
-      const prefix = pChar ? `${pChar} -` : "Tháng";
+      const prefix = pChar ? `${pChar} -` : (isYearPlan ? "Năm" : "Tháng");
       
       const planColumnKey = `${prefix} ${selectedMonth}`;
       
       // Calculate actual quantities
       const actualQtyMap = new Map<string, number>();
       
-      if (targetYear !== -1 && targetMonth !== -1) {
+      if (targetYear !== -1) {
           entries.forEach(e => {
              if (selectedTeam !== 'Đội' && !e.team.includes(selectedTeam)) return;
              const dParts = e.date.split('-');
              if (dParts.length === 3) {
                  const eYear = parseInt(dParts[0]);
                  const eMonth = parseInt(dParts[1]);
-                 if (eYear === targetYear && eMonth === targetMonth) {
+                 if (eYear === targetYear && (isYearPlan || eMonth === targetMonth)) {
                      // Check content
                      dinhMucList.forEach(dm => {
                          if (e.content.includes(dm.name)) {
@@ -110,6 +134,8 @@ export default function PlanProgressTab({ refreshToggle }: { refreshToggle?: num
                   planQty = dm.history[planColumnKey];
               } else if (selectedTeam.includes('Đội') && dm.history[`D - ${selectedMonth}`] !== undefined) {
                   planQty = dm.history[`D - ${selectedMonth}`];
+              } else if (dm.history[`Năm ${selectedMonth}`] !== undefined) {
+                  planQty = dm.history[`Năm ${selectedMonth}`];
               } else if (dm.history[`Tháng ${selectedMonth}`] !== undefined) {
                   // Fallback for old format
                   planQty = dm.history[`Tháng ${selectedMonth}`];
@@ -250,6 +276,101 @@ export default function PlanProgressTab({ refreshToggle }: { refreshToggle?: num
     return { totalPlan: totalPlanRaw, totalActual: totalActualRaw, totalPlanStandard, totalActualStandard, avgProgress, statusColor, statusText };
   }, [planData, onlyPlannedTasks]);
 
+  const handleLockInit = () => {
+     if (!allowAllLock) {
+         let canLock = false;
+         if (sessionUser) {
+             const role = (sessionUser.role || '').toLowerCase();
+             const team = (sessionUser.team || '').toLowerCase();
+             if ((role === 'đội trưởng' || role === 'tổ trưởng') && (team === 'tổ tổng hợp' || team === 'tổng hợp' || team === 'tổ th')) {
+                 canLock = true;
+             }
+         }
+         if (!canLock) {
+             setMessage({ type: 'error', text: 'Chỉ Đội trưởng hoặc Tổ trưởng Tổ Tổng hợp mới có quyền chốt số liệu. Bạn có thể thay đổi cấu hình này trong tab Hệ thống.' });
+             setTimeout(() => setMessage(null), 5000);
+             return;
+         }
+     }
+
+     if (!selectedTeam) {
+        setMessage({ type: 'error', text: 'Vui lòng chọn Đội hoặc Tổ công tác để chốt thực hiện.' });
+        setTimeout(() => setMessage(null), 5000);
+        return;
+     }
+     
+     const mMatch = selectedMonth.match(/(\d+)\/(\d{4})/);
+     const yMatch = selectedMonth.match(/^(\d{4})$/);
+     let isYearPlan = false;
+     let targetMonth = -1;
+     let targetYear = -1;
+     
+     if (mMatch) {
+         targetMonth = parseInt(mMatch[1]);
+         targetYear = parseInt(mMatch[2]);
+     } else if (yMatch) {
+         targetYear = parseInt(yMatch[1]);
+         isYearPlan = true;
+     }
+     
+     const now = new Date();
+     const currentYear = now.getFullYear();
+     const currentMonth = now.getMonth() + 1;
+     
+     if (isYearPlan) {
+        if (currentYear <= targetYear) {
+           setMessage({ type: 'error', text: `Chưa hết năm ${targetYear}, không thể chốt số liệu thực hiện!` });
+           setTimeout(() => setMessage(null), 5000);
+           return;
+        }
+     } else {
+        if (currentYear < targetYear || (currentYear === targetYear && currentMonth <= targetMonth)) {
+           setMessage({ type: 'error', text: `Chưa hết tháng ${targetMonth}/${targetYear}, không thể chốt số liệu thực hiện!` });
+           setTimeout(() => setMessage(null), 5000);
+           return;
+        }
+     }
+     
+     const pChar = getTeamPrefix(selectedTeam);
+     const prefix = pChar ? `${pChar} -` : (isYearPlan ? "Năm" : "Tháng");
+     const lockedKey = `${prefix} ${selectedMonth}R`;
+     
+     const alreadyLocked = dinhMucList.some(dm => dm.history && dm.history[lockedKey] !== undefined);
+     if (alreadyLocked) {
+        setMessage({ type: 'error', text: `Số liệu ${isYearPlan ? 'năm' : 'tháng'} này của ${selectedTeam} đã được chốt trước đó!` });
+        setTimeout(() => setMessage(null), 5000);
+        return;
+     }
+     
+     const actualItems = planData.filter(item => item.actualQty > 0).map(item => ({
+        name: item.name,
+        quantity: item.actualQty
+     }));
+     
+     if (actualItems.length === 0) {
+        setMessage({ type: 'error', text: 'Không có khối lượng thực hiện nào > 0 để chốt!' });
+        setTimeout(() => setMessage(null), 5000);
+        return;
+     }
+     
+     setLockConfirm({ isOpen: true, isYear: isYearPlan, lockedKey, items: actualItems });
+  };
+  
+  const executeLock = async () => {
+     setIsLocking(true);
+     const success = await DataStore.syncPlanToSheet(lockConfirm.lockedKey, lockConfirm.items);
+     setIsLocking(false);
+     setLockConfirm({ ...lockConfirm, isOpen: false });
+     
+     if (success) {
+        setMessage({ type: 'success', text: 'Chốt số liệu thành công!' });
+        await DataStore.syncMasterData();
+     } else {
+        setMessage({ type: 'error', text: 'Có lỗi xảy ra khi chốt số liệu!' });
+     }
+     setTimeout(() => setMessage(null), 5000);
+  };
+  
   const requestSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
@@ -259,6 +380,43 @@ export default function PlanProgressTab({ refreshToggle }: { refreshToggle?: num
   };
 
   return (
+    <>
+    {message && (
+        <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[100] px-6 py-3 rounded-xl shadow-lg border animate-in fade-in slide-in-from-top-4 ${message.type === 'success' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-600 border-red-200'}`}>
+           {message.text}
+        </div>
+    )}
+    
+    {lockConfirm.isOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-6">
+              <h3 className="text-lg font-bold text-slate-800 mb-2">Xác nhận chốt thực hiện {lockConfirm.isYear ? 'năm' : 'tháng'}</h3>
+              <p className="text-slate-600 text-sm mb-6">
+                Bạn có chắc chắn muốn chốt số liệu thực hiện <strong>{lockConfirm.isYear ? 'năm' : 'tháng'} {selectedMonth}</strong> cho <strong>{selectedTeam}</strong>?
+                Hệ thống sẽ tổng hợp tất cả khối lượng đã thực hiện và lưu vĩnh viễn vào cột <strong>[{lockConfirm.lockedKey}]</strong>. Hành động này không thể hoàn tác trên app.
+              </p>
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setLockConfirm({...lockConfirm, isOpen: false})}
+                  className="px-4 py-2 font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  type="button"
+                  onClick={executeLock}
+                  className="px-4 py-2 font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-lg transition-colors shadow-sm shadow-rose-600/20"
+                >
+                  Đồng ý chốt
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+    )}
+
     <div className="h-[calc(100vh-140px)] flex flex-col p-4 md:p-8 max-w-7xl mx-auto w-full gap-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
          <div>
@@ -322,7 +480,7 @@ export default function PlanProgressTab({ refreshToggle }: { refreshToggle?: num
                >
                  {availableMonths.length === 0 && <option value="">Không có dữ liệu KH</option>}
                  {availableMonths.map(m => (
-                    <option key={m} value={m}>Tháng {m}</option>
+                    <option key={m} value={m}>{m.includes('/') ? `Tháng ${m}` : `Năm ${m}`}</option>
                  ))}
                </select>
                <Calendar className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-indigo-500 pointer-events-none" />
@@ -411,7 +569,15 @@ export default function PlanProgressTab({ refreshToggle }: { refreshToggle?: num
                 />
                 <span className="font-medium text-slate-700">Chỉ tính tỷ lệ trên các mục có giao Kế hoạch</span>
             </label>
-            <div className="flex items-center gap-6 self-end md:self-auto">
+            <div className="flex flex-col md:flex-row items-end md:items-center gap-6 self-end md:self-auto">
+                <button
+                   onClick={handleLockInit}
+                   disabled={filteredData.length === 0 || isLocking}
+                   className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 text-sm font-bold rounded-lg flex items-center gap-2 transition-colors w-full sm:w-auto justify-center disabled:opacity-50 disabled:cursor-not-allowed border border-rose-200"
+                >
+                   <CheckCircle className="w-4 h-4" />
+                   {isLocking ? 'Đang chốt...' : (selectedMonth.includes('/') ? 'Chốt TH Tháng' : 'Chốt TH Năm')}
+                </button>
                 <div className="text-right">
                     <p className="text-[11px] text-slate-500 font-bold uppercase tracking-wider mb-2">
                         Nhận định tỷ lệ thực hiện của {selectedTeam}
@@ -444,5 +610,6 @@ export default function PlanProgressTab({ refreshToggle }: { refreshToggle?: num
          </div>
       </div>
     </div>
+    </>
   );
 }

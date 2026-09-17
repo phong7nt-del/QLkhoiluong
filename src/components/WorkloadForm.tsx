@@ -61,6 +61,12 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
   
   const [membersToDelete, setMembersToDelete] = useState<string[]>([]);
   const triggerDeleteConfirm = () => {
+      const lockCheck = isDateLocked(date, team);
+      if (lockCheck.locked) {
+        setMessage({ type: 'error', text: `Không thể xóa báo cáo. Dữ liệu của ${team} trong ${lockCheck.type === 'year' ? `năm ${lockCheck.year}` : `tháng ${lockCheck.month}/${lockCheck.year}`} đã được chốt!` });
+        setTimeout(() => setMessage(null), 5000);
+        return;
+      }
       if (members.length === 0) {
           setMessage({ type: 'error', text: "Bạn phải chọn 1 thành viên để xóa báo cáo."});
           return;
@@ -232,9 +238,87 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
     }
   };
 
+  const handlePlanYearSubmit = async () => {
+    const entries = Object.entries(selectedTasks) as [string, {selected: boolean, quantity: number | string}][];
+    const selectedList = entries.filter(([_, data]: [string, any]) => data.selected && Number(data.quantity) > 0).map(([name, data]: [string, any]) => ({name, quantity: Number(data.quantity)}));
+    
+    if (!team) {
+      setMessage({ type: 'error', text: "Vui lòng chọn Đội hoặc Tổ công tác để lưu kế hoạch năm" });
+      setTimeout(() => setMessage(null), 5000);
+      return;
+    }
+
+    if (selectedList.length === 0) {
+      setMessage({ type: 'error', text: "Vui lòng chọn ít nhất 1 nội dung để lập kế hoạch năm" });
+      setTimeout(() => setMessage(null), 5000);
+      return;
+    }
+
+    if (!date) {
+      setMessage({ type: 'error', text: "Vui lòng chọn ngày để lấy thông tin Năm" });
+      setTimeout(() => setMessage(null), 5000);
+      return;
+    }
+
+    const d = new Date(date);
+    const pChar = getTeamPrefix(team);
+    const prefix = pChar ? `${pChar} -` : "Năm";
+    const yearStr = `${prefix} ${d.getFullYear()}`;
+    
+    const existingPlan = dinhMucList.some(dm => dm.history && dm.history[yearStr] !== undefined && dm.history[yearStr] > 0);
+    if (existingPlan) {
+      setMessage({ type: 'error', text: `Kế hoạch năm cho ${team} trong năm ${d.getFullYear()} đã tồn tại.` });
+      setTimeout(() => setMessage(null), 5000);
+      return;
+    }
+
+    setIsSubmittingPlan(true);
+    const success = await DataStore.syncPlanToSheet(yearStr, selectedList);
+    if (success) {
+       await DataStore.syncMasterData();
+    }
+    setIsSubmittingPlan(false);
+
+    if (success) {
+       setMessage({ type: 'success', text: "Đã lưu kế hoạch năm thành công!" });
+       setTimeout(() => setMessage(null), 5000);
+       setTeam('');
+       setMembers([]);
+       const resetTasks: any = {};
+       Object.keys(selectedTasks).forEach(k => {
+          resetTasks[k] = { selected: false, quantity: '' };
+       });
+       setSelectedTasks(resetTasks);
+       onSaved();
+    } else {
+       const isDefault = DataStore.getAppScriptUrl() === 'https://script.google.com/macros/s/AKfycbzpw3SlqJxXYC29qjPRqH8ehfJp764bNvQFUzqIgMW_rMrpitMKvvRvWbbGrP505Sdi/exec';
+       if (isDefault) {
+           setMessage({ type: 'error', text: "Lỗi: Máy này chưa cấu hình Link App Script mới. Vào phần Cài đặt (bánh răng) để cập nhật Link App Script!" });
+       } else {
+           setMessage({ type: 'error', text: "Có lỗi xảy ra. Hãy kiểm tra kết nối mạng hoặc đảm bảo Link App Script (trong Cài đặt) đã chính xác." });
+       }
+       setTimeout(() => setMessage(null), 8000);
+    }
+  };
+
   const [isSubmitting, setIsSubmitting] = useState(false);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const hasSelectedTasks = Object.values(selectedTasks).some((data: any) => data.selected && Number(data.quantity) > 0);
+
+  const isDateLocked = (dStr: string, teamName: string) => {
+    if (!dStr || !teamName) return false;
+    const d = new Date(dStr);
+    const pChar = getTeamPrefix(teamName);
+    const mPrefix = pChar ? `${pChar} -` : "Tháng";
+    const yPrefix = pChar ? `${pChar} -` : "Năm";
+    const monthKey = `${mPrefix} ${d.getMonth() + 1}/${d.getFullYear()}R`;
+    const yearKey = `${yPrefix} ${d.getFullYear()}R`;
+    const lockedMonth = dinhMucList.some(dm => dm.history && dm.history[monthKey] !== undefined);
+    const lockedYear = dinhMucList.some(dm => dm.history && dm.history[yearKey] !== undefined);
+    if (lockedYear) return { locked: true, type: 'year', year: d.getFullYear() };
+    if (lockedMonth) return { locked: true, type: 'month', month: d.getMonth() + 1, year: d.getFullYear() };
+    return { locked: false };
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -242,6 +326,12 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
     const entries = Object.entries(selectedTasks) as [string, {selected: boolean, quantity: number | string}][];
     const selectedList = entries.filter(([_, data]: [string, any]) => data.selected && Number(data.quantity) > 0);
     
+    const lockCheck = isDateLocked(date, team);
+    if (lockCheck.locked) {
+      setMessage({ type: 'error', text: `Không thể cập nhật báo cáo. Dữ liệu của ${team} trong ${lockCheck.type === 'year' ? `năm ${lockCheck.year}` : `tháng ${lockCheck.month}/${lockCheck.year}`} đã được chốt!` });
+      setTimeout(() => setMessage(null), 5000);
+      return;
+    }
     if (!team || members.length === 0 || !date || selectedList.length === 0) {
       setMessage({ type: 'error', text: "Vui lòng điền đầy đủ thông tin nội dung và có ít nhất 1 nội dung được chọn" });
       setTimeout(() => setMessage(null), 5000);
@@ -861,14 +951,24 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
           </div>
           
           {isManagement && (
-              <button 
-                type="button"
-                onClick={handlePlanSubmit}
-                disabled={isSubmittingPlan || !hasSelectedTasks}
-                className={`sm:w-1/3 py-4 bg-gradient-to-r text-white font-bold text-lg rounded-xl transition-all flex items-center justify-center gap-2 ${(isSubmittingPlan || !hasSelectedTasks) ? 'from-slate-400 to-slate-500 opacity-50 cursor-not-allowed shadow-none' : 'from-amber-500 to-orange-500 shadow-lg shadow-amber-500/30 hover:shadow-amber-500/40 hover:-translate-y-0.5 active:translate-y-0'}`}
-              >
-                {isSubmittingPlan ? 'ĐANG LƯU...' : 'Lưu Kế hoạch Tháng'}
-              </button>
+              <div className="sm:w-1/3 flex flex-col gap-2">
+                 <button 
+                   type="button"
+                   onClick={handlePlanSubmit}
+                   disabled={isSubmittingPlan || !hasSelectedTasks}
+                   className={`w-full py-2 bg-gradient-to-r text-white font-bold text-sm rounded-xl transition-all flex items-center justify-center gap-2 ${(isSubmittingPlan || !hasSelectedTasks) ? 'from-slate-400 to-slate-500 opacity-50 cursor-not-allowed shadow-none' : 'from-amber-500 to-orange-500 shadow-md shadow-amber-500/30 hover:shadow-amber-500/40 hover:-translate-y-0.5 active:translate-y-0'}`}
+                 >
+                   {isSubmittingPlan ? 'ĐANG LƯU...' : 'Lưu KH Tháng'}
+                 </button>
+                 <button 
+                   type="button"
+                   onClick={handlePlanYearSubmit}
+                   disabled={isSubmittingPlan || !hasSelectedTasks}
+                   className={`w-full py-2 bg-gradient-to-r text-white font-bold text-sm rounded-xl transition-all flex items-center justify-center gap-2 ${(isSubmittingPlan || !hasSelectedTasks) ? 'from-slate-400 to-slate-500 opacity-50 cursor-not-allowed shadow-none' : 'from-emerald-500 to-teal-500 shadow-md shadow-emerald-500/30 hover:shadow-emerald-500/40 hover:-translate-y-0.5 active:translate-y-0'}`}
+                 >
+                   {isSubmittingPlan ? 'ĐANG LƯU...' : 'Lưu KH Năm'}
+                 </button>
+              </div>
           )}
         </div>
 

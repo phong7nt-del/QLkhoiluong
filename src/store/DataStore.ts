@@ -183,6 +183,12 @@ export const DataStore = {
       return val === 'true'; // Default is false
   },
   setExcludeSunday: (val: boolean) => safeSetItem('config_exclude_sunday', val ? 'true' : 'false'),
+  getAllowAllLockPlan: () => {
+      const val = safeGetItem('config_allow_all_lock_plan');
+      return val === 'true'; // Default is false
+  },
+  setAllowAllLockPlan: (val: boolean) => safeSetItem('config_allow_all_lock_plan', val ? 'true' : 'false'),
+  
   getExcludeNghi: () => {
       const val = safeGetItem('config_exclude_nghi');
       return val !== 'false'; // Default is true (không tính)
@@ -1901,5 +1907,39 @@ export const DataStore = {
       console.warn('Error syncing VTTB:', e);
       return false;
     }
+  },
+
+  logInAction: async (username: string) => {
+      try {
+          const url = DataStore.getAppScriptUrl();
+          if (!url) return null;
+          const response = await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify({ action: 'log_in', username })
+          });
+          const json = await response.json();
+          return json.status === 'success' ? json : null;
+      } catch (e) {
+          console.warn('Error logInAction:', e);
+          return null;
+      }
+  },
+
+  pingOnline: async (username: string) => {
+      try {
+          const url = DataStore.getAppScriptUrl();
+          if (!url) return null;
+          const response = await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify({ action: 'ping_online', username })
+          });
+          const json = await response.json();
+          return json.status === 'success' ? json : null;
+      } catch (e) {
+          console.warn('Error pingOnline:', e);
+          return null;
+      }
   }
 };

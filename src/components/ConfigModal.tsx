@@ -382,6 +382,89 @@ function doPost(e) {
     }
 
     var action = payload.action;
+
+    if (action === 'log_in' || action === 'ping_online') {
+       var cache = CacheService.getScriptCache();
+       var activeStr = cache.get('active_users');
+       var active = activeStr ? JSON.parse(activeStr) : {};
+       var now = new Date().getTime();
+       var username = payload.username || 'unknown';
+       active[username] = now;
+       
+       var onlineCount = 0;
+       for (var k in active) {
+           if (now - active[k] < 15 * 60 * 1000) { // 15 minutes
+               onlineCount++;
+           } else {
+               delete active[k];
+           }
+       }
+       cache.put('active_users', JSON.stringify(active), 15 * 60);
+
+       var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
+       var sheet = ss.getSheetByName('LogIn');
+       
+       if (action === 'log_in') {
+           if (!sheet) {
+               sheet = ss.insertSheet('LogIn');
+               sheet.getRange("A1").setValue("Tổng đăng nhập:");
+               sheet.getRange("B1").setValue(0);
+               sheet.getRange("A2").setValue("Ngày");
+               sheet.getRange("B2").setValue("Số lượng");
+           }
+           
+           var tz = Session.getScriptTimeZone();
+           var today = Utilities.formatDate(new Date(), tz, "dd/MM/yyyy");
+           
+           var totalRange = sheet.getRange("B1");
+           var total = parseInt(totalRange.getValue()) || 0;
+           totalRange.setValue(total + 1);
+           
+           var lastRow = sheet.getLastRow();
+           var data = lastRow > 2 ? sheet.getRange(3, 1, lastRow - 2, 2).getValues() : [];
+           var found = false;
+           for (var i = 0; i < data.length; i++) {
+               var cellDate = data[i][0];
+               if (Object.prototype.toString.call(cellDate) === '[object Date]') {
+                   cellDate = Utilities.formatDate(cellDate, tz, "dd/MM/yyyy");
+               } else {
+                   var s = String(cellDate).trim();
+                   var parts = s.split('/');
+                   if (parts.length === 3) {
+                       cellDate = (parts[0].length === 1 ? '0' + parts[0] : parts[0]) + '/' +
+                                  (parts[1].length === 1 ? '0' + parts[1] : parts[1]) + '/' + parts[2];
+                   }
+               }
+               if (String(cellDate).trim() === today) {
+                   var count = parseInt(data[i][1]) || 0;
+                   sheet.getRange(i + 3, 2).setValue(count + 1);
+                   found = true;
+                   break;
+               }
+           }
+           
+           if (!found) {
+               sheet.appendRow(["'" + today, 1]);
+           }
+           
+           return ContentService.createTextOutput(JSON.stringify({ 
+               status: 'success', 
+               totalLogins: total + 1,
+               onlineCount: onlineCount
+           })).setMimeType(ContentService.MimeType.JSON);
+       } else {
+           var total = 0;
+           if (sheet) {
+               total = parseInt(sheet.getRange("B1").getValue()) || 0;
+           }
+           return ContentService.createTextOutput(JSON.stringify({ 
+               status: 'success', 
+               onlineCount: onlineCount,
+               totalLogins: total
+           })).setMimeType(ContentService.MimeType.JSON);
+       }
+    }
+
     if (action === 'savePlan') {
        var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
        var sheet = getSheetFlexibly(ss, ['Nhật ký/CongTac', 'Nhat ky/CongTac', 'CongTac', 'Cong Tac', 'Công tác']);

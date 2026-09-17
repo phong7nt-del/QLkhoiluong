@@ -1,47 +1,12 @@
 const fs = require('fs');
-let content = fs.readFileSync('src/store/DataStore.ts', 'utf8');
+let code = fs.readFileSync('src/store/DataStore.ts', 'utf8');
 
-const strToReplace = `  addDcu: async (data: any) => {
-     try {
-         const url = DataStore.getAppScriptUrl();
-         const res = await fetch(url, {
-             method: 'POST',
-             mode: 'no-cors',
-             headers: { 'Content-Type': 'application/json' },
-             body: JSON.stringify({
-                 action: 'add_dcu',
-                 payload: { data }
-             })
-         });
-         return true;
-     } catch(e) {
-         console.error('Lỗi lưu DCU:', e);
-         return false;
-     }
-  },`;
+code = code.replace(/getExcludeNghi: \(\) => \{/, `getAllowAllLockPlan: () => {
+      const val = safeGetItem('config_allow_all_lock_plan');
+      return val === 'true'; // Default is false
+  },
+  setAllowAllLockPlan: (val: boolean) => safeSetItem('config_allow_all_lock_plan', val ? 'true' : 'false'),
+  
+  getExcludeNghi: () => {`);
 
-const newStr = `  addDcu: async (data: any) => {
-     try {
-         const url = DataStore.getAppScriptUrl();
-         const res = await fetch(url, {
-             method: 'POST',
-             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-             body: JSON.stringify({
-                 action: 'add_dcu',
-                 payload: { data }
-             })
-         });
-         const json = await res.json();
-         if (json.status !== 'success') {
-             throw new Error(json.message || 'Lưu thất bại');
-         }
-         return true;
-     } catch(e) {
-         console.error('Lỗi lưu DCU:', e);
-         return false;
-     }
-  },`;
-
-content = content.replace(strToReplace, newStr);
-fs.writeFileSync('src/store/DataStore.ts', content, 'utf8');
-console.log('Patched addDcu in DataStore.ts');
+fs.writeFileSync('src/store/DataStore.ts', code);

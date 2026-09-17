@@ -107,6 +107,24 @@ export default function App() {
   const [sessionUser, setSessionUser] = useState<SheetMember | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showScrollGroup, setShowScrollGroup] = useState(false);
+  const [onlineStats, setOnlineStats] = useState<{ totalLogins: number, onlineCount: number } | null>(null);
+
+  useEffect(() => {
+    if (sessionUser) {
+      const username = sessionUser.name || sessionUser.email || 'unknown';
+      DataStore.pingOnline(username).then(stats => {
+        if (stats) setOnlineStats(stats);
+      });
+
+      const interval = setInterval(() => {
+        DataStore.pingOnline(username).then(stats => {
+          if (stats) setOnlineStats(stats);
+        });
+      }, 5 * 60 * 1000);
+      
+      return () => clearInterval(interval);
+    }
+  }, [sessionUser]);
   
   const handleScroll = () => {
     if (scrollRef.current) {
@@ -250,6 +268,11 @@ export default function App() {
          sessionStorage.setItem('task_stats_shown', 'true');
      }
      setRefreshToggle(prev => prev + 1);
+
+     const username = user.name || user.email || 'unknown';
+     DataStore.logInAction(username).then(stats => {
+         if (stats) setOnlineStats(stats);
+     });
   };
 
   const handleLogout = () => {
@@ -420,6 +443,25 @@ export default function App() {
                    );
                 })}
              </div>
+             
+             {/* Online Stats inside sidebar */}
+             {onlineStats && isSidebarOpen && (
+                <div className="mt-auto pt-6 pb-2 px-3 flex flex-col gap-2 relative z-20">
+                   <div className="bg-white/80 backdrop-blur-md shadow-[0_4px_12px_rgb(0,0,0,0.05)] border border-slate-200/50 rounded-xl p-3 flex flex-col gap-2 text-center">
+                      <div className="flex flex-col items-center group cursor-default">
+                         <span className="flex items-center gap-1.5 text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse"></span> 
+                            Online
+                         </span>
+                         <span className="font-black text-slate-800 text-lg group-hover:text-emerald-600 transition-colors leading-none">{onlineStats.onlineCount}</span>
+                      </div>
+                      <div className="border-t border-slate-200/60 pt-2 flex flex-col items-center">
+                         <span className="text-slate-400 uppercase tracking-widest text-[9px] mb-0.5">Tổng Login</span>
+                         <span className="font-bold text-slate-700 leading-none">{onlineStats.totalLogins}</span>
+                      </div>
+                   </div>
+                </div>
+             )}
           </div>
 
           <main className="flex-1 flex flex-col relative z-20 bg-white min-w-0">
