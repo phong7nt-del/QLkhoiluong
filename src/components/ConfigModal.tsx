@@ -1145,20 +1145,40 @@ function doPost(e) {
        var sheet = getSheetFlexibly(ss, ['DCU', 'dcu']);
        if (!sheet) return ContentService.createTextOutput(JSON.stringify({status: 'error'})).setMimeType(ContentService.MimeType.JSON);
        
-       var idList = payload.data; // Array of id strings
+       var list = payload.data || [];
        var sheetData = sheet.getDataRange().getValues();
        var headers = sheetData[0] || [];
        var idCol = -1;
+       var sttCol = -1;
        for (var c = 0; c < headers.length; c++) {
            var h = String(headers[c]).toLowerCase().trim();
+           h = h.normalize('NFD').replace(/[̀-ͯ]/g, "").replace(/đ/g, "d").replace(/[^a-z0-9]/g, "");
            if (h === 'id') idCol = c;
+           if (h === 'stt' || h === 'tt') sttCol = c;
        }
        
-       if (idCol === -1) return ContentService.createTextOutput(JSON.stringify({status: 'error'})).setMimeType(ContentService.MimeType.JSON);
-       
        for (var r = sheetData.length - 1; r > 0; r--) {
-           var val = String(sheetData[r][idCol]).trim();
-           if (idList.indexOf(val) !== -1) {
+           var rStt = sttCol !== -1 ? String(sheetData[r][sttCol]).trim() : '';
+           var rId = idCol !== -1 ? String(sheetData[r][idCol]).trim() : '';
+           var shouldDelete = false;
+           for (var i = 0; i < list.length; i++) {
+               var item = list[i];
+               if (typeof item === 'object' && item !== null) {
+                   if (item.stt && rStt && String(item.stt).trim() === rStt) {
+                       shouldDelete = true; break;
+                   } else if (!item.stt && item.id && rId && String(item.id).trim() === rId) {
+                       shouldDelete = true; break;
+                   }
+               } else {
+                   var sVal = String(item).trim();
+                   if (rStt && sVal === rStt) {
+                       shouldDelete = true; break;
+                   } else if (rId && sVal === rId) {
+                       shouldDelete = true; break;
+                   }
+               }
+           }
+           if (shouldDelete) {
                sheet.deleteRow(r + 1);
            }
        }
@@ -1428,22 +1448,41 @@ function doPost(e) {
        var sheet = getSheetFlexibly(ss, ['XuLyDoXa', 'Xu Ly Do Xa', 'Xử lý đo xa']);
        if (!sheet) return ContentService.createTextOutput(JSON.stringify({status: 'error'})).setMimeType(ContentService.MimeType.JSON);
        
-       var maDdList = payload.data; // Array of maDd strings
+       var list = payload.data || [];
        var sheetData = sheet.getDataRange().getValues();
        var headers = sheetData[0] || [];
        var maDdCol = -1;
+       var sttCol = -1;
        for (var c = 0; c < headers.length; c++) {
            var h = String(headers[c]).toLowerCase().trim();
            h = h.normalize('NFD').replace(/[̀-ͯ]/g, "").replace(/đ/g, "d").replace(/[^a-z0-9]/g, "");
            if (h === 'madd') maDdCol = c;
+           if (h === 'stt' || h === 'tt') sttCol = c;
        }
-       
-       if (maDdCol === -1) return ContentService.createTextOutput(JSON.stringify({status: 'error', message: 'No maDd col'})).setMimeType(ContentService.MimeType.JSON);
        
        // delete from bottom to top
        for (var r = sheetData.length - 1; r > 0; r--) {
-           var val = String(sheetData[r][maDdCol]).trim();
-           if (maDdList.indexOf(val) !== -1) {
+           var rStt = sttCol !== -1 ? String(sheetData[r][sttCol]).trim() : '';
+           var rMaDd = maDdCol !== -1 ? String(sheetData[r][maDdCol]).trim() : '';
+           var shouldDelete = false;
+           for (var i = 0; i < list.length; i++) {
+               var item = list[i];
+               if (typeof item === 'object' && item !== null) {
+                   if (item.stt && rStt && String(item.stt).trim() === rStt) {
+                       shouldDelete = true; break;
+                   } else if (!item.stt && item.maDd && rMaDd && String(item.maDd).trim() === rMaDd) {
+                       shouldDelete = true; break;
+                   }
+               } else {
+                   var sVal = String(item).trim();
+                   if (rStt && sVal === rStt) {
+                       shouldDelete = true; break;
+                   } else if (rMaDd && sVal === rMaDd) {
+                       shouldDelete = true; break;
+                   }
+               }
+           }
+           if (shouldDelete) {
                sheet.deleteRow(r + 1);
            }
        }

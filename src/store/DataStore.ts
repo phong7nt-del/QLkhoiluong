@@ -492,14 +492,14 @@ export const DataStore = {
     }
   },
 
-    deleteXuLyDoXaBulk: async (maDdList: string[]) => {
+    deleteXuLyDoXaBulk: async (items: any[]) => {
       try {
           const url = DataStore.getAppScriptUrl();
           if (!url) return false;
           await fetch(url, {
               method: 'POST',
               headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-              body: JSON.stringify({ action: 'delete_xulydoxa_bulk', data: maDdList })
+              body: JSON.stringify({ action: 'delete_xulydoxa_bulk', data: items })
           });
           return true;
       } catch (e) {
@@ -508,14 +508,14 @@ export const DataStore = {
       }
   },
 
-  deleteDcuBulk: async (ids: string[]) => {
+  deleteDcuBulk: async (items: any[]) => {
       try {
           const url = DataStore.getAppScriptUrl();
           if (!url) return false;
           await fetch(url, {
               method: 'POST',
               headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-              body: JSON.stringify({ action: 'delete_dcu_bulk', data: ids })
+              body: JSON.stringify({ action: 'delete_dcu_bulk', data: items })
           });
           return true;
       } catch (e) {

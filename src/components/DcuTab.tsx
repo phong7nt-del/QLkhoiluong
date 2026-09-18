@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { DataStore } from '../store/DataStore';
 import * as XLSX from 'xlsx';
-import { Fingerprint, Map, Navigation, FileText, Camera, MapPin, Search, SortAsc, SortDesc, Save, AlertCircle, CheckCircle2, Image as ImageIcon, ZoomIn, ZoomOut, X, Upload, ListTodo, CheckSquare, Edit } from 'lucide-react';
+import { Fingerprint, Map, Navigation, FileText, Camera, MapPin, Search, SortAsc, SortDesc, Save, AlertCircle, CheckCircle2, Image as ImageIcon, ZoomIn, ZoomOut, X, Upload, ListTodo, CheckSquare, Edit, Trash2 } from 'lucide-react';
 
 
 const getDriveImageUrl = (url: string) => {
@@ -248,14 +248,21 @@ export default function DcuTab() {
   const roleString = String(sessionUserObj.role || '').toLowerCase();
   const canDelete = roleString.includes('tổ trưởng tổ đo xa') || roleString.includes('đội trưởng');
   
+  const getDcuKey = (row: any, idx: number) => {
+      return row.stt ? `stt_${row.stt}` : (row.id ? `id_${row.id}_${idx}` : `row_${idx}`);
+  };
+
   const handleDeleteSelected = async () => {
       if (!canDelete || selectedIds.length === 0) return;
       if (!confirm(`Bạn có chắc chắn muốn xóa ${selectedIds.length} dòng đang chọn?`)) return;
       
       setIsDeletingBulk(true);
-      const success = await DataStore.deleteDcuBulk(selectedIds);
+      const selectedRows = data.filter((r, i) => selectedIds.includes(getDcuKey(r, i)));
+      const payload = selectedRows.map(r => ({ stt: r.stt, id: r.id }));
+      const success = await DataStore.deleteDcuBulk(payload.length > 0 ? payload : selectedIds);
       if (success) {
           setMessage({ type: 'success', text: `Đã xóa thành công ${selectedIds.length} dòng.` });
+          setData(prev => prev.filter((r, i) => !selectedIds.includes(getDcuKey(r, i))));
           setSelectedIds([]);
           loadData();
       } else {
@@ -489,7 +496,7 @@ export default function DcuTab() {
       
         <div className="flex border-b border-[#141414]/20 bg-white shadow-sm overflow-x-auto mb-4">
             <button 
-                onClick={() => { setListType('chua_phan_cong'); setCurrentPage(1); }}
+                onClick={() => { setListType('chua_phan_cong'); setCurrentPage(1); setSelectedIds([]); }}
                 className={`px-6 py-3.5 font-extrabold uppercase tracking-widest text-sm transition-all whitespace-nowrap flex items-center gap-2 ${
                     listType === 'chua_phan_cong' 
                     ? 'bg-[#141414] text-white' 
@@ -500,7 +507,7 @@ export default function DcuTab() {
                 Danh sách đang phân công ({userSpecificData.filter(d => !d.toadoX || !d.toadoY).length})
             </button>
             <button 
-                onClick={() => { setListType('da_phan_cong'); setCurrentPage(1); }}
+                onClick={() => { setListType('da_phan_cong'); setCurrentPage(1); setSelectedIds([]); }}
                 className={`px-6 py-3.5 font-extrabold uppercase tracking-widest text-sm transition-all whitespace-nowrap flex items-center gap-2 ${
                     listType === 'da_phan_cong' 
                     ? 'bg-[#141414] text-white' 
@@ -519,6 +526,17 @@ export default function DcuTab() {
                 <span className="bg-slate-200 text-slate-700 py-0.5 px-2 rounded-full text-[10px]">{filteredData.length}</span>
             </h3>
             <div className="flex items-center gap-2">
+      {listType === 'chua_phan_cong' && canDelete && selectedIds.length > 0 && (
+          <button 
+              type="button"
+              onClick={handleDeleteSelected}
+              disabled={isDeletingBulk}
+              className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-1 shadow-sm transition-colors whitespace-nowrap disabled:opacity-50"
+          >
+              <Trash2 className="w-4 h-4" />
+              {isDeletingBulk ? 'Đang xóa...' : `Xóa ${selectedIds.length} dòng`}
+          </button>
+      )}
       <label className="cursor-pointer bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-1 transition-colors whitespace-nowrap">
           <Upload className="w-4 h-4" />
           Import 
@@ -543,7 +561,26 @@ export default function DcuTab() {
                 <thead className="bg-slate-100 text-slate-600 font-bold uppercase text-[10px]">
                     <tr>
                         <th className="px-4 py-3 border-b border-slate-200 cursor-pointer hover:bg-slate-200" onClick={() => handleSort('stt')}>
-                            <div className="flex items-center gap-1">STT {sortCol === 'stt' && (sortDir === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}</div>
+                            {listType === 'chua_phan_cong' && canDelete ? (
+                                <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                                    <input 
+                                        type="checkbox" 
+                                        className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                        checked={paginatedData.length > 0 && paginatedData.every((r, i) => selectedIds.includes(getDcuKey(r, (currentPage - 1) * rowsPerPage + i)))}
+                                        onChange={(e) => {
+                                            const pageKeys = paginatedData.map((r, i) => getDcuKey(r, (currentPage - 1) * rowsPerPage + i));
+                                            if (e.target.checked) {
+                                                setSelectedIds(prev => Array.from(new Set([...prev, ...pageKeys])));
+                                            } else {
+                                                setSelectedIds(prev => prev.filter(k => !pageKeys.includes(k)));
+                                            }
+                                        }}
+                                    />
+                                    STT {sortCol === 'stt' && (sortDir === 'asc' ? <SortAsc className="w-3 h-3 inline" /> : <SortDesc className="w-3 h-3 inline" />)}
+                                </div>
+                            ) : (
+                                <div className="flex items-center gap-1">STT {sortCol === 'stt' && (sortDir === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}</div>
+                            )}
                         </th>
                         <th className="px-4 py-3 border-b border-slate-200 cursor-pointer hover:bg-slate-200" onClick={() => handleSort('id')}>
                             <div className="flex items-center gap-1">ID {sortCol === 'id' && (sortDir === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}</div>
@@ -602,10 +639,11 @@ export default function DcuTab() {
                                             <input 
                                                 type="checkbox" 
                                                 className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                                                checked={selectedIds.includes(row.id)}
+                                                checked={selectedIds.includes(getDcuKey(row, (currentPage - 1) * rowsPerPage + idx))}
                                                 onChange={(e) => {
-                                                    if (e.target.checked) setSelectedIds([...selectedIds, row.id]);
-                                                    else setSelectedIds(selectedIds.filter(id => id !== row.id));
+                                                    const rowKey = getDcuKey(row, (currentPage - 1) * rowsPerPage + idx);
+                                                    if (e.target.checked) setSelectedIds(prev => [...prev, rowKey]);
+                                                    else setSelectedIds(prev => prev.filter(id => id !== rowKey));
                                                 }}
                                             />
                                             {row.stt || ((currentPage - 1) * rowsPerPage + idx + 1)}

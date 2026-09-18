@@ -36,13 +36,23 @@ export default function XuLyDoXaView({ xuLyList, refreshData, setXuLyList }: { x
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isDeletingBulk, setIsDeletingBulk] = useState(false);
 
+  const getRowKey = (row: XuLyDoXaEntry, idx: number) => {
+    return row.stt != null && String(row.stt).trim() !== '' ? `stt_${row.stt}` : `row_${row.maDd || 'nomadd'}_${idx}`;
+  };
+
   const handleDeleteSelected = async () => {
     if (!canDelete || selectedIds.length === 0) return;
     if (!confirm(`Bạn có chắc chắn muốn xóa ${selectedIds.length} dòng đang chọn?`)) return;
     
     setIsDeletingBulk(true);
-    const success = await DataStore.deleteXuLyDoXaBulk(selectedIds);
+    // Find exact items from xuLyList
+    const toDeleteItems = xuLyList.filter((r, i) => selectedIds.includes(getRowKey(r, i)));
+    const payload = toDeleteItems.map(r => ({ stt: r.stt, maDd: r.maDd }));
+    const success = await DataStore.deleteXuLyDoXaBulk(payload.length > 0 ? payload : selectedIds);
     if (success) {
+        if (setXuLyList) {
+            setXuLyList(prev => prev.filter((r, i) => !selectedIds.includes(getRowKey(r, i))));
+        }
         setSelectedIds([]);
         refreshData();
     }
@@ -444,13 +454,14 @@ Cấu trúc file Excel mẫu:
                                   <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
                                       <input 
                                           type="checkbox" 
-                                          className="w-4 h-4 rounded border-slate-600 text-blue-500 bg-slate-700"
-                                          checked={paginatedData.length > 0 && selectedIds.length === paginatedData.length}
-                                          onChange={() => {
-                                              if (selectedIds.length === paginatedData.length) {
-                                                  setSelectedIds([]);
+                                          className="w-4 h-4 rounded border-slate-600 text-blue-500 bg-slate-700 cursor-pointer"
+                                          checked={paginatedData.length > 0 && paginatedData.every((r, i) => selectedIds.includes(getRowKey(r, (currentPage - 1) * pageSize + i)))}
+                                          onChange={(e) => {
+                                              const pageKeys = paginatedData.map((r, i) => getRowKey(r, (currentPage - 1) * pageSize + i));
+                                              if (e.target.checked) {
+                                                  setSelectedIds(prev => Array.from(new Set([...prev, ...pageKeys])));
                                               } else {
-                                                  setSelectedIds(paginatedData.map(r => r.maDd));
+                                                  setSelectedIds(prev => prev.filter(k => !pageKeys.includes(k)));
                                               }
                                           }}
                                       />
@@ -480,23 +491,27 @@ Cấu trúc file Excel mẫu:
                       </tr>
                   </thead>
                   <tbody>
-                      {paginatedData.map((row, idx) => (
-                          <tr key={idx} className="border-b border-slate-200 hover:bg-slate-100 transition-colors cursor-pointer" onClick={() => { setEditingItem(row); setFormData(row); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>
+                      {paginatedData.map((row, idx) => {
+                          const globalIdx = (currentPage - 1) * pageSize + idx;
+                          const rowKey = getRowKey(row, globalIdx);
+                          const isChecked = selectedIds.includes(rowKey);
+                          return (
+                          <tr key={rowKey} className="border-b border-slate-200 hover:bg-slate-100 transition-colors cursor-pointer" onClick={() => { setEditingItem(row); setFormData(row); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>
                               <td className="px-4 py-2 font-medium" onClick={e => e.stopPropagation()}>
                                   {listMode === 'pending' && canDelete ? (
                                       <div className="flex items-center gap-2">
                                           <input 
                                               type="checkbox" 
                                               className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                                              checked={selectedIds.includes(row.maDd)}
+                                              checked={isChecked}
                                               onChange={(e) => {
-                                                  if (e.target.checked) setSelectedIds([...selectedIds, row.maDd]);
-                                                  else setSelectedIds(selectedIds.filter(id => id !== row.maDd));
+                                                  if (e.target.checked) setSelectedIds(prev => [...prev, rowKey]);
+                                                  else setSelectedIds(prev => prev.filter(k => k !== rowKey));
                                               }}
                                           />
-                                          {(currentPage - 1) * pageSize + idx + 1}
+                                          {row.stt || (globalIdx + 1)}
                                       </div>
-                                  ) : ((currentPage - 1) * pageSize + idx + 1)}
+                                  ) : (row.stt || (globalIdx + 1))}
                               </td>
                               <td className="px-4 py-2">{row.loaiXl}</td>
                               <td className="px-4 py-2 font-bold text-red-600">{row.maDd}</td>
@@ -507,7 +522,8 @@ Cấu trúc file Excel mẫu:
                               <td className="px-4 py-2 font-bold">{row.ketQua}</td>
                               <td className="px-4 py-2">{row.ghiChu}</td>
                           </tr>
-                      ))}
+                          );
+                      })}
                       {sortedAndFiltered.length === 0 && (
                           <tr><td colSpan={9} className="px-4 py-8 text-center text-slate-500 font-medium">Không có dữ liệu</td></tr>
                       )}
