@@ -1,4 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+const fs = require('fs');
+
+const code = `import React, { useState, useEffect, useRef } from 'react';
 import { DataStore, SheetMember } from '../store/DataStore';
 import { Gift, Cake, Sparkles, Calendar, Music, PartyPopper } from 'lucide-react';
 import confetti from 'canvas-confetti';
@@ -15,10 +17,10 @@ const calculateAge = (dobString: string | undefined | null) => {
 
 const getWishForAge = (age: number | null) => {
     if (age === null) return "Chúc đồng chí một tuổi mới ngập tràn niềm vui, sức khỏe và hạnh phúc!";
-    if (age < 30) return `Chúc mừng sinh nhật tuổi ${age}! Chúc đồng chí luôn trẻ trung, năng động, đầy nhiệt huyết và gặt hái nhiều thành công rực rỡ!`;
-    if (age < 45) return `Chúc mừng sinh nhật lần thứ ${age}! Chúc đồng chí sự nghiệp không ngừng thăng tiến, gia đình viên mãn và luôn giữ vững phong độ tuyệt vời!`;
-    if (age < 60) return `Chúc mừng tuổi ${age}! Chúc đồng chí luôn dồi dào sức khỏe, an nhiên tự tại và tiếp tục là chỗ dựa vững chắc cho tập thể và gia đình!`;
-    return `Chúc mừng tuổi ${age}! Kính chúc đồng chí sức khỏe dồi dào, vạn sự như ý, luôn tươi trẻ và hạnh phúc đong đầy!`;
+    if (age < 30) return \`Chúc mừng sinh nhật tuổi \${age}! Chúc đồng chí luôn trẻ trung, năng động, đầy nhiệt huyết và gặt hái nhiều thành công rực rỡ!\`;
+    if (age < 45) return \`Chúc mừng sinh nhật lần thứ \${age}! Chúc đồng chí sự nghiệp không ngừng thăng tiến, gia đình viên mãn và luôn giữ vững phong độ tuyệt vời!\`;
+    if (age < 60) return \`Chúc mừng tuổi \${age}! Chúc đồng chí luôn dồi dào sức khỏe, an nhiên tự tại và tiếp tục là chỗ dựa vững chắc cho tập thể và gia đình!\`;
+    return \`Chúc mừng tuổi \${age}! Kính chúc đồng chí sức khỏe dồi dào, vạn sự như ý, luôn tươi trẻ và hạnh phúc đong đầy!\`;
 };
 
 export default function BirthdayTab() {
@@ -26,7 +28,6 @@ export default function BirthdayTab() {
   const [todayBirthdays, setTodayBirthdays] = useState<SheetMember[]>([]);
   const [monthBirthdays, setMonthBirthdays] = useState<SheetMember[]>([]);
   const [isCakeCut, setIsCakeCut] = useState(false);
-  const [isMonthCakeCut, setIsMonthCakeCut] = useState(false);
   
   useEffect(() => {
     const allMembers = DataStore.getMembers();
@@ -99,19 +100,6 @@ export default function BirthdayTab() {
           particleCount: 100,
           spread: 70,
           origin: { y: 0.6 },
-          zIndex: 10000
-      });
-  };
-
-  const handleMonthCakeClick = () => {
-      if (isMonthCakeCut) return;
-      setIsMonthCakeCut(true);
-      
-      // Fire extra confetti from the cake
-      confetti({
-          particleCount: 120,
-          spread: 80,
-          origin: { y: 0.7 },
           zIndex: 10000
       });
   };
@@ -225,42 +213,14 @@ export default function BirthdayTab() {
                         <div className="absolute top-0 right-0 -mt-10 -mr-10 w-40 h-40 bg-white opacity-20 rounded-full blur-3xl mix-blend-overlay"></div>
                         
                         <div className="relative z-10 flex flex-col items-center text-center mb-8">
-                            <div 
-                            onClick={handleMonthCakeClick}
-                            className="relative cursor-pointer group mb-6 z-20"
-                            title="Bấm để cắt bánh!"
-                        >
-                            <AnimatePresence mode="wait">
-                                {!isMonthCakeCut ? (
-                                    <motion.div 
-                                        key="whole-cake-month"
-                                        initial={{ scale: 0, rotate: -180 }}
-                                        animate={{ scale: 1, rotate: 0 }}
-                                        exit={{ scale: 0, opacity: 0, rotate: -90 }}
-                                        transition={{ type: 'spring', stiffness: 260, damping: 20 }}
-                                        className="w-24 h-24 bg-white/20 rounded-full flex items-center justify-center shadow-2xl backdrop-blur-md border border-white/30 group-hover:scale-110 transition-transform mx-auto"
-                                    >
-                                        <Cake className="w-12 h-12 text-white drop-shadow-md" />
-                                        <motion.div 
-                                            animate={{ y: [0, -10, 0] }}
-                                            transition={{ repeat: Infinity, duration: 1.5 }}
-                                            className="absolute -top-4 -right-4 text-3xl opacity-0 group-hover:opacity-100 transition-opacity"
-                                        >
-                                            🔪
-                                        </motion.div>
-                                    </motion.div>
-                                ) : (
-                                    <motion.div 
-                                        key="sliced-cake-month"
-                                        initial={{ scale: 0, rotate: 45 }}
-                                        animate={{ scale: 1, rotate: 0 }}
-                                        className="w-24 h-24 flex items-center justify-center mx-auto"
-                                    >
-                                        <span className="text-6xl drop-shadow-2xl filter drop-shadow-[0_0_15px_rgba(255,255,255,0.8)]">🍰</span>
-                                    </motion.div>
-                                )}
-                            </AnimatePresence>
-                        </div>
+                            <motion.div 
+                                initial={{ scale: 0 }}
+                                animate={{ scale: 1 }}
+                                transition={{ type: "spring", stiffness: 200, delay: 0.1 }}
+                                className="w-16 h-16 bg-white/20 rounded-2xl rotate-3 flex items-center justify-center mb-4 shadow-xl backdrop-blur-md border border-white/30"
+                            >
+                                <Calendar className="w-8 h-8 text-white -rotate-3" />
+                            </motion.div>
 
                             <motion.h3 
                                 initial={{ opacity: 0, y: 20 }}
@@ -343,3 +303,6 @@ export default function BirthdayTab() {
     </div>
   );
 }
+`;
+
+fs.writeFileSync('src/components/BirthdayTab.tsx', code);

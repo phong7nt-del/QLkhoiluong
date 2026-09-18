@@ -1,52 +1,45 @@
 const fs = require('fs');
 let code = fs.readFileSync('src/components/ConfigModal.tsx', 'utf8');
 
-const stateTarget = `  const [syncing, setSyncing] = useState(false);`;
-const stateReplace = `  const [excludeSat, setExcludeSat] = useState(DataStore.getExcludeSaturday());
-  const [excludeSun, setExcludeSun] = useState(DataStore.getExcludeSunday());
-  const [syncing, setSyncing] = useState(false);`;
+const target = `       return ContentService.createTextOutput(JSON.stringify({ status: 'success' })).setMimeType(ContentService.MimeType.JSON);\n    }\n\n    if (action === 'update_sangtai') {`;
 
-const uiTarget = `            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">`;
-const uiReplace = `            <div className="space-y-3 bg-[#E4E3E0] bg-opacity-20 p-4 border border-[#141414]">
-              <label className="block text-[10px] font-mono opacity-50 uppercase font-bold">2. Cấu hình Năng Suất</label>
-              <div className="flex flex-col gap-2">
-                 <label className="flex items-center gap-2 text-sm cursor-pointer hover:bg-black/5 p-1 -ml-1">
-                    <input 
-                       type="checkbox" 
-                       checked={!excludeSat} 
-                       onChange={(e) => {
-                          const newVal = !e.target.checked;
-                          setExcludeSat(newVal);
-                          DataStore.setExcludeSaturday(newVal);
-                       }} 
-                       className="w-4 h-4"
-                    />
-                    Tính năng suất cho ngày Thứ Bảy
-                 </label>
-                 <label className="flex items-center gap-2 text-sm cursor-pointer hover:bg-black/5 p-1 -ml-1">
-                    <input 
-                       type="checkbox" 
-                       checked={!excludeSun} 
-                       onChange={(e) => {
-                          const newVal = !e.target.checked;
-                          setExcludeSun(newVal);
-                          DataStore.setExcludeSunday(newVal);
-                       }} 
-                       className="w-4 h-4"
-                    />
-                    Tính năng suất cho ngày Chủ Nhật
-                 </label>
-              </div>
-            </div>
+const injection = `       return ContentService.createTextOutput(JSON.stringify({ status: 'success' })).setMimeType(ContentService.MimeType.JSON);
+    }
 
-            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">`;
+    if (action === 'delete_tuti') {
+       var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
+       var sheet = getSheetFlexibly(ss, ['TUTI', 'Tuti', 'TuTi', 'tu ti']);
+       if (!sheet) return ContentService.createTextOutput(JSON.stringify({status: 'error'})).setMimeType(ContentService.MimeType.JSON);
+       
+       var sheetData = sheet.getDataRange().getValues();
+       var headers = sheetData[0] || [];
+       var hm = {};
+       for (var c = 0; c < headers.length; c++) {
+          var rawH = String(headers[c]).toLowerCase().trim();
+          var h = rawH.normalize('NFD').replace(/[̀-ͯ]/g, "").replace(/đ/g, "d").replace(/\\s+/g, ' ');
+          if (h === 'ma tram') hm.maTramCol = c;
+          if (h === 'ten diem do' || h === 'ten tram') hm.tenDiemDoCol = c;
+       }
+       
+       var targetRow = -1;
+       var data = payload.data;
+       if (data.maTram && data.tenDiemDo) {
+          for (var r = 1; r < sheetData.length; r++) {
+             if (hm.maTramCol !== undefined && hm.tenDiemDoCol !== undefined &&
+                 String(sheetData[r][hm.maTramCol]).trim() === String(data.maTram).trim() &&
+                 String(sheetData[r][hm.tenDiemDoCol]).trim() === String(data.tenDiemDo).trim()) {
+                 targetRow = r; break;
+             }
+          }
+       }
+       
+       if (targetRow !== -1) {
+          sheet.deleteRow(targetRow + 1);
+       }
+       return ContentService.createTextOutput(JSON.stringify({ status: 'success' })).setMimeType(ContentService.MimeType.JSON);
+    }
 
-if (code.includes(stateTarget) && code.includes(uiTarget)) {
-    code = code.replace(stateTarget, stateReplace);
-    code = code.replace(uiTarget, uiReplace);
-    code = code.replace(`2. Mã Code Apps Script Mới`, `3. Mã Code Apps Script Mới`);
-    fs.writeFileSync('src/components/ConfigModal.tsx', code, 'utf8');
-    console.log("Success: added config UI to ConfigModal");
-} else {
-    console.log("Failed to find targets in ConfigModal");
-}
+    if (action === 'update_sangtai') {`;
+
+code = code.replace(target, injection);
+fs.writeFileSync('src/components/ConfigModal.tsx', code);
