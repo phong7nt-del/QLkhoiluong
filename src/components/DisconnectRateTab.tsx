@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Papa from 'papaparse';
 import { DataStore, XuLyDoXaEntry } from '../store/DataStore';
-import { RefreshCw, AlertCircle, WifiOff, Users, ChevronRight, Search, Filter, ArrowUp, ArrowDown, ArrowUpDown, Wrench, Cpu, PieChart, Building2 } from 'lucide-react';
+import { RefreshCw, AlertCircle, WifiOff, Users, ChevronRight, Search, Filter, ArrowUp, ArrowDown, ArrowUpDown, Wrench, Cpu, PieChart as PieChartIcon, Building2 } from 'lucide-react';
 import XuLyDoXaView from './XuLyDoXaView';
 import DcuTab from './DcuTab';
 import {
@@ -333,7 +333,7 @@ export default function DisconnectRateTab({ refreshToggle }: { refreshToggle?: n
                 : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
             }`}
          >
-            <PieChart size={16} />
+            <PieChartIcon size={16} />
             Thống kê khu vực
          </button>
          <button 

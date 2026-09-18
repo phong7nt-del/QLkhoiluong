@@ -24,6 +24,15 @@ export default function Analytics({ refreshToggle, sessionUser }: { refreshToggl
   const [selectedYear, setSelectedYear] = useState<string>('');
   const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set());
   const [detailViewMode, setDetailViewMode] = useState<'grouped' | 'list' | 'by_workgroup'>('grouped');
+    
+  // Default to 'by_workgroup' when filterMode is 'day' or 'week'
+  React.useEffect(() => {
+      if (filterMode === 'day' || filterMode === 'week') {
+          setDetailViewMode('by_workgroup');
+      } else {
+          setDetailViewMode('grouped');
+      }
+  }, [filterMode]);
 
   const entries = useMemo(() => DataStore.getEntries().sort((a, b) => b.timestamp - a.timestamp), [refreshToggle]);
   const dinhMucList = useMemo(() => DataStore.getDinhMuc(), [refreshToggle]);
@@ -178,7 +187,7 @@ export default function Analytics({ refreshToggle, sessionUser }: { refreshToggl
        resultGroups = resultGroups.filter(g => {
            // We need to check if any original entry in this group was from the selected team
            // e.team might not have all the info, but g.teams has all the teams in the group
-           return Array.from(g.teams).some(t => t.normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim() === selectedTeamNormalized);
+           return Array.from(g.teams).some((t: any) => String(t).normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim() === selectedTeamNormalized);
        });
     }
     
@@ -699,7 +708,7 @@ export default function Analytics({ refreshToggle, sessionUser }: { refreshToggl
                      <option value="year">Theo Năm</option>
                   </select>
 
-                  {filterMode === 'day' && (
+                  {(filterMode === 'day' || filterMode === 'week') && (
                     <input
                       type="date"
                       value={selectedDate}
@@ -832,7 +841,7 @@ export default function Analytics({ refreshToggle, sessionUser }: { refreshToggl
              <div className="text-center py-12 text-sm opacity-50 italic uppercase bg-white border border-[#141414] shadow-[4px_4px_0_#141414]">
                 Hệ thống chưa ghi nhận<br/>hoạt động nào.
              </div>
-          ) : (detailViewMode === 'by_workgroup' && filterMode === 'day') ? (
+          ) : (detailViewMode === 'by_workgroup' && (filterMode === 'day' || filterMode === 'week')) ? (
              <div className="bg-white border border-[#141414] shadow-[4px_4px_0_#141414] overflow-x-auto">
                 <table className="w-full text-left border-collapse min-w-[800px]">
                    <thead className="bg-[#141414] text-[#E4E3E0]">

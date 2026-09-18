@@ -6,9 +6,15 @@ import * as XLSX from 'xlsx';
 export default function XuLyDoXaView({ xuLyList, refreshData, setXuLyList }: { xuLyList: XuLyDoXaEntry[], refreshData: () => void, setXuLyList?: React.Dispatch<React.SetStateAction<XuLyDoXaEntry[]>> }) {
   const currentUserStr = sessionStorage.getItem('workload_user_session');
   let currentUserName = '';
+  let currentUserRole = '';
   if (currentUserStr) {
-    try { currentUserName = JSON.parse(currentUserStr).name; } catch(e){}
+    try { 
+      const parsed = JSON.parse(currentUserStr);
+      currentUserName = parsed.name || ''; 
+      currentUserRole = String(parsed.role || '').toLowerCase();
+    } catch(e){}
   }
+  const canDelete = currentUserRole.includes('tổ trưởng tổ đo xa') || currentUserRole.includes('đội trưởng');
   
   const now = new Date();
   const defaultThoiGian = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getFullYear()}`;
@@ -27,6 +33,21 @@ export default function XuLyDoXaView({ xuLyList, refreshData, setXuLyList }: { x
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [isDeletingBulk, setIsDeletingBulk] = useState(false);
+
+  const handleDeleteSelected = async () => {
+    if (!canDelete || selectedIds.length === 0) return;
+    if (!confirm(`Bạn có chắc chắn muốn xóa ${selectedIds.length} dòng đang chọn?`)) return;
+    
+    setIsDeletingBulk(true);
+    const success = await DataStore.deleteXuLyDoXaBulk(selectedIds);
+    if (success) {
+        setSelectedIds([]);
+        refreshData();
+    }
+    setIsDeletingBulk(false);
+  };
 
   const [sortField, setSortField] = useState<keyof XuLyDoXaEntry | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
@@ -224,8 +245,9 @@ export default function XuLyDoXaView({ xuLyList, refreshData, setXuLyList }: { x
     }
 
     Object.entries(columnFilters).forEach(([key, value]) => {
-        if (value.trim() !== '') {
-            const lower = value.toLowerCase();
+        const valStr = String(value || '');
+        if (valStr.trim() !== '') {
+            const lower = valStr.toLowerCase();
             result = result.filter((item: any) => {
                 const itemValue = String(item[key] || '').toLowerCase();
                 return itemValue.includes(lower);
@@ -372,8 +394,8 @@ export default function XuLyDoXaView({ xuLyList, refreshData, setXuLyList }: { x
              <div className="flex items-center gap-4">
                  <h3 className="font-black uppercase text-[#141414]">Danh sách</h3>
                  <div className="flex bg-slate-200 p-1 rounded-lg">
-                     <button onClick={() => setListMode('pending')} className={`px-3 py-1 text-sm font-bold rounded-md transition-all ${listMode === 'pending' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600'}`}>Đang phân công</button>
-                     <button onClick={() => setListMode('processed')} className={`px-3 py-1 text-sm font-bold rounded-md transition-all ${listMode === 'processed' ? 'bg-white text-green-600 shadow-sm' : 'text-slate-600'}`}>Đã xử lý</button>
+                     <button onClick={() => { setListMode('pending'); setSelectedIds([]); }} className={`px-3 py-1 text-sm font-bold rounded-md transition-all ${listMode === 'pending' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600'}`}>Đang phân công</button>
+                     <button onClick={() => { setListMode('processed'); setSelectedIds([]); }} className={`px-3 py-1 text-sm font-bold rounded-md transition-all ${listMode === 'processed' ? 'bg-white text-green-600 shadow-sm' : 'text-slate-600'}`}>Đã xử lý</button>
                  </div>
                  <span className="font-bold text-[#141414]">({sortedAndFiltered.length})</span>
              </div>
@@ -381,6 +403,15 @@ export default function XuLyDoXaView({ xuLyList, refreshData, setXuLyList }: { x
              <div className="flex items-center gap-3">
                  
                  
+                 {listMode === 'pending' && canDelete && selectedIds.length > 0 && (
+                     <button 
+                         onClick={handleDeleteSelected}
+                         disabled={isDeletingBulk}
+                         className="flex items-center gap-1 bg-red-600 text-white px-3 py-1.5 font-bold text-sm shadow-[2px_2px_0_#A0A0A0] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-none transition-all disabled:opacity-50"
+                     >
+                         {isDeletingBulk ? 'Đang xóa...' : `Xóa ${selectedIds.length} dòng`}
+                     </button>
+                 )}
                  <input type="file" ref={fileInputRef} accept=".xlsx,.xls" className="hidden" onChange={handleImportExcel} />
                  <div className="relative group">
                      <button onClick={() => fileInputRef.current?.click()} disabled={isImporting} className="flex items-center gap-2 bg-[#141414] text-white px-3 py-1.5 font-bold text-sm shadow-[2px_2px_0_#A0A0A0] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-none transition-all disabled:opacity-50">
@@ -408,7 +439,25 @@ Cấu trúc file Excel mẫu:
               <table className="w-full text-sm text-left">
                   <thead className="bg-[#141414] text-white uppercase text-xs">
                       <tr>
-                          <th className="px-4 py-3 cursor-pointer hover:bg-slate-800" onClick={() => handleSort('stt')}>STT {sortField === 'stt' && (sortDir === 'asc' ? '↑' : '↓')}</th>
+                          <th className="px-4 py-3 cursor-pointer hover:bg-slate-800" onClick={() => handleSort('stt')}>
+                              {listMode === 'pending' && canDelete ? (
+                                  <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                                      <input 
+                                          type="checkbox" 
+                                          className="w-4 h-4 rounded border-slate-600 text-blue-500 bg-slate-700"
+                                          checked={paginatedData.length > 0 && selectedIds.length === paginatedData.length}
+                                          onChange={() => {
+                                              if (selectedIds.length === paginatedData.length) {
+                                                  setSelectedIds([]);
+                                              } else {
+                                                  setSelectedIds(paginatedData.map(r => r.maDd));
+                                              }
+                                          }}
+                                      />
+                                      STT {sortField === 'stt' && (sortDir === 'asc' ? '↑' : '↓')}
+                                  </div>
+                              ) : <>STT {sortField === 'stt' && (sortDir === 'asc' ? '↑' : '↓')}</>}
+                          </th>
                           <th className="px-4 py-3 cursor-pointer hover:bg-slate-800" onClick={() => handleSort('loaiXl')}>Loại XL {sortField === 'loaiXl' && (sortDir === 'asc' ? '↑' : '↓')}</th>
                           <th className="px-4 py-3 cursor-pointer hover:bg-slate-800" onClick={() => handleSort('maDd')}>Mã ĐĐ {sortField === 'maDd' && (sortDir === 'asc' ? '↑' : '↓')}</th>
                           <th className="px-4 py-3 cursor-pointer hover:bg-slate-800" onClick={() => handleSort('tenKh')}>Tên KH {sortField === 'tenKh' && (sortDir === 'asc' ? '↑' : '↓')}</th>
@@ -433,7 +482,22 @@ Cấu trúc file Excel mẫu:
                   <tbody>
                       {paginatedData.map((row, idx) => (
                           <tr key={idx} className="border-b border-slate-200 hover:bg-slate-100 transition-colors cursor-pointer" onClick={() => { setEditingItem(row); setFormData(row); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>
-                              <td className="px-4 py-2 font-medium">{(currentPage - 1) * pageSize + idx + 1}</td>
+                              <td className="px-4 py-2 font-medium" onClick={e => e.stopPropagation()}>
+                                  {listMode === 'pending' && canDelete ? (
+                                      <div className="flex items-center gap-2">
+                                          <input 
+                                              type="checkbox" 
+                                              className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                              checked={selectedIds.includes(row.maDd)}
+                                              onChange={(e) => {
+                                                  if (e.target.checked) setSelectedIds([...selectedIds, row.maDd]);
+                                                  else setSelectedIds(selectedIds.filter(id => id !== row.maDd));
+                                              }}
+                                          />
+                                          {(currentPage - 1) * pageSize + idx + 1}
+                                      </div>
+                                  ) : ((currentPage - 1) * pageSize + idx + 1)}
+                              </td>
                               <td className="px-4 py-2">{row.loaiXl}</td>
                               <td className="px-4 py-2 font-bold text-red-600">{row.maDd}</td>
                               <td className="px-4 py-2">{row.tenKh}</td>

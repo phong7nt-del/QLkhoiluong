@@ -81,6 +81,8 @@ export default function Login({ onLoginSuccess }: LoginProps) {
       const normalizedInputName = normalizeStr(username);
       const normalizedInputPass = password.trim().toLowerCase();
 
+      const memberByName = members.find(m => normalizeStr(m.name) === normalizedInputName);
+
       const foundMember = members.find(m => {
         const mName = normalizeStr(m.name);
         if (mName !== normalizedInputName) return false;

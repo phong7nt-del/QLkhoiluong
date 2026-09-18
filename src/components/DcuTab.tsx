@@ -33,6 +33,8 @@ export default function DcuTab() {
   const [ghiChu, setGhiChu] = useState('');
   
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [isDeletingBulk, setIsDeletingBulk] = useState(false);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
 
   // Zoom Image State
@@ -240,6 +242,26 @@ export default function DcuTab() {
           return parts[0] + '.' + parts.slice(1).join('');
       }
       return s;
+  };
+
+  const sessionUserObj = JSON.parse(sessionStorage.getItem('workload_user_session') || '{}');
+  const roleString = String(sessionUserObj.role || '').toLowerCase();
+  const canDelete = roleString.includes('tổ trưởng tổ đo xa') || roleString.includes('đội trưởng');
+  
+  const handleDeleteSelected = async () => {
+      if (!canDelete || selectedIds.length === 0) return;
+      if (!confirm(`Bạn có chắc chắn muốn xóa ${selectedIds.length} dòng đang chọn?`)) return;
+      
+      setIsDeletingBulk(true);
+      const success = await DataStore.deleteDcuBulk(selectedIds);
+      if (success) {
+          setMessage({ type: 'success', text: `Đã xóa thành công ${selectedIds.length} dòng.` });
+          setSelectedIds([]);
+          loadData();
+      } else {
+          setMessage({ type: 'error', text: 'Lỗi khi xóa dữ liệu.' });
+      }
+      setIsDeletingBulk(false);
   };
 
   const { userSpecificData, filteredData } = useMemo(() => {
@@ -574,7 +596,22 @@ export default function DcuTab() {
                                 className={`hover:bg-blue-50 cursor-pointer transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}`}
                                 title={listType === 'chua_phan_cong' ? "Bấm để cập nhật" : "Bấm để xem chi tiết"}
                             >
-                                <td className="px-4 py-3 font-medium text-slate-700 border-b border-slate-100">{row.stt || ((currentPage - 1) * rowsPerPage + idx + 1)}</td>
+                                <td className="px-4 py-3 font-medium text-slate-700 border-b border-slate-100" onClick={(e) => e.stopPropagation()}>
+                                    {listType === 'chua_phan_cong' && canDelete ? (
+                                        <div className="flex items-center gap-2">
+                                            <input 
+                                                type="checkbox" 
+                                                className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                checked={selectedIds.includes(row.id)}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) setSelectedIds([...selectedIds, row.id]);
+                                                    else setSelectedIds(selectedIds.filter(id => id !== row.id));
+                                                }}
+                                            />
+                                            {row.stt || ((currentPage - 1) * rowsPerPage + idx + 1)}
+                                        </div>
+                                    ) : (row.stt || ((currentPage - 1) * rowsPerPage + idx + 1))}
+                                </td>
                                 <td className="px-4 py-3 font-bold text-slate-800 border-b border-slate-100">{row.id}</td>
                                 <td className="px-4 py-3 text-slate-700 border-b border-slate-100">{row.ten}</td>
                                 <td className="px-4 py-3 text-slate-700 border-b border-slate-100">

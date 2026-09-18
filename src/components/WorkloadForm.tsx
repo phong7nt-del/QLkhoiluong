@@ -62,7 +62,7 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
   const [membersToDelete, setMembersToDelete] = useState<string[]>([]);
   const triggerDeleteConfirm = () => {
       const lockCheck = isDateLocked(date, team);
-      if (lockCheck.locked) {
+      if (lockCheck && lockCheck.locked) {
         setMessage({ type: 'error', text: `Không thể xóa báo cáo. Dữ liệu của ${team} trong ${lockCheck.type === 'year' ? `năm ${lockCheck.year}` : `tháng ${lockCheck.month}/${lockCheck.year}`} đã được chốt!` });
         setTimeout(() => setMessage(null), 5000);
         return;
@@ -327,7 +327,7 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
     const selectedList = entries.filter(([_, data]: [string, any]) => data.selected && Number(data.quantity) > 0);
     
     const lockCheck = isDateLocked(date, team);
-    if (lockCheck.locked) {
+    if (lockCheck && lockCheck.locked) {
       setMessage({ type: 'error', text: `Không thể cập nhật báo cáo. Dữ liệu của ${team} trong ${lockCheck.type === 'year' ? `năm ${lockCheck.year}` : `tháng ${lockCheck.month}/${lockCheck.year}`} đã được chốt!` });
       setTimeout(() => setMessage(null), 5000);
       return;

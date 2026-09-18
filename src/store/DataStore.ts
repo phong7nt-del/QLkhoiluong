@@ -492,6 +492,38 @@ export const DataStore = {
     }
   },
 
+    deleteXuLyDoXaBulk: async (maDdList: string[]) => {
+      try {
+          const url = DataStore.getAppScriptUrl();
+          if (!url) return false;
+          await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify({ action: 'delete_xulydoxa_bulk', data: maDdList })
+          });
+          return true;
+      } catch (e) {
+          console.error(e);
+          return false;
+      }
+  },
+
+  deleteDcuBulk: async (ids: string[]) => {
+      try {
+          const url = DataStore.getAppScriptUrl();
+          if (!url) return false;
+          await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify({ action: 'delete_dcu_bulk', data: ids })
+          });
+          return true;
+      } catch (e) {
+          console.error(e);
+          return false;
+      }
+  },
+
   updateXuLyDoXaToSheet: async (entry: XuLyDoXaEntry) => {
     try {
       const url = DataStore.getAppScriptUrl();
@@ -1827,9 +1859,7 @@ export const DataStore = {
   addTutiEntry: async (entry: TutiEntry) => {
      const entries = DataStore.getTutiEntries();
      entries.unshift(entry);
-     try {
-       localStorage.setItem(TUTI_KEY, JSON.stringify(entries));
-     } catch(e) {}
+     safeSetItem(TUTI_KEY, JSON.stringify(entries));
      await DataStore.syncTutiToSheet(entry);
      return entry;
   },
@@ -1839,9 +1869,7 @@ export const DataStore = {
      const entry = entries.find(e => e.id === id);
      if (entry) {
          const newEntries = entries.filter(e => e.id !== id);
-         try {
-           localStorage.setItem(TUTI_KEY, JSON.stringify(newEntries));
-         } catch(e) {}
+         safeSetItem(TUTI_KEY, JSON.stringify(newEntries));
          
          try {
              const url = DataStore.getAppScriptUrl();
@@ -1858,14 +1886,20 @@ export const DataStore = {
 
   updateTutiEntry: async (id: string, updates: Partial<TutiEntry>) => {
      const entries = DataStore.getTutiEntries();
-     const index = entries.findIndex(e => e.id === id);
+     let index = entries.findIndex(e => e.id === id);
+     if (index === -1 && updates.maTram && updates.tenDiemDo) {
+         index = entries.findIndex(e => 
+             String(e.maTram).trim().toLowerCase() === String(updates.maTram).trim().toLowerCase() &&
+             String(e.tenDiemDo).trim().toLowerCase() === String(updates.tenDiemDo).trim().toLowerCase()
+         );
+     }
      if (index !== -1) {
          entries[index] = { ...entries[index], ...updates };
-         try {
-           localStorage.setItem(TUTI_KEY, JSON.stringify(entries));
-         } catch(e) {}
+         safeSetItem(TUTI_KEY, JSON.stringify(entries));
          await DataStore.syncTutiToSheet(entries[index]);
+         return entries[index];
      }
+     return null;
   },
 
   getTutiEntries: (): TutiEntry[] => {

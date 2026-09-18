@@ -185,6 +185,7 @@ export default function App() {
         if (e.kiemTraTU && e.kiemTraTU.trim().length > 0) return false;
         if (e.kiemTraTI && e.kiemTraTI.trim().length > 0) return false;
         if (e.khac && e.khac.trim().length > 0) return false;
+        if (e.nguoiKiemTra && e.nguoiKiemTra.trim().length > 0 && e.ngayCapNhat && e.ngayCapNhat.trim().length > 0) return false;
         return true;
       });
       setTutiUnprocessedCount(unprocessed.length);

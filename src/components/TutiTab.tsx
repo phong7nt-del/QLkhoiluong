@@ -3,7 +3,7 @@ import { Plus, X, Save, Edit2, Search, CheckCircle, AlertCircle, Calendar, Refre
 import { DataStore, TutiEntry, SheetMember } from '../store/DataStore';
 
 export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle: number, sessionUser: SheetMember | null }) {
-    const [entries, setEntries] = useState<TutiEntry[]>([]);
+    const [entries, setEntries] = useState<TutiEntry[]>(() => DataStore.getTutiEntries());
     const [showForm, setShowForm] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     
@@ -99,22 +99,33 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
         });
     };
 
-        const handleDeleteRow = async (t: TutiEntry) => {
+    const handleDeleteRow = (t: TutiEntry) => {
         if (t.nguoiDuaLen !== sessionUser?.name) {
             alert('Bạn chỉ được phép xoá dữ liệu do chính mình đưa lên!');
             return;
         }
-        if (confirm('Bạn có chắc chắn muốn xoá bản ghi này không?')) {
-            await DataStore.deleteTutiEntry(t.id);
-            setEntries(DataStore.getTutiEntries());
-            setToastMessage('Đã xoá thành công!');
-            setTimeout(() => setToastMessage(null), 3000);
-            window.dispatchEvent(new Event('workload_updated'));
-        }
+        setItemToDelete(t);
+    };
+
+    const confirmDelete = async () => {
+        if (!itemToDelete) return;
+        await DataStore.deleteTutiEntry(itemToDelete.id);
+        setEntries(DataStore.getTutiEntries());
+        setItemToDelete(null);
+        setToastMessage('Đã xoá thành công!');
+        setTimeout(() => setToastMessage(null), 3000);
+        window.dispatchEvent(new Event('workload_updated'));
     };
 
     const handleSaveEdit = async (id: string) => {
-        let finalUpdates = { ...editData };
+        const targetEntry = entries.find(e => e.id === id);
+        if (!targetEntry) return;
+
+        let finalUpdates: Partial<TutiEntry> = { 
+            ...editData,
+            maTram: targetEntry.maTram,
+            tenDiemDo: targetEntry.tenDiemDo
+        };
         
         const now = new Date();
         const dateStr = [
@@ -125,11 +136,16 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
         finalUpdates.ngayCapNhat = dateStr;
         finalUpdates.nguoiKiemTra = sessionUser?.name || '';
 
-        const optimisticEntry = { ...(entries.find(e => e.id === id) || {}), ...finalUpdates } as TutiEntry;
-        setEntries(entries.map(e => e.id === id ? optimisticEntry : e));
+        const updatedEntry = { ...targetEntry, ...finalUpdates };
+        
+        // Cập nhật giao diện tức thời (optimistic update)
+        setEntries(prev => prev.map(e => e.id === id ? updatedEntry : e));
         setEditingId(null);
 
+        // Lưu vào DataStore (cập nhật cache bộ nhớ & localStorage) và đồng bộ Google Sheets
         await DataStore.updateTutiEntry(id, finalUpdates);
+        
+        // Đảm bảo state đồng bộ chính xác với DataStore
         setEntries(DataStore.getTutiEntries());
         window.dispatchEvent(new Event('workload_updated'));
         
@@ -143,7 +159,7 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
         if (!isNaN(d.getTime()) && (dStr.includes('T') || dStr.includes('GMT') || dStr.includes('Z') || dStr.match(/^[a-zA-Z]{3,}/))) {
             return [
                 d.getDate().toString().padStart(2, '0'),
-                (d.getMonth() + 1).toString().padStart(2, '0'),
+                (now => (now.getMonth() + 1).toString().padStart(2, '0'))(d),
                 d.getFullYear()
             ].join('/');
         }
@@ -174,7 +190,15 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
     };
 
     const isProcessed = (e: TutiEntry) => {
-        return !!(e.ketLuan && e.ketLuan.trim().length > 0);
+        // Có kết luận
+        if (e.ketLuan && e.ketLuan.trim().length > 0) return true;
+        // Hoặc đã có kết quả kiểm tra TU, TI, hoặc thông tin khác
+        if (e.kiemTraTU && e.kiemTraTU.trim().length > 0) return true;
+        if (e.kiemTraTI && e.kiemTraTI.trim().length > 0) return true;
+        if (e.khac && e.khac.trim().length > 0) return true;
+        // Hoặc đã có người kiểm tra và ngày cập nhật
+        if (e.nguoiKiemTra && e.nguoiKiemTra.trim().length > 0 && e.ngayCapNhat && e.ngayCapNhat.trim().length > 0) return true;
+        return false;
     };
 
     const unprocessedAll = entries.filter(e => !isProcessed(e));
@@ -487,9 +511,15 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                                         <td className="px-4 py-2">
                                             {isEditing ? (
                                                 <select value={editData.ketLuan || ''} onChange={e => setEditData({...editData, ketLuan: e.target.value})} className="w-full text-xs p-1.5 border border-indigo-300 focus:ring-1 focus:ring-indigo-500 rounded bg-indigo-50/30 font-bold">
-                                                    <option value="">- Chọn -</option>
+                                                    <option value="">- Chọn kết luận -</option>
                                                     <option value="Đúng">Đúng</option>
                                                     <option value="Sai">Sai</option>
+                                                    <option value="Bình thường">Bình thường</option>
+                                                    <option value="Đạt">Đạt</option>
+                                                    <option value="Không đạt">Không đạt</option>
+                                                    {editData.ketLuan && !['Đúng', 'Sai', 'Bình thường', 'Đạt', 'Không đạt'].includes(editData.ketLuan) && (
+                                                        <option value={editData.ketLuan}>{editData.ketLuan}</option>
+                                                    )}
                                                 </select>
                                             ) : (
                                                 <span className={`font-bold ${t.ketLuan?.toLowerCase() === 'sai' ? 'text-red-600' : t.ketLuan ? 'text-green-600' : 'text-slate-400'}`}>
@@ -633,9 +663,15 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                                     <td className="px-4 py-2">
                                         {isEditing ? (
                                             <select value={editData.ketLuan || ''} onChange={e => setEditData({...editData, ketLuan: e.target.value})} className="w-full text-xs p-1.5 border border-indigo-300 focus:ring-1 focus:ring-indigo-500 rounded bg-indigo-50/30 font-bold">
-                                                <option value="">- Chọn -</option>
+                                                <option value="">- Chọn kết luận -</option>
                                                 <option value="Đúng">Đúng</option>
                                                 <option value="Sai">Sai</option>
+                                                <option value="Bình thường">Bình thường</option>
+                                                <option value="Đạt">Đạt</option>
+                                                <option value="Không đạt">Không đạt</option>
+                                                {editData.ketLuan && !['Đúng', 'Sai', 'Bình thường', 'Đạt', 'Không đạt'].includes(editData.ketLuan) && (
+                                                    <option value={editData.ketLuan}>{editData.ketLuan}</option>
+                                                )}
                                             </select>
                                         ) : (
                                             <span className={`inline-flex items-center justify-center px-2 py-1 rounded-md text-[11px] font-black uppercase ${t.ketLuan?.toLowerCase() === 'sai' ? 'bg-red-100 text-red-700' : t.ketLuan ? 'bg-green-100 text-green-700' : 'text-slate-400 bg-slate-100'}`}>
