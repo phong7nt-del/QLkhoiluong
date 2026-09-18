@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { ClipboardList, BarChart3, Database, TrendingUp, LogOut, User as UserIcon, CheckSquare, Settings, Activity, Menu, WifiOff, ChevronUp, ChevronDown, KeyRound, Search, Package, Gift } from "lucide-react";
+import { ClipboardList, BarChart3, Database, TrendingUp, LogOut, User as UserIcon, CheckSquare, Settings, Activity, Menu, WifiOff, ChevronUp, ChevronDown, KeyRound, Search, Package, Gift, Award } from "lucide-react";
 import WorkloadForm from "./components/WorkloadForm";
 import Analytics from "./components/Analytics";
 import Stations from "./components/Stations";
@@ -298,7 +298,7 @@ export default function App() {
     { id: "progress", icon: CheckSquare, label: "Tiến độ CV", color: "amber" },
     { id: "tuti", icon: Activity, label: "TU - TI", color: "indigo" },
     { id: "plan_progress", icon: TrendingUp, label: "Tiến độ kế hoạch", color: "blue" },
-    { id: "birthday", icon: Gift, label: "Chúc mừng Sinh nhật", color: "rose" },
+    { id: "birthday", icon: Award, label: "Công Đoàn", color: "rose" },
     { id: "sangtai", icon: Database, label: "KT sang tải", color: "amber" },
     { id: "warehouse", icon: Package, label: "Kho VTTB", color: "amber" },
     { id: "system", icon: Settings, label: "Hệ thống", color: "slate" }

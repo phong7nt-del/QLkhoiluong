@@ -15,7 +15,7 @@ const TABS_INFO = [
     { id: 'tuti', label: 'TU - TI' },
     { id: 'plan_progress', label: 'Tiến độ kế hoạch' },
     { id: 'warehouse', label: 'Kho VTTB' },
-    { id: 'birthday', label: 'Birthday' },
+    { id: 'birthday', label: 'Công Đoàn' },
     { id: 'system', label: 'Hệ thống' }
 ];
 
