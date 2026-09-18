@@ -195,6 +195,61 @@ export const DataStore = {
   },
   setExcludeNghi: (val: boolean) => safeSetItem('config_exclude_nghi', val ? 'true' : 'false'),
 
+  getCongDoanLeaderNames: (): string[] => {
+    try {
+      const val = safeGetItem('config_cong_doan_leaders');
+      return val ? JSON.parse(val) : [];
+    } catch {
+      return [];
+    }
+  },
+  setCongDoanLeaderNames: (names: string[]) => {
+    safeSetItem('config_cong_doan_leaders', JSON.stringify(names));
+  },
+  isUserDoiTruongOrCongDoanLeader: (user: SheetMember | null | undefined): boolean => {
+    if (!user) return false;
+    const role = (user.role || '').toLowerCase();
+    const team = (user.team || '').toLowerCase();
+    const name = (user.name || '').trim().toLowerCase();
+
+    // 1. Check Đội trưởng / Giám đốc / Đội phó
+    if (role.includes('đội trưởng') || role.includes('đội phó') || role.includes('giám đốc')) {
+      return true;
+    }
+
+    // 2. Check if role or team explicitly indicates Công đoàn
+    if (role.includes('công đoàn') || role.includes('cđ')) {
+      if (role.includes('tổ trưởng') || role.includes('tổ phó') || role.includes('chủ tịch') || role.includes('bch') || role.includes('trưởng')) {
+        return true;
+      }
+    }
+    if (team.includes('công đoàn') && (role.includes('tổ trưởng') || role.includes('tổ phó') || role.includes('chủ tịch') || role.includes('trưởng') || role.includes('đội trưởng'))) {
+      return true;
+    }
+
+    // 3. Check explicitly configured leader names
+    const designated = DataStore.getCongDoanLeaderNames().map(n => n.trim().toLowerCase());
+    if (name && designated.includes(name)) {
+      return true;
+    }
+
+    return false;
+  },
+
+  isCongDoanPublished: (subTab: 'sinh_nhat' | 'tuyen_duong', year: number, month: number): boolean => {
+    try {
+      const key = `congdoan_pub_${subTab}_${year}_${month}`;
+      const val = safeGetItem(key);
+      return val === 'true';
+    } catch {
+      return false;
+    }
+  },
+  setCongDoanPublished: (subTab: 'sinh_nhat' | 'tuyen_duong', year: number, month: number, published: boolean) => {
+    const key = `congdoan_pub_${subTab}_${year}_${month}`;
+    safeSetItem(key, published ? 'true' : 'false');
+  },
+
   getEntries: (): WorkloadEntry[] => {
     try {
       const data = safeGetItem(STORAGE_KEY);

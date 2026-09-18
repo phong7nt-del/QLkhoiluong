@@ -93,6 +93,10 @@ class SoundFX {
     }
   }
 
+  public fanfare() {
+    this.playGrandFanfare();
+  }
+
   public playHappyTune() {
     if (!this.soundEnabled) return;
     try {

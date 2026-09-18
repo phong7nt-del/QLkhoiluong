@@ -40,8 +40,11 @@ export default function Analytics({ refreshToggle, sessionUser }: { refreshToggl
   const missingReportsInfo = useMemo(() => {
     if (!sessionUser) return null;
     const role = (sessionUser.role || '').toLowerCase();
+    const team = (sessionUser.team || '').toLowerCase();
     const isToPhoTruong = role.includes('tổ trưởng') || role.includes('tổ phó');
-    const isDoiPhoTruong = role.includes('đội trưởng') || role.includes('đội phó') || role.includes('giám đốc');
+    const isTongHop = team.includes('tổng hợp') || team.includes('th') || team.includes('bộ phận công tác');
+    const isToTruongTongHop = isToPhoTruong && isTongHop;
+    const isDoiPhoTruong = role.includes('đội trưởng') || role.includes('đội phó') || role.includes('giám đốc') || isToTruongTongHop;
     
     if (!isToPhoTruong && !isDoiPhoTruong) return null;
     

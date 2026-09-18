@@ -494,8 +494,8 @@ export default function App() {
             onScroll={handleScroll}
             className="flex-1 flex flex-col min-w-0 overflow-y-auto scroll-smooth"
           >
-            <div className="flex-1 p-4 md:p-6 lg:p-8 relative">
-              <div className="max-w-6xl mx-auto h-full">
+            <div className={`flex-1 ${activeTab === 'birthday' ? 'p-2 md:p-4' : 'p-4 md:p-6 lg:p-8'} relative`}>
+              <div className={`${activeTab === 'birthday' ? 'max-w-7xl' : 'max-w-6xl'} mx-auto h-full`}>
                 {activeTab === "input" && (
                   <WorkloadForm onSaved={() => setRefreshToggle(prev => prev + 1)} refreshToggle={refreshToggle} isManagement={isManagement} />
                 )}
@@ -530,7 +530,7 @@ export default function App() {
                   <WarehouseTab />
                 )}
                 {activeTab === "birthday" && (
-                  <BirthdayTab />
+                  <BirthdayTab sessionUser={sessionUser} />
                 )}
                 {activeTab === "system" && (
                   <SystemTab />
