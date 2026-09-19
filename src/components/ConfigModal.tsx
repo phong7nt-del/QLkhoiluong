@@ -55,7 +55,7 @@ function doGet(e) {
           if (cleanVal.includes('họvàtên') || cleanVal === 'họtên') nameIdx = c;
           if (cleanVal.includes('khuvực') || cleanVal === 'khuvuc' || cleanVal.includes('tổcôngtác') || cleanVal.includes('bộphậncôngtác')) teamIdx = c;
           if (cleanVal === 'msnv' || cleanVal.includes('mãnhânviên')) msnvIdx = c;
-          if (cleanVal === 'chứcdanh' || cleanVal === 'chucdanh') roleIdx = c;
+          if (cleanVal.includes('chứcdanh') || cleanVal.includes('chucdanh') || cleanVal.includes('côngviệc') || cleanVal.includes('congviec') || cleanVal.includes('chứcvụ') || cleanVal.includes('chucvu') || val.includes('chức danh') || val.includes('công việc')) roleIdx = c;
           if (cleanVal.includes('sinh') || cleanVal.includes('ngàysinh')) sinhNhatIdx = c;
 
         }
@@ -1140,50 +1140,115 @@ function doPost(e) {
     }
 
     
-        if (action === 'delete_dcu_bulk') {
-       var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
-       var sheet = getSheetFlexibly(ss, ['DCU', 'dcu']);
-       if (!sheet) return ContentService.createTextOutput(JSON.stringify({status: 'error'})).setMimeType(ContentService.MimeType.JSON);
-       
-       var list = payload.data || [];
-       var sheetData = sheet.getDataRange().getValues();
-       var headers = sheetData[0] || [];
-       var idCol = -1;
-       var sttCol = -1;
-       for (var c = 0; c < headers.length; c++) {
-           var h = String(headers[c]).toLowerCase().trim();
-           h = h.normalize('NFD').replace(/[̀-ͯ]/g, "").replace(/đ/g, "d").replace(/[^a-z0-9]/g, "");
-           if (h === 'id') idCol = c;
-           if (h === 'stt' || h === 'tt') sttCol = c;
-       }
-       
-       for (var r = sheetData.length - 1; r > 0; r--) {
-           var rStt = sttCol !== -1 ? String(sheetData[r][sttCol]).trim() : '';
-           var rId = idCol !== -1 ? String(sheetData[r][idCol]).trim() : '';
-           var shouldDelete = false;
-           for (var i = 0; i < list.length; i++) {
-               var item = list[i];
-               if (typeof item === 'object' && item !== null) {
-                   if (item.stt && rStt && String(item.stt).trim() === rStt) {
-                       shouldDelete = true; break;
-                   } else if (!item.stt && item.id && rId && String(item.id).trim() === rId) {
-                       shouldDelete = true; break;
-                   }
-               } else {
-                   var sVal = String(item).trim();
-                   if (rStt && sVal === rStt) {
-                       shouldDelete = true; break;
-                   } else if (rId && sVal === rId) {
-                       shouldDelete = true; break;
-                   }
-               }
-           }
-           if (shouldDelete) {
-               sheet.deleteRow(r + 1);
-           }
-       }
-       return ContentService.createTextOutput(JSON.stringify({status: 'success'})).setMimeType(ContentService.MimeType.JSON);
-    }
+     if (action === 'delete_dcu_bulk') {
+        var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
+        var sheet = getSheetFlexibly(ss, ['DCU', 'dcu']);
+        if (!sheet) return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Không tìm thấy sheet DCU' })).setMimeType(ContentService.MimeType.JSON);
+        
+        var list = payload.data || [];
+        if (!Array.isArray(list)) list = [list];
+        
+        var sheetData = sheet.getDataRange().getValues();
+        if (sheetData.length <= 1) {
+            return ContentService.createTextOutput(JSON.stringify({ status: 'success', deletedCount: 0 })).setMimeType(ContentService.MimeType.JSON);
+        }
+        
+        var headerRowIdx = 0;
+        var headers = sheetData[0] || [];
+        var idCol = -1;
+        var sttCol = -1;
+        
+        function normalizeDcuH(str) {
+            var s = String(str || '').toLowerCase();
+            if (s.normalize) s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+            return s.replace(/đ/g, 'd').replace(/[^a-z0-9]/g, '');
+        }
+        
+        for (var rIdx = 0; rIdx < Math.min(5, sheetData.length); rIdx++) {
+            var tempH = sheetData[rIdx] || [];
+            var foundId = false;
+            for (var c = 0; c < tempH.length; c++) {
+                var cleanH = normalizeDcuH(tempH[c]);
+                if (cleanH === 'stt' || cleanH === 'tt' || cleanH === 'sott') sttCol = c;
+                if (cleanH === 'id' || cleanH === 'madcu') {
+                    idCol = c;
+                    foundId = true;
+                }
+            }
+            if (foundId) {
+                headerRowIdx = rIdx;
+                headers = tempH;
+                break;
+            }
+        }
+        
+        if (sttCol === -1) sttCol = 0;
+        if (idCol === -1) idCol = 1;
+        
+        var deleteIds = {};
+        var deleteStts = {};
+        for (var i = 0; i < list.length; i++) {
+            var it = list[i];
+            if (typeof it === 'object' && it !== null) {
+                if (it.id !== undefined && it.id !== null && String(it.id).trim() !== '') {
+                    deleteIds[String(it.id).trim().toLowerCase()] = true;
+                }
+                if (it.stt !== undefined && it.stt !== null && String(it.stt).trim() !== '') {
+                    deleteStts[String(it.stt).trim()] = true;
+                }
+            } else {
+                var sVal = String(it).trim();
+                if (sVal.indexOf('id_') === 0) {
+                    deleteIds[sVal.substring(3).toLowerCase()] = true;
+                } else if (sVal.indexOf('stt_') === 0) {
+                    deleteStts[sVal.substring(4)] = true;
+                } else {
+                    deleteIds[sVal.toLowerCase()] = true;
+                    deleteStts[sVal] = true;
+                }
+            }
+        }
+        
+        var rowsToDelete = [];
+        for (var r = headerRowIdx + 1; r < sheetData.length; r++) {
+            var rId = idCol !== -1 ? String(sheetData[r][idCol] != null ? sheetData[r][idCol] : '').trim().toLowerCase() : '';
+            var rStt = sttCol !== -1 ? String(sheetData[r][sttCol] != null ? sheetData[r][sttCol] : '').trim() : '';
+            
+            var match = false;
+            if (rId && deleteIds[rId]) match = true;
+            else if (rStt && deleteStts[rStt]) match = true;
+            
+            if (match) {
+                rowsToDelete.push(r + 1);
+            }
+        }
+        
+        // Xóa từ dòng dưới lên dòng trên để tránh sai lệch chỉ mục
+        rowsToDelete.sort(function(a, b) { return b - a; });
+        for (var dIdx = 0; dIdx < rowsToDelete.length; dIdx++) {
+            sheet.deleteRow(rowsToDelete[dIdx]);
+        }
+        
+        // Dồn dữ liệu và đánh lại STT liên tục từ 1 đến hết cho tất cả các dòng còn lại
+        var newLastRow = sheet.getLastRow();
+        if (newLastRow > headerRowIdx && sttCol !== -1) {
+            var remainingCount = newLastRow - (headerRowIdx + 1);
+            if (remainingCount > 0) {
+                var sttRange = sheet.getRange(headerRowIdx + 2, sttCol + 1, remainingCount, 1);
+                var newSttValues = [];
+                for (var s = 1; s <= remainingCount; s++) {
+                    newSttValues.push([s]);
+                }
+                sttRange.setValues(newSttValues);
+            }
+        }
+        
+        return ContentService.createTextOutput(JSON.stringify({ 
+            status: 'success', 
+            deletedCount: rowsToDelete.length, 
+            remainingCount: Math.max(0, sheet.getLastRow() - (headerRowIdx + 1)) 
+        })).setMimeType(ContentService.MimeType.JSON);
+     }
 
     if (action === 'update_dcu') {
        var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
@@ -1443,51 +1508,128 @@ function doPost(e) {
        return ContentService.createTextOutput(JSON.stringify({ status: 'success' })).setMimeType(ContentService.MimeType.JSON);
     }
 
-        if (action === 'delete_xulydoxa_bulk') {
-       var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
-       var sheet = getSheetFlexibly(ss, ['XuLyDoXa', 'Xu Ly Do Xa', 'Xử lý đo xa']);
-       if (!sheet) return ContentService.createTextOutput(JSON.stringify({status: 'error'})).setMimeType(ContentService.MimeType.JSON);
-       
-       var list = payload.data || [];
-       var sheetData = sheet.getDataRange().getValues();
-       var headers = sheetData[0] || [];
-       var maDdCol = -1;
-       var sttCol = -1;
-       for (var c = 0; c < headers.length; c++) {
-           var h = String(headers[c]).toLowerCase().trim();
-           h = h.normalize('NFD').replace(/[̀-ͯ]/g, "").replace(/đ/g, "d").replace(/[^a-z0-9]/g, "");
-           if (h === 'madd') maDdCol = c;
-           if (h === 'stt' || h === 'tt') sttCol = c;
-       }
-       
-       // delete from bottom to top
-       for (var r = sheetData.length - 1; r > 0; r--) {
-           var rStt = sttCol !== -1 ? String(sheetData[r][sttCol]).trim() : '';
-           var rMaDd = maDdCol !== -1 ? String(sheetData[r][maDdCol]).trim() : '';
-           var shouldDelete = false;
-           for (var i = 0; i < list.length; i++) {
-               var item = list[i];
-               if (typeof item === 'object' && item !== null) {
-                   if (item.stt && rStt && String(item.stt).trim() === rStt) {
-                       shouldDelete = true; break;
-                   } else if (!item.stt && item.maDd && rMaDd && String(item.maDd).trim() === rMaDd) {
-                       shouldDelete = true; break;
-                   }
-               } else {
-                   var sVal = String(item).trim();
-                   if (rStt && sVal === rStt) {
-                       shouldDelete = true; break;
-                   } else if (rMaDd && sVal === rMaDd) {
-                       shouldDelete = true; break;
-                   }
-               }
-           }
-           if (shouldDelete) {
-               sheet.deleteRow(r + 1);
-           }
-       }
-       return ContentService.createTextOutput(JSON.stringify({status: 'success'})).setMimeType(ContentService.MimeType.JSON);
-    }
+     if (action === 'delete_xulydoxa_bulk') {
+        var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
+        var sheet = getSheetFlexibly(ss, ['XuLyDoXa', 'Xu Ly Do Xa', 'Xử lý đo xa']);
+        if (!sheet) return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Không tìm thấy sheet XuLyDoXa' })).setMimeType(ContentService.MimeType.JSON);
+        
+        var list = payload.data || [];
+        if (!Array.isArray(list)) list = [list];
+        
+        var sheetData = sheet.getDataRange().getValues();
+        if (sheetData.length <= 1) {
+            return ContentService.createTextOutput(JSON.stringify({ status: 'success', deletedCount: 0 })).setMimeType(ContentService.MimeType.JSON);
+        }
+        
+        var headerRowIdx = 0;
+        var headers = sheetData[0] || [];
+        var maDdCol = -1;
+        var sttCol = -1;
+        
+        function normalizeXlH(str) {
+            var s = String(str || '').toLowerCase();
+            if (s.normalize) s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+            return s.replace(/đ/g, 'd').replace(/[^a-z0-9]/g, '');
+        }
+        
+        for (var rIdx = 0; rIdx < Math.min(5, sheetData.length); rIdx++) {
+            var tempH = sheetData[rIdx] || [];
+            var foundMadd = false;
+            for (var c = 0; c < tempH.length; c++) {
+                var cleanH = normalizeXlH(tempH[c]);
+                if (cleanH === 'stt' || cleanH === 'tt' || cleanH === 'sott') sttCol = c;
+                if (cleanH === 'madd' || cleanH === 'madiemdo') {
+                    maDdCol = c;
+                    foundMadd = true;
+                }
+            }
+            if (foundMadd) {
+                headerRowIdx = rIdx;
+                headers = tempH;
+                break;
+            }
+        }
+        
+        if (sttCol === -1) sttCol = 0;
+        if (maDdCol === -1) maDdCol = 4;
+        
+        var deleteStts = {};
+        var deleteMaDds = {};
+        for (var i = 0; i < list.length; i++) {
+            var it = list[i];
+            if (typeof it === 'object' && it !== null) {
+                if (it.stt !== undefined && it.stt !== null && String(it.stt).trim() !== '') {
+                    deleteStts[String(it.stt).trim()] = true;
+                }
+                if (it.maDd && String(it.maDd).trim() !== '') {
+                    deleteMaDds[String(it.maDd).trim().toLowerCase()] = true;
+                }
+                if (it.id && String(it.id).trim() !== '') {
+                    var rawId = String(it.id).trim();
+                    if (rawId.indexOf('stt_') === 0) {
+                        deleteStts[rawId.substring(4)] = true;
+                    } else if (rawId.indexOf('madd_') === 0) {
+                        var mParts = rawId.substring(5).split('_');
+                        deleteMaDds[mParts[0].toLowerCase()] = true;
+                    } else {
+                        deleteStts[rawId] = true;
+                        deleteMaDds[rawId.toLowerCase()] = true;
+                    }
+                }
+            } else {
+                var sVal = String(it).trim();
+                if (sVal.indexOf('stt_') === 0) {
+                    deleteStts[sVal.substring(4)] = true;
+                } else if (sVal.indexOf('madd_') === 0) {
+                    var mParts2 = sVal.substring(5).split('_');
+                    deleteMaDds[mParts2[0].toLowerCase()] = true;
+                } else {
+                    deleteStts[sVal] = true;
+                    deleteMaDds[sVal.toLowerCase()] = true;
+                }
+            }
+        }
+        
+        var rowsToDelete = [];
+        for (var r = headerRowIdx + 1; r < sheetData.length; r++) {
+            var rStt = sttCol !== -1 ? String(sheetData[r][sttCol] != null ? sheetData[r][sttCol] : '').trim() : '';
+            var rMaDd = maDdCol !== -1 ? String(sheetData[r][maDdCol] != null ? sheetData[r][maDdCol] : '').trim().toLowerCase() : '';
+            
+            var match = false;
+            if (rStt && deleteStts[rStt]) match = true;
+            else if (rMaDd && deleteMaDds[rMaDd]) match = true;
+            
+            if (match) {
+                rowsToDelete.push(r + 1);
+            }
+        }
+        
+        // Xóa từ dòng dưới lên dòng trên để tránh làm lệch chỉ mục dòng trong sheet
+        rowsToDelete.sort(function(a, b) { return b - a; });
+        for (var dIdx = 0; dIdx < rowsToDelete.length; dIdx++) {
+            sheet.deleteRow(rowsToDelete[dIdx]);
+        }
+        
+        // Dồn dữ liệu và đánh lại STT liên tục từ 1 đến hết cho tất cả các dòng còn lại
+        var newLastRow = sheet.getLastRow();
+        if (newLastRow > headerRowIdx && sttCol !== -1) {
+            var remainingCount = newLastRow - (headerRowIdx + 1);
+            if (remainingCount > 0) {
+                var sttRange = sheet.getRange(headerRowIdx + 2, sttCol + 1, remainingCount, 1);
+                var newSttValues = [];
+                for (var s = 1; s <= remainingCount; s++) {
+                    newSttValues.push([s]);
+                }
+                sttRange.setValues(newSttValues);
+            }
+        }
+        
+        return ContentService.createTextOutput(JSON.stringify({ 
+            status: 'success', 
+            deletedCount: rowsToDelete.length, 
+            remainingCount: Math.max(0, sheet.getLastRow() - (headerRowIdx + 1)) 
+        })).setMimeType(ContentService.MimeType.JSON);
+     }
 
     if (action === 'update_xulydoxa') {
        var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));

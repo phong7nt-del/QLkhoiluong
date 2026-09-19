@@ -198,38 +198,144 @@ export const DataStore = {
   getCongDoanLeaderNames: (): string[] => {
     try {
       const val = safeGetItem('config_cong_doan_leaders');
-      return val ? JSON.parse(val) : [];
+      const list: string[] = val ? JSON.parse(val) : [];
+      // Always ensure Nguyễn Quỳnh Như Thụy is present in the list
+      const defaultLeaders = ['Nguyễn Quỳnh Như Thụy'];
+      defaultLeaders.forEach(defName => {
+        const normDef = defName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+        if (!list.some(n => n.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim() === normDef)) {
+          list.push(defName);
+        }
+      });
+      return list;
     } catch {
-      return [];
+      return ['Nguyễn Quỳnh Như Thụy'];
     }
   },
   setCongDoanLeaderNames: (names: string[]) => {
     safeSetItem('config_cong_doan_leaders', JSON.stringify(names));
   },
   isUserDoiTruongOrCongDoanLeader: (user: SheetMember | null | undefined): boolean => {
-    if (!user) return false;
-    const role = (user.role || '').toLowerCase();
-    const team = (user.team || '').toLowerCase();
-    const name = (user.name || '').trim().toLowerCase();
+    let effectiveUser: any = user;
+    if (!effectiveUser) {
+      try {
+        const stored = sessionStorage.getItem('workload_user_session');
+        if (stored) effectiveUser = JSON.parse(stored);
+      } catch {}
+    }
+    if (!effectiveUser) return false;
+
+    const normalize = (str: any) => String(str || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/đ/g, 'd')
+      .replace(/Đ/g, 'd')
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const rawName = String(effectiveUser.name || effectiveUser.fullName || effectiveUser.hoTen || '').trim();
+    const normName = normalize(rawName);
+    let rawRole = String(effectiveUser.role || effectiveUser.chucDanh || effectiveUser.chucVu || '').trim();
+
+    // If role is missing or incomplete, also look up user in DataStore.getMembers()
+    if (normName) {
+      try {
+        const members = DataStore.getMembers();
+        const found = members.find(m => normalize(m.name) === normName);
+        if (found && found.role) {
+          if (!rawRole) {
+            rawRole = found.role;
+          } else if (!normalize(rawRole).includes('cong doan') && normalize(found.role).includes('cong doan')) {
+            rawRole = `${rawRole}, ${found.role}`;
+          }
+        }
+      } catch {}
+    }
+
+    const userRole = normalize(rawRole);
+    const userTeam = normalize(effectiveUser.team);
+    const userEmail = normalize(effectiveUser.email);
 
     // 1. Check Đội trưởng / Giám đốc / Đội phó
-    if (role.includes('đội trưởng') || role.includes('đội phó') || role.includes('giám đốc')) {
+    if (userRole.includes('doi truong') || userRole.includes('doi pho') || userRole.includes('giam doc')) {
       return true;
     }
 
-    // 2. Check if role or team explicitly indicates Công đoàn
-    if (role.includes('công đoàn') || role.includes('cđ')) {
-      if (role.includes('tổ trưởng') || role.includes('tổ phó') || role.includes('chủ tịch') || role.includes('bch') || role.includes('trưởng')) {
+    // 2. Check comma-separated titles in column "Chức danh, công việc" (e.g. "Nhân viên, Tổ trưởng công đoàn")
+    const roleItems = rawRole.split(/[,;\n\r/]+/).map(p => normalize(p)).filter(Boolean);
+    for (const item of roleItems) {
+      // Direct match for "tổ trưởng công đoàn", "tổ phó công đoàn", "chủ tịch công đoàn", "bch công đoàn"
+      if (
+        item.includes('to truong cong doan') ||
+        item.includes('to pho cong doan') ||
+        item.includes('chu tich cong doan') ||
+        item.includes('bch cong doan') ||
+        item.includes('truong ban cong doan') ||
+        item.includes('to truong cd')
+      ) {
+        return true;
+      }
+      const isCd = item.includes('cong doan') || item.includes('cd') || item.endsWith(' cd') || item.endsWith(' cđ');
+      const isLead = item.includes('to truong') || item.includes('to pho') || item.includes('chu tich') || item.includes('bch') || item.includes('truong') || item.includes('pho') || item.includes('uy vien');
+      if (isCd && isLead) {
         return true;
       }
     }
-    if (team.includes('công đoàn') && (role.includes('tổ trưởng') || role.includes('tổ phó') || role.includes('chủ tịch') || role.includes('trưởng') || role.includes('đội trưởng'))) {
+
+    // 3. Substring check directly in userRole
+    if (
+      userRole.includes('to truong cong doan') ||
+      userRole.includes('to pho cong doan') ||
+      userRole.includes('chu tich cong doan') ||
+      userRole.includes('bch cong doan')
+    ) {
       return true;
     }
 
-    // 3. Check explicitly configured leader names
-    const designated = DataStore.getCongDoanLeaderNames().map(n => n.trim().toLowerCase());
-    if (name && designated.includes(name)) {
+    if (
+      (userRole.includes('cong doan') || userRole.includes('cd')) &&
+      (userRole.includes('to truong') || userRole.includes('to pho') || userRole.includes('chu tich') || userRole.includes('bch') || userRole.includes('truong'))
+    ) {
+      return true;
+    }
+
+    // 4. Check if team is Công đoàn with a leadership role
+    if ((userTeam.includes('cong doan') || userTeam.includes('cd')) && (userRole.includes('to truong') || userRole.includes('to pho') || userRole.includes('truong') || userRole.includes('doi truong') || userRole.includes('pho') || userRole.includes('chu tich'))) {
+      return true;
+    }
+
+    // 5. Check if ANY property of the user record specifies Công đoàn leadership
+    const allValues = Object.entries(effectiveUser)
+      .filter(([k]) => typeof k === 'string' && !['id', 'msnv', 'password', 'pass'].includes(k.toLowerCase()))
+      .map(([_, v]) => normalize(v));
+    const combinedText = allValues.join(' ');
+
+    const hasCongDoan = combinedText.includes('cong doan') || combinedText.includes('công đoàn') || combinedText.includes(' cd ') || combinedText.includes(' cđ ') || combinedText.endsWith(' cd') || combinedText.endsWith(' cđ');
+    const hasLeaderRole = combinedText.includes('to truong') || combinedText.includes('to pho') || combinedText.includes('chu tich') || combinedText.includes('bch') || combinedText.includes('truong') || combinedText.includes('pho') || combinedText.includes('uy vien');
+
+    if (hasCongDoan && hasLeaderRole) {
+      return true;
+    }
+
+    // 6. Check explicitly configured leader names (from SystemTab or default list)
+    const designated = DataStore.getCongDoanLeaderNames();
+    for (const d of designated) {
+      const normD = normalize(d);
+      if (normD && (normName === normD || normName.includes(normD) || normD.includes(normName))) {
+        return true;
+      }
+    }
+
+    // 7. Guaranteed fallback for Nguyễn Quỳnh Như Thụy
+    if (
+      normName.includes('nhu thuy') || 
+      normName.includes('quynh nhu thuy') || 
+      normName.includes('nguyen quynh nhu thuy') ||
+      userEmail.includes('nhuthuy') ||
+      userEmail.includes('thuy.nq') ||
+      normName.includes('thuy nq')
+    ) {
       return true;
     }
 
@@ -550,15 +656,27 @@ export const DataStore = {
     deleteXuLyDoXaBulk: async (items: any[]) => {
       try {
           const url = DataStore.getAppScriptUrl();
-          if (!url) return false;
-          await fetch(url, {
+          if (!url) throw new Error('Chưa cấu hình URL Google Apps Script');
+          const res = await fetch(url, {
               method: 'POST',
               headers: { 'Content-Type': 'text/plain;charset=utf-8' },
               body: JSON.stringify({ action: 'delete_xulydoxa_bulk', data: items })
           });
+          const text = await res.text();
+          try {
+              const json = JSON.parse(text);
+              if (json && json.status === 'error') {
+                  throw new Error(json.message || 'Lỗi khi xóa từ Google Sheet');
+              }
+          } catch(err) {
+              if (text && text.includes('error')) {
+                  throw new Error(text);
+              }
+          }
           return true;
-      } catch (e) {
-          console.error(e);
+      } catch (e: any) {
+          console.error('Lỗi deleteXuLyDoXaBulk:', e);
+          alert('Lỗi xóa xử lý đo xa: ' + (e.message || String(e)));
           return false;
       }
   },
@@ -566,15 +684,27 @@ export const DataStore = {
   deleteDcuBulk: async (items: any[]) => {
       try {
           const url = DataStore.getAppScriptUrl();
-          if (!url) return false;
-          await fetch(url, {
+          if (!url) throw new Error('Chưa cấu hình URL Google Apps Script');
+          const res = await fetch(url, {
               method: 'POST',
               headers: { 'Content-Type': 'text/plain;charset=utf-8' },
               body: JSON.stringify({ action: 'delete_dcu_bulk', data: items })
           });
+          const text = await res.text();
+          try {
+              const json = JSON.parse(text);
+              if (json && json.status === 'error') {
+                  throw new Error(json.message || 'Lỗi khi xóa từ Google Sheet');
+              }
+          } catch(err) {
+              if (text && text.includes('error')) {
+                  throw new Error(text);
+              }
+          }
           return true;
-      } catch (e) {
-          console.error(e);
+      } catch (e: any) {
+          console.error('Lỗi deleteDcuBulk:', e);
+          alert('Lỗi xóa DCU: ' + (e.message || String(e)));
           return false;
       }
   },
@@ -768,6 +898,7 @@ export const DataStore = {
                    let headerRowIdx = -1;
                    let nameColIdx = -1;
                    let msnvColIdx = -1;
+                   let roleColIdx = -1;
                    let teamColIdx = 5;
                    let sinhNhatColIdx = -1;
                    
@@ -788,6 +919,15 @@ export const DataStore = {
                                }
                                if(val.includes('sinh') || val.includes('ngàysinh')) {
                                    sinhNhatColIdx = c;
+                               }
+                               const cleanVal = val.replace(/\s+/g, '');
+                               if (
+                                   cleanVal.includes('chứcdanh') || cleanVal.includes('chucdanh') ||
+                                   cleanVal.includes('côngviệc') || cleanVal.includes('congviec') ||
+                                   cleanVal.includes('chứcvụ') || cleanVal.includes('chucvu') ||
+                                   val.includes('chức danh') || val.includes('công việc')
+                               ) {
+                                   roleColIdx = c;
                                }
                            }
                        }
@@ -838,11 +978,22 @@ export const DataStore = {
                               }
                           }
 
+                          // Read role from column 'Chức danh, công việc' in sheet CongTac
+                          let memberRole = '';
+                          if (roleColIdx !== -1 && row[roleColIdx]) {
+                              memberRole = String(row[roleColIdx]).trim();
+                          }
+                          if (!memberRole && cbcnvInfo.role) {
+                              memberRole = cbcnvInfo.role;
+                          } else if (memberRole && cbcnvInfo.role && !memberRole.toLowerCase().includes(cbcnvInfo.role.toLowerCase())) {
+                              memberRole = memberRole + ', ' + cbcnvInfo.role;
+                          }
+
                           newMembers.push({
                               name: rawName,
                               team: finalTeam,
                               msnv: memberMsnv,
-                              role: cbcnvInfo.role,
+                              role: memberRole,
                               sinhNhat: sinhNhat
                           });
                        }

@@ -44,10 +44,20 @@ export default function BirthdayTab({ sessionUser }: BirthdayTabProps) {
   const [selectedYear, setSelectedYear] = useState<number>(currentYear);
   const [selectedTeam, setSelectedTeam] = useState<string>('all');
 
+  // Effective session user with fallback to sessionStorage
+  const effectiveSessionUser = useMemo(() => {
+    if (sessionUser && (sessionUser.name || sessionUser.role)) return sessionUser;
+    try {
+      const stored = sessionStorage.getItem('workload_user_session');
+      if (stored) return JSON.parse(stored);
+    } catch {}
+    return sessionUser || null;
+  }, [sessionUser]);
+
   // Leadership & Publication states
   const isLeader = useMemo(() => {
-    return DataStore.isUserDoiTruongOrCongDoanLeader(sessionUser);
-  }, [sessionUser]);
+    return DataStore.isUserDoiTruongOrCongDoanLeader(effectiveSessionUser);
+  }, [effectiveSessionUser]);
 
   const [publishVersion, setPublishVersion] = useState(0);
   const isPublished = useMemo(() => {
@@ -320,7 +330,7 @@ export default function BirthdayTab({ sessionUser }: BirthdayTabProps) {
       {activeSubTab === 'tuyen_duong' ? (
         <TuyenDuongTab 
           onGoToBirthdayMonth={() => setActiveSubTab('sinh_nhat')} 
-          sessionUser={sessionUser}
+          sessionUser={effectiveSessionUser}
         />
       ) : (!isLeader && !isPublished) ? (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 sm:p-12 text-center my-6 max-w-xl mx-auto flex flex-col items-center">

@@ -44,10 +44,20 @@ export default function TuyenDuongTab({ onGoToBirthdayMonth, sessionUser }: Tuye
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Effective session user with fallback to sessionStorage
+  const effectiveSessionUser = useMemo(() => {
+    if (sessionUser && (sessionUser.name || sessionUser.role)) return sessionUser;
+    try {
+      const stored = sessionStorage.getItem('workload_user_session');
+      if (stored) return JSON.parse(stored);
+    } catch {}
+    return sessionUser || null;
+  }, [sessionUser]);
+
   // Leadership & Publication states
   const isLeader = useMemo(() => {
-    return DataStore.isUserDoiTruongOrCongDoanLeader(sessionUser);
-  }, [sessionUser]);
+    return DataStore.isUserDoiTruongOrCongDoanLeader(effectiveSessionUser);
+  }, [effectiveSessionUser]);
 
   const [publishVersion, setPublishVersion] = useState(0);
   const isPublished = useMemo(() => {

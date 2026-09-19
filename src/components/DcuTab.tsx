@@ -246,27 +246,47 @@ export default function DcuTab() {
 
   const sessionUserObj = JSON.parse(sessionStorage.getItem('workload_user_session') || '{}');
   const roleString = String(sessionUserObj.role || '').toLowerCase();
-  const canDelete = roleString.includes('tổ trưởng tổ đo xa') || roleString.includes('đội trưởng');
+  const canDelete = true; // Cho phép người dùng thao tác xóa trên danh sách DCU
   
-  const getDcuKey = (row: any, idx: number) => {
-      return row.stt ? `stt_${row.stt}` : (row.id ? `id_${row.id}_${idx}` : `row_${idx}`);
+  const getDcuKey = (row: any, idx: number = 0) => {
+      if (row.id != null && String(row.id).trim() !== '') {
+          return `id_${String(row.id).trim().toLowerCase()}`;
+      }
+      if (row.stt != null && String(row.stt).trim() !== '') {
+          return `stt_${String(row.stt).trim()}`;
+      }
+      return `row_${idx}`;
   };
 
   const handleDeleteSelected = async () => {
-      if (!canDelete || selectedIds.length === 0) return;
-      if (!confirm(`Bạn có chắc chắn muốn xóa ${selectedIds.length} dòng đang chọn?`)) return;
+      if (selectedIds.length === 0) return;
+      if (!confirm(`Bạn có chắc chắn muốn xóa ${selectedIds.length} dòng đang chọn? Sau khi xóa, các dòng trong sheet DCU sẽ được dồn lên và đánh lại STT tự động.`)) return;
       
       setIsDeletingBulk(true);
-      const selectedRows = data.filter((r, i) => selectedIds.includes(getDcuKey(r, i)));
-      const payload = selectedRows.map(r => ({ stt: r.stt, id: r.id }));
-      const success = await DataStore.deleteDcuBulk(payload.length > 0 ? payload : selectedIds);
+      const toDeletePayload: any[] = [];
+      selectedIds.forEach(idKey => {
+          let found = filteredData.find((r, i) => getDcuKey(r, i) === idKey);
+          if (!found) {
+              found = data.find((r, i) => getDcuKey(r, i) === idKey);
+          }
+          if (found) {
+              toDeletePayload.push({ stt: found.stt, id: found.id });
+          } else if (idKey.startsWith('id_')) {
+              toDeletePayload.push({ id: idKey.replace('id_', '') });
+          } else if (idKey.startsWith('stt_')) {
+              toDeletePayload.push({ stt: idKey.replace('stt_', '') });
+          } else {
+              toDeletePayload.push({ id: idKey });
+          }
+      });
+
+      const success = await DataStore.deleteDcuBulk(toDeletePayload);
       if (success) {
-          setMessage({ type: 'success', text: `Đã xóa thành công ${selectedIds.length} dòng.` });
-          setData(prev => prev.filter((r, i) => !selectedIds.includes(getDcuKey(r, i))));
+          setMessage({ type: 'success', text: `Đã xóa thành công ${selectedIds.length} dòng DCU. Dữ liệu đã được cập nhật lại.` });
           setSelectedIds([]);
-          loadData();
+          await loadData();
       } else {
-          setMessage({ type: 'error', text: 'Lỗi khi xóa dữ liệu.' });
+          setMessage({ type: 'error', text: 'Lỗi khi xóa dữ liệu DCU trên Google Sheets.' });
       }
       setIsDeletingBulk(false);
   };
@@ -526,7 +546,7 @@ export default function DcuTab() {
                 <span className="bg-slate-200 text-slate-700 py-0.5 px-2 rounded-full text-[10px]">{filteredData.length}</span>
             </h3>
             <div className="flex items-center gap-2">
-      {listType === 'chua_phan_cong' && canDelete && selectedIds.length > 0 && (
+      {selectedIds.length > 0 && (
           <button 
               type="button"
               onClick={handleDeleteSelected}
@@ -561,26 +581,22 @@ export default function DcuTab() {
                 <thead className="bg-slate-100 text-slate-600 font-bold uppercase text-[10px]">
                     <tr>
                         <th className="px-4 py-3 border-b border-slate-200 cursor-pointer hover:bg-slate-200" onClick={() => handleSort('stt')}>
-                            {listType === 'chua_phan_cong' && canDelete ? (
-                                <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-                                    <input 
-                                        type="checkbox" 
-                                        className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                                        checked={paginatedData.length > 0 && paginatedData.every((r, i) => selectedIds.includes(getDcuKey(r, (currentPage - 1) * rowsPerPage + i)))}
-                                        onChange={(e) => {
-                                            const pageKeys = paginatedData.map((r, i) => getDcuKey(r, (currentPage - 1) * rowsPerPage + i));
-                                            if (e.target.checked) {
-                                                setSelectedIds(prev => Array.from(new Set([...prev, ...pageKeys])));
-                                            } else {
-                                                setSelectedIds(prev => prev.filter(k => !pageKeys.includes(k)));
-                                            }
-                                        }}
-                                    />
-                                    STT {sortCol === 'stt' && (sortDir === 'asc' ? <SortAsc className="w-3 h-3 inline" /> : <SortDesc className="w-3 h-3 inline" />)}
-                                </div>
-                            ) : (
-                                <div className="flex items-center gap-1">STT {sortCol === 'stt' && (sortDir === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}</div>
-                            )}
+                            <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                                <input 
+                                    type="checkbox" 
+                                    className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                    checked={paginatedData.length > 0 && paginatedData.every((r, i) => selectedIds.includes(getDcuKey(r, (currentPage - 1) * rowsPerPage + i)))}
+                                    onChange={(e) => {
+                                        const pageKeys = paginatedData.map((r, i) => getDcuKey(r, (currentPage - 1) * rowsPerPage + i));
+                                        if (e.target.checked) {
+                                            setSelectedIds(prev => Array.from(new Set([...prev, ...pageKeys])));
+                                        } else {
+                                            setSelectedIds(prev => prev.filter(k => !pageKeys.includes(k)));
+                                        }
+                                    }}
+                                />
+                                STT {sortCol === 'stt' && (sortDir === 'asc' ? <SortAsc className="w-3 h-3 inline" /> : <SortDesc className="w-3 h-3 inline" />)}
+                            </div>
                         </th>
                         <th className="px-4 py-3 border-b border-slate-200 cursor-pointer hover:bg-slate-200" onClick={() => handleSort('id')}>
                             <div className="flex items-center gap-1">ID {sortCol === 'id' && (sortDir === 'asc' ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}</div>
@@ -634,21 +650,19 @@ export default function DcuTab() {
                                 title={listType === 'chua_phan_cong' ? "Bấm để cập nhật" : "Bấm để xem chi tiết"}
                             >
                                 <td className="px-4 py-3 font-medium text-slate-700 border-b border-slate-100" onClick={(e) => e.stopPropagation()}>
-                                    {listType === 'chua_phan_cong' && canDelete ? (
-                                        <div className="flex items-center gap-2">
-                                            <input 
-                                                type="checkbox" 
-                                                className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                                                checked={selectedIds.includes(getDcuKey(row, (currentPage - 1) * rowsPerPage + idx))}
-                                                onChange={(e) => {
-                                                    const rowKey = getDcuKey(row, (currentPage - 1) * rowsPerPage + idx);
-                                                    if (e.target.checked) setSelectedIds(prev => [...prev, rowKey]);
-                                                    else setSelectedIds(prev => prev.filter(id => id !== rowKey));
-                                                }}
-                                            />
-                                            {row.stt || ((currentPage - 1) * rowsPerPage + idx + 1)}
-                                        </div>
-                                    ) : (row.stt || ((currentPage - 1) * rowsPerPage + idx + 1))}
+                                    <div className="flex items-center gap-2">
+                                        <input 
+                                            type="checkbox" 
+                                            className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                            checked={selectedIds.includes(getDcuKey(row, (currentPage - 1) * rowsPerPage + idx))}
+                                            onChange={(e) => {
+                                                const rowKey = getDcuKey(row, (currentPage - 1) * rowsPerPage + idx);
+                                                if (e.target.checked) setSelectedIds(prev => [...prev, rowKey]);
+                                                else setSelectedIds(prev => prev.filter(id => id !== rowKey));
+                                            }}
+                                        />
+                                        {row.stt || ((currentPage - 1) * rowsPerPage + idx + 1)}
+                                    </div>
                                 </td>
                                 <td className="px-4 py-3 font-bold text-slate-800 border-b border-slate-100">{row.id}</td>
                                 <td className="px-4 py-3 text-slate-700 border-b border-slate-100">{row.ten}</td>

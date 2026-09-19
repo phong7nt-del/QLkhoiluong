@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { PermissionStore, RBACConfig, ALL_ROLES, AppRole } from '../store/PermissionStore';
-import { Shield, Save, CheckSquare, Square, RotateCcw } from 'lucide-react';
+import { Shield, Save, CheckSquare, Square, RotateCcw, Award, UserPlus, X, Check } from 'lucide-react';
 import { DataStore } from '../store/DataStore';
 
 const TABS_INFO = [
@@ -32,6 +32,25 @@ export default function SystemTab() {
     const [excludeSun, setExcludeSun] = useState(DataStore.getExcludeSunday());
     const [excludeNghi, setExcludeNghi] = useState(DataStore.getExcludeNghi());
     const [allowAllLock, setAllowAllLock] = useState(DataStore.getAllowAllLockPlan());
+    const [congDoanLeaders, setCongDoanLeaders] = useState<string[]>(DataStore.getCongDoanLeaderNames());
+    const [newLeaderName, setNewLeaderName] = useState('');
+
+    const handleAddLeader = () => {
+        if (!newLeaderName.trim()) return;
+        const trimmed = newLeaderName.trim();
+        if (!congDoanLeaders.some(n => n.toLowerCase() === trimmed.toLowerCase())) {
+            const updated = [...congDoanLeaders, trimmed];
+            setCongDoanLeaders(updated);
+            DataStore.setCongDoanLeaderNames(updated);
+        }
+        setNewLeaderName('');
+    };
+
+    const handleRemoveLeader = (nameToRemove: string) => {
+        const updated = congDoanLeaders.filter(n => n !== nameToRemove);
+        setCongDoanLeaders(updated);
+        DataStore.setCongDoanLeaderNames(updated);
+    };
 
     const handleToggleTab = (tabId: string, role: AppRole) => {
         const newConfig = { ...config };
@@ -201,6 +220,61 @@ export default function SystemTab() {
                             <span className="font-medium text-slate-700">Cho phép tất cả người dùng được quyền Chốt tiến độ (KH & TH) - Nếu tắt, chỉ "Đội trưởng" hoặc "Tổ trưởng" của Tổ Tổng hợp mới được quyền chốt.</span>
                         </label>
 
+                    </div>
+                </div>
+
+                {/* PHÂN QUYỀN CÔNG ĐOÀN (SINH NHẬT & TUYÊN DƯƠNG) */}
+                <div className="bg-slate-50/80 rounded-xl p-4 border border-slate-200">
+                    <div className="flex items-center gap-2 mb-2">
+                        <Award className="w-5 h-5 text-rose-600" />
+                        <h3 className="text-sm font-bold text-slate-800">Phân quyền Công Đoàn (Quyền Công Bố Sinh Nhật & Tuyên Dương)</h3>
+                    </div>
+                    <p className="text-xs text-slate-500 mb-3 leading-relaxed">
+                        Chỉ <span className="font-bold text-slate-700">Đội trưởng / Giám đốc</span> và <span className="font-bold text-slate-700">Tổ trưởng Công đoàn</span> (hoặc cán bộ được chỉ định dưới đây) mới có thẩm quyền bấm công bố chính thức các chương trình sinh nhật và bảng vinh danh năng suất.
+                    </p>
+
+                    <div className="space-y-3">
+                        <div className="flex flex-wrap gap-2 items-center">
+                            <span className="text-xs font-semibold text-slate-600">Cán bộ có quyền:</span>
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-purple-50 text-purple-700 rounded-lg text-xs font-bold border border-purple-200">
+                                👑 Đội trưởng / Giám đốc (Tự động)
+                            </span>
+                            {congDoanLeaders.map(name => (
+                                <span key={name} className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-rose-50 text-rose-700 rounded-lg text-xs font-bold border border-rose-200 shadow-sm">
+                                    <span>{name}</span>
+                                    {name.includes('Thụy') || name.includes('Thuy') ? (
+                                        <span className="text-[10px] text-rose-500 font-normal">(Tổ trưởng CĐ)</span>
+                                    ) : null}
+                                    <button 
+                                        type="button"
+                                        onClick={() => handleRemoveLeader(name)}
+                                        className="hover:text-rose-900 transition-colors cursor-pointer"
+                                        title="Xóa khỏi danh sách"
+                                    >
+                                        <X className="w-3 h-3" />
+                                    </button>
+                                </span>
+                            ))}
+                        </div>
+
+                        <div className="flex items-center gap-2 pt-1">
+                            <input 
+                                type="text"
+                                value={newLeaderName}
+                                onChange={e => setNewLeaderName(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddLeader(); } }}
+                                placeholder="Nhập họ tên cán bộ Công đoàn cần cấp quyền..."
+                                className="px-3 py-1.5 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-rose-500 w-full max-w-sm"
+                            />
+                            <button
+                                type="button"
+                                onClick={handleAddLeader}
+                                className="flex items-center gap-1 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm shrink-0 cursor-pointer"
+                            >
+                                <UserPlus className="w-3.5 h-3.5" />
+                                <span>Thêm cán bộ</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
 

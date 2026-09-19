@@ -14,7 +14,7 @@ export default function XuLyDoXaView({ xuLyList, refreshData, setXuLyList }: { x
       currentUserRole = String(parsed.role || '').toLowerCase();
     } catch(e){}
   }
-  const canDelete = currentUserRole.includes('tổ trưởng tổ đo xa') || currentUserRole.includes('đội trưởng');
+  const canDelete = true; // Cho phép người dùng thao tác xóa trên danh sách xử lý đo xa
   
   const now = new Date();
   const defaultThoiGian = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getFullYear()}`;
@@ -36,25 +36,54 @@ export default function XuLyDoXaView({ xuLyList, refreshData, setXuLyList }: { x
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isDeletingBulk, setIsDeletingBulk] = useState(false);
 
-  const getRowKey = (row: XuLyDoXaEntry, idx: number) => {
-    return row.stt != null && String(row.stt).trim() !== '' ? `stt_${row.stt}` : `row_${row.maDd || 'nomadd'}_${idx}`;
+  const getRowKey = (row: XuLyDoXaEntry, idx: number = 0) => {
+    if (row.stt != null && String(row.stt).trim() !== '') {
+      return `stt_${String(row.stt).trim()}`;
+    }
+    if (row.maDd && String(row.maDd).trim() !== '') {
+      return `madd_${String(row.maDd).trim()}_${String(row.thoiGianXl || '').trim()}_${idx}`;
+    }
+    return `row_${idx}`;
   };
 
   const handleDeleteSelected = async () => {
-    if (!canDelete || selectedIds.length === 0) return;
-    if (!confirm(`Bạn có chắc chắn muốn xóa ${selectedIds.length} dòng đang chọn?`)) return;
+    if (selectedIds.length === 0) return;
+    if (!confirm(`Bạn có chắc chắn muốn xóa ${selectedIds.length} dòng đang chọn? Hệ thống sẽ xóa trong sheet XuLyDoXa, dồn dữ liệu lên và đánh lại STT tự động.`)) return;
     
     setIsDeletingBulk(true);
-    // Find exact items from xuLyList
-    const toDeleteItems = xuLyList.filter((r, i) => selectedIds.includes(getRowKey(r, i)));
-    const payload = toDeleteItems.map(r => ({ stt: r.stt, maDd: r.maDd }));
-    const success = await DataStore.deleteXuLyDoXaBulk(payload.length > 0 ? payload : selectedIds);
+    
+    // Thu thập dữ liệu các dòng cần xóa
+    const toDeleteItems: any[] = [];
+    selectedIds.forEach(id => {
+      let found = sortedAndFiltered.find((r, i) => getRowKey(r, i) === id);
+      if (!found) {
+        found = xuLyList.find((r, i) => getRowKey(r, i) === id);
+      }
+      if (found) {
+        toDeleteItems.push({
+          stt: found.stt,
+          maDd: found.maDd,
+          thoiGianXl: found.thoiGianXl,
+          id: id
+        });
+      } else if (id.startsWith('stt_')) {
+        toDeleteItems.push({ stt: id.replace('stt_', '') });
+      } else if (id.startsWith('madd_')) {
+        const parts = id.replace('madd_', '').split('_');
+        toDeleteItems.push({ maDd: parts[0] });
+      } else {
+        toDeleteItems.push({ id });
+      }
+    });
+
+    const success = await DataStore.deleteXuLyDoXaBulk(toDeleteItems);
     if (success) {
         if (setXuLyList) {
             setXuLyList(prev => prev.filter((r, i) => !selectedIds.includes(getRowKey(r, i))));
         }
         setSelectedIds([]);
-        refreshData();
+        // Tải lại dữ liệu danh sách đang xử lý từ Google Sheet
+        await refreshData();
     }
     setIsDeletingBulk(false);
   };
@@ -413,7 +442,7 @@ export default function XuLyDoXaView({ xuLyList, refreshData, setXuLyList }: { x
              <div className="flex items-center gap-3">
                  
                  
-                 {listMode === 'pending' && canDelete && selectedIds.length > 0 && (
+                 {selectedIds.length > 0 && (
                      <button 
                          onClick={handleDeleteSelected}
                          disabled={isDeletingBulk}
@@ -450,24 +479,22 @@ Cấu trúc file Excel mẫu:
                   <thead className="bg-[#141414] text-white uppercase text-xs">
                       <tr>
                           <th className="px-4 py-3 cursor-pointer hover:bg-slate-800" onClick={() => handleSort('stt')}>
-                              {listMode === 'pending' && canDelete ? (
-                                  <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-                                      <input 
-                                          type="checkbox" 
-                                          className="w-4 h-4 rounded border-slate-600 text-blue-500 bg-slate-700 cursor-pointer"
-                                          checked={paginatedData.length > 0 && paginatedData.every((r, i) => selectedIds.includes(getRowKey(r, (currentPage - 1) * pageSize + i)))}
-                                          onChange={(e) => {
-                                              const pageKeys = paginatedData.map((r, i) => getRowKey(r, (currentPage - 1) * pageSize + i));
-                                              if (e.target.checked) {
-                                                  setSelectedIds(prev => Array.from(new Set([...prev, ...pageKeys])));
-                                              } else {
-                                                  setSelectedIds(prev => prev.filter(k => !pageKeys.includes(k)));
-                                              }
-                                          }}
-                                      />
-                                      STT {sortField === 'stt' && (sortDir === 'asc' ? '↑' : '↓')}
-                                  </div>
-                              ) : <>STT {sortField === 'stt' && (sortDir === 'asc' ? '↑' : '↓')}</>}
+                              <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                                  <input 
+                                      type="checkbox" 
+                                      className="w-4 h-4 rounded border-slate-600 text-blue-500 bg-slate-700 cursor-pointer"
+                                      checked={paginatedData.length > 0 && paginatedData.every((r, i) => selectedIds.includes(getRowKey(r, (currentPage - 1) * pageSize + i)))}
+                                      onChange={(e) => {
+                                          const pageKeys = paginatedData.map((r, i) => getRowKey(r, (currentPage - 1) * pageSize + i));
+                                          if (e.target.checked) {
+                                              setSelectedIds(prev => Array.from(new Set([...prev, ...pageKeys])));
+                                          } else {
+                                              setSelectedIds(prev => prev.filter(k => !pageKeys.includes(k)));
+                                          }
+                                      }}
+                                  />
+                                  STT {sortField === 'stt' && (sortDir === 'asc' ? '↑' : '↓')}
+                              </div>
                           </th>
                           <th className="px-4 py-3 cursor-pointer hover:bg-slate-800" onClick={() => handleSort('loaiXl')}>Loại XL {sortField === 'loaiXl' && (sortDir === 'asc' ? '↑' : '↓')}</th>
                           <th className="px-4 py-3 cursor-pointer hover:bg-slate-800" onClick={() => handleSort('maDd')}>Mã ĐĐ {sortField === 'maDd' && (sortDir === 'asc' ? '↑' : '↓')}</th>
@@ -498,20 +525,18 @@ Cấu trúc file Excel mẫu:
                           return (
                           <tr key={rowKey} className="border-b border-slate-200 hover:bg-slate-100 transition-colors cursor-pointer" onClick={() => { setEditingItem(row); setFormData(row); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>
                               <td className="px-4 py-2 font-medium" onClick={e => e.stopPropagation()}>
-                                  {listMode === 'pending' && canDelete ? (
-                                      <div className="flex items-center gap-2">
-                                          <input 
-                                              type="checkbox" 
-                                              className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                                              checked={isChecked}
-                                              onChange={(e) => {
-                                                  if (e.target.checked) setSelectedIds(prev => [...prev, rowKey]);
-                                                  else setSelectedIds(prev => prev.filter(k => k !== rowKey));
-                                              }}
-                                          />
-                                          {row.stt || (globalIdx + 1)}
-                                      </div>
-                                  ) : (row.stt || (globalIdx + 1))}
+                                  <div className="flex items-center gap-2">
+                                      <input 
+                                          type="checkbox" 
+                                          className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                          checked={isChecked}
+                                          onChange={(e) => {
+                                              if (e.target.checked) setSelectedIds(prev => [...prev, rowKey]);
+                                              else setSelectedIds(prev => prev.filter(k => k !== rowKey));
+                                          }}
+                                      />
+                                      {row.stt || (globalIdx + 1)}
+                                  </div>
                               </td>
                               <td className="px-4 py-2">{row.loaiXl}</td>
                               <td className="px-4 py-2 font-bold text-red-600">{row.maDd}</td>
