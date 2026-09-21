@@ -18,6 +18,7 @@ import BirthdayTab from "./components/BirthdayTab";
 import ChangePasswordModal from "./components/ChangePasswordModal";
 import { DataStore, SheetMember } from "./store/DataStore";
 import { PermissionStore } from './store/PermissionStore';
+import { APP_VERSION } from './version';
 
 export type SeasonTheme = ReturnType<typeof getSeasonTheme>;
 
@@ -541,8 +542,10 @@ export default function App() {
             {/* Footer */}
             <footer className={`${theme.footerBg} p-4 mt-auto shrink-0 z-10 border-t border-white/10`}>
               <div className={`flex flex-col md:flex-row justify-between items-center text-[10px] sm:text-[11px] font-medium ${theme.footerText} uppercase tracking-wider gap-2`}>
-                <div className={`text-center md:text-left ${theme.footerAccent} font-bold`}>
-                   Mùa {theme.season === 'summer' ? 'Hạ' : theme.season === 'spring' ? 'Xuân' : theme.season === 'autumn' ? 'Thu' : 'Đông'} • Phiên bản 2026.10.02
+                <div className={`text-center md:text-left ${theme.footerAccent} font-bold flex items-center justify-center md:justify-start gap-1.5`}>
+                   <span>Mùa {theme.season === 'summer' ? 'Hạ' : theme.season === 'spring' ? 'Xuân' : theme.season === 'autumn' ? 'Thu' : 'Đông'}</span>
+                   <span className="opacity-50">•</span>
+                   <span>Phiên bản {APP_VERSION}</span>
                 </div>
                 <div className="text-center opacity-80">
                   Bản quyền thuộc EVN PCVT @2026

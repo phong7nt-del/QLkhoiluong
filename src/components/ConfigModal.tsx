@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { DataStore } from '../store/DataStore';
 import { Copy, Check, DownloadCloud, AlertTriangle, X } from 'lucide-react';
+import { APP_VERSION } from '../version';
 
-const SCRIPT_TEMPLATE = `// VERSION: 2026.10.02
+const SCRIPT_TEMPLATE = `// VERSION: ${APP_VERSION}
 // XÓA TẤT CẢ MÃ CŨ (XÓA function myFunction() { ... })
 // CHỈ DÁN ĐOẠN MÃ DƯỚI ĐÂY VÀO:
 var SPREADSHEET_ID = '1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ';
@@ -1184,6 +1185,13 @@ function doPost(e) {
         
         if (sttCol === -1) sttCol = 0;
         if (idCol === -1) idCol = 1;
+
+        var xCol = -1, yCol = -1;
+        for (var c2 = 0; c2 < headers.length; c2++) {
+            var cH = normalizeDcuH(headers[c2]);
+            if (cH.indexOf('toadox') !== -1 || cH.indexOf('vido') !== -1) xCol = c2;
+            if (cH.indexOf('toadoy') !== -1 || cH.indexOf('kinhdo') !== -1) yCol = c2;
+        }
         
         var deleteIds = {};
         var deleteStts = {};
@@ -1214,6 +1222,15 @@ function doPost(e) {
             var rId = idCol !== -1 ? String(sheetData[r][idCol] != null ? sheetData[r][idCol] : '').trim().toLowerCase() : '';
             var rStt = sttCol !== -1 ? String(sheetData[r][sttCol] != null ? sheetData[r][sttCol] : '').trim() : '';
             
+            // Bảo vệ: Tuyệt đối không cho xóa dòng đã xử lý (đã có tọa độ X và Y)
+            if (xCol !== -1 && yCol !== -1) {
+                var rX = String(sheetData[r][xCol] != null ? sheetData[r][xCol] : '').trim();
+                var rY = String(sheetData[r][yCol] != null ? sheetData[r][yCol] : '').trim();
+                if (rX !== '' && rY !== '') {
+                    continue;
+                }
+            }
+
             var match = false;
             if (rId && deleteIds[rId]) match = true;
             else if (rStt && deleteStts[rStt]) match = true;
@@ -1552,6 +1569,12 @@ function doPost(e) {
         
         if (sttCol === -1) sttCol = 0;
         if (maDdCol === -1) maDdCol = 4;
+
+        var ketQuaCol = -1;
+        for (var c2 = 0; c2 < headers.length; c2++) {
+            var cH = normalizeXlH(headers[c2]);
+            if (cH.indexOf('ketqua') !== -1 || cH.indexOf('kq') !== -1) ketQuaCol = c2;
+        }
         
         var deleteStts = {};
         var deleteMaDds = {};
@@ -1595,6 +1618,14 @@ function doPost(e) {
             var rStt = sttCol !== -1 ? String(sheetData[r][sttCol] != null ? sheetData[r][sttCol] : '').trim() : '';
             var rMaDd = maDdCol !== -1 ? String(sheetData[r][maDdCol] != null ? sheetData[r][maDdCol] : '').trim().toLowerCase() : '';
             
+            // Bảo vệ: Tuyệt đối không xóa bản ghi đã xử lý ('Xong')
+            if (ketQuaCol !== -1) {
+                var rKq = String(sheetData[r][ketQuaCol] != null ? sheetData[r][ketQuaCol] : '').trim().toLowerCase();
+                if (rKq === 'xong') {
+                    continue;
+                }
+            }
+
             var match = false;
             if (rStt && deleteStts[rStt]) match = true;
             else if (rMaDd && deleteMaDds[rMaDd]) match = true;
@@ -1792,9 +1823,14 @@ export default function ConfigModal({ onClose }: { onClose: () => void }) {
         </button>
 
         <div className="p-6 lg:p-10">
-          <h2 className="font-serif italic text-2xl mb-6 pr-12">
-             Cấu hình Hệ Thống & Google Scripts
-          </h2>
+          <div className="flex items-center justify-between mb-6 pr-12 flex-wrap gap-2">
+            <h2 className="font-serif italic text-2xl">
+               Cấu hình Hệ Thống & Google Scripts
+            </h2>
+            <span className="text-xs font-mono font-bold bg-slate-900 text-white px-2.5 py-1 rounded shadow-sm">
+               v{APP_VERSION}
+            </span>
+          </div>
           
           <div className="space-y-6 text-sm font-sans">
             <div className="bg-[#FFF4E5] border border-orange-400 p-4 rounded-none flex gap-3 text-orange-900 border-l-[6px] shadow-[4px_4px_0_rgba(0,0,0,0.1)]">

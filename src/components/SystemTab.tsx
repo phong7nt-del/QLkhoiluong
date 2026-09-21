@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { PermissionStore, RBACConfig, ALL_ROLES, AppRole } from '../store/PermissionStore';
-import { Shield, Save, CheckSquare, Square, RotateCcw, Award, UserPlus, X, Check } from 'lucide-react';
+import { Shield, Save, CheckSquare, Square, RotateCcw, Award, UserPlus, X, Check, Info } from 'lucide-react';
 import { DataStore } from '../store/DataStore';
+import { APP_VERSION, APP_VERSION_DETAILS } from '../version';
 
 const TABS_INFO = [
     { id: 'input', label: 'Cập nhật' },
@@ -313,6 +314,35 @@ export default function SystemTab() {
                                 ))}
                             </tbody>
                         </table>
+                    </div>
+                </div>
+
+                {/* Thông tin Phiên bản Hệ thống */}
+                <div className="mt-8 p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-slate-900 to-slate-800 text-white shadow-lg border border-slate-700">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div className="flex items-start gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center shrink-0 border border-white/10">
+                                <Info className="w-5 h-5 text-amber-400" />
+                            </div>
+                            <div>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <h3 className="font-bold text-base text-white">Phiên bản Hệ thống</h3>
+                                    <span className="px-2.5 py-0.5 rounded-full bg-amber-400 text-slate-950 font-mono font-black text-xs">
+                                        v{APP_VERSION}
+                                    </span>
+                                </div>
+                                <p className="text-xs text-slate-300 mt-1">
+                                    Cấu trúc phiên bản tự động: <span className="font-mono text-amber-300 font-bold">Năm.Tháng.Ngày.Số</span> (trong đó Năm, Tháng, Ngày là ngày hiện tại, Số là số thứ tự tự động tăng lên sau mỗi lần cập nhật).
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0 text-xs font-mono text-slate-300 bg-white/5 p-2.5 rounded-xl border border-white/10">
+                            <div>
+                                <span className="text-slate-400">Lần cập nhật gần nhất:</span>{' '}
+                                <span className="text-white font-bold">{APP_VERSION_DETAILS.formattedTime}</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
 

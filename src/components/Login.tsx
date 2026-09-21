@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Lock, User, KeyRound, AlertCircle, ArrowRight, Zap, Target, TrendingUp, CalendarDays, CheckSquare, Activity, WifiOff } from 'lucide-react';
 import { DataStore, SheetMember } from '../store/DataStore';
+import { APP_VERSION } from '../version';
 
 interface LoginProps {
   onLoginSuccess: (member: SheetMember) => void;
@@ -196,8 +197,10 @@ export default function Login({ onLoginSuccess }: LoginProps) {
               </div>
            </div>
 
-           <div className="relative z-10 text-xs font-mono text-white/60 uppercase tracking-widest">
-              Phiên bản 2026.10.02 • Secure Login
+           <div className="relative z-10 text-xs font-mono text-white/70 uppercase tracking-widest flex items-center gap-2">
+              <span>Phiên bản {APP_VERSION}</span>
+              <span className="opacity-50">•</span>
+              <span>Secure Login</span>
            </div>
            
            {/* Animated decorative shapes */}

@@ -2,13 +2,14 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { DataStore, SheetMember } from '../store/DataStore';
 import { 
   Gift, Cake, Sparkles, Calendar, Music, PartyPopper, Trophy, Award,
-  ChevronRight, Play, Pause, RotateCcw, Volume2, VolumeX, Eye, Flame,
-  Maximize2, Minimize2, CheckCircle2, Clock, Lock, Shield, Send
+  ChevronRight, ChevronLeft, Play, Pause, RotateCcw, Volume2, VolumeX, Eye, Flame,
+  Maximize2, Minimize2, CheckCircle2, Clock, Lock, Shield, Send, Image as ImageIcon
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { motion, AnimatePresence } from 'motion/react';
 import TuyenDuongTab from './TuyenDuongTab';
 import { soundFX } from '../utils/soundFX';
+import { getSeasonalNatureTheme } from '../utils/seasonalNature';
 
 const calculateAge = (dobString: string | undefined | null) => {
   if (!dobString) return null;
@@ -91,6 +92,17 @@ export default function BirthdayTab({ sessionUser }: BirthdayTabProps) {
   // Cakes
   const [isMonthCakeCut, setIsMonthCakeCut] = useState(false);
 
+  // Seasonal nature scenery variant offset (cycles through nature scenes)
+  const [scenicBgOffset, setScenicBgOffset] = useState<number>(0);
+
+  // Reset MC step and scenic offset on month/team change
+  useEffect(() => {
+    setMcStep(0);
+    setIsAutoPlaying(false);
+    setIsMonthCakeCut(false);
+    setScenicBgOffset(0);
+  }, [selectedMonth, selectedYear, selectedTeam]);
+
   useEffect(() => {
     const allMembers = DataStore.getMembers();
     setMembers(allMembers);
@@ -127,12 +139,16 @@ export default function BirthdayTab({ sessionUser }: BirthdayTabProps) {
     soundFX.setEnabled(soundOn);
   }, [soundOn]);
 
-  // Reset MC step on month/team change
-  useEffect(() => {
-    setMcStep(0);
-    setIsAutoPlaying(false);
-    setIsMonthCakeCut(false);
-  }, [selectedMonth, selectedYear, selectedTeam]);
+  // Compute seasonal nature theme for selected month and active member
+  const currentNatureTheme = useMemo(() => {
+    // When mcStep is active, each member gets a variant based on their index + manual offset
+    const variantOffset = mcStep >= 1 ? (mcStep - 1 + scenicBgOffset) : scenicBgOffset;
+    return getSeasonalNatureTheme(selectedMonth, variantOffset);
+  }, [selectedMonth, mcStep, scenicBgOffset]);
+
+  const welcomeNatureTheme = useMemo(() => {
+    return getSeasonalNatureTheme(selectedMonth, scenicBgOffset);
+  }, [selectedMonth, scenicBgOffset]);
 
   // Autoplay timer
   useEffect(() => {
@@ -149,13 +165,16 @@ export default function BirthdayTab({ sessionUser }: BirthdayTabProps) {
     return () => clearTimeout(timer);
   }, [isAutoPlaying, mcStep, monthBirthdays.length]);
 
-  // Keyboard shortcut for MC (Space / Enter advances, F toggles fullscreen, Esc exits)
+  // Keyboard shortcut for MC (Space / Enter / Right arrow advances, Left arrow goes back, F toggles fullscreen, Esc exits)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (activeSubTab !== 'sinh_nhat') return;
-      if (e.code === 'Space' || e.code === 'Enter') {
+      if (e.code === 'Space' || e.code === 'Enter' || e.key === 'ArrowRight') {
         e.preventDefault();
         advanceMcStep();
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        prevMcStep();
       } else if (e.key.toLowerCase() === 'f' && !e.ctrlKey && !e.metaKey) {
         setIsFullscreen(prev => !prev);
       } else if (e.key === 'Escape' && isFullscreen) {
@@ -175,6 +194,12 @@ export default function BirthdayTab({ sessionUser }: BirthdayTabProps) {
       });
     }
   }, [mcStep]);
+
+  // Go back to previous member in MC presentation
+  const prevMcStep = () => {
+    if (monthBirthdays.length === 0) return;
+    setMcStep(prev => Math.max(0, prev - 1));
+  };
 
   // Advance MC presentation to the next member
   const advanceMcStep = () => {
@@ -250,19 +275,383 @@ export default function BirthdayTab({ sessionUser }: BirthdayTabProps) {
     return Array.from(set).sort();
   }, [members]);
 
+  const renderStageCard = (inFullscreen: boolean) => {
+    if (activeMember) {
+      return (
+        <motion.div
+          key={`spotlight-${mcStep}-${currentNatureTheme.imageIndex}`}
+          initial={{ opacity: 0, scale: 0.96 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.96 }}
+          transition={{ type: 'spring', stiffness: 220, damping: 22 }}
+          className={`relative rounded-3xl shadow-2xl overflow-hidden flex flex-col justify-between border-2 border-white/90 ${
+            inFullscreen ? 'w-full max-w-5xl h-[calc(100vh-140px)] min-h-[460px]' : 'w-full flex-1 min-h-[440px]'
+          }`}
+        >
+          {/* High-Definition Seasonal Nature Background with gentle zoom */}
+          <motion.div 
+            key={`bg-img-${currentNatureTheme.activeImage.url}`}
+            initial={{ scale: 1.08, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ duration: 0.85, ease: 'easeOut' }}
+            className="absolute inset-0 bg-cover bg-center transition-transform"
+            style={{ backgroundImage: `url("${currentNatureTheme.activeImage.url}")` }}
+          />
+
+          {/* Bright, radiant, joyful nature overlays */}
+          <div className="absolute inset-0 bg-gradient-to-b from-white/70 via-white/45 to-white/75 backdrop-blur-[1px]" />
+          <div className={`absolute inset-0 bg-gradient-to-tr ${currentNatureTheme.accentGlow} mix-blend-soft-light opacity-60`} />
+          
+          {/* Scenery Caption at bottom right */}
+          <div className="absolute bottom-3 right-4 z-10 pointer-events-none">
+            <span className="text-[11px] text-slate-800 font-bold drop-shadow-xs bg-white/90 px-3 py-1 rounded-full border border-white/90 backdrop-blur-md shadow-xs flex items-center gap-1.5">
+              <span>{currentNatureTheme.seasonIcon}</span>
+              <span>{currentNatureTheme.activeImage.caption}</span>
+            </span>
+          </div>
+
+          {/* Content Card with Glassmorphic Celebratory Transparency */}
+          <div className={`p-5 md:p-8 rounded-3xl text-slate-900 relative z-10 flex-1 flex flex-col justify-between ${
+            inFullscreen ? 'md:p-10' : ''
+          }`}>
+            {/* Top: Header Banner, Seasonal Tag & Quick Actions */}
+            <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-black uppercase tracking-wider bg-white/95 text-rose-700 px-3 py-1 rounded-full border border-rose-200 shadow-sm backdrop-blur-md">
+                  {activeMember.team || 'Tổ Đo xa'}
+                </span>
+                <span className={`text-xs font-extrabold px-3 py-1 rounded-full border backdrop-blur-md flex items-center gap-1.5 shadow-sm bg-white/95 ${currentNatureTheme.badgeBg} ${currentNatureTheme.badgeBorder}`}>
+                  <span>{currentNatureTheme.seasonIcon}</span>
+                  <span>{currentNatureTheme.seasonTitle} • {currentNatureTheme.themeName}</span>
+                </span>
+                <span className="text-xs font-black text-amber-950 bg-amber-200/90 border border-amber-300 px-3 py-1 rounded-full shadow-sm">
+                  Thứ tự {mcStep}/{monthBirthdays.length}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setScenicBgOffset(prev => prev + 1)}
+                  className="px-3 py-1.5 rounded-xl bg-white/95 hover:bg-white text-emerald-800 text-xs font-extrabold flex items-center gap-1.5 border border-emerald-300 shadow-sm cursor-pointer transition-all backdrop-blur-sm"
+                  title="Đổi cảnh sắc thiên nhiên theo mùa"
+                >
+                  <ImageIcon className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Đổi cảnh sắc</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundFX.playHappyTune();
+                    confetti({
+                      particleCount: 70,
+                      spread: 80,
+                      origin: { x: 0.5, y: 0.6 }
+                    });
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-600 hover:to-rose-600 text-white font-extrabold text-xs flex items-center gap-1.5 border border-white/60 shadow-md cursor-pointer transition-all"
+                  title="Bắn pháo hoa chúc mừng"
+                >
+                  <PartyPopper className="w-4 h-4 text-amber-200" />
+                  Pháo hoa
+                </button>
+              </div>
+            </div>
+
+            {/* Middle: Shining Golden Date & Member Name */}
+            <div className="flex flex-col md:flex-row items-center gap-6 md:gap-8 my-auto py-4">
+              {/* Large Radiant 3D Golden Date Badge */}
+              <motion.div 
+                animate={{ rotate: [-1, 1, -1], scale: [1, 1.02, 1] }}
+                transition={{ repeat: Infinity, duration: 3.5, ease: "easeInOut" }}
+                className={`w-28 h-28 md:w-36 md:h-36 rounded-3xl bg-gradient-to-tr ${currentNatureTheme.dateBadgeGradient} p-1.5 shadow-[0_12px_35px_rgba(245,158,11,0.45)] flex items-center justify-center text-slate-950 shrink-0`}
+              >
+                <div className="w-full h-full rounded-[20px] bg-gradient-to-b from-amber-50 via-white to-amber-50/90 flex flex-col items-center justify-center text-center p-2 border-2 border-amber-300/90 shadow-inner">
+                  <span className="text-[10px] md:text-xs font-black uppercase tracking-widest text-amber-800">SINH NHẬT</span>
+                  <span className="text-2xl md:text-4xl font-black text-rose-600 drop-shadow-xs my-0.5">
+                    Ngày {String(activeMember.sinhNhat).split('/')[0]}
+                  </span>
+                  <span className="text-[10px] md:text-xs font-extrabold text-amber-800">Tháng {selectedMonth}</span>
+                </div>
+              </motion.div>
+
+              {/* Member Name and Age */}
+              <div className="text-center md:text-left flex-1 min-w-0">
+                <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 mb-2">
+                  {calculateAge(activeMember.sinhNhat) !== null && (
+                    <span className="text-xs md:text-sm font-black bg-gradient-to-r from-rose-500 to-amber-500 text-white px-3.5 py-1 rounded-full shadow-sm">
+                      {calculateAge(activeMember.sinhNhat)} Tuổi
+                    </span>
+                  )}
+                  <span className="text-xs md:text-sm text-slate-700 font-bold bg-white/90 px-3 py-1 rounded-full border border-slate-200 shadow-xs">
+                    Ngày sinh: {activeMember.sinhNhat}
+                  </span>
+                </div>
+
+                <h3 className={`font-black text-slate-900 tracking-tight font-serif drop-shadow-xs truncate ${
+                  inFullscreen ? 'text-3xl md:text-5xl lg:text-6xl' : 'text-2xl md:text-4xl lg:text-5xl'
+                }`}>
+                  {activeMember.name}
+                </h3>
+
+                <div className="flex items-center justify-center md:justify-start gap-2 mt-2.5 text-rose-600 font-bold text-xs md:text-base">
+                  <Sparkles className="w-4 h-4 md:w-5 md:h-5 text-amber-500 shrink-0" />
+                  <span>Chúc mừng tuổi mới vạn sự như ý, thành công rực rỡ!</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom: Warm Union Wish & Seasonal Poetic Touch */}
+            <div className="p-4 md:p-5 bg-white/95 rounded-2xl border-2 border-amber-200/90 backdrop-blur-md mt-2 shadow-md">
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <span className="text-xs md:text-sm font-extrabold text-amber-900 flex items-center gap-1.5">
+                  <span>{currentNatureTheme.seasonIcon}</span>
+                  <span>Lời chúc Công Đoàn {currentNatureTheme.seasonTitle}</span>
+                </span>
+                <span className="text-xs text-slate-600 italic hidden sm:inline font-medium">
+                  "{currentNatureTheme.poem}"
+                </span>
+              </div>
+              <p className="text-xs md:text-sm text-rose-950 italic font-semibold leading-relaxed">
+                "{getWishForAge(calculateAge(activeMember.sinhNhat))}"
+              </p>
+            </div>
+          </div>
+        </motion.div>
+      );
+    }
+
+    if (mcStep > monthBirthdays.length) {
+      return (
+        <motion.div
+          key="finale-stage"
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className={`relative rounded-3xl text-slate-900 text-center shadow-2xl border-2 border-white/90 overflow-hidden flex flex-col items-center justify-center p-6 md:p-10 ${
+            inFullscreen ? 'w-full max-w-4xl h-[calc(100vh-140px)] min-h-[460px]' : 'w-full flex-1 min-h-[440px]'
+          }`}
+        >
+          <div 
+            className="absolute inset-0 bg-cover bg-center scale-105 transition-transform"
+            style={{ backgroundImage: `url("${welcomeNatureTheme.activeImage.url}")` }}
+          />
+          <div className="absolute inset-0 bg-gradient-to-b from-white/75 via-white/50 to-white/80 backdrop-blur-[2px]" />
+          <div className={`absolute inset-0 bg-gradient-to-tr ${welcomeNatureTheme.accentGlow} mix-blend-soft-light opacity-50`} />
+
+          <div className="relative z-10 max-w-lg mx-auto flex flex-col items-center p-6 md:p-8 rounded-3xl bg-white/95 backdrop-blur-xl border-2 border-amber-300/80 shadow-2xl">
+            <span className="text-xs font-black uppercase tracking-wider text-rose-700 bg-rose-100 border border-rose-300 px-3.5 py-1 rounded-full mb-3 inline-flex items-center gap-1.5 shadow-xs">
+              <PartyPopper className="w-4 h-4 text-amber-600" />
+              Đại Tiệc Sinh Nhật Tháng {selectedMonth} • {welcomeNatureTheme.seasonTitle}
+            </span>
+
+            {/* Interactive Cake */}
+            <div 
+              onClick={handleMonthCakeClick}
+              className="relative cursor-pointer group my-3 z-20"
+              title="Bấm để cắt bánh sinh nhật tập thể!"
+            >
+              <AnimatePresence mode="wait">
+                {!isMonthCakeCut ? (
+                  <motion.div 
+                    key="whole-cake-month"
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    className="w-24 h-24 bg-gradient-to-tr from-amber-400 to-rose-400 rounded-full flex items-center justify-center shadow-xl border-4 border-white group-hover:scale-110 transition-transform mx-auto text-white"
+                  >
+                    <Cake className="w-12 h-12 text-white drop-shadow-md" />
+                  </motion.div>
+                ) : (
+                  <motion.div 
+                    key="sliced-cake-month"
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    className="w-24 h-24 flex items-center justify-center mx-auto"
+                  >
+                    <span className="text-6xl drop-shadow-xl">🍰</span>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+              <p className="text-xs text-rose-700 mt-2 font-black group-hover:text-rose-800">
+                {!isMonthCakeCut ? '👉 Bấm vào bánh để cắt bánh tập thể!' : '✨ Đã cắt bánh chúc mừng!'}
+              </p>
+            </div>
+
+            <h3 className="text-2xl md:text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-rose-600 via-amber-600 to-yellow-600 font-serif mb-2">
+              Happy Birthday Tháng {selectedMonth}!
+            </h3>
+            <p className="text-xs md:text-sm text-slate-700 font-medium leading-relaxed max-w-md">
+              Kính chúc toàn thể {monthBirthdays.length} đồng chí tuổi mới luôn tràn đầy năng lượng, dồi dào sức khỏe, gia đình hạnh phúc và gặt hái nhiều thắng lợi mới!
+            </p>
+          </div>
+        </motion.div>
+      );
+    }
+
+    // Welcome Stage (mcStep === 0)
+    return (
+      <div className={`relative rounded-3xl overflow-hidden flex flex-col items-center justify-center text-slate-900 text-center shadow-2xl border-2 border-white/90 p-6 md:p-10 ${
+        inFullscreen ? 'w-full max-w-4xl h-[calc(100vh-140px)] min-h-[460px]' : 'w-full flex-1 min-h-[440px]'
+      }`}>
+        <motion.div 
+          key={`welcome-bg-${welcomeNatureTheme.activeImage.url}`}
+          initial={{ scale: 1.05, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ duration: 0.8 }}
+          className="absolute inset-0 bg-cover bg-center"
+          style={{ backgroundImage: `url("${welcomeNatureTheme.activeImage.url}")` }}
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-white/75 via-white/50 to-white/80 backdrop-blur-[2px]" />
+        <div className={`absolute inset-0 bg-gradient-to-tr ${welcomeNatureTheme.accentGlow} mix-blend-soft-light opacity-50`} />
+
+        {/* Scenery Caption */}
+        <div className="absolute bottom-3 right-4 z-10 pointer-events-none">
+          <span className="text-[11px] text-slate-800 font-bold drop-shadow-xs bg-white/90 px-3 py-1 rounded-full border border-white/90 backdrop-blur-md shadow-xs flex items-center gap-1.5">
+            <span>{welcomeNatureTheme.seasonIcon}</span>
+            <span>{welcomeNatureTheme.activeImage.caption}</span>
+          </span>
+        </div>
+
+        <div className="relative z-10 max-w-lg mx-auto flex flex-col items-center p-6 md:p-8 rounded-3xl bg-white/95 backdrop-blur-xl border-2 border-amber-300/80 shadow-2xl">
+          <div className="flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-amber-100/90 border border-amber-300 text-amber-900 text-xs font-bold mb-3 shadow-xs">
+            <span>{welcomeNatureTheme.seasonIcon}</span>
+            <span>Tháng {selectedMonth} • {welcomeNatureTheme.seasonTitle}</span>
+          </div>
+          <div className="w-18 h-18 rounded-3xl bg-gradient-to-tr from-amber-400 to-rose-400 text-white flex items-center justify-center mb-3 shadow-lg p-3">
+            <Cake className="w-10 h-10 text-white drop-shadow-sm" />
+          </div>
+          <h4 className="text-xl md:text-3xl font-black mb-1.5 font-serif text-slate-900 drop-shadow-xs">
+            Sân Khấu Chúc Mừng Sinh Nhật Tháng {selectedMonth}
+          </h4>
+          <p className="text-xs text-amber-800 italic mb-3 font-semibold">
+            "{welcomeNatureTheme.themeName} — {welcomeNatureTheme.poem}"
+          </p>
+          <p className="text-xs md:text-sm text-slate-600 max-w-md mb-5 leading-relaxed">
+            Bấm nút <span className="text-rose-600 font-bold">"Bắt đầu xướng tên"</span> hoặc phím <span className="text-amber-600 font-bold">Cách (Space)</span> để MC xướng tên từng đoàn viên theo thứ tự ngày sinh từ nhỏ đến lớn!
+          </p>
+          <button
+            type="button"
+            onClick={advanceMcStep}
+            className="px-7 py-3 rounded-2xl bg-gradient-to-r from-rose-500 via-pink-500 to-amber-500 hover:brightness-105 text-white font-black text-sm md:text-base flex items-center gap-2.5 shadow-xl shadow-rose-500/25 cursor-pointer transition-all transform hover:scale-105"
+          >
+            <Play className="w-4 h-4 fill-current" />
+            Bắt đầu xướng tên
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div 
       ref={containerRef}
       className={`flex flex-col gap-3 w-full mx-auto transition-all ${
         isFullscreen 
-          ? 'fixed inset-0 z-50 bg-slate-950 p-4 md:p-6 h-screen w-screen overflow-hidden justify-between' 
+          ? 'fixed inset-0 z-50 bg-gradient-to-br from-amber-50/80 via-rose-50/60 to-sky-50/70 p-4 md:p-6 h-screen w-screen overflow-hidden justify-between' 
           : 'max-w-7xl pb-4'
       }`}
     >
-      {/* Top Header & Sub-Tab Switcher */}
-      <div className={`bg-white rounded-2xl px-4 py-2.5 shadow-sm border border-slate-200/80 flex flex-wrap items-center justify-between gap-3 transition-all ${
-        isFullscreen ? 'bg-slate-900/90 border-slate-700 text-white backdrop-blur-md' : ''
-      }`}>
+      {/* Fullscreen Dedicated Presentation Mode - Clean, Centered, No Distractions */}
+      {isFullscreen ? (
+        <div className="flex flex-col h-full w-full justify-between items-center">
+          {/* Top Bar: Minimalist Presentation Header with Navigation & Exit */}
+          <div className="w-full max-w-5xl flex items-center justify-between gap-3 px-4 py-2.5 bg-white/90 backdrop-blur-md rounded-2xl border border-amber-200/80 shadow-md z-30">
+            <div className="flex items-center gap-2.5">
+              <div className="p-1.5 bg-gradient-to-tr from-amber-500 to-rose-500 rounded-xl text-white shadow-xs">
+                <Cake className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-xs md:text-sm font-black text-slate-900 flex items-center gap-2">
+                  <span>Trình Chiếu Sinh Nhật Tháng {selectedMonth}</span>
+                  <span className="bg-rose-100 text-rose-700 text-[10px] font-black uppercase px-2 py-0.5 rounded-full border border-rose-200">
+                    {mcStep === 0 ? 'Mở đầu' : mcStep > monthBirthdays.length ? 'Tổng kết' : `${mcStep}/${monthBirthdays.length}`}
+                  </span>
+                </h3>
+              </div>
+            </div>
+
+            {/* Quick Controls in Fullscreen */}
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-slate-500 font-medium hidden md:inline">
+                Phím tắt: <kbd className="px-1.5 py-0.5 bg-slate-100 border border-slate-300 rounded text-[10px] font-bold">←</kbd> <kbd className="px-1.5 py-0.5 bg-slate-100 border border-slate-300 rounded text-[10px] font-bold">→</kbd> <kbd className="px-1.5 py-0.5 bg-slate-100 border border-slate-300 rounded text-[10px] font-bold">Space</kbd>
+              </span>
+
+              <button
+                type="button"
+                onClick={() => setIsFullscreen(false)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold transition-all cursor-pointer shadow-sm"
+                title="Thoát chế độ trình chiếu (Esc)"
+              >
+                <Minimize2 className="w-3.5 h-3.5" />
+                <span>Thoát trình chiếu</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Centered Spotlight Stage in Fullscreen */}
+          <div className="w-full flex-1 flex items-center justify-center my-auto p-2">
+            <AnimatePresence mode="wait">
+              {renderStageCard(true)}
+            </AnimatePresence>
+          </div>
+
+          {/* Bottom Bar: MC Stepper Buttons in Fullscreen */}
+          <div className="w-full max-w-5xl flex items-center justify-between gap-3 px-4 py-2.5 bg-white/90 backdrop-blur-md rounded-2xl border border-amber-200/80 shadow-md z-30">
+            <button
+              type="button"
+              onClick={prevMcStep}
+              disabled={mcStep <= 0}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed text-xs md:text-sm font-extrabold cursor-pointer transition-all shadow-xs"
+              title="Quay lại người trước (Phím ←)"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              <span>Đồng chí trước</span>
+            </button>
+
+            {/* Quick Step Indicators */}
+            <div className="flex items-center gap-1.5 overflow-x-auto max-w-[50%] py-1">
+              {monthBirthdays.map((m, idx) => {
+                const stepNum = idx + 1;
+                const isCurrent = mcStep === stepNum;
+                const isPassed = mcStep > stepNum;
+                return (
+                  <button
+                    key={m.name}
+                    type="button"
+                    onClick={() => {
+                      setMcStep(stepNum);
+                      soundFX.playFanfare();
+                    }}
+                    className={`w-7 h-7 rounded-full text-[11px] font-bold flex items-center justify-center transition-all cursor-pointer shrink-0 ${
+                      isCurrent
+                        ? 'bg-rose-600 text-white ring-2 ring-rose-400 ring-offset-1 scale-110 shadow-sm'
+                        : isPassed
+                        ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                        : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                    }`}
+                    title={`${m.name} (Ngày ${m.sinhNhat})`}
+                  >
+                    {stepNum}
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              type="button"
+              onClick={advanceMcStep}
+              className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-gradient-to-r from-rose-500 via-pink-500 to-amber-500 hover:brightness-105 text-white text-xs md:text-sm font-black shadow-md cursor-pointer transition-all transform hover:scale-105"
+              title="Xướng tên người tiếp theo (Phím Space hoặc →)"
+            >
+              <span>{mcStep === 0 ? 'Bắt đầu' : mcStep >= monthBirthdays.length ? 'Tổng kết bánh kem' : 'Người tiếp theo'}</span>
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Top Header & Sub-Tab Switcher */}
+          <div className="bg-white rounded-2xl px-4 py-2.5 shadow-sm border border-slate-200/80 flex flex-wrap items-center justify-between gap-3 transition-all">
         <div className="flex items-center gap-2.5">
           <div className="p-2 bg-gradient-to-tr from-amber-500 to-rose-500 rounded-xl text-white shadow-sm">
             <Award className="w-5 h-5" />
@@ -365,6 +754,10 @@ export default function BirthdayTab({ sessionUser }: BirthdayTabProps) {
               <span className="text-[10px] text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md font-extrabold border border-rose-200">
                 {monthBirthdays.length} Đoàn Viên
               </span>
+              <span className={`hidden md:inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md border shadow-xs ${currentNatureTheme.badgeBg} ${currentNatureTheme.badgeBorder}`}>
+                <span>{currentNatureTheme.seasonIcon}</span>
+                <span>{currentNatureTheme.seasonTitle}</span>
+              </span>
               {isLeader && (
                 <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-200">
                   👑 Quyền Công Bố
@@ -435,6 +828,17 @@ export default function BirthdayTab({ sessionUser }: BirthdayTabProps) {
                   <option key={t} value={t}>{t}</option>
                 ))}
               </select>
+
+              {/* Toggle Scenic Nature View */}
+              <button
+                type="button"
+                onClick={() => setScenicBgOffset(prev => prev + 1)}
+                className="px-2 py-1.5 rounded-xl border border-emerald-300 hover:bg-emerald-50 text-emerald-800 text-xs font-bold flex items-center gap-1 cursor-pointer transition-all shadow-xs"
+                title={`Đổi cảnh sắc thiên nhiên mùa ${currentNatureTheme.seasonTitle} (hoa cỏ, sông suối, đồi núi)`}
+              >
+                <ImageIcon className="w-3.5 h-3.5 text-emerald-600" />
+                <span className="hidden xl:inline text-[11px]">Đổi Cảnh Sắc</span>
+              </button>
 
               <button
                 onClick={() => setSoundOn(!soundOn)}
@@ -573,165 +977,7 @@ export default function BirthdayTab({ sessionUser }: BirthdayTabProps) {
               {/* LEFT: SPOTLIGHT STAGE (COL-SPAN-7 OR 8) */}
               <div className="lg:col-span-7 xl:col-span-8 flex flex-col min-h-0">
                 <AnimatePresence mode="wait">
-                  {activeMember ? (
-                    <motion.div
-                      key={`spotlight-${mcStep}`}
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.95 }}
-                      transition={{ type: 'spring', stiffness: 240, damping: 20 }}
-                      className="relative bg-gradient-to-br from-rose-600 via-pink-600 to-indigo-700 p-0.5 rounded-2xl shadow-xl overflow-hidden flex-1 flex flex-col justify-between"
-                    >
-                      <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-15" />
-                      
-                      <div className="bg-slate-950/40 backdrop-blur-md p-5 md:p-7 rounded-[14px] border border-white/20 text-white relative z-10 flex-1 flex flex-col justify-between">
-                        {/* Top: Header Banner & Quick Action */}
-                        <div className="flex items-center justify-between gap-2 mb-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-black uppercase tracking-widest bg-white/20 text-white px-2.5 py-0.5 rounded-full border border-white/30">
-                              {activeMember.team || 'Tổ Đo xa'}
-                            </span>
-                            <span className="text-[10px] font-bold text-pink-200">
-                              Số thứ tự {mcStep}/{monthBirthdays.length}
-                            </span>
-                          </div>
-
-                          <button
-                            onClick={() => {
-                              soundFX.playHappyTune();
-                              confetti({
-                                particleCount: 60,
-                                spread: 70,
-                                origin: { x: 0.5, y: 0.6 }
-                              });
-                            }}
-                            className="px-3 py-1 rounded-xl bg-white/20 hover:bg-white/30 text-white font-bold text-xs flex items-center gap-1.5 border border-white/30 shadow-sm cursor-pointer transition-all"
-                            title="Bắn pháo hoa cho đồng chí này"
-                          >
-                            <PartyPopper className="w-3.5 h-3.5 text-amber-300" />
-                            Pháo hoa
-                          </button>
-                        </div>
-
-                        {/* Middle: Shining Date & Name */}
-                        <div className="flex flex-col md:flex-row items-center gap-5 my-auto py-2">
-                          {/* Large Date Badge */}
-                          <motion.div 
-                            animate={{ rotate: [-1, 1, -1], scale: [1, 1.03, 1] }}
-                            transition={{ repeat: Infinity, duration: 3 }}
-                            className="w-24 h-24 md:w-28 md:h-28 rounded-2xl bg-gradient-to-tr from-amber-400 via-yellow-300 to-amber-500 p-1 shadow-[0_0_25px_rgba(251,191,36,0.6)] flex items-center justify-center text-slate-950 shrink-0"
-                          >
-                            <div className="w-full h-full rounded-[12px] bg-gradient-to-b from-amber-950 via-slate-900 to-slate-950 flex flex-col items-center justify-center text-center p-1.5 border border-amber-300/60">
-                              <span className="text-[9px] font-black uppercase tracking-widest text-amber-300">SINH NHẬT</span>
-                              <span className="text-xl md:text-2xl font-black text-amber-200 drop-shadow">
-                                Ngày {String(activeMember.sinhNhat).split('/')[0]}
-                              </span>
-                              <span className="text-[9px] font-bold text-amber-300/80">Tháng {selectedMonth}</span>
-                            </div>
-                          </motion.div>
-
-                          {/* Member Name and Age */}
-                          <div className="text-center md:text-left flex-1 min-w-0">
-                            <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 mb-1">
-                              {calculateAge(activeMember.sinhNhat) !== null && (
-                                <span className="text-[11px] font-black bg-amber-400 text-slate-950 px-2.5 py-0.5 rounded-full shadow-sm">
-                                  {calculateAge(activeMember.sinhNhat)} Tuổi
-                                </span>
-                              )}
-                              <span className="text-xs text-pink-200 font-semibold">
-                                Ngày sinh: {activeMember.sinhNhat}
-                              </span>
-                            </div>
-
-                            <h3 className="text-2xl md:text-3xl lg:text-4xl font-black text-white drop-shadow tracking-tight font-serif truncate">
-                              {activeMember.name}
-                            </h3>
-                          </div>
-                        </div>
-
-                        {/* Bottom: Warm Union Wish */}
-                        <div className="p-3 bg-black/30 rounded-xl border border-white/15 backdrop-blur-sm mt-2">
-                          <p className="text-xs md:text-sm text-pink-100 italic font-medium leading-relaxed">
-                            "{getWishForAge(calculateAge(activeMember.sinhNhat))}"
-                          </p>
-                        </div>
-                      </div>
-                    </motion.div>
-                  ) : mcStep > monthBirthdays.length ? (
-                    /* Finale Collective Cake Cutting */
-                    <motion.div
-                      key="finale-stage"
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      className="bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-6 rounded-2xl text-white text-center shadow-xl border border-purple-400/40 relative overflow-hidden flex-1 flex flex-col items-center justify-center"
-                    >
-                      <div className="relative z-10 max-w-lg mx-auto flex flex-col items-center">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-pink-300 bg-pink-500/20 px-3 py-0.5 rounded-full border border-pink-400/40 mb-2 inline-flex items-center gap-1.5">
-                          <PartyPopper className="w-3.5 h-3.5 text-amber-300" />
-                          Đại Tiệc Sinh Nhật Tháng {selectedMonth}
-                        </span>
-
-                        {/* Interactive Cake */}
-                        <div 
-                          onClick={handleMonthCakeClick}
-                          className="relative cursor-pointer group my-2 z-20"
-                          title="Bấm để cắt bánh sinh nhật tập thể!"
-                        >
-                          <AnimatePresence mode="wait">
-                            {!isMonthCakeCut ? (
-                              <motion.div 
-                                key="whole-cake-month"
-                                initial={{ scale: 0 }}
-                                animate={{ scale: 1 }}
-                                className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center shadow-xl backdrop-blur-md border border-white/30 group-hover:scale-110 transition-transform mx-auto"
-                              >
-                                <Cake className="w-10 h-10 text-white drop-shadow-md" />
-                              </motion.div>
-                            ) : (
-                              <motion.div 
-                                key="sliced-cake-month"
-                                initial={{ scale: 0 }}
-                                animate={{ scale: 1 }}
-                                className="w-20 h-20 flex items-center justify-center mx-auto"
-                              >
-                                <span className="text-5xl drop-shadow-xl">🍰</span>
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                          <p className="text-[11px] text-pink-200 mt-1 font-bold group-hover:text-white">
-                            {!isMonthCakeCut ? '👉 Bấm vào bánh để cắt bánh tập thể!' : '✨ Đã cắt bánh chúc mừng!'}
-                          </p>
-                        </div>
-
-                        <h3 className="text-2xl md:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-pink-200 to-white font-serif mb-1">
-                          Happy Birthday Tháng {selectedMonth}!
-                        </h3>
-                        <p className="text-xs text-pink-100 leading-relaxed max-w-md">
-                          Kính chúc toàn thể {monthBirthdays.length} đồng chí tuổi mới luôn tràn đầy năng lượng, dồi dào sức khỏe, gia đình hạnh phúc và gặt hái nhiều thắng lợi mới!
-                        </p>
-                      </div>
-                    </motion.div>
-                  ) : (
-                    /* Initial Welcome Stage */
-                    <div className="bg-gradient-to-br from-slate-900 via-purple-950 to-slate-900 rounded-2xl p-6 text-white text-center shadow-xl border border-slate-800 flex-1 flex flex-col items-center justify-center">
-                      <div className="w-16 h-16 rounded-full bg-rose-500/20 text-rose-400 flex items-center justify-center mb-3 border border-rose-400/30">
-                        <Cake className="w-8 h-8" />
-                      </div>
-                      <h4 className="text-lg md:text-xl font-black mb-1">
-                        Sân Khấu Chúc Mừng Sinh Nhật Tháng {selectedMonth}
-                      </h4>
-                      <p className="text-xs text-slate-400 max-w-md mb-4">
-                        Bấm nút <span className="text-rose-400 font-bold">"Công bố"</span> hoặc phím <span className="text-amber-400 font-bold">Cách (Space)</span> để MC xướng tên từng đoàn viên theo thứ tự ngày sinh từ nhỏ đến lớn!
-                      </p>
-                      <button
-                        onClick={advanceMcStep}
-                        className="px-5 py-2 rounded-xl bg-gradient-to-r from-rose-500 to-amber-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg cursor-pointer"
-                      >
-                        <Play className="w-3.5 h-3.5 fill-current" />
-                        Bắt đầu xướng tên
-                      </button>
-                    </div>
-                  )}
+                  {renderStageCard(false)}
                 </AnimatePresence>
               </div>
 
@@ -842,6 +1088,8 @@ export default function BirthdayTab({ sessionUser }: BirthdayTabProps) {
           </div>
         </div>
       )}
-    </div>
-  );
+      </>
+    )}
+  </div>
+);
 }

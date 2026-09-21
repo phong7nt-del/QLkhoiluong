@@ -47,19 +47,28 @@ export default function XuLyDoXaView({ xuLyList, refreshData, setXuLyList }: { x
   };
 
   const handleDeleteSelected = async () => {
+    if (listMode !== 'pending') {
+      alert("Chỉ cho phép xóa trong danh sách Đang phân công. Không được xóa danh sách Đã xử lý!");
+      return;
+    }
     if (selectedIds.length === 0) return;
-    if (!confirm(`Bạn có chắc chắn muốn xóa ${selectedIds.length} dòng đang chọn? Hệ thống sẽ xóa trong sheet XuLyDoXa, dồn dữ liệu lên và đánh lại STT tự động.`)) return;
+    if (!confirm(`Bạn có chắc chắn muốn xóa ${selectedIds.length} dòng đang chọn trong danh sách Đang phân công? Hệ thống sẽ xóa trong sheet XuLyDoXa, dồn dữ liệu lên và đánh lại STT tự động.`)) return;
     
     setIsDeletingBulk(true);
     
-    // Thu thập dữ liệu các dòng cần xóa
+    // Thu thập dữ liệu các dòng cần xóa (chỉ cho phép xóa các dòng chưa xử lý 'Xong')
     const toDeleteItems: any[] = [];
-    selectedIds.forEach(id => {
+    for (const id of selectedIds) {
       let found = sortedAndFiltered.find((r, i) => getRowKey(r, i) === id);
       if (!found) {
         found = xuLyList.find((r, i) => getRowKey(r, i) === id);
       }
       if (found) {
+        if (String(found.ketQua).trim().toLowerCase() === 'xong') {
+          alert("Không thể xóa bản ghi thuộc danh sách Đã xử lý!");
+          setIsDeletingBulk(false);
+          return;
+        }
         toDeleteItems.push({
           stt: found.stt,
           maDd: found.maDd,
@@ -74,7 +83,7 @@ export default function XuLyDoXaView({ xuLyList, refreshData, setXuLyList }: { x
       } else {
         toDeleteItems.push({ id });
       }
-    });
+    }
 
     const success = await DataStore.deleteXuLyDoXaBulk(toDeleteItems);
     if (success) {
@@ -442,7 +451,7 @@ export default function XuLyDoXaView({ xuLyList, refreshData, setXuLyList }: { x
              <div className="flex items-center gap-3">
                  
                  
-                 {selectedIds.length > 0 && (
+                 {listMode === 'pending' && selectedIds.length > 0 && (
                      <button 
                          onClick={handleDeleteSelected}
                          disabled={isDeletingBulk}
@@ -480,19 +489,21 @@ Cấu trúc file Excel mẫu:
                       <tr>
                           <th className="px-4 py-3 cursor-pointer hover:bg-slate-800" onClick={() => handleSort('stt')}>
                               <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-                                  <input 
-                                      type="checkbox" 
-                                      className="w-4 h-4 rounded border-slate-600 text-blue-500 bg-slate-700 cursor-pointer"
-                                      checked={paginatedData.length > 0 && paginatedData.every((r, i) => selectedIds.includes(getRowKey(r, (currentPage - 1) * pageSize + i)))}
-                                      onChange={(e) => {
-                                          const pageKeys = paginatedData.map((r, i) => getRowKey(r, (currentPage - 1) * pageSize + i));
-                                          if (e.target.checked) {
-                                              setSelectedIds(prev => Array.from(new Set([...prev, ...pageKeys])));
-                                          } else {
-                                              setSelectedIds(prev => prev.filter(k => !pageKeys.includes(k)));
-                                          }
-                                      }}
-                                  />
+                                  {listMode === 'pending' && (
+                                      <input 
+                                          type="checkbox" 
+                                          className="w-4 h-4 rounded border-slate-600 text-blue-500 bg-slate-700 cursor-pointer"
+                                          checked={paginatedData.length > 0 && paginatedData.every((r, i) => selectedIds.includes(getRowKey(r, (currentPage - 1) * pageSize + i)))}
+                                          onChange={(e) => {
+                                              const pageKeys = paginatedData.map((r, i) => getRowKey(r, (currentPage - 1) * pageSize + i));
+                                              if (e.target.checked) {
+                                                  setSelectedIds(prev => Array.from(new Set([...prev, ...pageKeys])));
+                                              } else {
+                                                  setSelectedIds(prev => prev.filter(k => !pageKeys.includes(k)));
+                                              }
+                                          }}
+                                      />
+                                  )}
                                   STT {sortField === 'stt' && (sortDir === 'asc' ? '↑' : '↓')}
                               </div>
                           </th>
@@ -526,15 +537,17 @@ Cấu trúc file Excel mẫu:
                           <tr key={rowKey} className="border-b border-slate-200 hover:bg-slate-100 transition-colors cursor-pointer" onClick={() => { setEditingItem(row); setFormData(row); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>
                               <td className="px-4 py-2 font-medium" onClick={e => e.stopPropagation()}>
                                   <div className="flex items-center gap-2">
-                                      <input 
-                                          type="checkbox" 
-                                          className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                                          checked={isChecked}
-                                          onChange={(e) => {
-                                              if (e.target.checked) setSelectedIds(prev => [...prev, rowKey]);
-                                              else setSelectedIds(prev => prev.filter(k => k !== rowKey));
-                                          }}
-                                      />
+                                      {listMode === 'pending' && (
+                                          <input 
+                                              type="checkbox" 
+                                              className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                              checked={isChecked}
+                                              onChange={(e) => {
+                                                  if (e.target.checked) setSelectedIds(prev => [...prev, rowKey]);
+                                                  else setSelectedIds(prev => prev.filter(k => k !== rowKey));
+                                              }}
+                                          />
+                                      )}
                                       {row.stt || (globalIdx + 1)}
                                   </div>
                               </td>

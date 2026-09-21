@@ -259,9 +259,23 @@ export default function DcuTab() {
   };
 
   const handleDeleteSelected = async () => {
+      if (listType !== 'chua_phan_cong') {
+          setMessage({ type: 'error', text: 'Chỉ cho phép xóa trong danh sách Đang phân công. Không được xóa danh sách Đã xử lý!' });
+          return;
+      }
       if (selectedIds.length === 0) return;
-      if (!confirm(`Bạn có chắc chắn muốn xóa ${selectedIds.length} dòng đang chọn? Sau khi xóa, các dòng trong sheet DCU sẽ được dồn lên và đánh lại STT tự động.`)) return;
+      if (!confirm(`Bạn có chắc chắn muốn xóa ${selectedIds.length} dòng đang chọn trong danh sách Đang phân công? Sau khi xóa, các dòng trong sheet DCU sẽ được dồn lên và đánh lại STT tự động.`)) return;
       
+      // Kiểm tra an toàn: không cho phép xóa DCU đã có dữ liệu xử lý (có tọa độ)
+      const hasProcessed = selectedIds.some(idKey => {
+          let found = filteredData.find((r, i) => getDcuKey(r, i) === idKey) || data.find((r, i) => getDcuKey(r, i) === idKey);
+          return found && !!found.toadoX && !!found.toadoY;
+      });
+      if (hasProcessed) {
+          setMessage({ type: 'error', text: 'Không được phép xóa các DCU trong danh sách Đã xử lý!' });
+          return;
+      }
+
       setIsDeletingBulk(true);
       const toDeletePayload: any[] = [];
       selectedIds.forEach(idKey => {
@@ -546,7 +560,7 @@ export default function DcuTab() {
                 <span className="bg-slate-200 text-slate-700 py-0.5 px-2 rounded-full text-[10px]">{filteredData.length}</span>
             </h3>
             <div className="flex items-center gap-2">
-      {selectedIds.length > 0 && (
+      {listType === 'chua_phan_cong' && selectedIds.length > 0 && (
           <button 
               type="button"
               onClick={handleDeleteSelected}
@@ -582,19 +596,21 @@ export default function DcuTab() {
                     <tr>
                         <th className="px-4 py-3 border-b border-slate-200 cursor-pointer hover:bg-slate-200" onClick={() => handleSort('stt')}>
                             <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-                                <input 
-                                    type="checkbox" 
-                                    className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                                    checked={paginatedData.length > 0 && paginatedData.every((r, i) => selectedIds.includes(getDcuKey(r, (currentPage - 1) * rowsPerPage + i)))}
-                                    onChange={(e) => {
-                                        const pageKeys = paginatedData.map((r, i) => getDcuKey(r, (currentPage - 1) * rowsPerPage + i));
-                                        if (e.target.checked) {
-                                            setSelectedIds(prev => Array.from(new Set([...prev, ...pageKeys])));
-                                        } else {
-                                            setSelectedIds(prev => prev.filter(k => !pageKeys.includes(k)));
-                                        }
-                                    }}
-                                />
+                                {listType === 'chua_phan_cong' && (
+                                    <input 
+                                        type="checkbox" 
+                                        className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                        checked={paginatedData.length > 0 && paginatedData.every((r, i) => selectedIds.includes(getDcuKey(r, (currentPage - 1) * rowsPerPage + i)))}
+                                        onChange={(e) => {
+                                            const pageKeys = paginatedData.map((r, i) => getDcuKey(r, (currentPage - 1) * rowsPerPage + i));
+                                            if (e.target.checked) {
+                                                setSelectedIds(prev => Array.from(new Set([...prev, ...pageKeys])));
+                                            } else {
+                                                setSelectedIds(prev => prev.filter(k => !pageKeys.includes(k)));
+                                            }
+                                        }}
+                                    />
+                                )}
                                 STT {sortCol === 'stt' && (sortDir === 'asc' ? <SortAsc className="w-3 h-3 inline" /> : <SortDesc className="w-3 h-3 inline" />)}
                             </div>
                         </th>
@@ -651,16 +667,18 @@ export default function DcuTab() {
                             >
                                 <td className="px-4 py-3 font-medium text-slate-700 border-b border-slate-100" onClick={(e) => e.stopPropagation()}>
                                     <div className="flex items-center gap-2">
-                                        <input 
-                                            type="checkbox" 
-                                            className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                                            checked={selectedIds.includes(getDcuKey(row, (currentPage - 1) * rowsPerPage + idx))}
-                                            onChange={(e) => {
-                                                const rowKey = getDcuKey(row, (currentPage - 1) * rowsPerPage + idx);
-                                                if (e.target.checked) setSelectedIds(prev => [...prev, rowKey]);
-                                                else setSelectedIds(prev => prev.filter(id => id !== rowKey));
-                                            }}
-                                        />
+                                        {listType === 'chua_phan_cong' && (
+                                            <input 
+                                                type="checkbox" 
+                                                className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                checked={selectedIds.includes(getDcuKey(row, (currentPage - 1) * rowsPerPage + idx))}
+                                                onChange={(e) => {
+                                                    const rowKey = getDcuKey(row, (currentPage - 1) * rowsPerPage + idx);
+                                                    if (e.target.checked) setSelectedIds(prev => [...prev, rowKey]);
+                                                    else setSelectedIds(prev => prev.filter(id => id !== rowKey));
+                                                }}
+                                            />
+                                        )}
                                         {row.stt || ((currentPage - 1) * rowsPerPage + idx + 1)}
                                     </div>
                                 </td>
