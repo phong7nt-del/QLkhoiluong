@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Lock, User, KeyRound, AlertCircle, ArrowRight, Zap, Target, TrendingUp, CalendarDays, CheckSquare, Activity, WifiOff } from 'lucide-react';
 import { DataStore, SheetMember } from '../store/DataStore';
 import { APP_VERSION } from '../version';
+import { VersionUpdateBanner, VersionSyncButton } from './VersionUpdateBanner';
 
 interface LoginProps {
   onLoginSuccess: (member: SheetMember) => void;
@@ -129,6 +130,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
 
   return (
     <div className="min-h-screen bg-[#F5F4F2] flex items-center justify-center p-4 relative overflow-hidden font-sans">
+      <VersionUpdateBanner />
       {/* Decorative Background Elements */}
       <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[60%] bg-[#005B8C]/10 rounded-full blur-[120px] pointer-events-none mix-blend-multiply"></div>
       <div className="absolute bottom-[-20%] right-[-10%] w-[60%] h-[60%] bg-[#F7941D]/10 rounded-full blur-[120px] pointer-events-none mix-blend-multiply"></div>
@@ -197,10 +199,10 @@ export default function Login({ onLoginSuccess }: LoginProps) {
               </div>
            </div>
 
-           <div className="relative z-10 text-xs font-mono text-white/70 uppercase tracking-widest flex items-center gap-2">
+           <div className="relative z-10 text-xs font-mono text-white/70 uppercase tracking-widest flex items-center gap-2 flex-wrap">
               <span>Phiên bản {APP_VERSION}</span>
               <span className="opacity-50">•</span>
-              <span>Secure Login</span>
+              <VersionSyncButton variant="pill" showText={true} className="!py-0.5 !px-2 bg-white/10 hover:bg-white/20 text-white" />
            </div>
            
            {/* Animated decorative shapes */}
@@ -314,8 +316,12 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                  </div>
               </form>
 
-              <div className="mt-8 pt-6 border-t border-slate-100 flex items-center justify-between">
-                 <div className="text-xs text-slate-400 font-medium">Bảo mật thông tin nội bộ</div>
+              <div className="mt-8 pt-6 border-t border-slate-100 flex items-center justify-between flex-wrap gap-2">
+                 <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-400 font-medium">Bảo mật thông tin nội bộ</span>
+                    <span className="text-slate-300">•</span>
+                    <VersionSyncButton variant="button" showText={true} className="text-slate-500 hover:text-slate-800" />
+                 </div>
                  <div className="flex items-center gap-1 text-xs text-[#F7941D] font-semibold bg-[#F7941D]/10 px-2 py-1 rounded-md">
                    <Zap className="w-3 h-3 fill-current" />
                    E-Office Sync

@@ -1,10 +1,28 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import { createServer as createViteServer } from "vite";
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
+
+  // API route for version info (always no-cache to ensure clients detect new releases immediately)
+  app.get("/api/version", (req, res) => {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    try {
+      const vPath = path.join(process.cwd(), 'version.json');
+      if (fs.existsSync(vPath)) {
+        const data = JSON.parse(fs.readFileSync(vPath, 'utf8'));
+        return res.json(data);
+      }
+    } catch (e) {
+      console.warn("Could not read version.json:", e);
+    }
+    res.json({ version: "2026.09.21.3" });
+  });
 
   // API route to proxy Google Sheets requests
   app.get("/api/proxy/gviz", async (req, res) => {
@@ -42,9 +60,20 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
+    app.use(express.static(distPath, {
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.html') || filePath.endsWith('.json')) {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+          res.setHeader('Pragma', 'no-cache');
+          res.setHeader('Expires', '0');
+        }
+      }
+    }));
     // Express 4 uses '*'
     app.get('*', (req, res) => {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

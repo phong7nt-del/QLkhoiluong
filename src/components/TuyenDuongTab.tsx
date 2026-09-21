@@ -3,7 +3,8 @@ import { DataStore, SheetMember } from '../store/DataStore';
 import { 
   Trophy, Medal, Crown, Sparkles, Calendar, Volume2, VolumeX, 
   RotateCcw, Play, ChevronRight, Edit3, X, Save, Award, Cake, TrendingUp,
-  Maximize2, Minimize2, Table as TableIcon, Layout, Lock, Shield, Send, CheckCircle2
+  Maximize2, Minimize2, Table as TableIcon, Layout, Lock, Shield, Send, CheckCircle2,
+  UserMinus, AlertOctagon, Ban, AlertTriangle
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { motion, AnimatePresence } from 'motion/react';
@@ -92,11 +93,17 @@ export default function TuyenDuongTab({ onGoToBirthdayMonth, sessionUser }: Tuye
     return calculateMemberProductivity(periodType, selectedYear, selectedMonth, selectedTeam);
   }, [periodType, selectedYear, selectedMonth, selectedTeam]);
 
-  // Auto-calculated Top 3 based on highest PRODUCTIVITY in the month/year
+  // Auto-calculated Top 3 based on highest PRODUCTIVITY in the month/year (strictly excluding penalized members)
   const computedTop3 = useMemo<CommendedMember[]>(() => {
     const customKey = `${periodType}_${selectedYear}_${periodType === 'month' ? selectedMonth : 'all'}_${selectedTeam}`;
     if (customMembers[customKey] && customMembers[customKey].length === 3) {
-      return customMembers[customKey];
+      // Check if any member in custom Top 3 is excluded by Team Leader
+      const hasExcludedInCustom = customMembers[customKey].some(m => 
+        DataStore.isMemberExcludedFromTuyenDuong(m.name, selectedYear, periodType === 'month' ? selectedMonth : 0)
+      );
+      if (!hasExcludedInCustom) {
+        return customMembers[customKey];
+      }
     }
 
     const allMembers = DataStore.getMembers();
@@ -108,12 +115,23 @@ export default function TuyenDuongTab({ onGoToBirthdayMonth, sessionUser }: Tuye
       'Tiên Tiến Năng Suất (Giải Ba)'
     ];
 
-    // Filter members with positive productivity or valid records first
-    const activeStats = computedProductivityList.filter(s => s.productivityPercent > 0 || s.totalStandardDays > 0);
+    // Filter members with positive productivity or valid records, strictly excluding those penalized by Team Leader
+    const activeStats = computedProductivityList.filter(s => {
+      if (s.productivityPercent <= 0 && s.totalStandardDays <= 0) return false;
+      const isExcluded = DataStore.isMemberExcludedFromTuyenDuong(
+        s.member, 
+        selectedYear, 
+        periodType === 'month' ? selectedMonth : 0
+      );
+      return !isExcluded;
+    });
 
-    // Fallbacks if not enough entries recorded
+    // Fallbacks if not enough entries recorded (also strictly exclude penalized members)
     const fallbackList = allMembers
-      .filter(m => selectedTeam === 'all' || m.team === selectedTeam)
+      .filter(m => 
+        (selectedTeam === 'all' || m.team === selectedTeam) &&
+        !DataStore.isMemberExcludedFromTuyenDuong(m.name, selectedYear, periodType === 'month' ? selectedMonth : 0)
+      )
       .map((m, idx) => ({
         member: m.name,
         team: m.team || 'Tổ Đo xa',
@@ -162,6 +180,31 @@ export default function TuyenDuongTab({ onGoToBirthdayMonth, sessionUser }: Tuye
 
     return topList;
   }, [periodType, selectedYear, selectedMonth, selectedTeam, customMembers, computedProductivityList]);
+
+  // List of excluded members in the currently selected period (month/year)
+  const excludedMembersInPeriod = useMemo(() => {
+    const exclusions = DataStore.getTuyenDuongExclusions();
+    return exclusions.filter(e => {
+      const matchYear = Number(e.year) === Number(selectedYear);
+      const matchMonth = periodType === 'month' ? (Number(e.month) === Number(selectedMonth) || Number(e.month) === 0) : true;
+      return matchYear && matchMonth;
+    });
+  }, [selectedYear, selectedMonth, periodType]);
+
+  // Excluded members with their calculated productivity if available
+  const excludedWithProductivity = useMemo(() => {
+    return excludedMembersInPeriod.map(ex => {
+      const foundStat = computedProductivityList.find(s => 
+        s.member.toLowerCase().trim() === ex.memberName.toLowerCase().trim()
+      );
+      return {
+        ...ex,
+        productivityPercent: foundStat ? foundStat.productivityPercent : null,
+        totalStandardDays: foundStat ? foundStat.totalStandardDays : null,
+        daysWorkedCount: foundStat ? foundStat.daysWorkedCount : null
+      };
+    });
+  }, [excludedMembersInPeriod, computedProductivityList]);
 
   // Load custom stored commendations on mount
   useEffect(() => {
@@ -615,6 +658,31 @@ export default function TuyenDuongTab({ onGoToBirthdayMonth, sessionUser }: Tuye
               </div>
             )}
           </div>
+
+          {/* NOTICE: EXCLUDED MEMBERS DUE TO INFRACTION / DISCIPLINE */}
+          {excludedWithProductivity.length > 0 && (
+            <div className="bg-rose-50/90 border border-rose-200/80 rounded-2xl p-3 sm:p-3.5 text-xs text-rose-900 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div className="flex items-start sm:items-center gap-2.5">
+                <div className="w-7 h-7 rounded-xl bg-rose-200/70 text-rose-700 flex items-center justify-center shrink-0">
+                  <UserMinus className="w-4 h-4" />
+                </div>
+                <div>
+                  <span className="font-bold text-rose-950">
+                    Quyết định kỷ luật của Đội trưởng:
+                  </span>{' '}
+                  <span>
+                    Có <strong className="font-extrabold text-rose-950">{excludedWithProductivity.length}</strong> nhân sự không xét khen thưởng trong kỳ này do bị phạm lỗi:
+                  </span>
+                  <span className="ml-1 font-semibold text-rose-800">
+                    {excludedWithProductivity.map(ex => `${ex.memberName} (${ex.reason})`).join(', ')}
+                  </span>
+                </div>
+              </div>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 border border-rose-200 self-start sm:self-auto shrink-0">
+                Đã loại khỏi Top 3
+              </span>
+            </div>
+          )}
 
       {/* VIEW: STAGE (PODIUM) - OPTIMIZED TO FIT VIEWPORT */}
       {(viewMode === 'stage' || isFullscreen) && (

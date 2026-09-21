@@ -19,6 +19,7 @@ import ChangePasswordModal from "./components/ChangePasswordModal";
 import { DataStore, SheetMember } from "./store/DataStore";
 import { PermissionStore } from './store/PermissionStore';
 import { APP_VERSION } from './version';
+import { VersionUpdateBanner, VersionSyncButton } from './components/VersionUpdateBanner';
 
 export type SeasonTheme = ReturnType<typeof getSeasonTheme>;
 
@@ -324,6 +325,7 @@ export default function App() {
   return (
     <div className={`min-h-screen bg-gradient-to-br ${theme.gradient} text-slate-800 font-sans flex flex-col items-center bg-grid-slate-100`}>
       <div className="w-full max-w-7xl flex-1 flex flex-col shadow-xl bg-white/90 backdrop-blur-sm min-h-screen relative overflow-hidden">
+        <VersionUpdateBanner />
         <div className="absolute inset-0 bg-white/40 pointer-events-none z-0" />
         
         {/* Header */}
@@ -374,6 +376,7 @@ export default function App() {
                  <span className={`text-[10px] font-black ${theme.accent} uppercase tracking-wider drop-shadow-md`}>{sessionUser.team}</span>
                </div>
             </div>
+            <VersionSyncButton variant="pill" className="hidden sm:inline-flex" />
             <button 
               onClick={() => setShowPasswordModal(true)}
               className="text-white hover:text-white hover:bg-white/20 p-2 rounded-full transition-colors border border-transparent hover:border-white/30 backdrop-blur-md"
@@ -545,7 +548,8 @@ export default function App() {
                 <div className={`text-center md:text-left ${theme.footerAccent} font-bold flex items-center justify-center md:justify-start gap-1.5`}>
                    <span>Mùa {theme.season === 'summer' ? 'Hạ' : theme.season === 'spring' ? 'Xuân' : theme.season === 'autumn' ? 'Thu' : 'Đông'}</span>
                    <span className="opacity-50">•</span>
-                   <span>Phiên bản {APP_VERSION}</span>
+                   <span className="opacity-90">Phiên bản</span>
+                   <VersionSyncButton variant="pill" showText={false} className="!py-0.5 !px-2 !text-[10px] bg-black/20 hover:bg-black/30 border-black/10" />
                 </div>
                 <div className="text-center opacity-80">
                   Bản quyền thuộc EVN PCVT @2026

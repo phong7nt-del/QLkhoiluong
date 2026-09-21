@@ -49,6 +49,17 @@ export interface SheetMember {
   [key: string]: any;
 }
 
+export interface TuyenDuongExclusion {
+  id: string;
+  year: number;
+  month: number; // 1-12, hoặc 0 cho cả năm
+  memberName: string;
+  team?: string;
+  reason: string; // Lý do bị loại khỏi xét tuyên dương (vi phạm lỗi)
+  createdAt: string;
+  createdBy?: string;
+}
+
 export interface LocalTutiUpdate {
   entryId: string;
   updates: Partial<TutiEntry>;
@@ -214,6 +225,59 @@ export const DataStore = {
   },
   setCongDoanLeaderNames: (names: string[]) => {
     safeSetItem('config_cong_doan_leaders', JSON.stringify(names));
+  },
+  getTuyenDuongExclusions: (): TuyenDuongExclusion[] => {
+    try {
+      const val = safeGetItem('config_tuyen_duong_exclusions_v1');
+      return val ? JSON.parse(val) : [];
+    } catch {
+      return [];
+    }
+  },
+  setTuyenDuongExclusions: (list: TuyenDuongExclusion[]) => {
+    safeSetItem('config_tuyen_duong_exclusions_v1', JSON.stringify(list));
+  },
+  addTuyenDuongExclusion: (item: Omit<TuyenDuongExclusion, 'id' | 'createdAt'>): TuyenDuongExclusion => {
+    const list = DataStore.getTuyenDuongExclusions();
+    const now = new Date();
+    const dateStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')} ${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getFullYear()}`;
+    const newItem: TuyenDuongExclusion = {
+      ...item,
+      id: 'ex_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+      createdAt: dateStr,
+    };
+    list.unshift(newItem);
+    DataStore.setTuyenDuongExclusions(list);
+    return newItem;
+  },
+  removeTuyenDuongExclusion: (id: string) => {
+    const list = DataStore.getTuyenDuongExclusions();
+    const updated = list.filter(item => item.id !== id);
+    DataStore.setTuyenDuongExclusions(updated);
+  },
+  isMemberExcludedFromTuyenDuong: (memberName: string, year: number, month: number): boolean => {
+    if (!memberName) return false;
+    const norm = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+    const targetName = norm(memberName);
+    const list = DataStore.getTuyenDuongExclusions();
+    return list.some(item => {
+      const matchName = norm(item.memberName) === targetName || targetName.includes(norm(item.memberName)) || norm(item.memberName).includes(targetName);
+      const matchYear = Number(item.year) === Number(year);
+      const matchMonth = Number(item.month) === Number(month) || Number(item.month) === 0;
+      return matchName && matchYear && matchMonth;
+    });
+  },
+  getExclusionDetails: (memberName: string, year: number, month: number): TuyenDuongExclusion | undefined => {
+    if (!memberName) return undefined;
+    const norm = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+    const targetName = norm(memberName);
+    const list = DataStore.getTuyenDuongExclusions();
+    return list.find(item => {
+      const matchName = norm(item.memberName) === targetName || targetName.includes(norm(item.memberName)) || norm(item.memberName).includes(targetName);
+      const matchYear = Number(item.year) === Number(year);
+      const matchMonth = Number(item.month) === Number(month) || Number(item.month) === 0;
+      return matchName && matchYear && matchMonth;
+    });
   },
   isUserDoiTruongOrCongDoanLeader: (user: SheetMember | null | undefined): boolean => {
     let effectiveUser: any = user;

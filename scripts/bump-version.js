@@ -78,8 +78,14 @@ function bumpVersion() {
     formattedTime,
   };
 
-  // 1. Ghi version.json
+  // 1. Ghi version.json ở root và public/version.json
   fs.writeFileSync(versionJsonPath, JSON.stringify(versionData, null, 2) + '\n', 'utf8');
+  
+  const publicDir = path.join(rootDir, 'public');
+  if (!fs.existsSync(publicDir)) {
+    fs.mkdirSync(publicDir, { recursive: true });
+  }
+  fs.writeFileSync(path.join(publicDir, 'version.json'), JSON.stringify(versionData, null, 2) + '\n', 'utf8');
 
   // 2. Ghi src/version.ts
   const tsContent = `// TẬP TIN NÀY ĐƯỢC TẠO TỰ ĐỘNG BỞI scripts/bump-version.js - KHÔNG SỬA THỦ CÔNG
