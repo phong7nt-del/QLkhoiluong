@@ -383,7 +383,6 @@ export default function Analytics({ refreshToggle, sessionUser }: { refreshToggl
           if (isGroupReport && trueMembersCount >= 3) {
               qtyPerMember = (qty * 2) / trueMembersCount;
           }
-          let displayQty = qtyPerMember;
 
           if (cleanMatchedName === 'khác') {
               nsPercent = (qtyPerMember / 1) * 100;
@@ -396,13 +395,24 @@ export default function Analytics({ refreshToggle, sessionUser }: { refreshToggl
               quotaDisplay = "(Không có định mức)";
           }
 
+          const isGroupConverted = isGroupReport && trueMembersCount >= 3;
+
           return (
              <div key={i} className="flex justify-between items-center bg-white p-1.5 border border-dashed border-[#141414]/20 mb-1">
-                <div>
+                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                    <span className="font-bold mr-1">{taskName}:</span>
-                   <span>{displayQty}</span> <span className="text-[10px] opacity-70">{quotaDisplay}</span>
+                   <span className="font-extrabold text-[#141414]">{qty}</span>
+                   {isGroupConverted && (
+                     <span 
+                       className="text-[10px] text-blue-700 bg-blue-50 px-1 py-0.5 rounded border border-blue-200 font-semibold whitespace-nowrap"
+                       title={`Nhóm ${trueMembersCount} người: quy đổi (x2 / ${trueMembersCount}) = ${Number(qtyPerMember.toFixed(1))}/người để tính năng suất`}
+                     >
+                       (Quy đổi {trueMembersCount} ng: {Number(qtyPerMember.toFixed(1))}/ng)
+                     </span>
+                   )}
+                   <span className="text-[10px] opacity-70 ml-0.5">{quotaDisplay}</span>
                 </div>
-                <div className={`text-[10px] uppercase font-bold px-1.5 py-0.5 ${nsPercent >= 100 ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}`}>
+                <div className={`text-[10px] uppercase font-bold px-1.5 py-0.5 shrink-0 ml-2 ${nsPercent >= 100 ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}`}>
                    {nsPercent.toFixed(1)}% NS
                 </div>
              </div>
@@ -479,7 +489,16 @@ export default function Analytics({ refreshToggle, sessionUser }: { refreshToggl
                     qtyPerMember = (totalQty * 2) / trueMembersCount;
                 }
                 
-                return { isTask: true, taskName, cleanTaskName, qty: qtyPerMember, rawLine: cleanLine };
+                return { 
+                    isTask: true, 
+                    taskName, 
+                    cleanTaskName, 
+                    qty: qtyPerMember, 
+                    rawQty: totalQty, 
+                    isGroupReport, 
+                    trueMembersCount, 
+                    rawLine: cleanLine 
+                };
             }
             return { isTask: false, text: cleanLine, rawLine: cleanLine };
         });
@@ -524,7 +543,10 @@ export default function Analytics({ refreshToggle, sessionUser }: { refreshToggl
                 if (item.isTask) {
                     const quotaDisplay = getQuotaDisplay(item.cleanTaskName);
                     const formattedQty = Math.round(item.qty * 100) / 100;
-                    memberObj.dailyContent[dateColDef.colName].push(`- ${item.taskName}: ${formattedQty} ${quotaDisplay}`);
+                    const groupConversionNote = (item.isGroupReport && item.trueMembersCount >= 3)
+                        ? ` (Quy đổi: ${formattedQty}/người)`
+                        : '';
+                    memberObj.dailyContent[dateColDef.colName].push(`- ${item.taskName}: ${item.rawQty}${groupConversionNote} ${quotaDisplay}`);
                     
                     if (!memberObj.taskTotals[item.cleanTaskName]) {
                         memberObj.taskTotals[item.cleanTaskName] = { originalName: item.taskName, totalQty: 0, cleanName: item.cleanTaskName };

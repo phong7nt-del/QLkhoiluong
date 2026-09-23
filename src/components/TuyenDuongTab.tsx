@@ -994,6 +994,70 @@ export default function TuyenDuongTab({ onGoToBirthdayMonth, sessionUser }: Tuye
               </tbody>
             </table>
           </div>
+
+          {/* EXCLUDED MEMBERS TABLE */}
+          {excludedWithProductivity.length > 0 && (
+            <div className="mt-5 bg-rose-50/60 rounded-2xl p-4 border border-rose-200/80">
+              <div className="flex items-center gap-2 mb-1.5">
+                <AlertOctagon className="w-4 h-4 text-rose-600 shrink-0" />
+                <h4 className="text-xs sm:text-sm font-bold text-rose-900">
+                  Danh Sách Nhân Sự Không Được Xét Tuyên Dương (Theo Quyết Định Của Đội Trưởng Do Bị Phạm Lỗi)
+                </h4>
+              </div>
+              <p className="text-[11px] text-rose-700 mb-3">
+                Mặc dù có năng suất lao động trong kỳ, những nhân sự này bị loại ra khỏi danh sách khen thưởng do vi phạm quy chế, an toàn lao động hoặc kỷ luật nội bộ.
+              </p>
+              <div className="overflow-x-auto rounded-xl border border-rose-200 bg-white">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-rose-100/70 text-rose-900 font-bold uppercase text-[10px] border-b border-rose-200">
+                    <tr>
+                      <th className="py-2.5 px-3">Tình Trạng</th>
+                      <th className="py-2.5 px-3">Họ Và Tên</th>
+                      <th className="py-2.5 px-3">Đơn Vị / Tổ</th>
+                      <th className="py-2.5 px-3 text-center">Năng Suất Thực Tế</th>
+                      <th className="py-2.5 px-3">Lý Do Loại Khỏi Khen Thưởng</th>
+                      <th className="py-2.5 px-3">Người Ghi Nhận</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-rose-100">
+                    {excludedWithProductivity.map(ex => (
+                      <tr key={ex.id} className="hover:bg-rose-50/50 transition-colors">
+                        <td className="py-2 px-3 whitespace-nowrap">
+                          <span className="px-2 py-0.5 rounded-md bg-rose-100 text-rose-800 font-bold text-[10px] border border-rose-200 inline-flex items-center gap-1">
+                            <span>⛔</span> Bị loại kỷ luật
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 font-extrabold text-slate-900 whitespace-nowrap">
+                          {ex.memberName}
+                        </td>
+                        <td className="py-2 px-3 text-slate-600 whitespace-nowrap">
+                          {ex.team || 'Đo xa'}
+                        </td>
+                        <td className="py-2 px-3 text-center whitespace-nowrap">
+                          {ex.productivityPercent !== null && ex.productivityPercent !== undefined ? (
+                            <span className="font-mono font-bold text-slate-700">
+                              {ex.productivityPercent.toFixed(1)}%
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 italic">Chưa ghi nhận</span>
+                          )}
+                        </td>
+                        <td className="py-2 px-3 font-medium text-rose-800">
+                          <span className="px-2 py-0.5 rounded bg-rose-50 border border-rose-200/70 inline-block">
+                            {ex.reason}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 text-slate-500 text-[11px] whitespace-nowrap">
+                          <div className="font-semibold text-slate-700">{ex.createdBy || 'Đội trưởng'}</div>
+                          <div className="text-[10px] text-slate-400">{ex.createdAt}</div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
         </>
@@ -1005,6 +1069,8 @@ export default function TuyenDuongTab({ onGoToBirthdayMonth, sessionUser }: Tuye
           <CustomCommendationModal
             currentTop3={computedTop3}
             allMembers={DataStore.getMembers()}
+            selectedYear={selectedYear}
+            selectedMonth={periodType === 'month' ? selectedMonth : 0}
             onClose={() => setIsEditModalOpen(false)}
             onSave={saveCustomMembers}
           />
@@ -1018,11 +1084,15 @@ export default function TuyenDuongTab({ onGoToBirthdayMonth, sessionUser }: Tuye
 function CustomCommendationModal({
   currentTop3,
   allMembers,
+  selectedYear,
+  selectedMonth,
   onClose,
   onSave
 }: {
   currentTop3: CommendedMember[];
   allMembers: SheetMember[];
+  selectedYear?: number;
+  selectedMonth?: number;
   onClose: () => void;
   onSave: (items: CommendedMember[]) => void;
 }) {
@@ -1093,11 +1163,24 @@ function CustomCommendationModal({
                     onChange={e => handleMemberSelect(m.rank, e.target.value)}
                     className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    {allMembers.map(mem => (
-                      <option key={mem.name} value={mem.name}>
-                        {mem.name} ({mem.team})
-                      </option>
-                    ))}
+                    {allMembers.map(mem => {
+                      const exclDetails = (selectedYear !== undefined && selectedMonth !== undefined)
+                        ? DataStore.getExclusionDetails(mem.name, selectedYear, selectedMonth)
+                        : null;
+                      return (
+                        <option 
+                          key={mem.name} 
+                          value={mem.name}
+                          disabled={!!exclDetails}
+                          className={exclDetails ? 'text-rose-600 bg-rose-50' : ''}
+                        >
+                          {exclDetails 
+                            ? `⛔ ${mem.name} (${mem.team}) [BỊ LOẠI: ${exclDetails.reason}]`
+                            : `${mem.name} (${mem.team})`
+                          }
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
 
