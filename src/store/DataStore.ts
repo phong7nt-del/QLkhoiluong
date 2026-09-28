@@ -60,6 +60,66 @@ export interface TuyenDuongExclusion {
   createdBy?: string;
 }
 
+export interface ExternalReportLink {
+  id: string;
+  title: string;
+  url: string;
+  description: string;
+  icon?: string;
+  color?: string;
+  imageUrl?: string;
+  badge?: string;
+  createdAt?: string;
+}
+
+export const DEFAULT_EXTERNAL_REPORT_LINKS: ExternalReportLink[] = [
+  {
+    id: 'link_tram_bien_ap',
+    title: 'Trạm Biến Áp',
+    url: 'https://quan-ly-tram-bien-ap.vercel.app/',
+    description: 'Truy cập hệ thống quản lý chi tiết thông tin, sơ đồ và thông số vận hành của các trạm biến áp.',
+    icon: 'zap',
+    color: 'blue',
+    imageUrl: 'https://images.unsplash.com/photo-1544724569-5f546fd6f2b6?q=80&w=1600&auto=format&fit=crop',
+  },
+  {
+    id: 'link_xu_ly_dau_tat',
+    title: 'Xử lý đấu tắt',
+    url: 'https://xu-ly-tam-pcvt.vercel.app/#/login',
+    description: 'Phần mềm hỗ trợ phát hiện, lập biên bản và theo dõi quy trình xử lý các sự cố đấu tắt an toàn.',
+    icon: 'shield',
+    color: 'red',
+    imageUrl: 'https://images.unsplash.com/photo-1627914371465-d0c3ebbbabfc?fm=jpg&q=80&w=1600&fit=crop',
+  },
+  {
+    id: 'link_xu_ly_ton_tai',
+    title: 'Xử lý tồn tại sau KT',
+    url: 'https://ket-qua-xu-ly-htdd.vercel.app/',
+    description: 'Báo cáo kết quả xử lý các tồn tại sau kiểm tra, theo dõi tiến độ khắc phục đo đếm.',
+    icon: 'clipboard',
+    color: 'emerald',
+    imageUrl: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?q=80&w=1600&auto=format&fit=crop',
+  },
+  {
+    id: 'link_tien_do_thay_3_gia',
+    title: 'Tiến độ thay 3 giá',
+    url: 'https://tiendo-thaycongto3gia.vercel.app/',
+    description: 'Theo dõi tiến độ, số lượng và thông tin chi tiết quá trình thay thế công tơ 3 giá.',
+    icon: 'gauge',
+    color: 'blue',
+    imageUrl: 'https://images.unsplash.com/photo-1550751827-4bd374c3f58b?q=80&w=1600&auto=format&fit=crop',
+  },
+  {
+    id: 'link_on_thi_nghiep_vu',
+    title: 'Ôn thi nghiệp vụ',
+    url: 'https://on-thi-trac-nghiem.vercel.app/',
+    description: 'Hệ thống thi trắc nghiệm, ôn luyện và kiểm tra nghiệp vụ định kỳ.',
+    icon: 'book',
+    color: 'amber',
+    imageUrl: 'https://images.unsplash.com/photo-1546410531-bea5aadcb6ce?q=80&w=1600&auto=format&fit=crop',
+  }
+];
+
 export interface LocalTutiUpdate {
   entryId: string;
   updates: Partial<TutiEntry>;
@@ -110,7 +170,8 @@ export const initDB = async () => {
       STORAGE_KEY, SCRIPT_URL_KEY, TEAMS_KEY, MEMBERS_KEY, STATIONS_KEY,
       DINHMUC_KEY, PROGRESS_KEY, LOCAL_PROGRESS_UPDATES_KEY, TUTI_KEY,
       LOCAL_TUTI_UPDATES_KEY, 'sheet_khuvuc_v1', 'sheet_matketnoi_v1',
-      'sheet_chitietmkn_v1', 'sheet_sangtai_v1', 'sheet_kho_v1', 'sheet_vttb_v1', 'config_exclude_saturday', 'config_exclude_sunday', 'config_exclude_nghi'
+      'sheet_chitietmkn_v1', 'sheet_sangtai_v1', 'sheet_kho_v1', 'sheet_vttb_v1', 'config_exclude_saturday', 'config_exclude_sunday', 'config_exclude_nghi',
+      'config_external_report_links_v1', 'config_tuyen_duong_exclusions_v1', 'config_cong_doan_leaders'
     ];
     for (const key of keys) {
       let val = await get(key);
@@ -127,9 +188,8 @@ export const initDB = async () => {
 
 const safeSetItem = (key: string, value: string) => {
     memoryCache[key] = value;
-    set(key, value).then(() => {
-        try { localStorage.removeItem(key); } catch (e) {} // Clean up old copies
-    }).catch(e => console.warn('IDB quota exceeded for key', key));
+    try { localStorage.setItem(key, value); } catch (e) {}
+    set(key, value).catch(e => console.warn('IDB quota exceeded for key', key));
 };
 
 const safeGetItem = (key: string): string | null => {
@@ -278,6 +338,53 @@ export const DataStore = {
       const matchMonth = Number(item.month) === Number(month) || Number(item.month) === 0;
       return matchName && matchYear && matchMonth;
     });
+  },
+
+  getExternalReportLinks: (): ExternalReportLink[] => {
+    try {
+      const val = safeGetItem('config_external_report_links_v1');
+      if (val) {
+        const parsed = JSON.parse(val);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+      return DEFAULT_EXTERNAL_REPORT_LINKS;
+    } catch {
+      return DEFAULT_EXTERNAL_REPORT_LINKS;
+    }
+  },
+  setExternalReportLinks: (links: ExternalReportLink[]) => {
+    safeSetItem('config_external_report_links_v1', JSON.stringify(links));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('external_report_links_changed', { detail: links }));
+    }
+  },
+  addExternalReportLink: (link: Omit<ExternalReportLink, 'id'>): ExternalReportLink => {
+    const list = [...DataStore.getExternalReportLinks()];
+    const newLink: ExternalReportLink = {
+      ...link,
+      id: 'link_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+    };
+    list.push(newLink);
+    DataStore.setExternalReportLinks(list);
+    return newLink;
+  },
+  updateExternalReportLink: (id: string, updates: Partial<ExternalReportLink>) => {
+    const list = DataStore.getExternalReportLinks().map(item => {
+      if (item.id === id) {
+        return { ...item, ...updates };
+      }
+      return item;
+    });
+    DataStore.setExternalReportLinks(list);
+  },
+  removeExternalReportLink: (id: string) => {
+    const list = DataStore.getExternalReportLinks().filter(item => item.id !== id);
+    DataStore.setExternalReportLinks(list);
+  },
+  resetExternalReportLinks: () => {
+    DataStore.setExternalReportLinks(DEFAULT_EXTERNAL_REPORT_LINKS);
   },
   isUserDoiTruongOrCongDoanLeader: (user: SheetMember | null | undefined): boolean => {
     let effectiveUser: any = user;
