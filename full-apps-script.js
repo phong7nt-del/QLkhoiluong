@@ -419,12 +419,19 @@ function doPost(e) {
        active[username] = now;
        
        var onlineCount = 0;
+       var onlineUsers = [];
        for (var k in active) {
            if (now - active[k] < 15 * 60 * 1000) { // 15 minutes
                onlineCount++;
+               if (k && k !== 'unknown') {
+                   onlineUsers.push(k);
+               }
            } else {
                delete active[k];
            }
+       }
+       if (onlineUsers.indexOf(username) === -1 && username && username !== 'unknown') {
+           onlineUsers.push(username);
        }
        cache.put('active_users', JSON.stringify(active), 15 * 60);
 
@@ -486,7 +493,8 @@ function doPost(e) {
            return ContentService.createTextOutput(JSON.stringify({ 
                status: 'success', 
                totalLogins: total + 1,
-               onlineCount: onlineCount
+               onlineCount: onlineCount,
+               onlineUsers: onlineUsers
            })).setMimeType(ContentService.MimeType.JSON);
        } else {
            var total = 0;
@@ -496,6 +504,7 @@ function doPost(e) {
            return ContentService.createTextOutput(JSON.stringify({ 
                status: 'success', 
                onlineCount: onlineCount,
+               onlineUsers: onlineUsers,
                totalLogins: total
            })).setMimeType(ContentService.MimeType.JSON);
        }

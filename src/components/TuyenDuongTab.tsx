@@ -126,11 +126,12 @@ export default function TuyenDuongTab({ onGoToBirthdayMonth, sessionUser }: Tuye
       return !isExcluded;
     });
 
-    // Fallbacks if not enough entries recorded (also strictly exclude penalized members)
+    // Fallbacks if not enough entries recorded (also strictly exclude penalized members & non-productivity roles)
     const fallbackList = allMembers
       .filter(m => 
         (selectedTeam === 'all' || m.team === selectedTeam) &&
-        !DataStore.isMemberExcludedFromTuyenDuong(m.name, selectedYear, periodType === 'month' ? selectedMonth : 0)
+        !DataStore.isMemberExcludedFromTuyenDuong(m.name, selectedYear, periodType === 'month' ? selectedMonth : 0) &&
+        !DataStore.isMemberExcludedFromProductivity(m)
       )
       .map((m, idx) => ({
         member: m.name,
@@ -156,10 +157,11 @@ export default function TuyenDuongTab({ onGoToBirthdayMonth, sessionUser }: Tuye
       const pPercent = Number(stat.productivityPercent.toFixed(1));
       const sDays = Number(stat.totalStandardDays.toFixed(1));
       const wDays = stat.daysWorkedCount || 1;
+      const cDays = stat.cycleDays || wDays;
 
       let citation = '';
       if (i === 0) {
-        citation = `Đạt Năng suất kỷ lục ${pPercent}% (${sDays} ngày công định mức trong ${wDays} ngày làm việc) trong ${periodText}, dẫn đầu toàn đơn vị về tiến độ và hiệu quả lao động.`;
+        citation = `Đạt Năng suất kỷ lục ${pPercent}% (${sDays} ngày công định mức trên chu kỳ ${cDays} ngày chuẩn, báo cáo ${wDays} ngày) trong ${periodText}, dẫn đầu toàn đơn vị về tiến độ và hiệu quả lao động.`;
       } else if (i === 1) {
         citation = `Đạt Năng suất vượt trội ${pPercent}% (${sDays} ngày công chuẩn) trong ${periodText}, luôn năng nổ, chủ động cải tiến và hỗ trợ đồng đội hoàn thành xuất sắc nhiệm vụ.`;
       } else {
@@ -1068,7 +1070,7 @@ export default function TuyenDuongTab({ onGoToBirthdayMonth, sessionUser }: Tuye
         {isEditModalOpen && (
           <CustomCommendationModal
             currentTop3={computedTop3}
-            allMembers={DataStore.getMembers()}
+            allMembers={DataStore.getMembers().filter(m => !DataStore.isMemberExcludedFromProductivity(m))}
             selectedYear={selectedYear}
             selectedMonth={periodType === 'month' ? selectedMonth : 0}
             onClose={() => setIsEditModalOpen(false)}

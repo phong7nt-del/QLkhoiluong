@@ -159,10 +159,89 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
      return Object.values(catData).filter(c => c.total > 0).sort((a, b) => b.total - a.total);
   }, [entries, dinhMucList]);
 
-  const periodDays = useMemo(() => {
-     const uniqueDates = new Set(entries.map(e => e.date).filter(Boolean));
-     return Math.max(1, uniqueDates.size);
-  }, [entries]);
+  // Tính tổng số ngày làm việc chuẩn trong chu kỳ (loại trừ Thứ 7 và Chủ nhật)
+  // Quy tắc công ty: đối với các ngày không báo cáo (trừ thứ 7 và chủ nhật) thì xem như năng suất bằng 0
+  const cycleWorkingDays = useMemo(() => {
+    const now = new Date();
+    
+    if (timeFilter === 'day') {
+      return 1;
+    }
+    
+    if (timeFilter === 'week') {
+      const ref = parseISO(selectedWeekDate);
+      const dayOfWeek = ref.getDay();
+      const diffToMon = (dayOfWeek === 0 ? -6 : 1 - dayOfWeek);
+      const mon = new Date(ref);
+      mon.setDate(ref.getDate() + diffToMon);
+      
+      let count = 0;
+      for (let i = 0; i < 5; i++) {
+        const cur = new Date(mon);
+        cur.setDate(mon.getDate() + i);
+        if (cur <= now || entries.some(e => e.date === format(cur, 'yyyy-MM-dd'))) {
+          count++;
+        }
+      }
+      return Math.max(1, count);
+    }
+    
+    if (timeFilter === 'month') {
+      const parts = selectedMonth.split('-');
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10);
+      const daysInMonth = new Date(y, m, 0).getDate();
+      const isCurrentMonth = y === now.getFullYear() && (m - 1) === now.getMonth();
+      const isPastMonth = y < now.getFullYear() || (y === now.getFullYear() && (m - 1) < now.getMonth());
+      
+      let maxEntryDay = 0;
+      entries.forEach(e => {
+        if (e.date && e.date.startsWith(selectedMonth)) {
+          const partsD = e.date.split('-');
+          if (partsD.length >= 3) {
+            const d = parseInt(partsD[2], 10);
+            if (d > maxEntryDay) maxEntryDay = d;
+          }
+        }
+      });
+      
+      const limitDay = isPastMonth 
+        ? daysInMonth 
+        : Math.min(daysInMonth, Math.max(now.getDate(), maxEntryDay, 1));
+        
+      let count = 0;
+      for (let d = 1; d <= limitDay; d++) {
+        const dObj = new Date(y, m - 1, d);
+        const dayOfWeek = dObj.getDay();
+        if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+          count++;
+        }
+      }
+      return Math.max(1, count);
+    }
+    
+    // timeFilter === 'all'
+    const allDates = new Set<string>();
+    rawEntries.forEach(e => {
+      if (e.date) allDates.add(e.date);
+    });
+    
+    let workingDaysSet = new Set<string>();
+    allDates.forEach(dateStr => {
+      const parts = dateStr.split('-');
+      if (parts.length === 3) {
+        const dObj = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+        const day = dObj.getDay();
+        if (day !== 0 && day !== 6) {
+          workingDaysSet.add(dateStr);
+        }
+      }
+    });
+    
+    return Math.max(1, workingDaysSet.size);
+  }, [timeFilter, selectedDay, selectedWeekDate, selectedMonth, entries, rawEntries]);
+
+  const periodDays = cycleWorkingDays;
 
      // Thống kê năng suất Từng người (Do first before Team Overview)
   const memberOverview = useMemo(() => {
@@ -194,8 +273,11 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
         const date = e.date;
         
         members.forEach(m => {
-            if (!stats[m]) {
-                stats[m] = { member: m, daysWorked: new Set(), totalStandardDays: 0 };
+            const trimmedM = String(m).trim();
+            if (!trimmedM) return;
+            if (DataStore.isMemberExcludedFromProductivity(trimmedM)) return;
+            if (!stats[trimmedM]) {
+                stats[trimmedM] = { member: trimmedM, daysWorked: new Set(), totalStandardDays: 0 };
             }
             if (date) {
                 const parts = date.split('-');
@@ -217,7 +299,7 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
                 
                 
                 if (shouldCount) {
-                    stats[m].daysWorked.add(date);
+                    stats[trimmedM].daysWorked.add(date);
                 }
             }
         });
@@ -297,28 +379,32 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
            }
            
            members.forEach(m => {
+               const trimmedM = String(m).trim();
+               if (!stats[trimmedM]) return;
                if (cleanMatchedName === 'khác') {
-                   stats[m].totalStandardDays += (qtyPerMember / 1);
+                   stats[trimmedM].totalStandardDays += (qtyPerMember / 1);
                } else if (quota > 0) {
-                   stats[m].totalStandardDays += (qtyPerMember / quota);
+                   stats[trimmedM].totalStandardDays += (qtyPerMember / quota);
                } else {
-                   stats[m].totalStandardDays += (qtyPerMember * 0.05); 
+                   stats[trimmedM].totalStandardDays += (qtyPerMember * 0.05); 
                }
            });
         });
      });
 
      return Object.values(stats).map(m => {
-         const days = m.daysWorked.size || 1;
-         const p = (m.totalStandardDays / days) * 100;
+         // Quy tắc công ty: đối với các ngày không báo cáo (trừ thứ 7 và CN) thì xem như năng suất = 0
+         const divisor = Math.max(1, cycleWorkingDays);
+         const p = (m.totalStandardDays / divisor) * 100;
          return {
             member: m.member,
             daysWorkedCount: m.daysWorked.size,
+            cycleDays: divisor,
             totalStandardDays: m.totalStandardDays,
             productivityPercent: p,
          };
      }).sort((a, b) => b.productivityPercent - a.productivityPercent);
-  }, [entries, dinhMucList]);
+  }, [entries, dinhMucList, cycleWorkingDays]);
 
   // Thống kê tổng quan năng suất Tổ based on its members
   const teamOverview = useMemo(() => {
@@ -353,8 +439,11 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
         const date = e.date;
         
         members.forEach(m => {
-            if (!teamMemberStats[m]) {
-                teamMemberStats[m] = { member: m, daysWorked: new Set(), totalStandardDays: 0 };
+            const trimmedM = String(m).trim();
+            if (!trimmedM) return;
+            if (DataStore.isMemberExcludedFromProductivity(trimmedM)) return;
+            if (!teamMemberStats[trimmedM]) {
+                teamMemberStats[trimmedM] = { member: trimmedM, daysWorked: new Set(), totalStandardDays: 0 };
             }
             if (date) {
                 const parts = date.split('-');
@@ -374,7 +463,7 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
 
                 
                 if (shouldCount) {
-                    teamMemberStats[m].daysWorked.add(date);
+                    teamMemberStats[trimmedM].daysWorked.add(date);
                 }
             }
         });
@@ -445,12 +534,14 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
            }
            
            members.forEach(m => {
+               const trimmedM = String(m).trim();
+               if (!teamMemberStats[trimmedM]) return;
                if (cleanMatchedName === 'khác') {
-                   teamMemberStats[m].totalStandardDays += (qtyPerMember / 1);
+                   teamMemberStats[trimmedM].totalStandardDays += (qtyPerMember / 1);
                } else if (quota > 0) {
-                   teamMemberStats[m].totalStandardDays += (qtyPerMember / quota);
+                   teamMemberStats[trimmedM].totalStandardDays += (qtyPerMember / quota);
                } else {
-                   teamMemberStats[m].totalStandardDays += (qtyPerMember * 0.05); 
+                   teamMemberStats[trimmedM].totalStandardDays += (qtyPerMember * 0.05); 
                }
            });
         });
@@ -462,15 +553,16 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
           const findM = allMembersData.find(x => x.name === m.member);
           const team = findM ? findM.team : 'Khác';
           
-          const days = m.daysWorked.size || 1;
-          const p = (m.totalStandardDays / days) * 100;
+          // Quy tắc công ty: đối với các ngày không báo cáo (trừ thứ 7 và CN) thì xem như năng suất = 0
+          const divisor = Math.max(1, cycleWorkingDays);
+          const p = (m.totalStandardDays / divisor) * 100;
           
           if (!tStats[team]) {
-              tStats[team] = { team, membersProductivitySum: 0, membersCount: 0, maxDaysWork: 0 };
+              tStats[team] = { team, membersProductivitySum: 0, membersCount: 0, maxDaysWork: divisor };
           }
           tStats[team].membersProductivitySum += p;
           tStats[team].membersCount += 1;
-          tStats[team].maxDaysWork = Math.max(tStats[team].maxDaysWork, days);
+          tStats[team].maxDaysWork = divisor;
       });
 
       return Object.values(tStats).map(t => {
@@ -483,7 +575,7 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
              total: avgPercent
           };
       }).sort((a, b) => b.productivityPercent - a.productivityPercent);
-  }, [entries, dinhMucList]);
+  }, [entries, dinhMucList, cycleWorkingDays]);
 
   const maxProductivity = teamOverview.length > 0 ? Number(teamOverview[0].total) : 0;
   const minProductivity = teamOverview.length > 0 ? Number(teamOverview[teamOverview.length - 1].total) : 0;
@@ -551,12 +643,13 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
           const memberData = memberOverview.map((m, index) => ({
               "Hạng": index + 1,
               "Cá nhân": m.member,
-              "Chu kỳ (ngày)": m.daysWorkedCount,
+              "Số ngày báo cáo": m.daysWorkedCount,
+              "Chu kỳ ngày chuẩn": m.cycleDays,
               "Định mức": Number(m.totalStandardDays.toFixed(1)),
               "Năng suất (%)": Number(m.productivityPercent.toFixed(1))
           }));
           const memberSheet = XLSX.utils.json_to_sheet(memberData);
-          memberSheet['!cols'] = [{ wch: 10 }, { wch: 30 }, { wch: 15 }, { wch: 15 }, { wch: 15 }];
+          memberSheet['!cols'] = [{ wch: 10 }, { wch: 30 }, { wch: 16 }, { wch: 18 }, { wch: 15 }, { wch: 15 }];
           formatSheet(memberSheet);
           XLSX.utils.book_append_sheet(workbook, memberSheet, "NangSuat_CaNhan");
       }
@@ -739,10 +832,16 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
               <div className="w-full h-px bg-[#141414]/10 my-6"></div>
 
               <div className="w-full">
-                 <h3 className="text-sm font-bold uppercase tracking-widest bg-[#141414] text-white p-3 mb-6 inline-flex items-center gap-2 shadow-[4px_4px_0_rgba(20,20,20,0.2)]">
-                    <Award className="w-4 h-4" />
-                    Xếp Hạng Năng Suất Cá Nhân
-                 </h3>
+                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+                    <h3 className="text-sm font-bold uppercase tracking-widest bg-[#141414] text-white p-3 inline-flex items-center gap-2 shadow-[4px_4px_0_rgba(20,20,20,0.2)]">
+                       <Award className="w-4 h-4" />
+                       Xếp Hạng Năng Suất Cá Nhân
+                    </h3>
+                    <div className="bg-amber-50/90 border border-amber-300/80 rounded-xl px-3 py-2 text-xs text-amber-900 flex flex-wrap items-center gap-2 shadow-xs">
+                       <span className="px-1.5 py-0.5 rounded bg-amber-200 font-bold text-[10px] text-amber-950 uppercase tracking-wider shrink-0">Quy tắc</span>
+                       <span>Chu kỳ: <b>{cycleWorkingDays} ngày</b> (đã trừ T7 & CN). Chỉ tính năng suất: <b>Nhân viên, Công nhân, Tổ phó</b> (miễn tính: Tổ trưởng, Đội phó, Đội trưởng, P.Giám đốc, Giám đốc).</span>
+                    </div>
+                 </div>
                  
                  <div className="overflow-x-auto border border-[#141414] bg-white shadow-[4px_4px_0_#141414]">
                     <table className="w-full text-left text-sm whitespace-nowrap">
@@ -750,7 +849,7 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
                           <tr>
                              <th className="px-4 py-3 text-center w-16">Hạng</th>
                              <th className="px-4 py-3">Cá nhân</th>
-                             <th className="px-4 py-3 text-right">Chu kỳ (ngày)</th>
+                             <th className="px-4 py-3 text-right" title="Số ngày có báo cáo / Chu kỳ ngày chuẩn (đã trừ T7, CN)">Báo cáo / Chu kỳ</th>
                              <th className="px-4 py-3 text-right">Định mức</th>
                              <th className="px-4 py-3 text-right">Năng suất</th>
                              <th className="px-4 py-3 min-w-[200px]">Tiến độ</th>
@@ -780,7 +879,8 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
                                       {m.member}
                                    </td>
                                    <td className="px-4 py-3 text-right font-mono text-xs">
-                                      {m.daysWorkedCount}
+                                      <span className="font-bold text-[#141414]">{m.daysWorkedCount}</span>
+                                      <span className="text-[#141414]/50">/{m.cycleDays} ngày</span>
                                    </td>
                                    <td className="px-4 py-3 text-right font-mono text-xs">
                                       {m.totalStandardDays.toFixed(1)}

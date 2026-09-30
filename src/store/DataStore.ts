@@ -49,6 +49,13 @@ export interface SheetMember {
   [key: string]: any;
 }
 
+export interface OnlineStats {
+  status: string;
+  totalLogins: number;
+  onlineCount: number;
+  onlineUsers?: string[];
+}
+
 export interface TuyenDuongExclusion {
   id: string;
   year: number;
@@ -146,7 +153,10 @@ export interface TutiEntry {
 }
 
 const STORAGE_KEY = 'workload_data_v1';
+export const DEFAULT_SPREADSHEET_ID = '1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ';
+export const DEFAULT_APP_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzpw3SlqJxXYC29qjPRqH8ehfJp764bNvQFUzqIgMW_rMrpitMKvvRvWbbGrP505Sdi/exec';
 const SCRIPT_URL_KEY = 'app_script_url_v1';
+const SPREADSHEET_ID_KEY = 'SPREADSHEET_ID';
 const TEAMS_KEY = 'sheet_teams_v1';
 const MEMBERS_KEY = 'sheet_members_v1';
 const STATIONS_KEY = 'sheet_stations_v1';
@@ -167,7 +177,7 @@ let memoryCache: Record<string, string | null> = {};
 
 export const initDB = async () => {
     const keys = [
-      STORAGE_KEY, SCRIPT_URL_KEY, TEAMS_KEY, MEMBERS_KEY, STATIONS_KEY,
+      STORAGE_KEY, SCRIPT_URL_KEY, SPREADSHEET_ID_KEY, TEAMS_KEY, MEMBERS_KEY, STATIONS_KEY,
       DINHMUC_KEY, PROGRESS_KEY, LOCAL_PROGRESS_UPDATES_KEY, TUTI_KEY,
       LOCAL_TUTI_UPDATES_KEY, 'sheet_khuvuc_v1', 'sheet_matketnoi_v1',
       'sheet_chitietmkn_v1', 'sheet_sangtai_v1', 'sheet_kho_v1', 'sheet_vttb_v1', 'config_exclude_saturday', 'config_exclude_sunday', 'config_exclude_nghi',
@@ -240,9 +250,26 @@ export const DataStore = {
   initDB: initDB,
   getAppScriptUrl: () => { 
       const url = safeGetItem(SCRIPT_URL_KEY);
-      return url ? url.trim() : 'https://script.google.com/macros/s/AKfycbzpw3SlqJxXYC29qjPRqH8ehfJp764bNvQFUzqIgMW_rMrpitMKvvRvWbbGrP505Sdi/exec';
+      return url ? url.trim() : DEFAULT_APP_SCRIPT_URL;
   },
   setAppScriptUrl: (url: string) => safeSetItem(SCRIPT_URL_KEY, url),
+
+  getSpreadsheetId: (): string => {
+      const id = safeGetItem(SPREADSHEET_ID_KEY);
+      return id ? id.trim() : DEFAULT_SPREADSHEET_ID;
+  },
+  setSpreadsheetId: (idOrUrl: string) => {
+      let clean = (idOrUrl || '').trim();
+      const match = clean.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+      if (match && match[1]) {
+          clean = match[1];
+      }
+      safeSetItem(SPREADSHEET_ID_KEY, clean);
+  },
+  getSpreadsheetUrl: (): string => {
+      const id = DataStore.getSpreadsheetId();
+      return `https://docs.google.com/spreadsheets/d/${id}/edit`;
+  },
 
   getExcludeSaturday: () => {
       const val = safeGetItem('config_exclude_saturday');
@@ -513,6 +540,124 @@ export const DataStore = {
     return false;
   },
 
+  isMemberExcludedFromProductivity: (memberOrName: SheetMember | string): boolean => {
+    if (!memberOrName) return false;
+
+    const normalize = (str: any) => String(str || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/đ/g, 'd')
+      .replace(/Đ/g, 'd')
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    let memberName = '';
+    let memberRole = '';
+    let memberTeam = '';
+
+    const allMembers = DataStore.getMembers();
+
+    if (typeof memberOrName === 'string') {
+      memberName = memberOrName.trim();
+      const normTarget = normalize(memberName);
+      const found = allMembers.find(m => normalize(m.name) === normTarget) ||
+                    allMembers.find(m => {
+                      const nm = normalize(m.name);
+                      return nm.length > 2 && normTarget.length > 2 && (nm.includes(normTarget) || normTarget.includes(nm));
+                    });
+      if (found) {
+        memberRole = found.role || (found as any).chucDanh || (found as any).chucVu || (found as any).chuc_vu || (found as any).chuc_danh || '';
+        memberTeam = found.team || '';
+      }
+    } else {
+      memberName = (memberOrName.name || '').trim();
+      memberRole = memberOrName.role || (memberOrName as any).chucDanh || (memberOrName as any).chucVu || (memberOrName as any).chuc_vu || (memberOrName as any).chuc_danh || '';
+      memberTeam = memberOrName.team || '';
+      if (!memberRole && memberName) {
+        const normTarget = normalize(memberName);
+        const found = allMembers.find(m => normalize(m.name) === normTarget);
+        if (found) {
+          memberRole = found.role || (found as any).chucDanh || (found as any).chucVu || '';
+          if (!memberTeam) memberTeam = found.team || '';
+        }
+      }
+    }
+
+    const normName = normalize(memberName);
+    const normTeam = normalize(memberTeam);
+
+    // 0. Kiểm tra Đội ngũ Lãnh đạo / Ban Giám đốc qua Team
+    if (
+      normTeam.includes('ban giam doc') ||
+      normTeam.includes('ban lanh dao') ||
+      normTeam.includes('ban dieu hanh') ||
+      normTeam === 'lanh dao'
+    ) {
+      return true;
+    }
+
+    const norm = normalize(memberRole || memberName);
+
+    // 1. Không tính năng suất đối với các vị trí Lãnh đạo / Quản lý:
+    // Đội phó (Đội phố), Đội trưởng, Phó Giám đốc, Giám đốc, Trưởng phòng, Phó phòng
+    if (
+      norm.includes('doi pho') ||
+      norm.includes('pho doi') ||
+      norm.includes('doi truong') ||
+      norm.includes('truong doi') ||
+      norm.includes('giam doc') ||
+      norm.includes('pgd') ||
+      norm.includes('pho gd') ||
+      norm.includes('truong phong') ||
+      norm.includes('pho phong') ||
+      norm.includes('quan doc') ||
+      norm.includes('pho quan doc') ||
+      norm.includes('ban lanh dao')
+    ) {
+      return true;
+    }
+
+    // Tiền tố chức danh trong tên (ĐT., ĐP., GĐ., PGĐ., TT.)
+    if (
+      normName.startsWith('dt ') || normName.startsWith('dt. ') || normName.startsWith('doi truong ') ||
+      normName.startsWith('dp ') || normName.startsWith('dp. ') || normName.startsWith('doi pho ') ||
+      normName.startsWith('gd ') || normName.startsWith('gd. ') || normName.startsWith('giam doc ') ||
+      normName.startsWith('pgd ') || normName.startsWith('pgd. ') || normName.startsWith('pho giam doc ')
+    ) {
+      return true;
+    }
+
+    // 2. Không tính năng suất đối với: Tổ trưởng (Tổ trưởng chuyên môn)
+    // Phân biệt rõ với Tổ phó (Tổ phó CÓ tính năng suất):
+    if (norm.includes('to truong') || norm.includes('truong to') || normName.startsWith('tt ') || normName.startsWith('tt. ')) {
+      // Ngoại lệ: Nếu chức danh chuyên môn là nhân viên / công nhân / tổ phó và kiêm nhiệm Tổ trưởng Công đoàn
+      const isOnlyCd = (norm.includes('cong doan') || norm.includes('cd')) &&
+                       (norm.includes('nhan vien') || norm.includes('cong nhan') || norm.includes('to pho')) &&
+                       !norm.includes('to truong to') &&
+                       !norm.includes('to truong chuyen mon');
+      if (isOnlyCd) {
+        return false; // Tính năng suất vì chuyên môn là nhân viên/công nhân/tổ phó
+      }
+      return true; // Tổ trưởng chuyên môn: Loại trừ, không tính năng suất
+    }
+
+    // 3. Chỉ tính năng suất: Nhân viên, Công nhân, Tổ phó
+    if (
+      norm.includes('to pho') ||
+      norm.includes('pho to') ||
+      norm.includes('nhan vien') ||
+      norm.includes('cong nhan') ||
+      norm.includes('ky thuat') ||
+      norm.includes('tho') ||
+      norm.includes('lai xe')
+    ) {
+      return false; // CÓ tính năng suất (không bị loại trừ)
+    }
+
+    return false;
+  },
+
   isCongDoanPublished: (subTab: 'sinh_nhat' | 'tuyen_duong', year: number, month: number): boolean => {
     try {
       const key = `congdoan_pub_${subTab}_${year}_${month}`;
@@ -619,7 +764,7 @@ export const DataStore = {
   
   getDcu: async () => {
      try {
-         const sheetId = localStorage.getItem('SPREADSHEET_ID') || "1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ";
+         const sheetId = DataStore.getSpreadsheetId();
          const res = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("DCU")}&_=${Date.now()}`);
          if (!res.ok) return [];
          const text = await res.text();
@@ -749,7 +894,7 @@ export const DataStore = {
 
   getXuLyDoXa: async () => {
      try {
-         const sheetId = localStorage.getItem('SPREADSHEET_ID') || "1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ";
+         const sheetId = DataStore.getSpreadsheetId();
          const res = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("XuLyDoXa")}&_=${Date.now()}`);
          if (!res.ok) return [];
          const text = await res.text();
@@ -1002,7 +1147,7 @@ export const DataStore = {
       }
 
       if (json.status === 'success') {
-         const sheetId = json.spreadsheetId || "1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ";
+         const sheetId = DataStore.getSpreadsheetId() || json.spreadsheetId || DEFAULT_SPREADSHEET_ID;
          // Lấy MSNV và Nhóm từ CSV
          try {
             let cbcnvMap = new Map<string, {msnv: string, role: string}>();
@@ -2367,7 +2512,46 @@ export const DataStore = {
     }
   },
 
-  logInAction: async (username: string) => {
+  recordLocalOnlineUser: (username: string) => {
+      if (!username || username === 'unknown') return;
+      try {
+          const KEY = 'app_online_users_registry';
+          const stored = safeGetItem(KEY);
+          const map: Record<string, number> = stored ? JSON.parse(stored) : {};
+          map[username.trim()] = Date.now();
+          const now = Date.now();
+          for (const k in map) {
+              if (now - map[k] > 15 * 60 * 1000) {
+                  delete map[k];
+              }
+          }
+          safeSetItem(KEY, JSON.stringify(map));
+      } catch (e) {
+          // ignore
+      }
+  },
+
+  getLocalOnlineUsers: (): string[] => {
+      try {
+          const KEY = 'app_online_users_registry';
+          const stored = safeGetItem(KEY);
+          if (!stored) return [];
+          const map: Record<string, number> = JSON.parse(stored);
+          const now = Date.now();
+          const list: string[] = [];
+          for (const k in map) {
+              if (now - map[k] <= 15 * 60 * 1000 && k && k !== 'unknown') {
+                  list.push(k);
+              }
+          }
+          return list;
+      } catch (e) {
+          return [];
+      }
+  },
+
+  logInAction: async (username: string): Promise<OnlineStats | null> => {
+      if (username) DataStore.recordLocalOnlineUser(username);
       try {
           const url = DataStore.getAppScriptUrl();
           if (!url) return null;
@@ -2377,14 +2561,23 @@ export const DataStore = {
               body: JSON.stringify({ action: 'log_in', username })
           });
           const json = await response.json();
-          return json.status === 'success' ? json : null;
+          if (json && json.status === 'success') {
+              if (Array.isArray(json.onlineUsers) && json.onlineUsers.length > 0) {
+                  json.onlineUsers.forEach((u: string) => DataStore.recordLocalOnlineUser(u));
+              } else {
+                  json.onlineUsers = DataStore.getLocalOnlineUsers();
+              }
+              return json;
+          }
+          return null;
       } catch (e) {
           console.warn('Error logInAction:', e);
           return null;
       }
   },
 
-  pingOnline: async (username: string) => {
+  pingOnline: async (username: string): Promise<OnlineStats | null> => {
+      if (username) DataStore.recordLocalOnlineUser(username);
       try {
           const url = DataStore.getAppScriptUrl();
           if (!url) return null;
@@ -2394,7 +2587,15 @@ export const DataStore = {
               body: JSON.stringify({ action: 'ping_online', username })
           });
           const json = await response.json();
-          return json.status === 'success' ? json : null;
+          if (json && json.status === 'success') {
+              if (Array.isArray(json.onlineUsers) && json.onlineUsers.length > 0) {
+                  json.onlineUsers.forEach((u: string) => DataStore.recordLocalOnlineUser(u));
+              } else {
+                  json.onlineUsers = DataStore.getLocalOnlineUsers();
+              }
+              return json;
+          }
+          return null;
       } catch (e) {
           console.warn('Error pingOnline:', e);
           return null;

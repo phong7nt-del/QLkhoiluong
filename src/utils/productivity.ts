@@ -4,6 +4,7 @@ export interface MemberProductivityStat {
   member: string;
   team: string;
   daysWorkedCount: number;
+  cycleDays: number;
   totalStandardDays: number;
   productivityPercent: number;
   entriesCount: number;
@@ -13,8 +14,8 @@ export interface MemberProductivityStat {
  * Calculates member productivity (%) exactly matching AnalysisTab business logic:
  * - Group size division for shared tasks (id > 0)
  * - Quotas from DataStore.getDinhMuc()
- * - Working days calculated with excludeSat, excludeSun, excludeNghi
- * - Productivity (%) = (totalStandardDays / daysWorkedCount) * 100
+ * - Unreported days (excluding Saturday and Sunday) count as 0 productivity
+ * - Productivity (%) = (totalStandardDays / cycleWorkingDays) * 100
  */
 export function calculateMemberProductivity(
   periodType: 'month' | 'year',
@@ -74,8 +75,13 @@ export function calculateMemberProductivity(
     members.forEach(m => {
       const trimmedM = String(m).trim();
       if (!trimmedM) return;
+      // Không tính năng suất đối với: tổ trưởng, đội phó, đội trưởng, phó giám đốc, giám đốc
+      // Chỉ tính năng suất: nhân viên, công nhân, tổ phó
+      if (DataStore.isMemberExcludedFromProductivity(trimmedM)) return;
+
       if (!stats[trimmedM]) {
-        const memberObj = allMembers.find(mem => mem.name.toLowerCase() === trimmedM.toLowerCase());
+        const memberObj = allMembers.find(mem => mem.name.toLowerCase().trim() === trimmedM.toLowerCase()) ||
+                          allMembers.find(mem => mem.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim() === trimmedM.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim());
         stats[trimmedM] = {
           member: trimmedM,
           team: memberObj?.team || e.team || 'Tổ Đo xa',
@@ -193,6 +199,7 @@ export function calculateMemberProductivity(
   // Also include any members from DataStore.getMembers() if selectedTeam matches and not yet present
   allMembers.forEach(mem => {
     if (selectedTeam !== 'all' && mem.team !== selectedTeam) return;
+    if (DataStore.isMemberExcludedFromProductivity(mem)) return;
     if (!stats[mem.name]) {
       // Members with 0 recorded entries in period
       stats[mem.name] = {
@@ -205,16 +212,73 @@ export function calculateMemberProductivity(
     }
   });
 
+  // 4. Calculate required working days in period (excluding Saturday and Sunday)
+  // Quy tắc công ty: đối với các ngày không báo cáo (trừ thứ 7 và chủ nhật) thì xem như năng suất bằng 0.
+  const now = new Date();
+  let cycleWorkingDays = 1;
+
+  if (periodType === 'month') {
+    const daysInMonth = new Date(selectedYear, selectedMonth, 0).getDate();
+    const isCurrentMonth = selectedYear === now.getFullYear() && (selectedMonth - 1) === now.getMonth();
+    const isPastMonth = selectedYear < now.getFullYear() || (selectedYear === now.getFullYear() && (selectedMonth - 1) < now.getMonth());
+
+    let maxEntryDay = 0;
+    filteredEntries.forEach(e => {
+      if (e.date) {
+        const parts = e.date.split('-');
+        if (parts.length >= 3) {
+          const d = parseInt(parts[2], 10);
+          if (d > maxEntryDay) maxEntryDay = d;
+        }
+      }
+    });
+
+    const limitDay = isPastMonth
+      ? daysInMonth
+      : Math.min(daysInMonth, Math.max(now.getDate(), maxEntryDay, 1));
+
+    let count = 0;
+    for (let d = 1; d <= limitDay; d++) {
+      const dObj = new Date(selectedYear, selectedMonth - 1, d);
+      const dayOfWeek = dObj.getDay();
+      // Trừ thứ 7 (6) và Chủ nhật (0)
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+        count++;
+      }
+    }
+    cycleWorkingDays = Math.max(1, count);
+  } else {
+    // periodType === 'year'
+    const isCurrentYear = selectedYear === now.getFullYear();
+    const isPastYear = selectedYear < now.getFullYear();
+    const maxMonth = isPastYear ? 12 : Math.min(12, now.getMonth() + 1);
+
+    let count = 0;
+    for (let m = 1; m <= maxMonth; m++) {
+      const daysInM = new Date(selectedYear, m, 0).getDate();
+      const limitDay = (isCurrentYear && m === (now.getMonth() + 1)) ? now.getDate() : daysInM;
+      for (let d = 1; d <= limitDay; d++) {
+        const dObj = new Date(selectedYear, m - 1, d);
+        const dayOfWeek = dObj.getDay();
+        if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+          count++;
+        }
+      }
+    }
+    cycleWorkingDays = Math.max(1, count);
+  }
+
   return Object.values(stats).map(m => {
-    const days = m.daysWorked.size || 0;
-    // If daysWorked > 0, compute (totalStandardDays / daysWorked) * 100
-    // If no days worked but has standard days (e.g. weekend), use 1 day
-    const effectiveDays = days > 0 ? days : (m.totalStandardDays > 0 ? 1 : 0);
-    const p = effectiveDays > 0 ? (m.totalStandardDays / effectiveDays) * 100 : 0;
+    const daysReported = m.daysWorked.size || 0;
+    // Đối với các ngày không báo cáo (trừ thứ 7 và CN), xem như năng suất = 0
+    // Mẫu số là cycleWorkingDays (tổng ngày làm việc chuẩn trong chu kỳ trừ T7, CN)
+    const divisor = Math.max(1, cycleWorkingDays);
+    const p = (m.totalStandardDays / divisor) * 100;
     return {
       member: m.member,
       team: m.team,
-      daysWorkedCount: days,
+      daysWorkedCount: daysReported,
+      cycleDays: divisor,
       totalStandardDays: Number(m.totalStandardDays.toFixed(2)),
       productivityPercent: Number(p.toFixed(1)),
       entriesCount: m.entriesCount

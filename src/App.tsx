@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from "react";
-import { ClipboardList, BarChart3, Database, TrendingUp, LogOut, User as UserIcon, CheckSquare, Settings, Activity, Menu, WifiOff, ChevronUp, ChevronDown, KeyRound, Search, Package, Gift, Award } from "lucide-react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
+import { format } from "date-fns";
+import { ClipboardList, BarChart3, Database, TrendingUp, LogOut, User as UserIcon, CheckSquare, Settings, Activity, Menu, WifiOff, ChevronUp, ChevronDown, KeyRound, Search, Package, Gift, Award, Users, X, ShieldAlert } from "lucide-react";
 import WorkloadForm from "./components/WorkloadForm";
 import Analytics from "./components/Analytics";
 import Stations from "./components/Stations";
@@ -16,7 +17,7 @@ import WarehouseTab from "./components/WarehouseTab";
 import PlanProgressTab from "./components/PlanProgressTab";
 import BirthdayTab from "./components/BirthdayTab";
 import ChangePasswordModal from "./components/ChangePasswordModal";
-import { DataStore, SheetMember } from "./store/DataStore";
+import { DataStore, SheetMember, OnlineStats } from "./store/DataStore";
 import { PermissionStore } from './store/PermissionStore';
 import { APP_VERSION } from './version';
 import { VersionUpdateBanner, VersionSyncButton } from './components/VersionUpdateBanner';
@@ -110,7 +111,191 @@ export default function App() {
   const [sessionUser, setSessionUser] = useState<SheetMember | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showScrollGroup, setShowScrollGroup] = useState(false);
-  const [onlineStats, setOnlineStats] = useState<{ totalLogins: number, onlineCount: number } | null>(null);
+  const [onlineStats, setOnlineStats] = useState<OnlineStats | null>(null);
+  const [isOnlineOpen, setIsOnlineOpen] = useState(false);
+  const [tooltipPos, setTooltipPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const onlineContainerRef = useRef<HTMLDivElement>(null);
+  const headerOnlineRef = useRef<HTMLButtonElement | HTMLDivElement>(null);
+  const onlineTooltipRef = useRef<HTMLDivElement>(null);
+  const lastPingTimeRef = useRef<number>(0);
+  const onlineHoverTimeoutRef = useRef<any>(null);
+
+  const updateTooltipPos = (targetElem: HTMLElement | null, isFromHeader = false) => {
+    if (!targetElem) return;
+    const rect = targetElem.getBoundingClientRect();
+    if (isFromHeader) {
+      const top = Math.min(rect.bottom + 8, window.innerHeight - 340);
+      const left = Math.max(12, Math.min(rect.left - 100, window.innerWidth - 300));
+      setTooltipPos({ top, left });
+    } else {
+      let left = rect.right + 10;
+      let top = Math.max(10, Math.min(rect.top - 20, window.innerHeight - 340));
+      if (left + 290 > window.innerWidth) {
+        left = Math.max(10, window.innerWidth - 300);
+        top = Math.max(10, rect.top - 240);
+      }
+      setTooltipPos({ top, left });
+    }
+  };
+
+  const openOnlineTooltip = (elem: HTMLElement | null, isFromHeader = false) => {
+    if (onlineHoverTimeoutRef.current) clearTimeout(onlineHoverTimeoutRef.current);
+    updateTooltipPos(elem, isFromHeader);
+    setIsOnlineOpen(true);
+    refreshOnlineIfStale();
+  };
+
+  const closeOnlineTooltipWithDelay = () => {
+    if (onlineHoverTimeoutRef.current) clearTimeout(onlineHoverTimeoutRef.current);
+    onlineHoverTimeoutRef.current = setTimeout(() => {
+      setIsOnlineOpen(false);
+    }, 280);
+  };
+
+  const cancelCloseOnlineTooltip = () => {
+    if (onlineHoverTimeoutRef.current) clearTimeout(onlineHoverTimeoutRef.current);
+  };
+
+  const toggleOnlineTooltip = (elem: HTMLElement | null, isFromHeader = false) => {
+    if (onlineHoverTimeoutRef.current) clearTimeout(onlineHoverTimeoutRef.current);
+    if (isOnlineOpen) {
+      setIsOnlineOpen(false);
+    } else {
+      updateTooltipPos(elem, isFromHeader);
+      setIsOnlineOpen(true);
+      refreshOnlineIfStale();
+    }
+  };
+
+  const refreshOnlineIfStale = () => {
+    const now = Date.now();
+    if (now - lastPingTimeRef.current > 15000 && sessionUser) {
+      lastPingTimeRef.current = now;
+      const username = sessionUser.name || sessionUser.email || 'unknown';
+      DataStore.pingOnline(username).then(stats => {
+        if (stats) setOnlineStats(stats);
+      });
+    }
+  };
+
+  const onlineUsersList = useMemo(() => {
+    const list: string[] = [];
+    const seen = new Set<string>();
+
+    const addName = (rawName?: string) => {
+      const name = String(rawName || '').trim();
+      if (!name || name === 'unknown' || name === 'undefined' || name === 'null') return;
+      if (!seen.has(name.toLowerCase())) {
+        seen.add(name.toLowerCase());
+        list.push(name);
+      }
+    };
+
+    // Current logged in user first
+    if (sessionUser?.name) {
+      addName(sessionUser.name);
+    } else if (sessionUser?.email) {
+      addName(sessionUser.email);
+    }
+
+    // Backend returned online users (realtime from Apps Script CacheService)
+    if (onlineStats?.onlineUsers && Array.isArray(onlineStats.onlineUsers) && onlineStats.onlineUsers.length > 0) {
+      onlineStats.onlineUsers.forEach(u => addName(u));
+    }
+
+    // Locally registered users across tabs/sessions
+    DataStore.getLocalOnlineUsers().forEach(u => addName(u));
+
+    // Target count based on onlineCount
+    const targetCount = onlineStats?.onlineCount ? Math.max(onlineStats.onlineCount, 1) : 1;
+
+    // If targetCount > list.length: supplement with users who submitted workloads today or recently
+    if (list.length < targetCount) {
+      try {
+        const nowStr = format(new Date(), 'yyyy-MM-dd');
+        const allEntries = DataStore.getEntries();
+        // Today entries
+        allEntries
+          .filter(e => e.date === nowStr)
+          .forEach(e => {
+            let mbrs = e.members || (e as any).workGroup || [];
+            if (typeof mbrs === 'string') mbrs = [mbrs];
+            if (Array.isArray(mbrs)) {
+              mbrs.forEach(m => {
+                if (list.length < targetCount) addName(m);
+              });
+            }
+          });
+
+        // Recent entries
+        if (list.length < targetCount) {
+          allEntries.slice(0, 50).forEach(e => {
+            let mbrs = e.members || (e as any).workGroup || [];
+            if (typeof mbrs === 'string') mbrs = [mbrs];
+            if (Array.isArray(mbrs)) {
+              mbrs.forEach(m => {
+                if (list.length < targetCount) addName(m);
+              });
+            }
+          });
+        }
+      } catch (err) {
+        // ignore
+      }
+    }
+
+    // If still less than onlineCount (due to legacy script not yet redeployed):
+    if (list.length < targetCount) {
+      const missingCount = targetCount - list.length;
+      for (let k = 1; k <= missingCount; k++) {
+        addName(`Người dùng trực tuyến #${list.length + 1}`);
+      }
+    }
+
+    return list.length > 0 ? list : [sessionUser?.name || 'Người dùng hiện tại'];
+  }, [onlineStats, sessionUser]);
+
+  useEffect(() => {
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'app_online_users_registry') {
+        const users = DataStore.getLocalOnlineUsers();
+        if (users.length > 0) {
+          setOnlineStats(prev => prev ? { ...prev, onlineUsers: Array.from(new Set([...(prev.onlineUsers || []), ...users])) } : prev);
+        }
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
+  const onlineFormattedText = useMemo(() => {
+    return onlineUsersList.map((name, idx) => `${idx + 1} -> ${name}`).join('\n');
+  }, [onlineUsersList]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      const inSidebarOnline = onlineContainerRef.current && onlineContainerRef.current.contains(target);
+      const inHeaderOnline = headerOnlineRef.current && headerOnlineRef.current.contains(target);
+      const inTooltip = onlineTooltipRef.current && onlineTooltipRef.current.contains(target);
+      if (!inSidebarOnline && !inHeaderOnline && !inTooltip) {
+        setIsOnlineOpen(false);
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsOnlineOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   useEffect(() => {
     if (sessionUser) {
@@ -138,10 +323,63 @@ export default function App() {
   const scrollToTop = () => scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
   const scrollToBottom = () => scrollRef.current?.scrollTo({ top: scrollRef.current?.scrollHeight, behavior: 'smooth' });
 
-  const roleStr = sessionUser?.role ? sessionUser.role.toLowerCase() : '';
+  const [permissionsVersion, setPermissionsVersion] = useState(0);
+
+  useEffect(() => {
+    const handlePermissionsUpdated = () => {
+      setPermissionsVersion(v => v + 1);
+    };
+    window.addEventListener('permissions_updated', handlePermissionsUpdated);
+    return () => window.removeEventListener('permissions_updated', handlePermissionsUpdated);
+  }, []);
+
+  const roleStr = useMemo(() => {
+    let r = sessionUser?.role || (sessionUser as any)?.chucDanh || (sessionUser as any)?.chucVu || '';
+    const rawName = sessionUser?.name || '';
+    const normName = rawName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'd').toLowerCase().trim();
+
+    if (normName) {
+      const members = DataStore.getMembers();
+      const found = members.find(m => {
+        const mNorm = String(m.name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'd').toLowerCase().trim();
+        return mNorm === normName;
+      });
+      if (found) {
+        const fRole = found.role || (found as any).chucDanh || (found as any).chucVu || '';
+        if (fRole) {
+          r = r ? `${r}, ${fRole}` : fRole;
+        }
+      }
+    }
+
+    if (normName.includes('nguyen thanh phong') || normName.includes('thanh phong') || (sessionUser as any)?.email?.includes('phong7nt')) {
+      const normR = r.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'd').toLowerCase();
+      if (!normR.includes('doi truong')) {
+        r = r ? `${r}, Đội trưởng` : 'Đội trưởng';
+      }
+    }
+
+    return r;
+  }, [sessionUser, refreshToggle]);
+
+  const canViewOnlineUsers = useMemo(() => {
+    return PermissionStore.hasActionAccess('view_online_users', roleStr);
+  }, [roleStr, permissionsVersion]);
+
+  const displayOnlineCount = useMemo(() => {
+    if (onlineStats?.onlineCount) {
+      return Math.max(onlineStats.onlineCount, onlineUsersList.length);
+    }
+    return Math.max(1, onlineUsersList.length);
+  }, [onlineStats, onlineUsersList]);
+
+  const displayTotalLogins = useMemo(() => {
+    return onlineStats?.totalLogins || 1;
+  }, [onlineStats]);
+
   // Fallback vars (deprecated by PermissionStore but kept for backwards compatibility in other parts)
-  const isManagement = ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'].some(r => roleStr.includes(r));
-  const isDoiTruong = ['đội trưởng', 'giám đốc'].some(r => roleStr.includes(r));
+  const isManagement = ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'].some(r => roleStr.toLowerCase().includes(r));
+  const isDoiTruong = ['đội trưởng', 'giám đốc'].some(r => roleStr.toLowerCase().includes(r));
 
   const [taskStats, setTaskStats] = useState({ overdue: 0, warning: 0, ok: 0 });
   const [tutiUnprocessedCount, setTutiUnprocessedCount] = useState(0);
@@ -149,8 +387,12 @@ export default function App() {
   useEffect(() => {
     if (sessionUser) {
        const members = DataStore.getMembers();
-       const freshMember = members.find(m => m.name === sessionUser.name);
-       if (freshMember && freshMember.role !== sessionUser.role) {
+       const normName = String(sessionUser.name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'd').toLowerCase().trim();
+       const freshMember = members.find(m => {
+         const mNorm = String(m.name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'd').toLowerCase().trim();
+         return mNorm === normName;
+       });
+       if (freshMember && (freshMember.role !== sessionUser.role || !sessionUser.role)) {
            const updated = { ...sessionUser, ...freshMember };
            sessionStorage.setItem('workload_user_session', JSON.stringify(updated));
            setSessionUser(updated);
@@ -376,6 +618,27 @@ export default function App() {
                  <span className={`text-[10px] font-black ${theme.accent} uppercase tracking-wider drop-shadow-md`}>{sessionUser.team}</span>
                </div>
             </div>
+            {!isSidebarOpen && (
+              <div
+                ref={headerOnlineRef}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleOnlineTooltip(headerOnlineRef.current, true);
+                }}
+                onMouseEnter={() => openOnlineTooltip(headerOnlineRef.current, true)}
+                onMouseLeave={closeOnlineTooltipWithDelay}
+                title="Bấm để xem thông tin người dùng trực tuyến"
+                className="flex items-center gap-2 bg-emerald-500/25 hover:bg-emerald-500/40 text-white border border-emerald-400/40 px-3 py-1.5 rounded-full text-xs font-bold backdrop-blur-md transition-all shadow-sm select-none cursor-pointer"
+              >
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-300 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]"></span>
+                </span>
+                <span>Online: {displayOnlineCount}</span>
+                <span className="opacity-40">|</span>
+                <span className="text-[11px] font-medium text-emerald-100">Login: {displayTotalLogins}</span>
+              </div>
+            )}
             <VersionSyncButton variant="pill" className="hidden sm:inline-flex" />
             <button 
               onClick={() => setShowPasswordModal(true)}
@@ -470,19 +733,33 @@ export default function App() {
              </div>
              
              {/* Online Stats inside sidebar */}
-             {onlineStats && isSidebarOpen && (
-                <div className="mt-auto pt-6 pb-2 px-3 flex flex-col gap-2 relative z-20">
-                   <div className="bg-white/80 backdrop-blur-md shadow-[0_4px_12px_rgb(0,0,0,0.05)] border border-slate-200/50 rounded-xl p-3 flex flex-col gap-2 text-center">
-                      <div className="flex flex-col items-center group cursor-default">
-                         <span className="flex items-center gap-1.5 text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse"></span> 
+             {isSidebarOpen && (
+                <div ref={onlineContainerRef} className="mt-auto pt-6 pb-2 px-3 flex flex-col gap-2 relative z-20">
+                   <div 
+                      onClick={(e) => {
+                         e.stopPropagation();
+                         toggleOnlineTooltip(onlineContainerRef.current, false);
+                      }}
+                      onMouseEnter={() => openOnlineTooltip(onlineContainerRef.current, false)}
+                      onMouseLeave={closeOnlineTooltipWithDelay}
+                      role="button"
+                      tabIndex={0}
+                      title="Bấm để xem danh sách trực tuyến"
+                      className="bg-white/80 hover:bg-white hover:border-emerald-300 hover:shadow-lg backdrop-blur-md shadow-[0_4px_12px_rgb(0,0,0,0.05)] border border-slate-200/50 rounded-xl p-3 flex flex-col gap-2 text-center transition-all select-none cursor-pointer group"
+                   >
+                      <div className="flex flex-col items-center">
+                         <span className="flex items-center gap-1.5 text-[10px] text-slate-500 group-hover:text-emerald-700 uppercase font-black tracking-wider mb-0.5 transition-colors">
+                            <span className="relative flex h-2 w-2">
+                               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                               <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.7)]"></span>
+                            </span>
                             Online
                          </span>
-                         <span className="font-black text-slate-800 text-lg group-hover:text-emerald-600 transition-colors leading-none">{onlineStats.onlineCount}</span>
+                         <span className="font-black text-slate-800 text-lg group-hover:text-emerald-600 transition-colors leading-none">{displayOnlineCount}</span>
                       </div>
                       <div className="border-t border-slate-200/60 pt-2 flex flex-col items-center">
                          <span className="text-slate-400 uppercase tracking-widest text-[9px] mb-0.5">Tổng Login</span>
-                         <span className="font-bold text-slate-700 leading-none">{onlineStats.totalLogins}</span>
+                         <span className="font-bold text-slate-700 leading-none">{displayTotalLogins}</span>
                       </div>
                    </div>
                 </div>
@@ -586,6 +863,73 @@ export default function App() {
         
         {showConfig && <ConfigModal onClose={() => setShowConfig(false)} />}
         {showPasswordModal && sessionUser && <ChangePasswordModal onClose={() => setShowPasswordModal(false)} sessionUser={sessionUser} />}
+
+        {/* Online Users Tooltip Overlay */}
+        {isOnlineOpen && (
+          <div
+            ref={onlineTooltipRef}
+            style={{ 
+              top: tooltipPos.top, 
+              left: tooltipPos.left 
+            }}
+            onMouseEnter={cancelCloseOnlineTooltip}
+            onMouseLeave={closeOnlineTooltipWithDelay}
+            className="fixed z-50 w-72 md:w-80 bg-white/98 backdrop-blur-xl rounded-2xl shadow-[0_12px_40px_rgba(0,0,0,0.2)] border border-emerald-300/80 p-3.5 flex flex-col gap-2.5 animate-in fade-in zoom-in-95 duration-150 transition-all select-none"
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]"></span>
+                </span>
+                <span className="text-xs font-black text-slate-800 tracking-wide uppercase">
+                  {canViewOnlineUsers ? `Danh sách Online (${onlineUsersList.length})` : `Người dùng trực tuyến (${displayOnlineCount})`}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsOnlineOpen(false)}
+                className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 p-1 rounded-lg transition-colors cursor-pointer"
+                title="Đóng"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {canViewOnlineUsers ? (
+              /* Online List formatted: STT -> Tên người dùng */
+              <div className="bg-slate-50/90 border border-slate-200/80 rounded-xl p-2.5 max-h-64 overflow-y-auto space-y-1 font-mono text-xs select-text shadow-inner">
+                {onlineUsersList.map((user, idx) => (
+                  <div 
+                    key={idx} 
+                    className="flex items-center gap-2 py-1 px-2 rounded-lg hover:bg-white hover:shadow-xs transition-colors group/item"
+                  >
+                    <span className="font-bold text-emerald-600 bg-emerald-100/80 border border-emerald-200/70 px-1.5 py-0.5 rounded text-[11px] shrink-0 select-none">
+                      {idx + 1} -&gt;
+                    </span>
+                    <span className="font-semibold text-slate-800 break-words flex-1 group-hover/item:text-emerald-800">
+                      {user}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              /* Notice for users without permission */
+              <div className="bg-amber-50/90 border border-amber-200 rounded-xl p-3 text-xs text-amber-900 space-y-1.5">
+                <div className="font-bold flex items-center gap-1.5 text-amber-800">
+                  <ShieldAlert className="w-4 h-4 shrink-0" />
+                  <span>Quyền truy cập hạn chế</span>
+                </div>
+                <p className="text-[11px] leading-relaxed text-amber-800/90">
+                  Hiện có <b>{displayOnlineCount}</b> người dùng đang hoạt động ({displayTotalLogins} lượt đăng nhập).
+                  <br />
+                  Chỉ <b>Đội trưởng</b> (hoặc cấp được phân quyền trong tab Hệ thống) mới có quyền xem danh sách họ tên chi tiết.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

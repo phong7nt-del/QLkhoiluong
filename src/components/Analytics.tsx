@@ -65,16 +65,7 @@ export default function Analytics({ refreshToggle, sessionUser }: { refreshToggl
         displayDateLabel = `Tuần ${w.split('-W')[1]}/${w.split('-W')[0]}`;
     }
 
-    const allMembers = DataStore.getMembers().filter(m => {
-        const r = (m.role || '').toLowerCase();
-        return !r.includes('tổ trưởng') && 
-               !r.includes('tổ phó') && 
-               !r.includes('đội trưởng') && 
-               !r.includes('đội phó') && 
-               !r.includes('giám đốc') &&
-               !r.includes('phó giám đốc') &&
-               !r.includes('pgđ');
-    });
+    const allMembers = DataStore.getMembers().filter(m => !DataStore.isMemberExcludedFromProductivity(m));
 
     const reportedMembers = new Set<string>();
     targetEntries.forEach(e => {

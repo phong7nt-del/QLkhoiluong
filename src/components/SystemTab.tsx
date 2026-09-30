@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { PermissionStore, RBACConfig, ALL_ROLES, AppRole } from '../store/PermissionStore';
+import { PermissionStore, RBACConfig, ALL_ROLES, AppRole, DEFAULT_RBAC } from '../store/PermissionStore';
 import { 
   Shield, 
   Save, 
@@ -39,9 +39,11 @@ import {
   FileText,
   Layers,
   ArrowRight,
-  FolderOpen
+  FolderOpen,
+  Copy
 } from 'lucide-react';
-import { DataStore, TuyenDuongExclusion, ExternalReportLink, DEFAULT_EXTERNAL_REPORT_LINKS } from '../store/DataStore';
+import { DataStore, TuyenDuongExclusion, ExternalReportLink, DEFAULT_EXTERNAL_REPORT_LINKS, DEFAULT_APP_SCRIPT_URL, DEFAULT_SPREADSHEET_ID } from '../store/DataStore';
+import { SCRIPT_TEMPLATE } from './ConfigModal';
 import { APP_VERSION, APP_VERSION_DETAILS } from '../version';
 import { checkLatestVersion, forceRefreshApp } from '../utils/versionSync';
 
@@ -64,7 +66,8 @@ const TABS_INFO = [
 const ACTIONS_INFO = [
     { id: 'config_system', label: 'Nút Cài đặt (Bánh răng)' },
     { id: 'edit_others_workload', label: 'Chỉnh sửa/Xóa báo cáo của người khác' },
-    { id: 'bao_cao_ho', label: 'Cập nhật báo cáo hộ' }
+    { id: 'bao_cao_ho', label: 'Cập nhật báo cáo hộ' },
+    { id: 'view_online_users', label: 'Xem danh sách người dùng Online' }
 ];
 
 const ICON_PRESETS = [
@@ -109,9 +112,10 @@ export default function SystemTab() {
     const [isCheckingVer, setIsCheckingVer] = useState(false);
     const [verMsg, setVerMsg] = useState<{ text: string; type: 'success' | 'update' | 'error' } | null>(null);
 
-    // Accordion State: By default, the newly requested Links section is open for quick access
+    // Accordion State
     const [openSections, setOpenSections] = useState<Record<string, boolean>>({
-        links: true,
+        data_source: true,
+        links: false,
         tabs: false,
         productivity: false,
         congdoan: false,
@@ -129,6 +133,7 @@ export default function SystemTab() {
 
     const expandAllSections = () => {
         setOpenSections({
+            data_source: true,
             links: true,
             tabs: true,
             productivity: true,
@@ -141,6 +146,7 @@ export default function SystemTab() {
 
     const collapseAllSections = () => {
         setOpenSections({
+            data_source: false,
             links: false,
             tabs: false,
             productivity: false,
@@ -149,6 +155,144 @@ export default function SystemTab() {
             actions: false,
             version: false
         });
+    };
+
+    // Google Apps Script & Google Sheets Data Source URL State
+    const [dataUrl, setDataUrl] = useState(() => DataStore.getAppScriptUrl());
+    const [sheetInput, setSheetInput] = useState(() => DataStore.getSpreadsheetId());
+    const [isSavingDataUrl, setIsSavingDataUrl] = useState(false);
+    const [isTestingDataUrl, setIsTestingDataUrl] = useState(false);
+    const [copiedScript, setCopiedScript] = useState(false);
+    const [showScriptGuide, setShowScriptGuide] = useState(false);
+    const [dataUrlMsg, setDataUrlMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string; details?: string } | null>(null);
+
+    const handleSaveDataUrl = async () => {
+        const cleanUrl = dataUrl.trim();
+        const cleanSheet = sheetInput.trim();
+        if (!cleanUrl) {
+            setDataUrlMsg({ type: 'error', text: 'Vui lòng nhập đường link Web App (Google Apps Script URL).' });
+            return;
+        }
+        if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+            setDataUrlMsg({ type: 'error', text: 'Đường link Web App không hợp lệ (phải bắt đầu bằng https://).' });
+            return;
+        }
+        if (!cleanSheet) {
+            setDataUrlMsg({ type: 'error', text: 'Vui lòng nhập đường link hoặc ID bảng tính Google Sheets.' });
+            return;
+        }
+
+        setIsSavingDataUrl(true);
+        setDataUrlMsg({ type: 'info', text: 'Đang lưu đường link và kết nối đồng bộ toàn bộ dữ liệu mới...' });
+
+        DataStore.setAppScriptUrl(cleanUrl);
+        DataStore.setSpreadsheetId(cleanSheet);
+        
+        // Refresh sheetInput if a full URL was pasted so it shows the extracted ID cleanly
+        const parsedId = DataStore.getSpreadsheetId();
+        setSheetInput(parsedId);
+
+        try {
+            const success = await DataStore.syncMasterData();
+            setIsSavingDataUrl(false);
+            if (success) {
+                const membersCount = DataStore.getMembers().length;
+                const stationsCount = DataStore.getStations().length;
+                const entriesCount = DataStore.getEntries().length;
+                setDataUrlMsg({ 
+                    type: 'success', 
+                    text: 'Đã lưu và đồng bộ dữ liệu thành công!',
+                    details: `Kết nối hoạt động tốt. Đã đồng bộ: ${membersCount} nhân sự/công nhân, ${stationsCount} trạm, ${entriesCount} bản ghi nhật ký từ nguồn dữ liệu mới.`
+                });
+                window.dispatchEvent(new CustomEvent('workload_updated'));
+            } else {
+                setDataUrlMsg({ 
+                    type: 'error', 
+                    text: 'Đã lưu link nhưng không thể lấy dữ liệu từ Web App hoặc Google Sheets này. Hãy đảm bảo bạn đã triển khai Web App với quyền truy cập "Bất kỳ ai (Anyone)" và mở quyền xem công khai trên Google Sheets.'
+                });
+            }
+        } catch (err: any) {
+            setIsSavingDataUrl(false);
+            setDataUrlMsg({ type: 'error', text: 'Lỗi khi kết nối tới link dữ liệu: ' + (err.message || 'Lỗi mạng') });
+        }
+    };
+
+    const handleTestDataUrl = async () => {
+        const cleanUrl = dataUrl.trim();
+        const cleanSheet = sheetInput.trim();
+        if (!cleanUrl) {
+            setDataUrlMsg({ type: 'error', text: 'Vui lòng nhập đường link Web App trước khi kiểm tra.' });
+            return;
+        }
+        setIsTestingDataUrl(true);
+        setDataUrlMsg({ type: 'info', text: 'Đang kiểm tra kết nối tới Web App và Google Sheets...' });
+        const startTime = Date.now();
+        try {
+            const res = await fetch(`${cleanUrl}?action=getData&_t=${Date.now()}`);
+            const json = await res.json();
+            const latency = Date.now() - startTime;
+
+            // Also test direct Google Sheets CSV accessibility
+            let sheetOk = false;
+            let sheetDetails = '';
+            try {
+                let parsedSheetId = cleanSheet;
+                const match = cleanSheet.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+                if (match && match[1]) parsedSheetId = match[1];
+                const sheetRes = await fetch(`https://docs.google.com/spreadsheets/d/${parsedSheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('CongTac')}&_=${Date.now()}`);
+                const text = await sheetRes.text();
+                if (!text.includes('<html') && text.length > 30) {
+                    sheetOk = true;
+                    sheetDetails = 'Bảng tính Google Sheets đã mở quyền xem công khai (OK)';
+                } else {
+                    sheetDetails = 'Lưu ý: Bảng tính Google Sheets chưa mở quyền xem công khai (bất kỳ ai có liên kết)';
+                }
+            } catch (e) {
+                sheetDetails = 'Chưa kiểm tra được quyền đọc trực tiếp Google Sheets.';
+            }
+
+            setIsTestingDataUrl(false);
+            if (json && json.status === 'success') {
+                setDataUrlMsg({
+                    type: sheetOk ? 'success' : 'info',
+                    text: `Kết nối Web App thành công (${latency}ms)!`,
+                    details: `Web App phản hồi chuẩn. Số CBCNV: ${json.members?.length || 0}, Teams: ${json.teams?.length || 0}. ${sheetDetails}`
+                });
+            } else {
+                setDataUrlMsg({
+                    type: 'error',
+                    text: 'Web App phản hồi nhưng dữ liệu không đúng cấu trúc (status !== "success").',
+                    details: json?.message || JSON.stringify(json).slice(0, 150)
+                });
+            }
+        } catch (err: any) {
+            setIsTestingDataUrl(false);
+            setDataUrlMsg({
+                type: 'error',
+                text: 'Không thể kết nối tới URL này. Hãy đảm bảo bạn đã triển khai Web App với quyền truy cập "Bất kỳ ai" (Anyone).'
+            });
+        }
+    };
+
+    const handleResetDataUrl = async () => {
+        if (confirm("Bạn có chắc chắn muốn khôi phục cả Link Web App và Bảng tính Google Sheets về mặc định của hệ thống?")) {
+            setDataUrl(DEFAULT_APP_SCRIPT_URL);
+            setSheetInput(DEFAULT_SPREADSHEET_ID);
+            DataStore.setAppScriptUrl(DEFAULT_APP_SCRIPT_URL);
+            DataStore.setSpreadsheetId(DEFAULT_SPREADSHEET_ID);
+            setIsSavingDataUrl(true);
+            setDataUrlMsg({ type: 'info', text: 'Đang khôi phục về link dữ liệu mặc định...' });
+            await DataStore.syncMasterData();
+            setIsSavingDataUrl(false);
+            setDataUrlMsg({ type: 'success', text: 'Đã khôi phục về link dữ liệu mặc định thành công!' });
+            window.dispatchEvent(new CustomEvent('workload_updated'));
+        }
+    };
+
+    const handleCopyScriptTemplate = () => {
+        navigator.clipboard.writeText(SCRIPT_TEMPLATE);
+        setCopiedScript(true);
+        setTimeout(() => setCopiedScript(false), 3000);
     };
 
     // External Report Links State
@@ -427,7 +571,6 @@ export default function SystemTab() {
 
     const handleReset = () => {
         if (confirm("Bạn có chắc chắn muốn khôi phục phân quyền về mặc định ban đầu?")) {
-            const { DEFAULT_RBAC } = require('../store/PermissionStore');
             setConfig(JSON.parse(JSON.stringify(DEFAULT_RBAC)));
         }
     };
@@ -496,6 +639,274 @@ export default function SystemTab() {
                         {message.text}
                     </div>
                 )}
+
+                {/* 0. MỤC: CẤU HÌNH LINK DỮ LIỆU (GOOGLE APPS SCRIPT WEB APP) */}
+                <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-sm transition-all">
+                    <button
+                        type="button"
+                        onClick={() => toggleSection('data_source')}
+                        className="w-full flex items-center justify-between p-4 sm:p-5 bg-gradient-to-r from-emerald-50/60 via-slate-50/80 to-white hover:bg-emerald-50/80 transition-colors text-left cursor-pointer border-b border-transparent"
+                    >
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center text-white shadow-md shadow-emerald-500/20 shrink-0">
+                                <Database className="w-5 h-5" />
+                            </div>
+                            <div>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <h3 className="text-base font-bold text-slate-800">
+                                        Cấu Hình Link Dữ Liệu (Google Sheets & Web App)
+                                    </h3>
+                                    <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-black tracking-wide ${
+                                        dataUrl === DEFAULT_APP_SCRIPT_URL && sheetInput === DEFAULT_SPREADSHEET_ID
+                                            ? 'bg-slate-100 text-slate-700 border border-slate-200' 
+                                            : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                    }`}>
+                                        {dataUrl === DEFAULT_APP_SCRIPT_URL && sheetInput === DEFAULT_SPREADSHEET_ID ? 'Nguồn Mặc định' : 'Nguồn Tùy chỉnh'}
+                                    </span>
+                                </div>
+                                <p className="text-xs text-slate-500 mt-0.5">
+                                    Cập nhật đường link Web App và Bảng tính Google Sheets kết nối cơ sở dữ liệu hệ thống.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 text-slate-400">
+                            <span className="text-xs font-semibold text-slate-500 hidden sm:inline">
+                                {openSections.data_source ? 'Thu gọn' : 'Bấm để mở'}
+                            </span>
+                            <div className={`p-1 rounded-lg bg-slate-200/60 text-slate-700 transition-transform duration-200 ${openSections.data_source ? 'rotate-180' : ''}`}>
+                                <ChevronDown className="w-4 h-4" />
+                            </div>
+                        </div>
+                    </button>
+
+                    {openSections.data_source && (
+                        <div className="p-4 sm:p-5 border-t border-slate-100 bg-white space-y-4 animate-fade-in">
+                            {/* Alert / Result message */}
+                            {dataUrlMsg && (
+                                <div className={`p-3.5 rounded-xl text-xs font-semibold flex items-start gap-2.5 shadow-xs ${
+                                    dataUrlMsg.type === 'success' 
+                                        ? 'bg-emerald-50 text-emerald-900 border border-emerald-300' 
+                                        : dataUrlMsg.type === 'error'
+                                        ? 'bg-rose-50 text-rose-900 border border-rose-300'
+                                        : 'bg-blue-50 text-blue-900 border border-blue-300'
+                                }`}>
+                                    {dataUrlMsg.type === 'success' ? (
+                                        <Check className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
+                                    ) : dataUrlMsg.type === 'error' ? (
+                                        <AlertOctagon className="w-4 h-4 text-rose-600 mt-0.5 shrink-0" />
+                                    ) : (
+                                        <RefreshCw className="w-4 h-4 text-blue-600 animate-spin mt-0.5 shrink-0" />
+                                    )}
+                                    <div className="flex-1">
+                                        <div className="font-bold">{dataUrlMsg.text}</div>
+                                        {dataUrlMsg.details && (
+                                            <div className="text-[11px] opacity-80 mt-0.5 font-mono">{dataUrlMsg.details}</div>
+                                        )}
+                                    </div>
+                                    <button 
+                                        type="button" 
+                                        onClick={() => setDataUrlMsg(null)}
+                                        className="text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                                    >
+                                        <X className="w-3.5 h-3.5" />
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* Main Input Form */}
+                            <div className="bg-slate-50/80 rounded-2xl border border-slate-200/90 p-4 sm:p-5 space-y-4">
+                                {/* 1. Google Sheets Spreadsheet Link/ID */}
+                                <div>
+                                    <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+                                        <label className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                                            <Database className="w-3.5 h-3.5 text-emerald-600" />
+                                            <span>Link hoặc ID Bảng Tính Google Sheets</span>
+                                        </label>
+                                        <div className="flex items-center gap-2">
+                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                                sheetInput === DEFAULT_SPREADSHEET_ID
+                                                    ? 'bg-slate-200 text-slate-700'
+                                                    : 'bg-emerald-100 text-emerald-800'
+                                            }`}>
+                                                {sheetInput === DEFAULT_SPREADSHEET_ID ? 'Mặc định' : 'Tùy chỉnh'}
+                                            </span>
+                                            <a
+                                                href={`https://docs.google.com/spreadsheets/d/${sheetInput.includes('/d/') ? sheetInput.split('/d/')[1].split('/')[0] : sheetInput}/edit`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-xs font-bold text-emerald-700 hover:text-emerald-800 hover:underline flex items-center gap-1"
+                                                title="Mở bảng tính Google Sheets trong tab mới"
+                                            >
+                                                <span>Mở Google Sheets</span>
+                                                <ExternalLink className="w-3 h-3" />
+                                            </a>
+                                        </div>
+                                    </div>
+                                    <div className="relative">
+                                        <input
+                                            type="text"
+                                            value={sheetInput}
+                                            onChange={(e) => setSheetInput(e.target.value)}
+                                            placeholder="https://docs.google.com/spreadsheets/d/.../edit hoặc ID bảng tính"
+                                            className="w-full px-3.5 py-2.5 text-xs font-mono bg-white border border-slate-300 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 pr-10 text-slate-800 shadow-inner"
+                                        />
+                                        <div className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400">
+                                            <Database className="w-4 h-4" />
+                                        </div>
+                                    </div>
+                                    <p className="text-[11px] text-slate-500 mt-1.5 flex items-center gap-1">
+                                        <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                        <span>Dán đường link đầy đủ hoặc ID bảng tính (chứa các sheet: <code className="bg-slate-200 px-1 py-0.5 rounded font-mono text-slate-800">CongTac</code>, <code className="bg-slate-200 px-1 py-0.5 rounded font-mono text-slate-800">CBCNV</code>, <code className="bg-slate-200 px-1 py-0.5 rounded font-mono text-slate-800">Tiến độ</code>, <code className="bg-slate-200 px-1 py-0.5 rounded font-mono text-slate-800">TUTI</code>, v.v.). Bảng tính cần chia sẻ "Bất kỳ ai có liên kết đều có thể xem".</span>
+                                    </p>
+                                </div>
+
+                                {/* 2. Web App (Google Apps Script URL) */}
+                                <div>
+                                    <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+                                        <label className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                                            <Globe className="w-3.5 h-3.5 text-blue-600" />
+                                            <span>Đường link Web App (Google Apps Script URL)</span>
+                                        </label>
+                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                            dataUrl === DEFAULT_APP_SCRIPT_URL 
+                                                ? 'bg-slate-200 text-slate-700' 
+                                                : 'bg-emerald-100 text-emerald-800'
+                                        }`}>
+                                            {dataUrl === DEFAULT_APP_SCRIPT_URL ? 'Mặc định' : 'Tùy chỉnh'}
+                                        </span>
+                                    </div>
+                                    <div className="relative">
+                                        <input
+                                            type="url"
+                                            value={dataUrl}
+                                            onChange={(e) => setDataUrl(e.target.value)}
+                                            placeholder="https://script.google.com/macros/s/.../exec"
+                                            className="w-full px-3.5 py-2.5 text-xs font-mono bg-white border border-slate-300 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 pr-10 text-slate-800 shadow-inner"
+                                        />
+                                        <div className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400">
+                                            <Globe className="w-4 h-4" />
+                                        </div>
+                                    </div>
+                                    <p className="text-[11px] text-slate-500 mt-1.5 flex items-center gap-1">
+                                        <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                        <span>Link phải kết thúc bằng <code className="bg-slate-200 px-1 py-0.5 rounded font-mono text-slate-800">/exec</code> từ Google Apps Script của bảng tính để đồng bộ 2 chiều, ghi nhật ký, online.</span>
+                                    </p>
+                                </div>
+
+                                {/* Action Buttons */}
+                                <div className="flex flex-wrap items-center justify-between gap-2.5 pt-2 border-t border-slate-200/80">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={handleSaveDataUrl}
+                                            disabled={isSavingDataUrl || isTestingDataUrl}
+                                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-600/20 flex items-center gap-2 cursor-pointer"
+                                        >
+                                            {isSavingDataUrl ? (
+                                                <>
+                                                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                                    <span>Đang lưu & đồng bộ...</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Save className="w-3.5 h-3.5" />
+                                                    <span>Lưu & Đồng bộ dữ liệu</span>
+                                                </>
+                                            )}
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            onClick={handleTestDataUrl}
+                                            disabled={isSavingDataUrl || isTestingDataUrl}
+                                            className="px-3.5 py-2 bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                                        >
+                                            {isTestingDataUrl ? (
+                                                <>
+                                                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-slate-500" />
+                                                    <span>Đang kiểm tra...</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Zap className="w-3.5 h-3.5 text-amber-500" />
+                                                    <span>Kiểm tra kết nối</span>
+                                                </>
+                                            )}
+                                        </button>
+                                    </div>
+
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                navigator.clipboard.writeText(`Web App: ${dataUrl}\nGoogle Sheets: https://docs.google.com/spreadsheets/d/${sheetInput}/edit`);
+                                                setDataUrlMsg({ type: 'info', text: 'Đã sao chép link Web App và Google Sheets vào bộ nhớ tạm.' });
+                                                setTimeout(() => setDataUrlMsg(null), 3000);
+                                            }}
+                                            className="px-3 py-2 bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                                            title="Sao chép link"
+                                        >
+                                            <Copy className="w-3.5 h-3.5" />
+                                            <span className="hidden sm:inline">Sao chép link</span>
+                                        </button>
+
+                                        {(dataUrl !== DEFAULT_APP_SCRIPT_URL || sheetInput !== DEFAULT_SPREADSHEET_ID) && (
+                                            <button
+                                                type="button"
+                                                onClick={handleResetDataUrl}
+                                                disabled={isSavingDataUrl}
+                                                className="px-3 py-2 bg-slate-100 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-300 text-slate-600 border border-slate-200 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                                                title="Khôi phục nguồn dữ liệu mặc định"
+                                            >
+                                                <RotateCcw className="w-3.5 h-3.5" />
+                                                <span className="hidden sm:inline">Về mặc định</span>
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Collapsible Deployment & Apps Script Guide */}
+                            <div className="border border-slate-200 rounded-xl overflow-hidden bg-white text-xs">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowScriptGuide(prev => !prev)}
+                                    className="w-full px-4 py-2.5 bg-slate-50 hover:bg-slate-100 flex items-center justify-between text-slate-700 font-bold cursor-pointer transition-colors"
+                                >
+                                    <div className="flex items-center gap-2">
+                                        <BookOpen className="w-4 h-4 text-emerald-600" />
+                                        <span>Hướng dẫn cách tạo Web App từ Google Sheets riêng</span>
+                                    </div>
+                                    <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showScriptGuide ? 'rotate-180' : ''}`} />
+                                </button>
+                                {showScriptGuide && (
+                                    <div className="p-4 space-y-3 bg-white border-t border-slate-100 text-slate-600 leading-relaxed">
+                                        <ol className="list-decimal list-inside space-y-1.5 text-[11px] sm:text-xs">
+                                            <li>Mở bảng tính Google Sheets của đơn vị bạn.</li>
+                                            <li>Chọn menu <span className="font-bold text-slate-800">Tiện ích mở rộng (Extensions)</span> &gt; <span className="font-bold text-slate-800">Apps Script</span>.</li>
+                                            <li>Xóa toàn bộ mã mặc định và dán đoạn mã Google Apps Script của hệ thống.</li>
+                                            <li>Bấm <span className="font-bold text-slate-800">Triển khai (Deploy)</span> &gt; <span className="font-bold text-slate-800">Triển khai mới (New deployment)</span>.</li>
+                                            <li>Chọn loại: <span className="font-bold text-slate-800">Ứng dụng web (Web app)</span>.</li>
+                                            <li>Mục <i>Ai có quyền truy cập (Who has access)</i>: Chọn <span className="font-bold text-emerald-700">Bất kỳ ai (Anyone)</span>.</li>
+                                            <li>Bấm Triển khai và sao chép URL kết thúc bằng <code className="font-mono bg-slate-100 px-1 py-0.5 rounded text-slate-800">/exec</code> dán vào ô bên trên rồi bấm <span className="font-bold text-emerald-700">Lưu & Đồng bộ dữ liệu</span>.</li>
+                                        </ol>
+                                        <div className="pt-2 border-t border-slate-100 flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={handleCopyScriptTemplate}
+                                                className="px-3.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                                            >
+                                                {copiedScript ? <Check className="w-3.5 h-3.5 text-emerald-700" /> : <Copy className="w-3.5 h-3.5" />}
+                                                <span>{copiedScript ? 'Đã sao chép mã Apps Script!' : 'Sao chép mã Apps Script mẫu'}</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div>
 
                 {/* 1. MỤC: QUẢN LÝ LINK BÁO CÁO (THÊM / BỚT LIÊN KẾT) */}
                 <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-sm transition-all">
@@ -1380,7 +1791,7 @@ export default function SystemTab() {
                                     Quyền Thao Tác Chức Năng (Functions)
                                 </h3>
                                 <p className="text-xs text-slate-500 mt-0.5">
-                                    Nút Cài đặt, Chỉnh sửa báo cáo người khác, Cập nhật báo cáo hộ.
+                                    Nút Cài đặt, Chỉnh sửa báo cáo người khác, Cập nhật báo cáo hộ, Xem danh sách người dùng Online.
                                 </p>
                             </div>
                         </div>
