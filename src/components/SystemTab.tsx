@@ -40,9 +40,12 @@ import {
   Layers,
   ArrowRight,
   FolderOpen,
-  Copy
+  Copy,
+  Calendar,
+  CalendarDays,
+  CalendarX
 } from 'lucide-react';
-import { DataStore, TuyenDuongExclusion, ExternalReportLink, DEFAULT_EXTERNAL_REPORT_LINKS, DEFAULT_APP_SCRIPT_URL, DEFAULT_SPREADSHEET_ID } from '../store/DataStore';
+import { DataStore, TuyenDuongExclusion, ExternalReportLink, DEFAULT_EXTERNAL_REPORT_LINKS, DEFAULT_APP_SCRIPT_URL, DEFAULT_SPREADSHEET_ID, Holiday, DEFAULT_HOLIDAYS_2026 } from '../store/DataStore';
 import { SCRIPT_TEMPLATE } from './ConfigModal';
 import { APP_VERSION, APP_VERSION_DETAILS } from '../version';
 import { checkLatestVersion, forceRefreshApp } from '../utils/versionSync';
@@ -106,6 +109,13 @@ export default function SystemTab() {
     const [excludeSat, setExcludeSat] = useState(DataStore.getExcludeSaturday());
     const [excludeSun, setExcludeSun] = useState(DataStore.getExcludeSunday());
     const [excludeNghi, setExcludeNghi] = useState(DataStore.getExcludeNghi());
+    const [excludeHolidays, setExcludeHolidays] = useState(DataStore.getExcludeHolidays());
+    const [holidays, setHolidays] = useState<Holiday[]>(() => DataStore.getHolidays());
+    const [newHolidayDate, setNewHolidayDate] = useState('');
+    const [newHolidayName, setNewHolidayName] = useState('');
+    const [selectedHolidayMonth, setSelectedHolidayMonth] = useState<string>('all');
+    const [selectedHolidayYear, setSelectedHolidayYear] = useState<number>(2026);
+    const [holidayMsg, setHolidayMsg] = useState<{type: 'success' | 'error' | 'info', text: string} | null>(null);
     const [allowAllLock, setAllowAllLock] = useState(DataStore.getAllowAllLockPlan());
     const [congDoanLeaders, setCongDoanLeaders] = useState<string[]>(DataStore.getCongDoanLeaderNames());
     const [newLeaderName, setNewLeaderName] = useState('');
@@ -239,9 +249,8 @@ export default function SystemTab() {
                 let parsedSheetId = cleanSheet;
                 const match = cleanSheet.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
                 if (match && match[1]) parsedSheetId = match[1];
-                const sheetRes = await fetch(`https://docs.google.com/spreadsheets/d/${parsedSheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('CongTac')}&_=${Date.now()}`);
-                const text = await sheetRes.text();
-                if (!text.includes('<html') && text.length > 30) {
+                const text = await DataStore.fetchSheetCSV('CongTac', parsedSheetId);
+                if (text && !text.includes('<html') && text.length > 30) {
                     sheetOk = true;
                     sheetDetails = 'Bảng tính Google Sheets đã mở quyền xem công khai (OK)';
                 } else {
@@ -540,6 +549,65 @@ export default function SystemTab() {
             setTimeout(() => setExclMsg(null), 3500);
         }
     };
+
+    const handleAddHoliday = () => {
+        if (!newHolidayDate) {
+            setHolidayMsg({ type: 'error', text: 'Vui lòng chọn ngày nghỉ lễ.' });
+            return;
+        }
+        const name = newHolidayName.trim() || 'Ngày nghỉ lễ';
+        const ok = DataStore.addHoliday(newHolidayDate, name);
+        if (ok) {
+            const updated = DataStore.getHolidays();
+            setHolidays(updated);
+            setNewHolidayDate('');
+            setNewHolidayName('');
+            setHolidayMsg({ type: 'success', text: `Đã thêm ngày nghỉ lễ: ${DataStore.normalizeDateStr(newHolidayDate)} (${name})` });
+            window.dispatchEvent(new CustomEvent('workload_updated'));
+            setTimeout(() => setHolidayMsg(null), 3000);
+        } else {
+            setHolidayMsg({ type: 'error', text: 'Ngày nghỉ lễ không đúng định dạng.' });
+        }
+    };
+
+    const handleRemoveHoliday = (id: string, date: string, name: string) => {
+        DataStore.removeHoliday(id);
+        const updated = DataStore.getHolidays();
+        setHolidays(updated);
+        setHolidayMsg({ type: 'info', text: `Đã xóa ngày nghỉ lễ: ${date} (${name})` });
+        window.dispatchEvent(new CustomEvent('workload_updated'));
+        setTimeout(() => setHolidayMsg(null), 3000);
+    };
+
+    const handleClearMonthHolidays = (monthNum: number, yearNum: number) => {
+        DataStore.clearHolidaysByMonth(yearNum, monthNum);
+        const updated = DataStore.getHolidays();
+        setHolidays(updated);
+        setHolidayMsg({ type: 'info', text: `Đã xóa tất cả ngày nghỉ lễ trong Tháng ${monthNum}/${yearNum}` });
+        window.dispatchEvent(new CustomEvent('workload_updated'));
+        setTimeout(() => setHolidayMsg(null), 3000);
+    };
+
+    const handleResetDefaultHolidays = () => {
+        DataStore.resetDefaultHolidays();
+        const updated = DataStore.getHolidays();
+        setHolidays(updated);
+        setHolidayMsg({ type: 'success', text: 'Đã nạp danh sách ngày lễ chuẩn Việt Nam năm 2026' });
+        window.dispatchEvent(new CustomEvent('workload_updated'));
+        setTimeout(() => setHolidayMsg(null), 3000);
+    };
+
+    const filteredHolidays = holidays.filter(h => {
+        if (!h.date) return false;
+        const parts = h.date.split('-');
+        if (parts.length >= 2) {
+            const y = parseInt(parts[0], 10);
+            const m = parseInt(parts[1], 10);
+            if (selectedHolidayYear && y !== selectedHolidayYear) return false;
+            if (selectedHolidayMonth !== 'all' && m !== parseInt(selectedHolidayMonth, 10)) return false;
+        }
+        return true;
+    }).sort((a, b) => a.date.localeCompare(b.date));
 
     const handleToggleTab = (tabId: string, role: AppRole) => {
         const newConfig = { ...config };
@@ -1371,11 +1439,16 @@ export default function SystemTab() {
                                 <CheckSquare className="w-5 h-5" />
                             </div>
                             <div>
-                                <h3 className="text-base font-bold text-slate-800">
-                                    Cấu Hình Năng Suất & Chốt Kế Hoạch
-                                </h3>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <h3 className="text-base font-bold text-slate-800">
+                                        Cấu Hình Năng Suất, Ngày Nghỉ Lễ & Chốt Kế Hoạch
+                                    </h3>
+                                    <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                                        {holidays.length} ngày lễ
+                                    </span>
+                                </div>
                                 <p className="text-xs text-slate-500 mt-0.5">
-                                    Tính năng suất Thứ Bảy, Chủ Nhật, Ngày Nghỉ và quyền chốt tiến độ.
+                                    Loại trừ Thứ Bảy, Chủ Nhật, Ngày Nghỉ Lễ trong tháng để tính năng suất chuẩn và quyền chốt tiến độ.
                                 </p>
                             </div>
                         </div>
@@ -1428,10 +1501,29 @@ export default function SystemTab() {
                                             const newVal = !e.target.checked;
                                             setExcludeNghi(newVal);
                                             DataStore.setExcludeNghi(newVal);
+                                            window.dispatchEvent(new CustomEvent('workload_updated'));
                                         }} 
                                         className="w-4 h-4 text-slate-800 rounded border-slate-300 focus:ring-slate-800"
                                     />
                                     <span className="font-medium text-slate-700">Tính năng suất cho các ngày nghỉ (Báo cáo nội dung: Nghỉ)</span>
+                                </label>
+
+                                <label className="flex items-center gap-3 text-sm cursor-pointer hover:bg-slate-100 p-2 rounded-lg transition-colors -ml-2">
+                                    <input 
+                                        type="checkbox" 
+                                        checked={excludeHolidays} 
+                                        onChange={(e) => {
+                                            const newVal = e.target.checked;
+                                            setExcludeHolidays(newVal);
+                                            DataStore.setExcludeHolidays(newVal);
+                                            window.dispatchEvent(new CustomEvent('workload_updated'));
+                                        }} 
+                                        className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
+                                    />
+                                    <span className="font-semibold text-slate-800 flex items-center gap-2">
+                                        <CalendarDays className="w-4 h-4 text-emerald-600" />
+                                        <span>Loại trừ các ngày nghỉ lễ khi tính năng suất (không tính vào chu kỳ ngày làm việc chuẩn)</span>
+                                    </span>
                                 </label>
                                 
                                 <label className="flex items-center gap-3 text-sm cursor-pointer hover:bg-slate-100 p-2 rounded-lg transition-colors -ml-2">
@@ -1447,6 +1539,214 @@ export default function SystemTab() {
                                     />
                                     <span className="font-medium text-slate-700">Cho phép tất cả người dùng được quyền Chốt tiến độ (KH & TH) - Nếu tắt, chỉ "Đội trưởng" hoặc "Tổ trưởng" của Tổ Tổng hợp mới được quyền chốt.</span>
                                 </label>
+                            </div>
+
+                            {/* Holiday Management Panel */}
+                            <div className="mt-4 pt-4 border-t border-slate-200 space-y-4">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-emerald-50/70 border border-emerald-200/80 rounded-xl p-3.5">
+                                    <div className="flex items-center gap-2.5">
+                                        <div className="w-9 h-9 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                                            <Calendar className="w-4 h-4" />
+                                        </div>
+                                        <div>
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-950">
+                                                    Quản lý Ngày Nghỉ Lễ Trong Tháng & Năm
+                                                </h4>
+                                                <span className="px-2 py-0.5 rounded-full bg-emerald-200/80 text-emerald-900 text-[10px] font-black">
+                                                    {holidays.length} ngày đã thiết lập
+                                                </span>
+                                            </div>
+                                            <p className="text-[11px] text-emerald-700 mt-0.5">
+                                                Thêm hoặc bớt ngày lễ để hệ thống tự động loại trừ khỏi chu kỳ làm việc chuẩn, không làm giảm tỷ lệ năng suất của người lao động.
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <button
+                                            type="button"
+                                            onClick={handleResetDefaultHolidays}
+                                            className="px-2.5 py-1.5 bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+                                            title="Nạp lại danh sách ngày nghỉ lễ chuẩn năm 2026 của Việt Nam"
+                                        >
+                                            <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                                            <span>Lễ chuẩn 2026</span>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Holiday Feedback Message */}
+                                {holidayMsg && (
+                                    <div className={`p-2.5 rounded-lg text-xs font-semibold flex items-center gap-2 animate-fade-in ${
+                                        holidayMsg.type === 'success' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' :
+                                        holidayMsg.type === 'error' ? 'bg-rose-100 text-rose-800 border border-rose-300' :
+                                        'bg-blue-100 text-blue-800 border border-blue-300'
+                                    }`}>
+                                        <Info className="w-3.5 h-3.5 shrink-0" />
+                                        <span>{holidayMsg.text}</span>
+                                    </div>
+                                )}
+
+                                {/* Add Holiday Form */}
+                                <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-2xs space-y-3">
+                                    <div className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                                        <Plus className="w-3.5 h-3.5 text-emerald-600" />
+                                        <span>Thêm Ngày Nghỉ Lễ Mới</span>
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end">
+                                        <div className="sm:col-span-4">
+                                            <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                                                Chọn ngày nghỉ:
+                                            </label>
+                                            <input 
+                                                type="date"
+                                                value={newHolidayDate}
+                                                onChange={(e) => setNewHolidayDate(e.target.value)}
+                                                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-500 font-medium text-slate-800"
+                                            />
+                                        </div>
+                                        <div className="sm:col-span-6">
+                                            <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                                                Tên / Lý do ngày nghỉ lễ:
+                                            </label>
+                                            <input 
+                                                type="text"
+                                                placeholder="Ví dụ: Giỗ Tổ Hùng Vương, Giải phóng miền Nam 30/4..."
+                                                value={newHolidayName}
+                                                onChange={(e) => setNewHolidayName(e.target.value)}
+                                                onKeyDown={(e) => { if (e.key === 'Enter') handleAddHoliday(); }}
+                                                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-500 font-medium text-slate-800"
+                                            />
+                                        </div>
+                                        <div className="sm:col-span-2">
+                                            <button
+                                                type="button"
+                                                onClick={handleAddHoliday}
+                                                className="w-full px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                                            >
+                                                <Plus className="w-3.5 h-3.5" />
+                                                <span>Thêm</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Filter by Month & Year */}
+                                <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1">
+                                    <div className="flex items-center gap-2 flex-wrap text-xs">
+                                        <span className="font-bold text-slate-600">Lọc theo tháng:</span>
+                                        <select
+                                            value={selectedHolidayMonth}
+                                            onChange={(e) => setSelectedHolidayMonth(e.target.value)}
+                                            className="px-2.5 py-1.5 bg-slate-100 border border-slate-300 rounded-lg text-xs font-bold text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                                        >
+                                            <option value="all">Tất cả các tháng ({holidays.length} ngày)</option>
+                                            {Array.from({ length: 12 }, (_, i) => i + 1).map(m => {
+                                                const count = holidays.filter(h => h.date && parseInt(h.date.split('-')[1], 10) === m).length;
+                                                return (
+                                                    <option key={m} value={String(m)}>
+                                                        Tháng {m} {count > 0 ? `(${count} ngày)` : ''}
+                                                    </option>
+                                                );
+                                            })}
+                                        </select>
+
+                                        <select
+                                            value={selectedHolidayYear}
+                                            onChange={(e) => setSelectedHolidayYear(parseInt(e.target.value, 10))}
+                                            className="px-2.5 py-1.5 bg-slate-100 border border-slate-300 rounded-lg text-xs font-bold text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                                        >
+                                            <option value={2025}>Năm 2025</option>
+                                            <option value={2026}>Năm 2026</option>
+                                            <option value={2027}>Năm 2027</option>
+                                        </select>
+                                    </div>
+
+                                    {selectedHolidayMonth !== 'all' && (
+                                        <button
+                                            type="button"
+                                            onClick={() => handleClearMonthHolidays(parseInt(selectedHolidayMonth, 10), selectedHolidayYear)}
+                                            className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                                            title={`Xóa tất cả các ngày nghỉ lễ trong Tháng ${selectedHolidayMonth}/${selectedHolidayYear}`}
+                                        >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                            <span>Xóa ngày lễ Tháng {selectedHolidayMonth}</span>
+                                        </button>
+                                    )}
+                                </div>
+
+                                {/* List of Configured Holidays */}
+                                <div className="bg-slate-50/90 rounded-xl border border-slate-200 overflow-hidden">
+                                    {filteredHolidays.length === 0 ? (
+                                        <div className="p-6 text-center text-slate-400 text-xs">
+                                            <CalendarX className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                                            <p className="font-semibold">Chưa có ngày nghỉ lễ nào {selectedHolidayMonth !== 'all' ? `trong Tháng ${selectedHolidayMonth}/${selectedHolidayYear}` : ''}.</p>
+                                            <p className="text-[11px] mt-1 text-slate-400">Chọn ngày và nhập tên ở trên để thêm, hoặc bấm "Lễ chuẩn 2026" để nạp sẵn.</p>
+                                        </div>
+                                    ) : (
+                                        <div className="divide-y divide-slate-200/80">
+                                            {filteredHolidays.map((h, index) => {
+                                                const parts = h.date.split('-');
+                                                let dayOfWeekStr = '';
+                                                let displayDate = h.date;
+                                                if (parts.length === 3) {
+                                                    const dObj = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+                                                    const dow = dObj.getDay();
+                                                    const dowNames = ['Chủ Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];
+                                                    dayOfWeekStr = dowNames[dow];
+                                                    displayDate = `${parts[2]}/${parts[1]}/${parts[0]}`;
+                                                }
+                                                const isWeekendDay = dayOfWeekStr === 'Thứ Bảy' || dayOfWeekStr === 'Chủ Nhật';
+
+                                                return (
+                                                    <div key={h.id || index} className="p-3 sm:px-4 flex items-center justify-between gap-3 hover:bg-slate-100/80 transition-colors">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-10 text-center shrink-0">
+                                                                <div className="text-[10px] font-black uppercase text-emerald-800 bg-emerald-100/90 rounded-t py-0.5">
+                                                                    T{parts[1]}
+                                                                </div>
+                                                                <div className="text-sm font-extrabold text-slate-800 bg-white border-x border-b border-emerald-200 rounded-b py-0.5 shadow-2xs">
+                                                                    {parts[2]}
+                                                                </div>
+                                                            </div>
+
+                                                            <div>
+                                                                <div className="flex items-center gap-2 flex-wrap">
+                                                                    <span className="font-bold text-xs text-slate-800">
+                                                                        {h.name}
+                                                                    </span>
+                                                                    <span className="text-[11px] font-mono font-semibold text-slate-600 bg-slate-200/80 px-1.5 py-0.5 rounded">
+                                                                        {displayDate}
+                                                                    </span>
+                                                                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                                                        isWeekendDay 
+                                                                            ? 'bg-amber-100 text-amber-800' 
+                                                                            : 'bg-blue-100 text-blue-800'
+                                                                    }`}>
+                                                                        {dayOfWeekStr}
+                                                                    </span>
+                                                                </div>
+                                                                <p className="text-[11px] text-slate-500 mt-0.5">
+                                                                    Được loại trừ khỏi chu kỳ năng suất {parts[1] && parts[0] ? `Tháng ${parseInt(parts[1], 10)}/${parts[0]}` : ''}.
+                                                                </p>
+                                                            </div>
+                                                        </div>
+
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleRemoveHoliday(h.id, displayDate, h.name)}
+                                                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer shrink-0"
+                                                            title={`Xóa ngày nghỉ lễ ${displayDate}`}
+                                                        >
+                                                            <Trash2 className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     )}

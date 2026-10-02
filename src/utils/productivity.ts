@@ -29,6 +29,7 @@ export function calculateMemberProductivity(
   const excludeSat = DataStore.getExcludeSaturday();
   const excludeSun = DataStore.getExcludeSunday();
   const excludeNghi = DataStore.getExcludeNghi();
+  const excludeHolidays = DataStore.getExcludeHolidays();
 
   // 1. Filter entries by period & team
   const filteredEntries = allEntries.filter(e => {
@@ -100,10 +101,11 @@ export function calculateMemberProductivity(
         let shouldCount = true;
         if (day === 0 && excludeSun) shouldCount = false;
         if (day === 6 && excludeSat) shouldCount = false;
+        if (excludeHolidays && DataStore.isHoliday(date)) shouldCount = false;
 
         if (excludeNghi && e.content) {
           const cleanContent = e.content.toLowerCase().trim();
-          const isNghi = cleanContent.length < 30 && /(^|\s)(nghỉ|nghi|ốm|phép)($|\s)/i.test(cleanContent);
+          const isNghi = cleanContent.length < 30 && /(^|\s)(nghỉ|nghi|ốm|phép|lễ|nghỉ lễ)($|\s)/i.test(cleanContent);
           if (isNghi) shouldCount = false;
         }
 
@@ -241,8 +243,11 @@ export function calculateMemberProductivity(
     for (let d = 1; d <= limitDay; d++) {
       const dObj = new Date(selectedYear, selectedMonth - 1, d);
       const dayOfWeek = dObj.getDay();
-      // Trừ thứ 7 (6) và Chủ nhật (0)
-      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      const dateStr = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+      const isHol = excludeHolidays && DataStore.isHoliday(dateStr);
+      // Trừ thứ 7 (6), Chủ nhật (0) và ngày nghỉ lễ
+      if (!isWeekend && !isHol) {
         count++;
       }
     }
@@ -260,7 +265,10 @@ export function calculateMemberProductivity(
       for (let d = 1; d <= limitDay; d++) {
         const dObj = new Date(selectedYear, m - 1, d);
         const dayOfWeek = dObj.getDay();
-        if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+        const dateStr = `${selectedYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+        const isHol = excludeHolidays && DataStore.isHoliday(dateStr);
+        if (!isWeekend && !isHol) {
           count++;
         }
       }

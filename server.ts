@@ -28,14 +28,22 @@ async function startServer() {
   app.get("/api/proxy/gviz", async (req, res) => {
     try {
       const sheet = req.query.sheet as string;
-      const sheetId = req.query.sheetId as string || "1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ";
+      let sheetId = req.query.sheetId as string || "1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ";
+      const match = sheetId.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+      if (match && match[1]) {
+        sheetId = match[1];
+      }
       if (!sheet) {
         res.status(400).send("Missing sheet parameter");
         return;
       }
       
       const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheet)}`;
-      const fetchRes = await fetch(url);
+      const fetchRes = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+      });
       
       if (!fetchRes.ok) {
         res.status(fetchRes.status).send(await fetchRes.text());
@@ -46,7 +54,7 @@ async function startServer() {
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.send(text);
     } catch (e: any) {
-      console.error("Proxy error:", e);
+      console.warn("Proxy gviz warning:", e.message || e);
       res.status(500).json({ error: e.message });
     }
   });

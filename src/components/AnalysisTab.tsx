@@ -12,6 +12,7 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
   const excludeSat = useMemo(() => DataStore.getExcludeSaturday(), [refreshToggle]);
   const excludeSun = useMemo(() => DataStore.getExcludeSunday(), [refreshToggle]);
   const excludeNghi = useMemo(() => DataStore.getExcludeNghi(), [refreshToggle]);
+  const excludeHolidays = useMemo(() => DataStore.getExcludeHolidays(), [refreshToggle]);
   
   const rawEntries = useMemo(() => DataStore.getEntries(), [refreshToggle]);
   
@@ -179,7 +180,9 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
       for (let i = 0; i < 5; i++) {
         const cur = new Date(mon);
         cur.setDate(mon.getDate() + i);
-        if (cur <= now || entries.some(e => e.date === format(cur, 'yyyy-MM-dd'))) {
+        const curStr = format(cur, 'yyyy-MM-dd');
+        const isHol = excludeHolidays && DataStore.isHoliday(curStr);
+        if (!isHol && (cur <= now || entries.some(e => e.date === curStr))) {
           count++;
         }
       }
@@ -213,7 +216,10 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
       for (let d = 1; d <= limitDay; d++) {
         const dObj = new Date(y, m - 1, d);
         const dayOfWeek = dObj.getDay();
-        if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+        const dateStr = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+        const isHol = excludeHolidays && DataStore.isHoliday(dateStr);
+        if (!isWeekend && !isHol) {
           count++;
         }
       }
@@ -232,14 +238,16 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
       if (parts.length === 3) {
         const dObj = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
         const day = dObj.getDay();
-        if (day !== 0 && day !== 6) {
+        const isWeekend = day === 0 || day === 6;
+        const isHol = excludeHolidays && DataStore.isHoliday(dateStr);
+        if (!isWeekend && !isHol) {
           workingDaysSet.add(dateStr);
         }
       }
     });
     
     return Math.max(1, workingDaysSet.size);
-  }, [timeFilter, selectedDay, selectedWeekDate, selectedMonth, entries, rawEntries]);
+  }, [timeFilter, selectedDay, selectedWeekDate, selectedMonth, entries, rawEntries, excludeHolidays]);
 
   const periodDays = cycleWorkingDays;
 
@@ -289,10 +297,11 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
                 let shouldCount = true;
                 if (day === 0 && excludeSun) shouldCount = false;
                 if (day === 6 && excludeSat) shouldCount = false;
+                if (excludeHolidays && DataStore.isHoliday(date)) shouldCount = false;
                 
                 if (excludeNghi && e.content) {
                     const cleanContent = e.content.toLowerCase().trim();
-                    const isNghi = cleanContent.length < 30 && /(^|\s)(nghỉ|nghi|ốm|phép)($|\s)/i.test(cleanContent);
+                    const isNghi = cleanContent.length < 30 && /(^|\s)(nghỉ|nghi|ốm|phép|lễ|nghỉ lễ)($|\s)/i.test(cleanContent);
                     if (isNghi) shouldCount = false;
                 }
 
@@ -454,10 +463,11 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
                 let shouldCount = true;
                 if (day === 0 && excludeSun) shouldCount = false;
                 if (day === 6 && excludeSat) shouldCount = false;
+                if (excludeHolidays && DataStore.isHoliday(date)) shouldCount = false;
                 
                 if (excludeNghi && e.content) {
                     const cleanContent = e.content.toLowerCase().trim();
-                    const isNghi = cleanContent.length < 30 && /(^|\s)(nghỉ|nghi|ốm|phép)($|\s)/i.test(cleanContent);
+                    const isNghi = cleanContent.length < 30 && /(^|\s)(nghỉ|nghi|ốm|phép|lễ|nghỉ lễ)($|\s)/i.test(cleanContent);
                     if (isNghi) shouldCount = false;
                 }
 
@@ -839,7 +849,7 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
                     </h3>
                     <div className="bg-amber-50/90 border border-amber-300/80 rounded-xl px-3 py-2 text-xs text-amber-900 flex flex-wrap items-center gap-2 shadow-xs">
                        <span className="px-1.5 py-0.5 rounded bg-amber-200 font-bold text-[10px] text-amber-950 uppercase tracking-wider shrink-0">Quy tắc</span>
-                       <span>Chu kỳ: <b>{cycleWorkingDays} ngày</b> (đã trừ T7 & CN). Chỉ tính năng suất: <b>Nhân viên, Công nhân, Tổ phó</b> (miễn tính: Tổ trưởng, Đội phó, Đội trưởng, P.Giám đốc, Giám đốc).</span>
+                       <span>Chu kỳ: <b>{cycleWorkingDays} ngày</b> (đã trừ T7, CN{excludeHolidays ? " & ngày lễ" : ""}). Chỉ tính năng suất: <b>Nhân viên, Công nhân, Tổ phó</b> (miễn tính: Tổ trưởng, Đội phó, Đội trưởng, P.Giám đốc, Giám đốc).</span>
                     </div>
                  </div>
                  

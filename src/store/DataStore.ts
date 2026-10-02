@@ -67,6 +67,27 @@ export interface TuyenDuongExclusion {
   createdBy?: string;
 }
 
+export interface Holiday {
+  id: string;
+  date: string; // 'YYYY-MM-DD'
+  name: string;
+}
+
+export const DEFAULT_HOLIDAYS_2026: Holiday[] = [
+  { id: 'hol-2026-01-01', date: '2026-01-01', name: 'Tết Dương Lịch' },
+  { id: 'hol-2026-02-16', date: '2026-02-16', name: 'Nghỉ Tết Nguyên đán (29 Tết)' },
+  { id: 'hol-2026-02-17', date: '2026-02-17', name: 'Tết Nguyên đán (Mùng 1 Tết)' },
+  { id: 'hol-2026-02-18', date: '2026-02-18', name: 'Tết Nguyên đán (Mùng 2 Tết)' },
+  { id: 'hol-2026-02-19', date: '2026-02-19', name: 'Tết Nguyên đán (Mùng 3 Tết)' },
+  { id: 'hol-2026-02-20', date: '2026-02-20', name: 'Nghỉ bù Tết Nguyên đán' },
+  { id: 'hol-2026-04-26', date: '2026-04-26', name: 'Giỗ Tổ Hùng Vương (10/3 ÂL)' },
+  { id: 'hol-2026-04-27', date: '2026-04-27', name: 'Nghỉ bù Giỗ Tổ Hùng Vương' },
+  { id: 'hol-2026-04-30', date: '2026-04-30', name: 'Giải phóng miền Nam (30/4)' },
+  { id: 'hol-2026-05-01', date: '2026-05-01', name: 'Quốc tế Lao động (1/5)' },
+  { id: 'hol-2026-09-02', date: '2026-09-02', name: 'Quốc khánh (2/9)' },
+  { id: 'hol-2026-09-03', date: '2026-09-03', name: 'Nghỉ liền kề Quốc khánh (3/9)' },
+];
+
 export interface ExternalReportLink {
   id: string;
   title: string;
@@ -181,6 +202,7 @@ export const initDB = async () => {
       DINHMUC_KEY, PROGRESS_KEY, LOCAL_PROGRESS_UPDATES_KEY, TUTI_KEY,
       LOCAL_TUTI_UPDATES_KEY, 'sheet_khuvuc_v1', 'sheet_matketnoi_v1',
       'sheet_chitietmkn_v1', 'sheet_sangtai_v1', 'sheet_kho_v1', 'sheet_vttb_v1', 'config_exclude_saturday', 'config_exclude_sunday', 'config_exclude_nghi',
+      'config_exclude_holidays', 'config_holidays_v1',
       'config_external_report_links_v1', 'config_tuyen_duong_exclusions_v1', 'config_cong_doan_leaders'
     ];
     for (const key of keys) {
@@ -271,6 +293,40 @@ export const DataStore = {
       return `https://docs.google.com/spreadsheets/d/${id}/edit`;
   },
 
+  fetchSheetCSV: async (sheetName: string, customSheetId?: string): Promise<string | null> => {
+      const sheetId = customSheetId || DataStore.getSpreadsheetId() || DEFAULT_SPREADSHEET_ID;
+      
+      // Strategy 1: Local server proxy /api/proxy/gviz (runs server-side in Node.js, eliminates browser CORS errors)
+      try {
+          const proxyUrl = `/api/proxy/gviz?sheet=${encodeURIComponent(sheetName)}&sheetId=${encodeURIComponent(sheetId)}&_t=${Date.now()}`;
+          const res = await fetch(proxyUrl);
+          if (res.ok) {
+              const text = await res.text();
+              if (text && !text.includes('<html') && text.trim().length > 0) {
+                  return text;
+              }
+          }
+      } catch (proxyErr) {
+          // proxy not reachable or static host fallback
+      }
+
+      // Strategy 2: Direct Google Sheets gviz CSV fetch
+      try {
+          const directUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}&_t=${Date.now()}`;
+          const res = await fetch(directUrl);
+          if (res.ok) {
+              const text = await res.text();
+              if (text && !text.includes('<html') && text.trim().length > 0) {
+                  return text;
+              }
+          }
+      } catch (directErr) {
+          console.warn(`Could not load sheet CSV for "${sheetName}":`, (directErr as any)?.message || directErr);
+      }
+
+      return null;
+  },
+
   getExcludeSaturday: () => {
       const val = safeGetItem('config_exclude_saturday');
       return val === 'true'; // Default is false
@@ -292,6 +348,97 @@ export const DataStore = {
       return val !== 'false'; // Default is true (không tính)
   },
   setExcludeNghi: (val: boolean) => safeSetItem('config_exclude_nghi', val ? 'true' : 'false'),
+
+  getExcludeHolidays: () => {
+      const val = safeGetItem('config_exclude_holidays');
+      return val !== 'false'; // Default is true (loại trừ ngày nghỉ lễ)
+  },
+  setExcludeHolidays: (val: boolean) => safeSetItem('config_exclude_holidays', val ? 'true' : 'false'),
+
+  normalizeDateStr: (dateStr: string): string => {
+    if (!dateStr) return '';
+    const clean = dateStr.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean;
+    if (/^\d{4}\/\d{1,2}\/\d{1,2}$/.test(clean)) {
+      const parts = clean.split('/');
+      return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+    }
+    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(clean)) {
+      const parts = clean.split('/');
+      return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+    }
+    if (/^\d{1,2}-\d{1,2}-\d{4}$/.test(clean)) {
+      const parts = clean.split('-');
+      return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+    }
+    return clean;
+  },
+
+  getHolidays: (): Holiday[] => {
+    try {
+      const val = safeGetItem('config_holidays_v1');
+      if (val) {
+        const list = JSON.parse(val);
+        if (Array.isArray(list)) return list;
+      }
+    } catch(e) {}
+    return DEFAULT_HOLIDAYS_2026;
+  },
+
+  setHolidays: (holidays: Holiday[]) => {
+    safeSetItem('config_holidays_v1', JSON.stringify(holidays));
+  },
+
+  addHoliday: (date: string, name: string): boolean => {
+    const norm = DataStore.normalizeDateStr(date);
+    if (!norm) return false;
+    const list = [...DataStore.getHolidays()];
+    const existing = list.find(h => h.date === norm);
+    if (existing) {
+      existing.name = name.trim() || existing.name;
+    } else {
+      list.push({
+        id: `hol-${norm}-${Date.now().toString(36)}`,
+        date: norm,
+        name: name.trim() || 'Ngày nghỉ lễ'
+      });
+    }
+    list.sort((a, b) => a.date.localeCompare(b.date));
+    DataStore.setHolidays(list);
+    return true;
+  },
+
+  removeHoliday: (idOrDate: string) => {
+    const list = DataStore.getHolidays();
+    const updated = list.filter(h => h.id !== idOrDate && h.date !== idOrDate);
+    DataStore.setHolidays(updated);
+  },
+
+  clearHolidaysByMonth: (year: number, month: number) => {
+    const prefix = `${year}-${String(month).padStart(2, '0')}`;
+    const list = DataStore.getHolidays();
+    const updated = list.filter(h => !h.date.startsWith(prefix));
+    DataStore.setHolidays(updated);
+  },
+
+  resetDefaultHolidays: () => {
+    DataStore.setHolidays(DEFAULT_HOLIDAYS_2026);
+  },
+
+  isHoliday: (dateStr: string): boolean => {
+    if (!DataStore.getExcludeHolidays()) return false;
+    const norm = DataStore.normalizeDateStr(dateStr);
+    if (!norm) return false;
+    const list = DataStore.getHolidays();
+    return list.some(h => h.date === norm);
+  },
+
+  getHolidayInfo: (dateStr: string): Holiday | null => {
+    const norm = DataStore.normalizeDateStr(dateStr);
+    if (!norm) return null;
+    const list = DataStore.getHolidays();
+    return list.find(h => h.date === norm) || null;
+  },
 
   getCongDoanLeaderNames: (): string[] => {
     try {
@@ -765,10 +912,8 @@ export const DataStore = {
   getDcu: async () => {
      try {
          const sheetId = DataStore.getSpreadsheetId();
-         const res = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("DCU")}&_=${Date.now()}`);
-         if (!res.ok) return [];
-         const text = await res.text();
-         if (text.includes('<html')) return [];
+         const text = await DataStore.fetchSheetCSV("DCU", sheetId);
+         if (!text) return [];
          
          const { data } = Papa.parse(text, { header: true, skipEmptyLines: true });
          return data.map((r: any) => {
@@ -895,10 +1040,8 @@ export const DataStore = {
   getXuLyDoXa: async () => {
      try {
          const sheetId = DataStore.getSpreadsheetId();
-         const res = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("XuLyDoXa")}&_=${Date.now()}`);
-         if (!res.ok) return [];
-         const text = await res.text();
-         if (text.includes('<html')) return [];
+         const text = await DataStore.fetchSheetCSV("XuLyDoXa", sheetId);
+         if (!text) return [];
          const data = Papa.parse(text, { header: true }).data;
          const filtered = data.filter((row: any) => row && Object.keys(row).length > 0);
          return filtered.map((row: any) => {
@@ -1152,9 +1295,8 @@ export const DataStore = {
          try {
             let cbcnvMap = new Map<string, {msnv: string, role: string}>();
             try {
-               const cbcnvRes = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('CBCNV')}`);
-               const csvText = await cbcnvRes.text();
-               if (!csvText.includes('<html')) {
+               const csvText = await DataStore.fetchSheetCSV('CBCNV', sheetId);
+               if (csvText && !csvText.includes('<html')) {
                    const { data } = Papa.parse(csvText, { header: false });
                    let headRow = -1;
                    let msnvCol = -1, nameCol = -1, roleCol = -1;
@@ -1190,7 +1332,7 @@ export const DataStore = {
                    }
                }
             } catch (e) {
-               console.error("Error reading CBCNV sheet for MSNV", e);
+               console.warn("Could not read CBCNV sheet for MSNV", e);
             }
 
             let ctText = '';
@@ -1201,9 +1343,8 @@ export const DataStore = {
             try {
                const ctSheets = ['CongTac', 'Cong Tac', 'Công tác', 'Công Tác', 'Con Tác'];
                for (const sheetName of ctSheets) {
-                   const ctRes = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`);
-                   const tempText = await ctRes.text();
-                   if (!tempText.includes('<html') && tempText.trim() && tempText.length > 50) {
+                   const tempText = await DataStore.fetchSheetCSV(sheetName, sheetId);
+                   if (tempText && !tempText.includes('<html') && tempText.trim() && tempText.length > 50) {
                       ctText = tempText;
                       break;
                    }
@@ -1466,81 +1607,81 @@ export const DataStore = {
 
             // Fetch "Tiến độ" sheet
             try {
-               const progRes = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("Tiến độ")}`);
-               const progText = await progRes.text();
-               const { data: progData } = Papa.parse(progText, { header: true });
-               const progressList: TaskProgress[] = [];
-               for (const row of progData as any[]) {
-                  const getVal = (opts: string[]) => {
-                      for (const k of Object.keys(row)) {
-                          const normalizedK = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
-                          if (opts.some(opt => {
-                              const normalizedOpt = opt.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
-                              return normalizedK === normalizedOpt;
-                          })) {
-                              return row[k];
+               const progText = await DataStore.fetchSheetCSV("Tiến độ", sheetId);
+               if (progText && !progText.includes('<html')) {
+                   const { data: progData } = Papa.parse(progText, { header: true });
+                   const progressList: TaskProgress[] = [];
+                   for (const row of progData as any[]) {
+                      const getVal = (opts: string[]) => {
+                          for (const k of Object.keys(row)) {
+                              const normalizedK = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
+                              if (opts.some(opt => {
+                                  const normalizedOpt = opt.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
+                                  return normalizedK === normalizedOpt;
+                              })) {
+                                  return row[k];
+                              }
                           }
-                      }
-                      for (const k of Object.keys(row)) {
-                          const normalizedK = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
-                          if (opts.some(opt => {
-                              const normalizedOpt = opt.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
-                              return normalizedK.includes(normalizedOpt);
-                          })) {
-                              return row[k];
+                          for (const k of Object.keys(row)) {
+                              const normalizedK = k.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
+                              if (opts.some(opt => {
+                                  const normalizedOpt = opt.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' ').trim();
+                                  return normalizedK.includes(normalizedOpt);
+                              })) {
+                                  return row[k];
+                              }
                           }
-                      }
-                      return '';
-                  };
-                  const content = getVal(['nội dung']);
-                  const tt = getVal(['tt', 'stt']);
-                  if (content || tt) {
-                     const fallbackId = (String(content) + '-' + String(getVal(['phân công'])) + '-' + String(getVal(['ngày hoàn tất']))).replace(/\s/g, '').toLowerCase();
-                     
-                     const existingTaskIndex = progressList.findIndex(t => {
-                         const existingFallbackId = (String(t.content) + '-' + String(t.assignee) + '-' + String(t.deadline)).replace(/\s/g, '').toLowerCase();
-                         return existingFallbackId === fallbackId;
-                     });
-
-                     if (existingTaskIndex >= 0) {
-                         // Merge with existing
-                         const existingTask = progressList[existingTaskIndex];
-                         const newExplanation = String(getVal(['giải trình']));
-                         if (newExplanation.length > (existingTask.explanation || '').length) {
-                             existingTask.explanation = newExplanation;
-                         }
-                         const newStatus = String(getVal(['hoàn tất', 'trạng thái', 'kết quả']));
-                         if (newStatus.toLowerCase() === 'xong') {
-                             existingTask.status = newStatus;
-                         }
-                         if (tt) {
-                             existingTask.id = String(tt);
-                         }
-                     } else {
-                         progressList.push({
-                             id: String(tt || fallbackId),
-                             content: String(content || ''),
-                             reference: String(getVal(['căn cứ'])),
-                             deadline: String(getVal(['ngày hoàn tất'])),
-                             assignee: String(getVal(['phân công'])),
-                             status: String(getVal(['hoàn tất', 'trạng thái', 'kết quả'])),
-                             explanation: String(getVal(['giải trình']))
+                          return '';
+                      };
+                      const content = getVal(['nội dung']);
+                      const tt = getVal(['tt', 'stt']);
+                      if (content || tt) {
+                         const fallbackId = (String(content) + '-' + String(getVal(['phân công'])) + '-' + String(getVal(['ngày hoàn tất']))).replace(/\s/g, '').toLowerCase();
+                         
+                         const existingTaskIndex = progressList.findIndex(t => {
+                             const existingFallbackId = (String(t.content) + '-' + String(t.assignee) + '-' + String(t.deadline)).replace(/\s/g, '').toLowerCase();
+                             return existingFallbackId === fallbackId;
                          });
-                     }
-                  }
+
+                         if (existingTaskIndex >= 0) {
+                             // Merge with existing
+                             const existingTask = progressList[existingTaskIndex];
+                             const newExplanation = String(getVal(['giải trình']));
+                             if (newExplanation.length > (existingTask.explanation || '').length) {
+                                 existingTask.explanation = newExplanation;
+                             }
+                             const newStatus = String(getVal(['hoàn tất', 'trạng thái', 'kết quả']));
+                             if (newStatus.toLowerCase() === 'xong') {
+                                 existingTask.status = newStatus;
+                             }
+                             if (tt) {
+                                 existingTask.id = String(tt);
+                             }
+                         } else {
+                             progressList.push({
+                                 id: String(tt || fallbackId),
+                                 content: String(content || ''),
+                                 reference: String(getVal(['căn cứ'])),
+                                 deadline: String(getVal(['ngày hoàn tất'])),
+                                 assignee: String(getVal(['phân công'])),
+                                 status: String(getVal(['hoàn tất', 'trạng thái', 'kết quả'])),
+                                 explanation: String(getVal(['giải trình']))
+                             });
+                         }
+                      }
+                   }
+                   safeSetItem(PROGRESS_KEY, JSON.stringify(progressList));
                }
-               safeSetItem(PROGRESS_KEY, JSON.stringify(progressList));
             } catch (e) {
-               console.error('Error fetching Progress sheet', e);
+               console.warn('Could not fetch Progress sheet', e);
             }
 
             // Fetch DinhMuc via CSV
             try {
                const dmSheets = ['DinhMuc', 'Định Mức', 'Dinh muc', 'Định mức'];
                for (const sheetName of dmSheets) {
-                  const dmRes = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`);
-                  const dmText = await dmRes.text();
-                  if (!dmText.includes('<html') && dmText.trim() && dmText.length > 50) {
+                  const dmText = await DataStore.fetchSheetCSV(sheetName, sheetId);
+                  if (dmText && !dmText.includes('<html') && dmText.trim() && dmText.length > 50) {
                      const { data } = Papa.parse(dmText, { header: false });
                      if (data && data.length > 0) {
                          let headRow = -1;
@@ -1603,15 +1744,14 @@ export const DataStore = {
                   }
                }
             } catch (e) {
-               console.error('Error fetching DinhMuc', e);
+               console.warn('Could not fetch DinhMuc', e);
             }
 
             // Fetch TUTI via CSV
             if (!json.tuti || json.tuti.length === 0) {
                try {
-                  const tutiRes = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("TUTI")}`);
-                  const tutiText = await tutiRes.text();
-                  if (!tutiText.includes('<html') && tutiText.trim()) {
+                  const tutiText = await DataStore.fetchSheetCSV("TUTI", sheetId);
+                  if (tutiText && !tutiText.includes('<html') && tutiText.trim()) {
                       const { data: tutiData } = Papa.parse(tutiText, { header: true });
                       const tutiList: TutiEntry[] = [];
                       let index = 0;
@@ -1707,15 +1847,14 @@ export const DataStore = {
                       safeSetItem(TUTI_KEY, JSON.stringify(tutiList));
                   }
                } catch (e) {
-                  console.error('Error fetching TUTI', e);
+                  console.warn('Could not fetch TUTI', e);
                }
             }
 
             // Fetch MatKetNoi
             try {
-               const mknRes = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("MatKetNoi")}`);
-               const mknText = await mknRes.text();
-               if (!mknText.includes('<html')) {
+               const mknText = await DataStore.fetchSheetCSV("MatKetNoi", sheetId);
+               if (mknText && !mknText.includes('<html')) {
                    const { data, meta } = Papa.parse(mknText, { header: true, skipEmptyLines: true });
                    const keys = meta.fields || [];
                    
@@ -1743,14 +1882,13 @@ export const DataStore = {
                    }
                }
             } catch (e) {
-               console.error('Error fetching MatKetNoi:', e);
+               console.warn('Could not fetch MatKetNoi:', e);
             }
 
             // Fetch ChiTietMKN
             try {
-               const chiTietRes = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("ChiTietMKN")}`);
-               const chiTietText = await chiTietRes.text();
-               if (!chiTietText.includes('<html')) {
+               const chiTietText = await DataStore.fetchSheetCSV("ChiTietMKN", sheetId);
+               if (chiTietText && !chiTietText.includes('<html')) {
                    const { data } = Papa.parse(chiTietText, { header: true, skipEmptyLines: true });
                    
                    if (data && data.length > 0) {
@@ -1763,14 +1901,13 @@ export const DataStore = {
                    }
                }
             } catch (e) {
-               console.error('Error fetching ChiTietMKN:', e);
+               console.warn('Could not fetch ChiTietMKN:', e);
             }
 
             // Fetch KhuVuc
             try {
-               const kvRes = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("KhuVuc")}`);
-               const kvText = await kvRes.text();
-               if (!kvText.includes('<html')) {
+               const kvText = await DataStore.fetchSheetCSV("KhuVuc", sheetId);
+               if (kvText && !kvText.includes('<html')) {
                    const { data, meta } = Papa.parse(kvText, { header: true, skipEmptyLines: true });
                    const keys = meta.fields || [];
                    
@@ -1804,14 +1941,13 @@ export const DataStore = {
                    }
                }
             } catch(e) {
-               console.error('Error fetching KhuVuc:', e);
+               console.warn('Could not fetch KhuVuc:', e);
             }
 
             // Fetch SangTai
             try {
-               const stRes = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("SangTai")}`);
-               const stText = await stRes.text();
-               if (!stText.includes('<html')) {
+               const stText = await DataStore.fetchSheetCSV("SangTai", sheetId);
+               if (stText && !stText.includes('<html')) {
                    const { data } = Papa.parse(stText, { header: true, skipEmptyLines: true });
                    if (data && data.length > 0) {
                        memCacheSangTaiList = data;
@@ -1823,14 +1959,13 @@ export const DataStore = {
                    }
                }
             } catch(e) {
-               console.error('Error fetching SangTai:', e);
+               console.warn('Could not fetch SangTai:', e);
             }
 
             // Fetch Kho
             try {
-               const khoRes = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("Kho")}`);
-               const khoText = await khoRes.text();
-               if (!khoText.includes('<html')) {
+               const khoText = await DataStore.fetchSheetCSV("Kho", sheetId);
+               if (khoText && !khoText.includes('<html')) {
                    const { data } = Papa.parse(khoText, { header: true, skipEmptyLines: true });
                    if (data && data.length > 0) {
                        memCacheKhoList = data;
@@ -1842,14 +1977,13 @@ export const DataStore = {
                    }
                }
             } catch(e) {
-               console.error('Error fetching Kho:', e);
+               console.warn('Could not fetch Kho:', e);
             }
 
             // Fetch VTTB
             try {
-               const vttbRes = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent("VTTB")}`);
-               const vttbText = await vttbRes.text();
-               if (!vttbText.includes('<html')) {
+               const vttbText = await DataStore.fetchSheetCSV("VTTB", sheetId);
+               if (vttbText && !vttbText.includes('<html')) {
                    const { data } = Papa.parse(vttbText, { header: true, skipEmptyLines: true });
                    if (data && data.length > 0) {
                        memCacheVTTBList = data;
@@ -1861,7 +1995,7 @@ export const DataStore = {
                    }
                }
             } catch(e) {
-               console.error('Error fetching VTTB:', e);
+               console.warn('Could not fetch VTTB:', e);
             }
 
          } catch (e) {
