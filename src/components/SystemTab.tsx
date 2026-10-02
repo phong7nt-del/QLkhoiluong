@@ -43,9 +43,16 @@ import {
   Copy,
   Calendar,
   CalendarDays,
-  CalendarX
+  CalendarX,
+  Calculator,
+  Download,
+  Search,
+  Filter,
+  CheckCircle2,
+  Tag
 } from 'lucide-react';
-import { DataStore, TuyenDuongExclusion, ExternalReportLink, DEFAULT_EXTERNAL_REPORT_LINKS, DEFAULT_APP_SCRIPT_URL, DEFAULT_SPREADSHEET_ID, Holiday, DEFAULT_HOLIDAYS_2026 } from '../store/DataStore';
+import * as XLSX from 'xlsx-js-style';
+import { DataStore, TuyenDuongExclusion, ExternalReportLink, DEFAULT_EXTERNAL_REPORT_LINKS, DEFAULT_APP_SCRIPT_URL, DEFAULT_SPREADSHEET_ID, Holiday, DEFAULT_HOLIDAYS_2026, DinhMucItem } from '../store/DataStore';
 import { SCRIPT_TEMPLATE } from './ConfigModal';
 import { APP_VERSION, APP_VERSION_DETAILS } from '../version';
 import { checkLatestVersion, forceRefreshApp } from '../utils/versionSync';
@@ -122,12 +129,45 @@ export default function SystemTab() {
     const [isCheckingVer, setIsCheckingVer] = useState(false);
     const [verMsg, setVerMsg] = useState<{ text: string; type: 'success' | 'update' | 'error' } | null>(null);
 
+    // Dinh Muc (Sheet "Định mức": Cột A, B, C, Đ, E) State
+    const [dinhMucList, setDinhMucList] = useState<DinhMucItem[]>(() => DataStore.getDinhMuc());
+    const [dmSearch, setDmSearch] = useState('');
+    const [dmFilterGroup, setDmFilterGroup] = useState<'all' | 'group' | 'single' | 'relation'>('all');
+    const [dmSort, setDmSort] = useState<'stt_asc' | 'stt_desc' | 'name_asc' | 'quota_desc' | 'quota_asc'>('stt_asc');
+    const [isReloadingDm, setIsReloadingDm] = useState(false);
+    const [dmFeedbackMsg, setDmFeedbackMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+    const [showAddDmForm, setShowAddDmForm] = useState(false);
+    
+    // Add Dinh Muc fields
+    const [newDmStt, setNewDmStt] = useState('');
+    const [newDmName, setNewDmName] = useState('');
+    const [newDmQuota, setNewDmQuota] = useState('');
+    const [newDmIsGroup, setNewDmIsGroup] = useState(true);
+    const [newDmRelation, setNewDmRelation] = useState('');
+
+    // Editing Dinh Muc
+    const [editingDmKey, setEditingDmKey] = useState<string | null>(null);
+    const [editDmStt, setEditDmStt] = useState('');
+    const [editDmName, setEditDmName] = useState('');
+    const [editDmQuota, setEditDmQuota] = useState('');
+    const [editDmIsGroup, setEditDmIsGroup] = useState(false);
+    const [editDmRelation, setEditDmRelation] = useState('');
+
+    // Deleting confirmation
+    const [deletingDmKey, setDeletingDmKey] = useState<string | null>(null);
+
+    // Save to Sheet & Apps Script Modal State
+    const [isSavingDmToSheet, setIsSavingDmToSheet] = useState(false);
+    const [showDmScriptModal, setShowDmScriptModal] = useState(false);
+    const [copiedDmScript, setCopiedDmScript] = useState(false);
+
     // Accordion State
     const [openSections, setOpenSections] = useState<Record<string, boolean>>({
         data_source: true,
         links: false,
         tabs: false,
         productivity: false,
+        dinhmuc: false,
         congdoan: false,
         exclusions: false,
         actions: false,
@@ -147,6 +187,7 @@ export default function SystemTab() {
             links: true,
             tabs: true,
             productivity: true,
+            dinhmuc: true,
             congdoan: true,
             exclusions: true,
             actions: true,
@@ -160,6 +201,7 @@ export default function SystemTab() {
             links: false,
             tabs: false,
             productivity: false,
+            dinhmuc: false,
             congdoan: false,
             exclusions: false,
             actions: false,
@@ -608,6 +650,250 @@ export default function SystemTab() {
         }
         return true;
     }).sort((a, b) => a.date.localeCompare(b.date));
+
+    // Dinh Muc Handlers & Computations
+    useEffect(() => {
+        const current = DataStore.getDinhMuc();
+        if (current && current.length > 0) {
+            setDinhMucList(current);
+        } else {
+            DataStore.reloadDinhMucFromSheet().then(res => {
+                if (res.success) {
+                    setDinhMucList(DataStore.getDinhMuc());
+                }
+            });
+        }
+
+        const handleWorkloadUpdated = () => {
+            setDinhMucList(DataStore.getDinhMuc());
+        };
+        window.addEventListener('workload_updated', handleWorkloadUpdated);
+        return () => window.removeEventListener('workload_updated', handleWorkloadUpdated);
+    }, []);
+
+    const handleReloadDinhMuc = async () => {
+        setIsReloadingDm(true);
+        setDmFeedbackMsg({ type: 'info', text: 'Đang tải lại danh mục công việc từ sheet "Định mức"...' });
+        try {
+            const res = await DataStore.reloadDinhMucFromSheet(sheetInput);
+            if (res.success) {
+                const updated = DataStore.getDinhMuc();
+                setDinhMucList(updated);
+                setDmFeedbackMsg({ type: 'success', text: `Đã nạp thành công ${res.count} công việc và định mức từ sheet "Định mức" (Cột A: STT, B: Nội dung, C: Định mức ngày, Đ: Chung nhóm, E: Quan hệ).` });
+            } else {
+                setDmFeedbackMsg({ type: 'error', text: res.error || 'Không thể đọc sheet "Định mức". Vui lòng kiểm tra quyền chia sẻ bảng tính.' });
+            }
+        } catch (e: any) {
+            setDmFeedbackMsg({ type: 'error', text: e?.message || 'Lỗi kết nối khi tải sheet Định mức.' });
+        } finally {
+            setIsReloadingDm(false);
+            setTimeout(() => setDmFeedbackMsg(null), 5000);
+        }
+    };
+
+    const handleAddNewDinhMuc = () => {
+        if (!newDmName.trim()) {
+            setDmFeedbackMsg({ type: 'error', text: 'Vui lòng nhập Tên / Nội dung công việc (Cột B).' });
+            return;
+        }
+        const quotaVal = parseFloat(newDmQuota);
+        if (isNaN(quotaVal) || quotaVal < 0) {
+            setDmFeedbackMsg({ type: 'error', text: 'Vui lòng nhập Định mức ngày hợp lệ (Cột C, số không âm).' });
+            return;
+        }
+
+        const nextStt = newDmStt.trim() || String(dinhMucList.length + 1);
+        const ok = DataStore.addDinhMuc({
+            stt: nextStt,
+            name: newDmName.trim(),
+            quota: quotaVal,
+            isGroup: newDmIsGroup,
+            relation: newDmRelation.trim()
+        });
+
+        if (ok) {
+            const updated = DataStore.getDinhMuc();
+            setDinhMucList(updated);
+            setNewDmStt('');
+            setNewDmName('');
+            setNewDmQuota('');
+            setNewDmIsGroup(true);
+            setNewDmRelation('');
+            setShowAddDmForm(false);
+            setDmFeedbackMsg({ type: 'success', text: `Đã thêm mới công việc "${newDmName.trim()}" (Định mức: ${quotaVal}/ngày).` });
+            setTimeout(() => setDmFeedbackMsg(null), 4000);
+        } else {
+            setDmFeedbackMsg({ type: 'error', text: 'Không thể thêm công việc. Vui lòng kiểm tra lại.' });
+        }
+    };
+
+    const handleStartEditDm = (item: DinhMucItem) => {
+        setEditingDmKey(item.id || item.name);
+        setEditDmStt(String(item.stt || ''));
+        setEditDmName(item.name || '');
+        setEditDmQuota(String(item.quota || 0));
+        setEditDmIsGroup(!!item.isGroup);
+        setEditDmRelation(item.relation || '');
+        setDeletingDmKey(null);
+    };
+
+    const handleSaveEditDm = () => {
+        if (!editingDmKey) return;
+        if (!editDmName.trim()) {
+            setDmFeedbackMsg({ type: 'error', text: 'Tên nội dung công việc không được để trống.' });
+            return;
+        }
+        const quotaVal = parseFloat(editDmQuota);
+        if (isNaN(quotaVal) || quotaVal < 0) {
+            setDmFeedbackMsg({ type: 'error', text: 'Định mức ngày phải là số không âm.' });
+            return;
+        }
+
+        const ok = DataStore.updateDinhMuc(editingDmKey, {
+            stt: editDmStt.trim(),
+            name: editDmName.trim(),
+            quota: quotaVal,
+            isGroup: editDmIsGroup,
+            relation: editDmRelation.trim()
+        });
+
+        if (ok) {
+            setDinhMucList(DataStore.getDinhMuc());
+            setEditingDmKey(null);
+            setDmFeedbackMsg({ type: 'success', text: `Đã cập nhật công việc "${editDmName.trim()}".` });
+            setTimeout(() => setDmFeedbackMsg(null), 3000);
+        } else {
+            setDmFeedbackMsg({ type: 'error', text: 'Lỗi khi cập nhật công việc.' });
+        }
+    };
+
+    const handleDeleteDm = (key: string, name: string) => {
+        const ok = DataStore.deleteDinhMuc(key);
+        if (ok) {
+            setDinhMucList(DataStore.getDinhMuc());
+            setDeletingDmKey(null);
+            setDmFeedbackMsg({ type: 'info', text: `Đã xóa công việc "${name}" khỏi danh mục định mức.` });
+            setTimeout(() => setDmFeedbackMsg(null), 3000);
+        }
+    };
+
+    const handleExportDmExcel = () => {
+        try {
+            const dataToExport = dinhMucList.map((d, idx) => ({
+                "STT (Cột A)": d.stt || (idx + 1),
+                "Nội dung công việc (Cột B)": d.name,
+                "Định mức ngày (Cột C)": d.quota,
+                "Chung nhóm (Cột Đ)": d.isGroup ? 'x' : '',
+                "Mã quan hệ (Cột E)": d.relation || ''
+            }));
+
+            const ws = XLSX.utils.json_to_sheet(dataToExport);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Định mức");
+            XLSX.writeFile(wb, `Danh_muc_cong_viec_Dinh_muc_${new Date().toISOString().slice(0, 10)}.xlsx`);
+            setDmFeedbackMsg({ type: 'success', text: 'Đã xuất file Excel danh mục định mức thành công!' });
+            setTimeout(() => setDmFeedbackMsg(null), 3000);
+        } catch (e: any) {
+            setDmFeedbackMsg({ type: 'error', text: 'Không thể xuất file Excel: ' + (e?.message || '') });
+        }
+    };
+
+    const filteredDinhMucList = React.useMemo(() => {
+        let result = [...dinhMucList];
+        if (dmSearch.trim()) {
+            const q = dmSearch.trim().toLowerCase();
+            result = result.filter(d => 
+                (d.name && d.name.toLowerCase().includes(q)) ||
+                (d.stt !== undefined && String(d.stt).toLowerCase().includes(q)) ||
+                (d.relation && d.relation.toLowerCase().includes(q))
+            );
+        }
+
+        if (dmFilterGroup === 'group') {
+            result = result.filter(d => !!d.isGroup);
+        } else if (dmFilterGroup === 'single') {
+            result = result.filter(d => !d.isGroup);
+        } else if (dmFilterGroup === 'relation') {
+            result = result.filter(d => !!d.relation && d.relation.trim() !== '');
+        }
+
+        result.sort((a, b) => {
+            if (dmSort === 'stt_asc' || dmSort === 'stt_desc') {
+                const sttA = parseInt(String(a.stt || '0').replace(/\D/g, ''), 10) || 0;
+                const sttB = parseInt(String(b.stt || '0').replace(/\D/g, ''), 10) || 0;
+                return dmSort === 'stt_asc' ? sttA - sttB : sttB - sttA;
+            }
+            if (dmSort === 'name_asc') {
+                return a.name.localeCompare(b.name);
+            }
+            if (dmSort === 'quota_desc') {
+                return (b.quota || 0) - (a.quota || 0);
+            }
+            if (dmSort === 'quota_asc') {
+                return (a.quota || 0) - (b.quota || 0);
+            }
+            return 0;
+        });
+
+        return result;
+    }, [dinhMucList, dmSearch, dmFilterGroup, dmSort]);
+
+    const handleSaveDinhMucToSheet = async () => {
+        setIsSavingDmToSheet(true);
+        setDmFeedbackMsg({ type: 'info', text: 'Đang lưu danh mục và gửi dữ liệu lên Google Sheets...' });
+
+        // 1. Luôn lưu vào LocalStorage/DataStore trước
+        DataStore.setDinhMuc(dinhMucList);
+
+        // 2. Gửi POST request tới Web App nếu có
+        const appScriptUrl = DataStore.getAppScriptUrl();
+        if (!appScriptUrl) {
+            setIsSavingDmToSheet(false);
+            setDmFeedbackMsg({
+                type: 'success',
+                text: 'Đã lưu danh mục công việc và định mức vào bộ nhớ ứng dụng thành công! (Chưa cấu hình URL Web App Google Sheets).'
+            });
+            setTimeout(() => setDmFeedbackMsg(null), 5000);
+            return;
+        }
+
+        try {
+            const res = await fetch(appScriptUrl, {
+                method: 'POST',
+                body: JSON.stringify({
+                    action: 'save_dinhmuc',
+                    items: dinhMucList
+                })
+            });
+            const json = await res.json();
+            setIsSavingDmToSheet(false);
+            if (json.status === 'success') {
+                setDmFeedbackMsg({
+                    type: 'success',
+                    text: `Đã lưu và đồng bộ thành công ${dinhMucList.length} công việc trực tiếp lên sheet "Định mức" (Cột A, B, C, Đ, E) trên Google Sheets!`
+                });
+            } else {
+                setDmFeedbackMsg({
+                    type: 'info',
+                    text: `Đã lưu danh mục vào hệ thống. Máy chủ Google Sheets phản hồi: ${json.message || 'Cần cập nhật mã Script'}. Hãy bấm "Copy Code Apps Script & Deploy" để cập nhật phiên bản mới trên Bảng tính.`
+                });
+            }
+        } catch (e: any) {
+            setIsSavingDmToSheet(false);
+            setDmFeedbackMsg({
+                type: 'success',
+                text: `Đã lưu vào bộ nhớ ứng dụng thành công! Để ghi trực tiếp lên Google Sheets, vui lòng bấm "Copy Code Apps Script & Deploy" và Triển khai lại phiên bản mới trên Bảng tính.`
+            });
+        }
+        setTimeout(() => setDmFeedbackMsg(null), 6000);
+    };
+
+    const handleCopyScriptForDinhMuc = () => {
+        navigator.clipboard.writeText(SCRIPT_TEMPLATE);
+        setCopiedDmScript(true);
+        setTimeout(() => setCopiedDmScript(false), 3000);
+        setShowDmScriptModal(true);
+    };
 
     const handleToggleTab = (tabId: string, role: AppRole) => {
         const newConfig = { ...config };
@@ -1752,7 +2038,600 @@ export default function SystemTab() {
                     )}
                 </div>
 
-                {/* 4. MỤC: PHÂN QUYỀN CÔNG ĐOÀN */}
+                {/* 4. MỤC: QUẢN LÝ & HIỆU CHỈNH DANH MỤC CÔNG VIỆC VÀ ĐỊNH MỨC (SHEET "ĐỊNH MỨC": CỘT A, B, C, Đ, E) */}
+                <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-sm transition-all">
+                    <button
+                        type="button"
+                        onClick={() => toggleSection('dinhmuc')}
+                        className="w-full flex items-center justify-between p-4 sm:p-5 bg-gradient-to-r from-indigo-50/70 via-slate-50/80 to-white hover:bg-indigo-50/90 transition-colors text-left cursor-pointer border-b border-transparent"
+                    >
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-md shadow-indigo-600/25 shrink-0">
+                                <Calculator className="w-5 h-5" />
+                            </div>
+                            <div>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <h3 className="text-base font-bold text-slate-800">
+                                        Quản Lý & Hiệu Chỉnh Danh Mục Công Việc & Định Mức
+                                    </h3>
+                                    <span className="px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800 text-[11px] font-black tracking-wide border border-indigo-200">
+                                        Sheet "Định mức": Cột A, B, C, Đ, E ({dinhMucList.length} công việc)
+                                    </span>
+                                </div>
+                                <p className="text-xs text-slate-500 mt-0.5">
+                                    Hiệu chỉnh, thêm, bớt công việc và định mức giao theo ngày, thiết lập chung nhóm và mã quan hệ công tác.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 text-slate-400">
+                            <span className="text-xs font-semibold text-slate-500 hidden sm:inline">
+                                {openSections.dinhmuc ? 'Thu gọn' : 'Bấm để mở'}
+                            </span>
+                            <div className={`p-1 rounded-lg bg-slate-200/60 text-slate-700 transition-transform duration-200 ${openSections.dinhmuc ? 'rotate-180' : ''}`}>
+                                <ChevronDown className="w-4 h-4" />
+                            </div>
+                        </div>
+                    </button>
+
+                    {openSections.dinhmuc && (
+                        <div className="p-4 sm:p-5 border-t border-slate-100 bg-white animate-fade-in space-y-4">
+                            {/* Summary Statistics Cards & Quick Action Buttons */}
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-xl">
+                                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Tổng công việc</span>
+                                    <div className="flex items-baseline gap-2 mt-1">
+                                        <span className="text-xl font-extrabold text-slate-800">{dinhMucList.length}</span>
+                                        <span className="text-[11px] text-slate-500">hạng mục</span>
+                                    </div>
+                                </div>
+
+                                <div className="p-3 bg-emerald-50/70 border border-emerald-200/80 rounded-xl">
+                                    <span className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider block">Chung nhóm (Cột Đ)</span>
+                                    <div className="flex items-baseline gap-2 mt-1">
+                                        <span className="text-xl font-extrabold text-emerald-800">{dinhMucList.filter(d => d.isGroup).length}</span>
+                                        <span className="text-[11px] text-emerald-600">công việc</span>
+                                    </div>
+                                </div>
+
+                                <div className="p-3 bg-blue-50/70 border border-blue-200/80 rounded-xl">
+                                    <span className="text-[11px] font-bold text-blue-700 uppercase tracking-wider block">Riêng lẻ</span>
+                                    <div className="flex items-baseline gap-2 mt-1">
+                                        <span className="text-xl font-extrabold text-blue-800">{dinhMucList.filter(d => !d.isGroup).length}</span>
+                                        <span className="text-[11px] text-blue-600">công việc</span>
+                                    </div>
+                                </div>
+
+                                <div className="p-3 bg-purple-50/70 border border-purple-200/80 rounded-xl">
+                                    <span className="text-[11px] font-bold text-purple-700 uppercase tracking-wider block">Có mã quan hệ (Cột E)</span>
+                                    <div className="flex items-baseline gap-2 mt-1">
+                                        <span className="text-xl font-extrabold text-purple-800">{dinhMucList.filter(d => d.relation).length}</span>
+                                        <span className="text-[11px] text-purple-600">công việc</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Top Control Bar: Save, Reload, Add New, Copy Apps Script, Export */}
+                            <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <button
+                                        type="button"
+                                        disabled={isSavingDmToSheet}
+                                        onClick={handleSaveDinhMucToSheet}
+                                        className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer disabled:opacity-50"
+                                        title="Lưu danh mục định mức vào bộ nhớ và gửi ghi đè trực tiếp lên Google Sheets"
+                                    >
+                                        <Save className={`w-3.5 h-3.5 ${isSavingDmToSheet ? 'animate-pulse' : ''}`} />
+                                        <span>{isSavingDmToSheet ? 'Đang lưu lên Sheets...' : 'Lưu lên Google Sheets'}</span>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        disabled={isReloadingDm}
+                                        onClick={handleReloadDinhMuc}
+                                        className="px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-300 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer disabled:opacity-50"
+                                        title="Đồng bộ lại danh mục công việc và định mức mới nhất từ sheet 'Định mức' trên Google Sheets"
+                                    >
+                                        <RefreshCw className={`w-3.5 h-3.5 ${isReloadingDm ? 'animate-spin' : ''}`} />
+                                        <span>{isReloadingDm ? 'Đang tải sheet...' : 'Tải lại từ Sheet Định mức'}</span>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowAddDmForm(!showAddDmForm)}
+                                        className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer ${
+                                            showAddDmForm 
+                                                ? 'bg-slate-700 hover:bg-slate-800 text-white' 
+                                                : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                                        }`}
+                                    >
+                                        {showAddDmForm ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+                                        <span>{showAddDmForm ? 'Đóng form' : 'Thêm công việc'}</span>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={handleCopyScriptForDinhMuc}
+                                        className="px-3 py-2 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-300 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+                                        title="Sao chép toàn bộ mã Google Apps Script Code.gs và xem hướng dẫn triển khai lại trên Bảng tính"
+                                    >
+                                        {copiedDmScript ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-purple-600" />}
+                                        <span>{copiedDmScript ? 'Đã copy mã Script!' : 'Copy Code Apps Script & Deploy'}</span>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={handleExportDmExcel}
+                                        className="px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+                                        title="Xuất bảng danh mục định mức ra file Excel"
+                                    >
+                                        <Download className="w-3.5 h-3.5 text-slate-600" />
+                                        <span>Xuất Excel</span>
+                                    </button>
+                                </div>
+
+                                <div className="text-xs text-slate-500 font-medium">
+                                    Dữ liệu lấy từ các cột: <b className="text-slate-700">A</b> (STT), <b className="text-slate-700">B</b> (Nội dung), <b className="text-slate-700">C</b> (Định mức), <b className="text-slate-700">Đ</b> (Chung nhóm), <b className="text-slate-700">E</b> (Quan hệ)
+                                </div>
+                            </div>
+
+                            {/* Hướng dẫn Deploy lại Apps Script khi bấm nút Copy */}
+                            {showDmScriptModal && (
+                                <div className="bg-gradient-to-r from-purple-50 via-indigo-50 to-blue-50 border border-purple-200 rounded-2xl p-4 shadow-sm space-y-3 animate-fade-in">
+                                    <div className="flex items-center justify-between border-b border-purple-200/80 pb-2">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-7 h-7 rounded-lg bg-purple-600 text-white flex items-center justify-center font-black text-xs shadow-xs">
+                                                GAS
+                                            </div>
+                                            <div>
+                                                <h4 className="text-xs font-bold uppercase tracking-wider text-purple-950">
+                                                    Hướng Dẫn Cập Nhật Mã Apps Script & Triển Khai Lại (Redeploy)
+                                                </h4>
+                                                <p className="text-[11px] text-purple-700">
+                                                    Mã Script đã bổ sung chức năng ghi đè/lưu sheet "Định mức" (Cột A, B, C, Đ, E) và bảo toàn lịch sử kế hoạch tháng.
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowDmScriptModal(false)}
+                                            className="text-slate-400 hover:text-slate-600 transition-colors p-1 cursor-pointer"
+                                        >
+                                            <X className="w-4 h-4" />
+                                        </button>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+                                        <div className="bg-white p-3 rounded-xl border border-purple-100 shadow-2xs">
+                                            <div className="flex items-center gap-2 font-bold text-xs text-purple-900 mb-1">
+                                                <span className="w-5 h-5 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-[11px] font-black">1</span>
+                                                <span>Mở Apps Script</span>
+                                            </div>
+                                            <p className="text-[11px] text-slate-600 leading-relaxed">
+                                                Trên Bảng tính Google Sheets, chọn menu <b className="text-slate-800">Tiện ích mở rộng</b> (Extensions) → <b className="text-slate-800">Apps Script</b>.
+                                            </p>
+                                        </div>
+
+                                        <div className="bg-white p-3 rounded-xl border border-purple-100 shadow-2xs">
+                                            <div className="flex items-center gap-2 font-bold text-xs text-purple-900 mb-1">
+                                                <span className="w-5 h-5 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-[11px] font-black">2</span>
+                                                <span>Dán đè Code.gs & Lưu</span>
+                                            </div>
+                                            <p className="text-[11px] text-slate-600 leading-relaxed">
+                                                Chọn tệp <b className="text-slate-800">Code.gs</b>, nhấn <kbd className="px-1.5 py-0.5 bg-slate-100 rounded text-[10px] font-mono border border-slate-200">Ctrl+A</kbd> rồi dán đè toàn bộ mã vừa copy, bấm <kbd className="px-1.5 py-0.5 bg-slate-100 rounded text-[10px] font-mono border border-slate-200">Ctrl+S</kbd> để Lưu.
+                                            </p>
+                                        </div>
+
+                                        <div className="bg-white p-3 rounded-xl border border-purple-100 shadow-2xs">
+                                            <div className="flex items-center gap-2 font-bold text-xs text-purple-900 mb-1">
+                                                <span className="w-5 h-5 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-[11px] font-black">3</span>
+                                                <span>Triển khai Phiên bản mới</span>
+                                            </div>
+                                            <p className="text-[11px] text-slate-600 leading-relaxed">
+                                                Bấm nút <b className="text-purple-700">Triển khai (Deploy)</b> → <b className="text-slate-800">Quản lý bản triển khai</b> → bấm biểu tượng cây bút <b className="text-slate-800">(Chỉnh sửa)</b> → mục Phiên bản chọn <b className="text-purple-700">Phiên bản mới (New version)</b> → Bấm <b className="text-purple-700">Triển khai</b>.
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center justify-between gap-3 pt-1 flex-wrap">
+                                        <div className="text-[11px] text-purple-800 font-semibold flex items-center gap-1.5">
+                                            <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                                            <span>Mã Apps Script đã nằm sẵn trong bộ nhớ tạm (Clipboard), bạn có thể mở Google Sheets và dán ngay.</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    navigator.clipboard.writeText(SCRIPT_TEMPLATE);
+                                                    setCopiedDmScript(true);
+                                                    setTimeout(() => setCopiedDmScript(false), 2000);
+                                                }}
+                                                className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1 cursor-pointer"
+                                            >
+                                                <Copy className="w-3.5 h-3.5" />
+                                                <span>{copiedDmScript ? 'Đã sao chép lại!' : 'Sao chép lại mã Script'}</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowDmScriptModal(false)}
+                                                className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-semibold cursor-pointer"
+                                            >
+                                                Đóng
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Feedback Notification Message */}
+                            {dmFeedbackMsg && (
+                                <div className={`p-3 rounded-xl text-xs font-semibold flex items-center gap-2 animate-fade-in ${
+                                    dmFeedbackMsg.type === 'success' ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' :
+                                    dmFeedbackMsg.type === 'error' ? 'bg-rose-100 text-rose-900 border border-rose-300' :
+                                    'bg-indigo-100 text-indigo-900 border border-indigo-300'
+                                }`}>
+                                    <Info className="w-4 h-4 shrink-0" />
+                                    <span>{dmFeedbackMsg.text}</span>
+                                </div>
+                            )}
+
+                            {/* Form Thêm mới Công việc & Định mức */}
+                            {showAddDmForm && (
+                                <div className="bg-slate-50/90 border border-indigo-200 rounded-2xl p-4 shadow-sm space-y-3.5 animate-fade-in">
+                                    <div className="flex items-center justify-between border-b border-slate-200/80 pb-2">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-6 h-6 rounded-md bg-emerald-600 text-white flex items-center justify-center">
+                                                <Plus className="w-3.5 h-3.5" />
+                                            </div>
+                                            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                                                Thêm Công Việc Mới Vào Sheet "Định Mức"
+                                            </h4>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowAddDmForm(false)}
+                                            className="text-slate-400 hover:text-slate-600 transition-colors p-1"
+                                        >
+                                            <X className="w-4 h-4" />
+                                        </button>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                                        <div className="sm:col-span-2">
+                                            <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                                                Cột A: STT
+                                            </label>
+                                            <input
+                                                type="text"
+                                                placeholder={String(dinhMucList.length + 1)}
+                                                value={newDmStt}
+                                                onChange={(e) => setNewDmStt(e.target.value)}
+                                                className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-indigo-500 font-medium text-slate-800"
+                                            />
+                                        </div>
+
+                                        <div className="sm:col-span-4">
+                                            <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                                                Cột B: Nội dung công việc <span className="text-rose-500">*</span>
+                                            </label>
+                                            <input
+                                                type="text"
+                                                placeholder="Ví dụ: Thay bảo trì 1 pha TT..."
+                                                value={newDmName}
+                                                onChange={(e) => setNewDmName(e.target.value)}
+                                                className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-indigo-500 font-medium text-slate-800"
+                                            />
+                                        </div>
+
+                                        <div className="sm:col-span-2">
+                                            <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                                                Cột C: Định mức/ngày <span className="text-rose-500">*</span>
+                                            </label>
+                                            <input
+                                                type="number"
+                                                step="any"
+                                                min="0"
+                                                placeholder="Ví dụ: 35"
+                                                value={newDmQuota}
+                                                onChange={(e) => setNewDmQuota(e.target.value)}
+                                                className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-indigo-500 font-medium text-slate-800"
+                                            />
+                                        </div>
+
+                                        <div className="sm:col-span-2">
+                                            <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                                                Cột E: Mã quan hệ
+                                            </label>
+                                            <input
+                                                type="text"
+                                                placeholder="Ví dụ: 42, 22..."
+                                                value={newDmRelation}
+                                                onChange={(e) => setNewDmRelation(e.target.value)}
+                                                className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-indigo-500 font-medium text-slate-800"
+                                            />
+                                        </div>
+
+                                        <div className="sm:col-span-2">
+                                            <button
+                                                type="button"
+                                                onClick={handleAddNewDinhMuc}
+                                                className="w-full px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                                            >
+                                                <Plus className="w-3.5 h-3.5" />
+                                                <span>Lưu thêm</span>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="pt-1 flex items-center gap-2">
+                                        <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={newDmIsGroup}
+                                                onChange={(e) => setNewDmIsGroup(e.target.checked)}
+                                                className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
+                                            />
+                                            <span>Đánh dấu "Chung nhóm" (Cột Đ = 'x') - Cho phép gộp tính năng suất nhóm / tổ</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Search, Filter & Sort Controls */}
+                            <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between pt-1">
+                                <div className="relative flex-1 min-w-[200px]">
+                                    <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+                                    <input
+                                        type="text"
+                                        placeholder="Tìm theo tên công việc, STT, hoặc mã quan hệ..."
+                                        value={dmSearch}
+                                        onChange={(e) => setDmSearch(e.target.value)}
+                                        className="w-full pl-9 pr-8 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-indigo-500 font-medium text-slate-800"
+                                    />
+                                    {dmSearch && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setDmSearch('')}
+                                            className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                                        >
+                                            <X className="w-3.5 h-3.5" />
+                                        </button>
+                                    )}
+                                </div>
+
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <div className="flex items-center gap-1 text-xs">
+                                        <Filter className="w-3.5 h-3.5 text-slate-500" />
+                                        <select
+                                            value={dmFilterGroup}
+                                            onChange={(e) => setDmFilterGroup(e.target.value as any)}
+                                            className="px-2.5 py-1.5 bg-slate-100 border border-slate-300 rounded-lg text-xs font-bold text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                                        >
+                                            <option value="all">Tất cả ({dinhMucList.length})</option>
+                                            <option value="group">Chung nhóm ({dinhMucList.filter(d => d.isGroup).length})</option>
+                                            <option value="single">Riêng lẻ ({dinhMucList.filter(d => !d.isGroup).length})</option>
+                                            <option value="relation">Có mã quan hệ ({dinhMucList.filter(d => d.relation).length})</option>
+                                        </select>
+                                    </div>
+
+                                    <select
+                                        value={dmSort}
+                                        onChange={(e) => setDmSort(e.target.value as any)}
+                                        className="px-2.5 py-1.5 bg-slate-100 border border-slate-300 rounded-lg text-xs font-bold text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                                    >
+                                        <option value="stt_asc">STT tăng dần (A-Z)</option>
+                                        <option value="stt_desc">STT giảm dần</option>
+                                        <option value="name_asc">Tên công việc A - Z</option>
+                                        <option value="quota_desc">Định mức: Cao → Thấp</option>
+                                        <option value="quota_asc">Định mức: Thấp → Cao</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            {/* Table of Tasks & Quotas */}
+                            <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+                                <div className="max-h-[500px] overflow-y-auto overflow-x-auto">
+                                    <table className="w-full text-left border-collapse text-xs">
+                                        <thead className="bg-slate-100/90 text-slate-700 uppercase font-extrabold sticky top-0 z-10 border-b border-slate-200">
+                                            <tr>
+                                                <th className="py-2.5 px-3 w-16 text-center">STT (A)</th>
+                                                <th className="py-2.5 px-4 min-w-[220px]">Nội Dung Công Việc (Cột B)</th>
+                                                <th className="py-2.5 px-3 w-32 text-center">Định Mức Ngày (C)</th>
+                                                <th className="py-2.5 px-3 w-32 text-center">Chung Nhóm (Đ)</th>
+                                                <th className="py-2.5 px-3 w-28 text-center">Mã QH (E)</th>
+                                                <th className="py-2.5 px-3 w-28 text-center">Thao Tác</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-200/80 bg-white">
+                                            {filteredDinhMucList.length === 0 ? (
+                                                <tr>
+                                                    <td colSpan={6} className="py-8 text-center text-slate-400">
+                                                        <Calculator className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                                                        <p className="font-semibold">Không tìm thấy công việc nào phù hợp.</p>
+                                                        <p className="text-[11px] mt-1 text-slate-400">
+                                                            Thử tìm từ khóa khác hoặc bấm nút "Tải lại từ Sheet Định mức" để đồng bộ dữ liệu.
+                                                        </p>
+                                                    </td>
+                                                </tr>
+                                            ) : (
+                                                filteredDinhMucList.map((item, idx) => {
+                                                    const itemKey = item.id || item.name;
+                                                    const isEditing = editingDmKey === itemKey;
+                                                    const isDeleting = deletingDmKey === itemKey;
+
+                                                    if (isEditing) {
+                                                        return (
+                                                            <tr key={itemKey} className="bg-indigo-50/70 border-2 border-indigo-400">
+                                                                <td className="p-2 text-center">
+                                                                    <input
+                                                                        type="text"
+                                                                        value={editDmStt}
+                                                                        onChange={(e) => setEditDmStt(e.target.value)}
+                                                                        className="w-12 px-2 py-1 text-center bg-white border border-indigo-300 rounded text-xs font-mono font-bold"
+                                                                    />
+                                                                </td>
+                                                                <td className="p-2">
+                                                                    <input
+                                                                        type="text"
+                                                                        value={editDmName}
+                                                                        onChange={(e) => setEditDmName(e.target.value)}
+                                                                        className="w-full px-2.5 py-1 bg-white border border-indigo-300 rounded text-xs font-bold text-slate-800"
+                                                                    />
+                                                                </td>
+                                                                <td className="p-2 text-center">
+                                                                    <input
+                                                                        type="number"
+                                                                        step="any"
+                                                                        min="0"
+                                                                        value={editDmQuota}
+                                                                        onChange={(e) => setEditDmQuota(e.target.value)}
+                                                                        className="w-20 px-2 py-1 text-center bg-white border border-indigo-300 rounded text-xs font-bold text-slate-800"
+                                                                    />
+                                                                </td>
+                                                                <td className="p-2 text-center">
+                                                                    <label className="inline-flex items-center gap-1 cursor-pointer">
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={editDmIsGroup}
+                                                                            onChange={(e) => setEditDmIsGroup(e.target.checked)}
+                                                                            className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
+                                                                        />
+                                                                        <span className="text-[11px] font-bold text-slate-600">
+                                                                            {editDmIsGroup ? 'Nhóm (x)' : 'Riêng'}
+                                                                        </span>
+                                                                    </label>
+                                                                </td>
+                                                                <td className="p-2 text-center">
+                                                                    <input
+                                                                        type="text"
+                                                                        value={editDmRelation}
+                                                                        onChange={(e) => setEditDmRelation(e.target.value)}
+                                                                        className="w-16 px-2 py-1 text-center bg-white border border-indigo-300 rounded text-xs font-bold"
+                                                                        placeholder="-"
+                                                                    />
+                                                                </td>
+                                                                <td className="p-2 text-center">
+                                                                    <div className="flex items-center justify-center gap-1">
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={handleSaveEditDm}
+                                                                            className="p-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-all shadow-2xs cursor-pointer"
+                                                                            title="Lưu thay đổi"
+                                                                        >
+                                                                            <Check className="w-3.5 h-3.5" />
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => setEditingDmKey(null)}
+                                                                            className="p-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg transition-all cursor-pointer"
+                                                                            title="Hủy"
+                                                                        >
+                                                                            <X className="w-3.5 h-3.5" />
+                                                                        </button>
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    }
+
+                                                    return (
+                                                        <tr key={itemKey} className="hover:bg-slate-50/90 transition-colors group">
+                                                            <td className="py-2.5 px-3 text-center">
+                                                                <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 font-mono font-bold text-[11px]">
+                                                                    {item.stt || idx + 1}
+                                                                </span>
+                                                            </td>
+                                                            <td className="py-2.5 px-4 font-semibold text-slate-800">
+                                                                <div className="flex items-center gap-2 flex-wrap">
+                                                                    <span>{item.name}</span>
+                                                                    {item.custom && (
+                                                                        <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
+                                                                            Tùy chỉnh
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            </td>
+                                                            <td className="py-2.5 px-3 text-center">
+                                                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-black bg-indigo-50 text-indigo-700 border border-indigo-200/80">
+                                                                    {item.quota} / ngày
+                                                                </span>
+                                                            </td>
+                                                            <td className="py-2.5 px-3 text-center">
+                                                                {item.isGroup ? (
+                                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                                                        <Check className="w-3 h-3 text-emerald-600" />
+                                                                        <span>Chung nhóm (x)</span>
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="text-[11px] font-semibold text-slate-400">
+                                                                        -
+                                                                    </span>
+                                                                )}
+                                                            </td>
+                                                            <td className="py-2.5 px-3 text-center">
+                                                                {item.relation ? (
+                                                                    <span className="px-2 py-0.5 rounded bg-purple-50 text-purple-700 font-mono font-bold text-[11px] border border-purple-200">
+                                                                        {item.relation}
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="text-slate-400 text-[11px]">-</span>
+                                                                )}
+                                                            </td>
+                                                            <td className="py-2.5 px-3 text-center">
+                                                                {isDeleting ? (
+                                                                    <div className="flex items-center justify-center gap-1 animate-fade-in">
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => handleDeleteDm(itemKey, item.name)}
+                                                                            className="px-2 py-1 bg-rose-600 text-white rounded text-[10px] font-bold hover:bg-rose-700 cursor-pointer"
+                                                                        >
+                                                                            Xóa
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => setDeletingDmKey(null)}
+                                                                            className="px-2 py-1 bg-slate-200 text-slate-700 rounded text-[10px] font-semibold hover:bg-slate-300 cursor-pointer"
+                                                                        >
+                                                                            Hủy
+                                                                        </button>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="flex items-center justify-center gap-1">
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => handleStartEditDm(item)}
+                                                                            className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
+                                                                            title="Sửa công việc và định mức này"
+                                                                        >
+                                                                            <Edit2 className="w-3.5 h-3.5" />
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                setDeletingDmKey(itemKey);
+                                                                                setEditingDmKey(null);
+                                                                            }}
+                                                                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                                                            title="Xóa công việc khỏi danh mục"
+                                                                        >
+                                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                                        </button>
+                                                                    </div>
+                                                                )}
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* 5. MỤC: PHÂN QUYỀN CÔNG ĐOÀN */}
                 <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-sm transition-all">
                     <button
                         type="button"
@@ -1839,7 +2718,7 @@ export default function SystemTab() {
                     )}
                 </div>
 
-                {/* 5. MỤC: LOẠI KHỎI TUYÊN DƯƠNG NĂNG SUẤT DO PHẠM LỖI */}
+                {/* 6. MỤC: LOẠI KHỎI TUYÊN DƯƠNG NĂNG SUẤT DO PHẠM LỖI */}
                 <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-sm transition-all">
                     <button
                         type="button"
@@ -2075,7 +2954,7 @@ export default function SystemTab() {
                     )}
                 </div>
 
-                {/* 6. MỤC: QUYỀN THAO TÁC CHỨC NĂNG */}
+                {/* 7. MỤC: QUYỀN THAO TÁC CHỨC NĂNG */}
                 <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-sm transition-all">
                     <button
                         type="button"
@@ -2146,7 +3025,7 @@ export default function SystemTab() {
                     )}
                 </div>
 
-                {/* 7. MỤC: THÔNG TIN PHIÊN BẢN & ĐỒNG BỘ HỆ THỐNG */}
+                {/* 8. MỤC: THÔNG TIN PHIÊN BẢN & ĐỒNG BỘ HỆ THỐNG */}
                 <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-sm transition-all">
                     <button
                         type="button"

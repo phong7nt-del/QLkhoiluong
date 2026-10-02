@@ -704,6 +704,69 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
+    // ======== XỬ LÝ LƯU & HIỆU CHỈNH DANH MỤC CÔNG VIỆC VÀ ĐỊNH MỨC (CỘT A, B, C, Đ, E) ========
+    if (action === 'save_dinhmuc' || action === 'update_dinhmuc') {
+      var data = payload.items || payload.data;
+      var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
+      var sheet = getSheetFlexibly(ss, ['Định mức', 'Định Mức', 'DinhMuc', 'Dinh muc']);
+      if (!sheet) {
+        sheet = ss.insertSheet('Định mức');
+      }
+      
+      // Lấy tiêu đề cột hiện tại để bảo toàn các cột kế hoạch tháng (D - 8/2026, B - 8/2026,...)
+      var lastRow = sheet.getLastRow();
+      var lastCol = sheet.getLastColumn();
+      var existingHeaders = [];
+      if (lastRow > 0 && lastCol >= 5) {
+        existingHeaders = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+      }
+      
+      var defaultHeaders = ["STT", "Nội dung", "đinh mức ngày", "Chung nhóm", "Quan hệ"];
+      var finalHeaders = defaultHeaders.slice();
+      
+      // Giữ lại các cột kế hoạch tháng nếu có
+      if (existingHeaders && existingHeaders.length > 5) {
+        for (var h = 5; h < existingHeaders.length; h++) {
+          var hName = String(existingHeaders[h] || '').trim();
+          if (hName && finalHeaders.indexOf(hName) === -1) {
+            finalHeaders.push(hName);
+          }
+        }
+      }
+      
+      if (data && data.length > 0) {
+        var rows = [finalHeaders];
+        for (var i = 0; i < data.length; i++) {
+          var item = data[i];
+          var stt = item.stt !== undefined && String(item.stt).trim() !== '' ? item.stt : (i + 1);
+          var name = item.name ? String(item.name).trim() : '';
+          var quota = typeof item.quota === 'number' ? item.quota : (parseFloat(item.quota) || 0);
+          var isGroup = (item.isGroup === true || item.isGroup === 'x' || item.isGroup === 'true') ? 'x' : '';
+          var relation = item.relation ? String(item.relation).trim() : '';
+          
+          var row = [stt, name, quota, isGroup, relation];
+          
+          // Điền các cột kế hoạch tháng (nếu có)
+          for (var colIdx = 5; colIdx < finalHeaders.length; colIdx++) {
+            var colKey = finalHeaders[colIdx];
+            var histVal = (item.history && item.history[colKey] !== undefined) ? item.history[colKey] : '';
+            row.push(histVal);
+          }
+          
+          rows.push(row);
+        }
+        
+        sheet.clearContents();
+        sheet.getRange(1, 1, rows.length, finalHeaders.length).setValues(rows);
+      }
+      
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "success", 
+        message: "Đã cập nhật thành công danh mục Định mức lên Google Sheets",
+        count: data ? data.length : 0
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     if (action === "change_password") {
        var possibleNames = ["CongTac", "Cong Tac", "Công tác", "Công Tác", "Con Tác"];
        var sheetName = payload.sheetName;

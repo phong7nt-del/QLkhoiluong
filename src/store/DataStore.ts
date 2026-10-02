@@ -88,6 +88,17 @@ export const DEFAULT_HOLIDAYS_2026: Holiday[] = [
   { id: 'hol-2026-09-03', date: '2026-09-03', name: 'Nghỉ liền kề Quốc khánh (3/9)' },
 ];
 
+export interface DinhMucItem {
+  id?: string;
+  stt?: number | string;      // Cột A: Số thứ tự
+  name: string;               // Cột B: Nội dung (Tên danh mục công việc)
+  quota: number;              // Cột C: Định mức ngày (khối lượng định mức giao trong 1 ngày)
+  isGroup?: boolean;          // Cột D (Đ): Chung nhóm ('x' = true)
+  relation?: string;          // Cột E: Mã quan hệ công tác (ví dụ: 42, 22, 32, ...)
+  history?: Record<string, number>; // Kế hoạch theo các tháng/năm
+  custom?: boolean;           // Đánh dấu người dùng tạo hoặc chỉnh sửa thủ công
+}
+
 export interface ExternalReportLink {
   id: string;
   title: string;
@@ -1676,26 +1687,27 @@ export const DataStore = {
                console.warn('Could not fetch Progress sheet', e);
             }
 
-            // Fetch DinhMuc via CSV
+            // Fetch DinhMuc via CSV (Columns: A=STT, B=Nội dung, C=Định mức ngày, D=Chung nhóm, E=Quan hệ)
             try {
-               const dmSheets = ['DinhMuc', 'Định Mức', 'Dinh muc', 'Định mức'];
+               const dmSheets = ['Định mức', 'Định Mức', 'Dinh muc', 'DinhMuc'];
                for (const sheetName of dmSheets) {
                   const dmText = await DataStore.fetchSheetCSV(sheetName, sheetId);
                   if (dmText && !dmText.includes('<html') && dmText.trim() && dmText.length > 50) {
                      const { data } = Papa.parse(dmText, { header: false });
                      if (data && data.length > 0) {
                          let headRow = -1;
-                         let nameCol = -1, quotaCol = -1, groupCol = -1, relationCol = -1;
+                         let sttCol = -1, nameCol = -1, quotaCol = -1, groupCol = -1, relationCol = -1;
                          const historyCols: Record<string, number> = {};
                          
-                         for (let r = 0; r < 5; r++) {
+                         for (let r = 0; r < Math.min(data.length, 5); r++) {
                              if (!data[r]) continue;
                              const rowData = data[r] as string[];
                              for (let c = 0; c < rowData.length; c++) {
                                  const val = String(rowData[c] || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase().trim();
+                                 if (val.includes('stt') || (r === 0 && c === 0 && val.includes('stt'))) sttCol = c;
                                  if (val.includes('noi dung') || val.includes('ten') || val.includes('danh muc')) nameCol = c;
                                  if (val.includes('dinh muc') || val.includes('quota') || val.includes('diem') || val.includes('khoi luong') || val.includes('chi tieu')) quotaCol = c;
-                                 if (val.includes('chung nhom')) groupCol = c;
+                                 if (val.includes('chung nhom') || val.includes('nhom')) groupCol = c;
                                  if (val.includes('quan he')) relationCol = c;
                                  if (val.includes('thang') || /\d+\/\d{4}/.test(val)) historyCols[String(rowData[c]).trim()] = c;
                              }
@@ -1706,18 +1718,21 @@ export const DataStore = {
                          }
             
                          if (headRow !== -1 && nameCol !== -1) {
-                             const newDinhMuc: any[] = [];
+                             const newDinhMuc: DinhMucItem[] = [];
                              for (let i = headRow + 1; i < data.length; i++) {
                                  const row = data[i] as string[];
                                  if (!row || row.length <= nameCol) continue;
                                  
                                  const val1 = String(row[nameCol] || '').trim();
+                                 if (!val1 || val1.toLowerCase() === 'stt' || val1.toLowerCase() === 'tong' || val1.toLowerCase() === 'tổng') continue;
+                                 
+                                 const stt = sttCol !== -1 && row[sttCol] ? String(row[sttCol]).trim() : String(newDinhMuc.length + 1);
                                  let quotaStr = quotaCol !== -1 ? String(row[quotaCol] || '0').replace(/,/g, '.') : '0';
                                  let val2 = parseFloat(quotaStr);
                                  if (isNaN(val2)) val2 = 0;
                                  
                                  let isGroupStr = groupCol !== -1 ? String(row[groupCol] || '').toLowerCase().trim() : '';
-                                 let isGroup = isGroupStr === 'x';
+                                 let isGroup = isGroupStr === 'x' || isGroupStr === 'true';
                                  
                                  let relation = relationCol !== -1 ? String(row[relationCol] || '').trim() : '';
                                  
@@ -1730,9 +1745,15 @@ export const DataStore = {
                                      }
                                  });
                                  
-                                 if (val1 && val1.toLowerCase() !== 'stt' && val1.toLowerCase() !== 'tong' && val1.toLowerCase() !== 'tổng') {
-                                     newDinhMuc.push({ name: val1, quota: val2, isGroup, history, relation });
-                                 }
+                                 newDinhMuc.push({ 
+                                     id: `dm-${stt}-${newDinhMuc.length + 1}`,
+                                     stt,
+                                     name: val1, 
+                                     quota: val2, 
+                                     isGroup, 
+                                     history, 
+                                     relation 
+                                 });
                              }
                              
                              if (newDinhMuc.length > 0) {
@@ -2231,11 +2252,156 @@ export const DataStore = {
      } catch { return []; }
   },
 
-  getDinhMuc: (): { name: string; quota: number; isGroup?: boolean; history?: Record<string, number>; relation?: string }[] => {
+  getDinhMuc: (): DinhMucItem[] => {
      try {
        const cached = safeGetItem(DINHMUC_KEY);
        return cached ? JSON.parse(cached) : [];
      } catch { return []; }
+  },
+
+  setDinhMuc: (list: DinhMucItem[]): void => {
+     safeSetItem(DINHMUC_KEY, JSON.stringify(list));
+     try {
+       window.dispatchEvent(new CustomEvent('workload_updated'));
+     } catch {}
+  },
+
+  addDinhMuc: (item: Partial<DinhMucItem>): boolean => {
+     if (!item.name || !item.name.trim()) return false;
+     const current = DataStore.getDinhMuc();
+     const stt = item.stt !== undefined && String(item.stt).trim() !== '' ? String(item.stt).trim() : String(current.length + 1);
+     const newItem: DinhMucItem = {
+       id: item.id || `dm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+       stt,
+       name: item.name.trim(),
+       quota: typeof item.quota === 'number' && !isNaN(item.quota) ? Math.max(0, item.quota) : 0,
+       isGroup: !!item.isGroup,
+       relation: (item.relation || '').trim(),
+       history: item.history || {},
+       custom: true
+     };
+     current.push(newItem);
+     DataStore.setDinhMuc(current);
+     return true;
+  },
+
+  updateDinhMuc: (targetKey: string, updated: Partial<DinhMucItem>): boolean => {
+     const current = DataStore.getDinhMuc();
+     const idx = current.findIndex(d => (d.id && d.id === targetKey) || d.name === targetKey);
+     if (idx === -1) return false;
+     
+     const existing = current[idx];
+     current[idx] = {
+       ...existing,
+       ...updated,
+       name: updated.name !== undefined ? updated.name.trim() : existing.name,
+       quota: updated.quota !== undefined ? (typeof updated.quota === 'number' && !isNaN(updated.quota) ? Math.max(0, updated.quota) : 0) : existing.quota,
+       isGroup: updated.isGroup !== undefined ? !!updated.isGroup : existing.isGroup,
+       relation: updated.relation !== undefined ? updated.relation.trim() : existing.relation,
+       stt: updated.stt !== undefined ? updated.stt : existing.stt,
+       custom: true
+     };
+     DataStore.setDinhMuc(current);
+     return true;
+  },
+
+  deleteDinhMuc: (targetKey: string): boolean => {
+     const current = DataStore.getDinhMuc();
+     const filtered = current.filter(d => (d.id && d.id !== targetKey) && d.name !== targetKey);
+     if (filtered.length === current.length) return false;
+     DataStore.setDinhMuc(filtered);
+     return true;
+  },
+
+  reloadDinhMucFromSheet: async (customSheetId?: string): Promise<{ success: boolean; count: number; error?: string }> => {
+     try {
+       const sheetId = customSheetId || DataStore.getSpreadsheetId() || "1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ";
+       const dmSheets = ['Định mức', 'Định Mức', 'Dinh muc', 'DinhMuc'];
+       let foundData: DinhMucItem[] = [];
+       
+       for (const sheetName of dmSheets) {
+         const dmText = await DataStore.fetchSheetCSV(sheetName, sheetId);
+         if (dmText && !dmText.includes('<html') && dmText.trim() && dmText.length > 50) {
+           const { data } = Papa.parse(dmText, { header: false });
+           if (data && data.length > 0) {
+             let headRow = -1;
+             let sttCol = -1, nameCol = -1, quotaCol = -1, groupCol = -1, relationCol = -1;
+             const historyCols: Record<string, number> = {};
+             
+             for (let r = 0; r < Math.min(data.length, 5); r++) {
+               if (!data[r]) continue;
+               const rowData = data[r] as string[];
+               for (let c = 0; c < rowData.length; c++) {
+                 const val = String(rowData[c] || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase().trim();
+                 if (val.includes('stt') || (r === 0 && c === 0 && val.includes('stt'))) sttCol = c;
+                 if (val.includes('noi dung') || val.includes('ten') || val.includes('danh muc')) nameCol = c;
+                 if (val.includes('dinh muc') || val.includes('quota') || val.includes('diem') || val.includes('khoi luong') || val.includes('chi tieu')) quotaCol = c;
+                 if (val.includes('chung nhom') || val.includes('nhom')) groupCol = c;
+                 if (val.includes('quan he')) relationCol = c;
+                 if (val.includes('thang') || /\d+\/\d{4}/.test(val)) historyCols[String(rowData[c]).trim()] = c;
+               }
+               if (nameCol !== -1) {
+                 headRow = r;
+                 break;
+               }
+             }
+             
+             if (headRow !== -1 && nameCol !== -1) {
+               const newDinhMuc: DinhMucItem[] = [];
+               for (let i = headRow + 1; i < data.length; i++) {
+                 const row = data[i] as string[];
+                 if (!row || row.length <= nameCol) continue;
+                 
+                 const val1 = String(row[nameCol] || '').trim();
+                 if (!val1 || val1.toLowerCase() === 'stt' || val1.toLowerCase() === 'tong' || val1.toLowerCase() === 'tổng') continue;
+                 
+                 const stt = sttCol !== -1 && row[sttCol] ? String(row[sttCol]).trim() : String(newDinhMuc.length + 1);
+                 let quotaStr = quotaCol !== -1 ? String(row[quotaCol] || '0').replace(/,/g, '.') : '0';
+                 let val2 = parseFloat(quotaStr);
+                 if (isNaN(val2)) val2 = 0;
+                 
+                 let isGroupStr = groupCol !== -1 ? String(row[groupCol] || '').toLowerCase().trim() : '';
+                 let isGroup = isGroupStr === 'x' || isGroupStr === 'true';
+                 let relation = relationCol !== -1 ? String(row[relationCol] || '').trim() : '';
+                 
+                 let history: Record<string, number> = {};
+                 Object.keys(historyCols).forEach(k => {
+                   let colIdx = historyCols[k];
+                   if (colIdx !== undefined && row.length > colIdx) {
+                     let hVal = parseFloat(String(row[colIdx] || '0').replace(/,/g, '.'));
+                     if (!isNaN(hVal)) history[k] = hVal;
+                   }
+                 });
+                 
+                 newDinhMuc.push({
+                   id: `dm-${stt}-${newDinhMuc.length + 1}`,
+                   stt,
+                   name: val1,
+                   quota: val2,
+                   isGroup,
+                   relation,
+                   history
+                 });
+               }
+               
+               if (newDinhMuc.length > 0) {
+                 foundData = newDinhMuc;
+                 break;
+               }
+             }
+           }
+         }
+       }
+       
+       if (foundData.length > 0) {
+         DataStore.setDinhMuc(foundData);
+         return { success: true, count: foundData.length };
+       } else {
+         return { success: false, count: 0, error: 'Không tìm thấy sheet "Định mức" hoặc dữ liệu rỗng.' };
+       }
+     } catch (e: any) {
+       return { success: false, count: 0, error: e?.message || 'Lỗi khi tải dữ liệu Định mức' };
+     }
   },
 
   getTasks: (): TaskProgress[] => {
