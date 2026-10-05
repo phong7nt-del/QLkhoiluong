@@ -21,6 +21,7 @@ export const DEFAULT_RBAC: RBACConfig = {
     'tuti': ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'],
     'plan_progress': ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'],
     'warehouse': ['đội trưởng', 'giám đốc'],
+    'kthtdd': ALL_ROLES,
     'birthday': ALL_ROLES,
     'system': ['đội trưởng'], // specifically requested
   },

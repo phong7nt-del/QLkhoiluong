@@ -68,6 +68,7 @@ const TABS_INFO = [
     { id: 'progress', label: 'Tiến độ CV' },
     { id: 'tuti', label: 'TU - TI' },
     { id: 'plan_progress', label: 'Tiến độ kế hoạch' },
+    { id: 'kthtdd', label: 'Kiện toàn HTDD' },
     { id: 'warehouse', label: 'Kho VTTB' },
     { id: 'birthday', label: 'Công Đoàn' },
     { id: 'system', label: 'Hệ thống' }

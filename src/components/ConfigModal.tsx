@@ -767,6 +767,102 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
+    // ======== CẬP NHẬT KẾT QUẢ KIỂM TRA KIỆN TOÀN HTDD ========
+    if (action === 'update_kthtdd') {
+      var data = payload.data || payload;
+      var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
+      var sheet = getSheetFlexibly(ss, ['KTHTDD', 'KT_HTDD', 'Kiện toàn HTDD', 'KienToanHTDD']);
+      if (!sheet) {
+        return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "Không tìm thấy sheet KTHTDD" }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      
+      var maKh = String(data.maKh || '').trim().toLowerCase();
+      if (!maKh) {
+        return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "Thiếu Mã KH" }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+
+      var dataRange = sheet.getDataRange();
+      var values = dataRange.getValues();
+      var headers = values.length > 0 ? values[0] : [];
+
+      var colMaKh = -1, colNgay = -1, colKetQua = -1, colChi = -1, colDeXuat = -1;
+      for (var c = 0; c < headers.length; c++) {
+        var h = String(headers[c]).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[\s_?]+/g, '');
+        if (h.includes('makh')) colMaKh = c;
+        if (h === 'ngay' || h.includes('ngay')) colNgay = c;
+        if (h.includes('ketqua')) colKetQua = c;
+        if (h.includes('chi')) colChi = c;
+        if (h.includes('dexuat') || h.includes('ghichu')) colDeXuat = c;
+      }
+      if (colMaKh === -1) colMaKh = 1; // Default Col B
+      if (colNgay === -1) colNgay = 10; // Default Col K
+      if (colKetQua === -1) colKetQua = 11; // Default Col L
+      if (colChi === -1) colChi = 12; // Default Col M
+      if (colDeXuat === -1) colDeXuat = 13; // Default Col N
+
+      var updated = false;
+      for (var r = 1; r < values.length; r++) {
+        var rowMaKh = String(values[r][colMaKh] || '').trim().toLowerCase();
+        if (rowMaKh === maKh) {
+          if (data.ngay !== undefined) sheet.getRange(r + 1, colNgay + 1).setValue("'" + data.ngay);
+          if (data.ketQua !== undefined) sheet.getRange(r + 1, colKetQua + 1).setValue(data.ketQua);
+          if (data.chi !== undefined) sheet.getRange(r + 1, colChi + 1).setValue(data.chi);
+          if (data.deXuat !== undefined) sheet.getRange(r + 1, colDeXuat + 1).setValue(data.deXuat);
+          updated = true;
+          break;
+        }
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({ 
+        status: updated ? "success" : "error", 
+        message: updated ? "Đã cập nhật kết quả kiểm tra KH: " + data.maKh : "Không tìm thấy Mã KH trong sheet KTHTDD" 
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // ======== PHÂN CÔNG KIỂM TRA TRẠM TRONG SHEET KTHTDD ========
+    if (action === 'assign_kthtdd') {
+      var data = payload.data || payload;
+      var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
+      var sheet = getSheetFlexibly(ss, ['KTHTDD', 'KT_HTDD', 'Kiện toàn HTDD', 'KienToanHTDD']);
+      if (!sheet) {
+        return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "Không tìm thấy sheet KTHTDD" }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      
+      var maTram = String(data.maTram || '').trim().toLowerCase();
+      var nguoiThucHien = String(data.nguoiThucHien || '').trim();
+
+      var dataRange = sheet.getDataRange();
+      var values = dataRange.getValues();
+      var headers = values.length > 0 ? values[0] : [];
+
+      var colMaTram = -1, colNguoiTh = -1;
+      for (var c = 0; c < headers.length; c++) {
+        var h = String(headers[c]).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[\s_?]+/g, '');
+        if (h.includes('matram')) colMaTram = c;
+        if (h.includes('nguoithuchien') || h.includes('nguoixl')) colNguoiTh = c;
+      }
+      if (colMaTram === -1) colMaTram = 4; // Col E
+      if (colNguoiTh === -1) colNguoiTh = 14; // Col O
+
+      var count = 0;
+      for (var r = 1; r < values.length; r++) {
+        var rowMaTram = String(values[r][colMaTram] || '').trim().toLowerCase();
+        if (rowMaTram === maTram) {
+          sheet.getRange(r + 1, colNguoiTh + 1).setValue(nguoiThucHien);
+          count++;
+        }
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({ 
+        status: "success", 
+        message: "Đã phân công " + count + " khách hàng thuộc trạm " + data.maTram,
+        count: count
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     if (action === "change_password") {
        var possibleNames = ["CongTac", "Cong Tac", "Công tác", "Công Tác", "Con Tác"];
        var sheetName = payload.sheetName;

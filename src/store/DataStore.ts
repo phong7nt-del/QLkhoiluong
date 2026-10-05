@@ -49,6 +49,24 @@ export interface SheetMember {
   [key: string]: any;
 }
 
+export interface KthtddEntry {
+  stt?: string | number;
+  maKh: string;
+  tenKh: string;
+  diaChi: string;
+  maTram: string;
+  tenTram: string;
+  danhSo: string;
+  soDienThoai: string;
+  soNo: string;
+  khuVuc: string;
+  ngay: string;
+  ketQua: string; // 'Bình thường' | 'Không' | ''
+  chi: string;    // 'Có' | 'Không' | ''
+  deXuat: string;
+  nguoiThucHien: string;
+}
+
 export interface OnlineStats {
   status: string;
   totalLogins: number;
@@ -204,10 +222,19 @@ let memCacheChiTietMKNList: any[] | null = null;
 let memCacheSangTaiList: any[] | null = null;
 let memCacheKhoList: any[] | null = null;
 let memCacheVTTBList: any[] | null = null;
+let memCacheKthtddList: KthtddEntry[] | null = null;
 
 let memoryCache: Record<string, string | null> = {};
 
 export const initDB = async () => {
+    try {
+      const kthtddVal = await get('sheet_kthtdd_v1');
+      if (kthtddVal && Array.isArray(kthtddVal)) {
+        memCacheKthtddList = kthtddVal;
+      }
+    } catch (e) {
+      console.warn('Could not preload kthtdd from IDB', e);
+    }
     const keys = [
       STORAGE_KEY, SCRIPT_URL_KEY, SPREADSHEET_ID_KEY, TEAMS_KEY, MEMBERS_KEY, STATIONS_KEY,
       DINHMUC_KEY, PROGRESS_KEY, LOCAL_PROGRESS_UPDATES_KEY, TUTI_KEY,
@@ -2900,5 +2927,195 @@ export const DataStore = {
           console.warn('Error pingOnline:', e);
           return null;
       }
+  },
+
+  getKthtddEntries: (): KthtddEntry[] => {
+    return memCacheKthtddList || [];
+  },
+
+  getKthtddEntriesAsync: async (): Promise<KthtddEntry[]> => {
+    if (memCacheKthtddList && memCacheKthtddList.length > 0) return memCacheKthtddList;
+    try {
+      const val = await get('sheet_kthtdd_v1');
+      if (val && Array.isArray(val) && val.length > 0) {
+        memCacheKthtddList = val;
+        return val;
+      }
+    } catch (e) {
+      console.warn('Error reading kthtdd from IDB:', e);
+    }
+    return [];
+  },
+
+  setKthtddEntriesAsync: async (list: KthtddEntry[]): Promise<void> => {
+    memCacheKthtddList = list;
+    try {
+      await set('sheet_kthtdd_v1', list);
+    } catch (e) {
+      console.warn('Error saving kthtdd to IDB:', e);
+    }
+    window.dispatchEvent(new CustomEvent('kthtdd_updated'));
+  },
+
+  fetchKthtddFromSheet: async (sheetId?: string, onProgress?: (msg: string) => void): Promise<KthtddEntry[]> => {
+    onProgress?.('Đang tải dữ liệu từ Google Sheets...');
+    const sId = sheetId || DataStore.getSpreadsheetId() || DEFAULT_SPREADSHEET_ID;
+    const possibleSheets = ['KTHTDD', 'KT_HTDD', 'Kiện toàn HTDD', 'KienToanHTDD'];
+    let csvText = '';
+    for (const name of possibleSheets) {
+      try {
+        const text = await DataStore.fetchSheetCSV(name, sId);
+        if (text && !text.includes('<html') && text.length > 100) {
+          csvText = text;
+          break;
+        }
+      } catch (err) {
+        // try next
+      }
+    }
+    if (!csvText) {
+      throw new Error('Không thể tải sheet KTHTDD từ Google Sheets');
+    }
+
+    onProgress?.('Đang xử lý dữ liệu kiểm tra hệ thống đo đếm...');
+    const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+    const rawRows = (parsed.data || []) as Record<string, any>[];
+
+    const entries: KthtddEntry[] = [];
+    for (let i = 0; i < rawRows.length; i++) {
+      const r = rawRows[i];
+      const maKh = String(r['Mã KH'] || r['Ma KH'] || r['makh'] || '').trim();
+      if (!maKh) continue;
+
+      const stt = r['Stt'] || r['STT'] || (i + 1);
+      const tenKh = String(r['Tên KH'] || r['Ten KH'] || '').trim();
+      const diaChi = String(r['Địa chỉ điểm đo'] || r['Địa chỉ'] || r['Dia chi'] || '').trim();
+      const maTram = String(r['Mã trạm'] || r['Ma tram'] || '').trim();
+      const tenTram = String(r['Tên trạm'] || r['Ten tram'] || '').trim();
+      const danhSo = String(r['Danh số'] || r['Danh so'] || '').trim();
+      let soDienThoai = String(r['Số điện thoại'] || r['SDT'] || '').trim().replace(/\s+/g, '');
+      if (soDienThoai && /^\d+$/.test(soDienThoai) && !soDienThoai.startsWith('0')) {
+        soDienThoai = '0' + soDienThoai;
+      }
+      const soNo = String(r['Số No'] || r['So No'] || r['Số công tơ'] || '').trim();
+      let khuVuc = String(r['Khu vực'] || r['Khu vuc'] || '').trim();
+      if (!khuVuc) {
+        const lowerAddr = (diaChi + ' ' + tenTram).toLowerCase();
+        if (lowerAddr.includes('phú mỹ') || lowerAddr.includes('phu my') || lowerAddr.includes('tân thành')) {
+          khuVuc = 'Phú Mỹ';
+        } else if (lowerAddr.includes('bà rịa') || lowerAddr.includes('ba ria') || lowerAddr.includes('long hương') || lowerAddr.includes('phước hưng')) {
+          khuVuc = 'Bà Rịa';
+        } else if (lowerAddr.includes('vũng tàu') || lowerAddr.includes('vung tau')) {
+          khuVuc = 'Vũng Tàu';
+        } else if (lowerAddr.includes('long sơn') || lowerAddr.includes('long son')) {
+          khuVuc = 'Long Sơn';
+        } else {
+          khuVuc = 'Chưa phân khu vực';
+        }
+      }
+
+      const ngay = String(r['Ngày'] || r['Ngay'] || '').trim();
+      const ketQua = String(r['Kết quả'] || r['Ket qua'] || '').trim();
+      const chi = String(r['Chì?'] || r['Chì'] || r['Chi'] || '').trim();
+      const deXuat = String(r['Đề xuất'] || r['De xuat'] || r['Ghi chú'] || '').trim();
+      const nguoiThucHien = String(r['Người thực hiện'] || r['Nguoi thuc hien'] || '').trim();
+
+      entries.push({
+        stt,
+        maKh,
+        tenKh,
+        diaChi,
+        maTram,
+        tenTram,
+        danhSo,
+        soDienThoai,
+        soNo,
+        khuVuc,
+        ngay,
+        ketQua,
+        chi,
+        deXuat,
+        nguoiThucHien
+      });
+    }
+
+    await DataStore.setKthtddEntriesAsync(entries);
+    return entries;
+  },
+
+  updateKthtdd: async (data: { maKh: string; ngay: string; ketQua: string; chi: string; deXuat: string }): Promise<{ ok: boolean; message: string }> => {
+    // 1. Optimistic update
+    if (memCacheKthtddList) {
+      const idx = memCacheKthtddList.findIndex(e => e.maKh.toLowerCase().trim() === data.maKh.toLowerCase().trim());
+      if (idx !== -1) {
+        memCacheKthtddList[idx] = {
+          ...memCacheKthtddList[idx],
+          ngay: data.ngay,
+          ketQua: data.ketQua,
+          chi: data.chi,
+          deXuat: data.deXuat
+        };
+        set('sheet_kthtdd_v1', memCacheKthtddList).catch(() => {});
+        window.dispatchEvent(new CustomEvent('kthtdd_updated'));
+      }
+    }
+
+    // 2. Send to Google Apps Script
+    try {
+      const url = DataStore.getAppScriptUrl();
+      if (!url) return { ok: true, message: 'Đã lưu cục bộ (chưa cấu hình Apps Script)' };
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'update_kthtdd', data })
+      });
+      const rawText = await response.text();
+      try {
+        const res = JSON.parse(rawText);
+        return { ok: res.status === 'success', message: res.message || 'Cập nhật thành công' };
+      } catch {
+        return { ok: response.ok, message: 'Đã gửi cập nhật kết quả kiểm tra' };
+      }
+    } catch (e: any) {
+      console.warn('Error updateKthtdd:', e);
+      return { ok: false, message: e.message || 'Lỗi kết nối tới máy chủ' };
+    }
+  },
+
+  assignKthtdd: async (data: { maTram: string; nguoiThucHien: string }): Promise<{ ok: boolean; message: string }> => {
+    // 1. Optimistic update
+    if (memCacheKthtddList) {
+      let count = 0;
+      memCacheKthtddList = memCacheKthtddList.map(item => {
+        if (item.maTram.toLowerCase().trim() === data.maTram.toLowerCase().trim()) {
+          count++;
+          return { ...item, nguoiThucHien: data.nguoiThucHien };
+        }
+        return item;
+      });
+      set('sheet_kthtdd_v1', memCacheKthtddList).catch(() => {});
+      window.dispatchEvent(new CustomEvent('kthtdd_updated'));
+    }
+
+    // 2. Send to Google Apps Script
+    try {
+      const url = DataStore.getAppScriptUrl();
+      if (!url) return { ok: true, message: 'Đã phân công cục bộ (chưa cấu hình Apps Script)' };
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'assign_kthtdd', data })
+      });
+      const rawText = await response.text();
+      try {
+        const res = JSON.parse(rawText);
+        return { ok: res.status === 'success', message: res.message || 'Phân công thành công' };
+      } catch {
+        return { ok: response.ok, message: 'Đã gửi phân công' };
+      }
+    } catch (e: any) {
+      console.warn('Error assignKthtdd:', e);
+      return { ok: false, message: e.message || 'Lỗi kết nối tới máy chủ' };
+    }
   }
 };
