@@ -23,6 +23,9 @@ import {
   Filter,
   X,
   Phone,
+  PhoneCall,
+  MessageCircle,
+  Navigation,
   MapPin,
   FileSpreadsheet,
   Check,
@@ -33,7 +36,8 @@ import {
   SlidersHorizontal,
   Info,
   Maximize2,
-  Minimize2
+  Minimize2,
+  RotateCcw
 } from 'lucide-react';
 import * as XLSX from 'xlsx-js-style';
 import { DataStore, KthtddEntry, SheetMember } from '../store/DataStore';
@@ -70,22 +74,174 @@ export const normalizeSearchStr = (s: any): string =>
     .toLowerCase()
     .trim();
 
-// Helper: Format phone number with leading 0 (e.g. 989667788 -> 0989667788)
+// Helper: Format phone number with leading 0 (e.g. 989667788 -> 0989667788, 0989667788 -> 0989667788)
+// Quy tắc: Nếu số điện thoại không có số 0 ở đầu thì thêm số 0 vào đầu, nếu đã có số 0 đầu thì không cần thêm.
 export const formatPhoneNumber = (rawPhone?: string | number): string => {
   if (rawPhone === undefined || rawPhone === null) return '';
-  let p = String(rawPhone).trim().replace(/\s+/g, '');
-  if (!p || p === '0' || p === '-' || p === 'N/A') return '';
-  // Convert country code +84 or 84
-  if (p.startsWith('+84')) {
-    p = '0' + p.slice(3);
-  } else if (p.startsWith('84') && p.length >= 11) {
-    p = '0' + p.slice(2);
+  let p = String(rawPhone).trim();
+  if (!p || p === '0' || p === '-' || p === 'N/A' || p === 'null' || p === 'undefined') return '';
+  // Xóa các ký tự khoảng trắng, dấu chấm, dấu gạch ngang
+  let clean = p.replace(/[\s\.\-_]/g, '');
+  // Xử lý mã quốc gia Việt Nam (+84 hoặc 84)
+  if (clean.startsWith('+84')) {
+    clean = '0' + clean.slice(3);
+  } else if (clean.startsWith('84') && clean.length >= 11) {
+    clean = '0' + clean.slice(2);
   }
-  // Add leading 0 if purely numeric and doesn't start with 0
-  if (/^\d+$/.test(p) && !p.startsWith('0')) {
-    p = '0' + p;
+  // Nếu là chuỗi số: nếu không có số 0 ở đầu thì thêm số 0, nếu đã có số 0 đầu thì không cần thêm
+  if (/^\d+$/.test(clean)) {
+    if (!clean.startsWith('0')) {
+      clean = '0' + clean;
+    }
+    return clean;
+  }
+  // Dự phòng trường hợp còn ký tự khác nhưng bắt đầu bằng số
+  if (!p.startsWith('0') && /^\d/.test(p)) {
+    return '0' + p;
   }
   return p;
+};
+
+// Helper: Tự động lấy tọa độ GPS của thiết bị khi lưu kết quả kiểm tra
+export const getCurrentGPSCoords = (): Promise<{ x: string; y: string } | null> => {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined' || !navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        // Tọa độ X = Vĩ độ (Latitude), Tọa độ Y = Kinh độ (Longitude)
+        // Chuẩn hóa 6 chữ số thập phân (độ chính xác ~0.1m)
+        resolve({
+          x: lat.toFixed(6),
+          y: lng.toFixed(6)
+        });
+      },
+      (error) => {
+        console.warn('Không thể lấy tọa độ GPS tự động:', error);
+        resolve(null);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 6000,
+        maximumAge: 15000
+      }
+    );
+  });
+};
+
+// Helper: Tạo liên kết chỉ đường Google Maps đến tọa độ GPS hoặc địa chỉ của khách hàng
+export const getCustomerDirectionsUrl = (
+  diaChi?: string,
+  khuVuc?: string,
+  tenTram?: string,
+  x?: string | number,
+  y?: string | number
+): string => {
+  // 1. Ưu tiên: Nếu khách hàng có tọa độ X và Y thì chỉ đường trực tiếp tới tọa độ GPS đó
+  if (x !== undefined && y !== undefined && String(x).trim() !== '' && String(y).trim() !== '') {
+    const rawX = String(x).trim().replace(',', '.');
+    const rawY = String(y).trim().replace(',', '.');
+    const numX = parseFloat(rawX);
+    const numY = parseFloat(rawY);
+    if (!isNaN(numX) && !isNaN(numY) && numX !== 0 && numY !== 0) {
+      // Phân biệt Lat/Lng thông minh (ở VN: Vĩ độ ~8-24, Kinh độ ~102-110)
+      let lat = numX;
+      let lng = numY;
+      if (numX > 50 && numY < 50) {
+        lat = numY;
+        lng = numX;
+      }
+      return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+    }
+  }
+
+  // 2. Không có tọa độ X, Y -> sử dụng chỉ đường theo địa chỉ hiện hữu
+  if (!diaChi && !tenTram) return '';
+  const parts: string[] = [];
+  if (diaChi) parts.push(diaChi.trim());
+  if (khuVuc && khuVuc !== 'Chưa phân khu vực' && !diaChi?.toLowerCase().includes(khuVuc.toLowerCase())) {
+    parts.push(khuVuc.trim());
+  }
+  const full = parts.join(', ');
+  const hasProvince = /vũng tàu|vung tau|bà rịa|ba ria|phú mỹ|phu my/i.test(full);
+  const finalQuery = hasProvince ? full : `${full}, Bà Rịa - Vũng Tàu`;
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(finalQuery)}`;
+};
+
+// Helper: Chuyển chuỗi ngày (dd/mm/yyyy hoặc yyyy-mm-dd) sang đối tượng Date an toàn
+export const parseAnyDate = (val?: string | Date | null): Date | null => {
+  if (!val) return null;
+  if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+  const s = String(val).trim();
+  if (!s) return null;
+
+  if (s.includes('/')) {
+    const parts = s.split('/');
+    if (parts.length === 3) {
+      const d = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10) - 1;
+      const y = parseInt(parts[2], 10);
+      const dt = new Date(y, m, d);
+      return isNaN(dt.getTime()) ? null : dt;
+    }
+  }
+
+  if (s.includes('-')) {
+    const parts = s.split('-');
+    if (parts.length === 3 && parts[0].length === 4) {
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10) - 1;
+      const d = parseInt(parts[2], 10);
+      const dt = new Date(y, m, d);
+      return isNaN(dt.getTime()) ? null : dt;
+    }
+  }
+
+  const dt = new Date(s);
+  return isNaN(dt.getTime()) ? null : dt;
+};
+
+export const formatDateToISO = (d: Date): string => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
+export const formatDisplayDate = (d: Date): string => {
+  const day = String(d.getDate()).padStart(2, '0');
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const y = d.getFullYear();
+  return `${day}/${m}/${y}`;
+};
+
+export const getWeekBoundaries = (d: Date) => {
+  const day = d.getDay() || 7; // Thứ 2 = 1, CN = 7
+  const monday = new Date(d);
+  monday.setDate(d.getDate() - day + 1);
+  monday.setHours(0, 0, 0, 0);
+
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  sunday.setHours(23, 59, 59, 999);
+
+  return { monday, sunday };
+};
+
+export const getISOWeekNumber = (d: Date): number => {
+  const target = new Date(d.valueOf());
+  const dayNr = (d.getDay() + 6) % 7;
+  target.setDate(target.getDate() - dayNr + 3);
+  const firstThursday = target.valueOf();
+  target.setMonth(0, 1);
+  if (target.getDay() !== 4) {
+    target.setMonth(0, 1 + ((4 - target.getDay()) + 7) % 7);
+  }
+  return 1 + Math.ceil((firstThursday - target.valueOf()) / 604800000);
 };
 
 export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabProps) {
@@ -174,9 +330,128 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
   const [listPage, setListPage] = useState(1);
   const [listPageSize, setListPageSize] = useState(25);
 
-  // Section 2.4: Thống kê
+  // Section 2.4: Thống kê (cho phép chọn giá trị cụ thể theo ngày, tuần, tháng)
   const [statsPeriod, setStatsPeriod] = useState<'day' | 'week' | 'month' | 'all'>('day');
-  const [statsCustomDate, setStatsCustomDate] = useState<string>('');
+  const [statsSelectedDate, setStatsSelectedDate] = useState<string>(() => {
+    const d = new Date();
+    return formatDateToISO(d);
+  });
+  const [statsSelectedWeekDate, setStatsSelectedWeekDate] = useState<string>(() => {
+    const d = new Date();
+    return formatDateToISO(d);
+  });
+  const [statsSelectedMonth, setStatsSelectedMonth] = useState<string>(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+
+  // Navigation handlers for Section 2.4
+  const handlePrevDay = () => {
+    const d = parseAnyDate(statsSelectedDate) || new Date();
+    d.setDate(d.getDate() - 1);
+    setStatsSelectedDate(formatDateToISO(d));
+  };
+  const handleNextDay = () => {
+    const d = parseAnyDate(statsSelectedDate) || new Date();
+    d.setDate(d.getDate() + 1);
+    setStatsSelectedDate(formatDateToISO(d));
+  };
+  const handleToday = () => {
+    setStatsSelectedDate(formatDateToISO(new Date()));
+  };
+
+  const handlePrevWeek = () => {
+    const d = parseAnyDate(statsSelectedWeekDate) || new Date();
+    d.setDate(d.getDate() - 7);
+    setStatsSelectedWeekDate(formatDateToISO(d));
+  };
+  const handleNextWeek = () => {
+    const d = parseAnyDate(statsSelectedWeekDate) || new Date();
+    d.setDate(d.getDate() + 7);
+    setStatsSelectedWeekDate(formatDateToISO(d));
+  };
+  const handleCurrentWeek = () => {
+    setStatsSelectedWeekDate(formatDateToISO(new Date()));
+  };
+
+  const handlePrevMonth = () => {
+    const parts = statsSelectedMonth.split('-').map(Number);
+    const d = new Date(parts[0] || new Date().getFullYear(), (parts[1] || 1) - 1 - 1, 1);
+    setStatsSelectedMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  };
+  const handleNextMonth = () => {
+    const parts = statsSelectedMonth.split('-').map(Number);
+    const d = new Date(parts[0] || new Date().getFullYear(), (parts[1] || 1) - 1 + 1, 1);
+    setStatsSelectedMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  };
+  const handleCurrentMonth = () => {
+    const now = new Date();
+    setStatsSelectedMonth(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
+  };
+
+  // Thông tin nhãn hiển thị và xuất file của khoảng thời gian thống kê được chọn (Section 2.4)
+  const statsPeriodInfo = useMemo(() => {
+    const dayNames = ['Chủ nhật', 'Thứ hai', 'Thứ ba', 'Thứ tư', 'Thứ năm', 'Thứ sáu', 'Thứ bảy'];
+    const now = new Date();
+
+    if (statsPeriod === 'day') {
+      const dt = parseAnyDate(statsSelectedDate) || now;
+      const isToday = formatDateToISO(dt) === formatDateToISO(now);
+      const weekday = dayNames[dt.getDay()];
+      const displayDate = formatDisplayDate(dt);
+      return {
+        label: `Ngày ${displayDate}${isToday ? ' (Hôm nay)' : ''}`,
+        shortLabel: displayDate,
+        subLabel: `${weekday}, ngày ${displayDate}`,
+        isCurrent: isToday,
+        exportText: `Ngày ${displayDate} (${weekday})`,
+        fileSuffix: `Ngay_${statsSelectedDate}`
+      };
+    }
+
+    if (statsPeriod === 'week') {
+      const dt = parseAnyDate(statsSelectedWeekDate) || now;
+      const { monday, sunday } = getWeekBoundaries(dt);
+      const currentBounds = getWeekBoundaries(now);
+      const isCurrentWeek = formatDateToISO(monday) === formatDateToISO(currentBounds.monday);
+      const weekNum = getISOWeekNumber(dt);
+      const startStr = formatDisplayDate(monday);
+      const endStr = formatDisplayDate(sunday);
+      return {
+        label: `Tuần ${weekNum} (${startStr} - ${endStr})${isCurrentWeek ? ' (Tuần này)' : ''}`,
+        shortLabel: `Tuần ${weekNum}`,
+        subLabel: `Tuần ${weekNum} (Từ Thứ hai ${startStr} đến Chủ nhật ${endStr})`,
+        isCurrent: isCurrentWeek,
+        exportText: `Tuần ${weekNum} năm ${monday.getFullYear()} (Từ ${startStr} đến ${endStr})`,
+        fileSuffix: `Tuan_${weekNum}_${monday.getFullYear()}`
+      };
+    }
+
+    if (statsPeriod === 'month') {
+      const parts = statsSelectedMonth.split('-').map(Number);
+      const targetYear = parts[0] || now.getFullYear();
+      const targetMonth = parts[1] || (now.getMonth() + 1);
+      const isCurrentMonth = targetYear === now.getFullYear() && targetMonth === (now.getMonth() + 1);
+      const monthStr = `Tháng ${String(targetMonth).padStart(2, '0')}/${targetYear}`;
+      return {
+        label: `${monthStr}${isCurrentMonth ? ' (Tháng này)' : ''}`,
+        shortLabel: monthStr,
+        subLabel: `${monthStr}`,
+        isCurrent: isCurrentMonth,
+        exportText: `${monthStr}`,
+        fileSuffix: `Thang_${String(targetMonth).padStart(2, '0')}_${targetYear}`
+      };
+    }
+
+    return {
+      label: 'Tất cả thời gian',
+      shortLabel: 'Tất cả',
+      subLabel: 'Toàn bộ dữ liệu kiểm tra',
+      isCurrent: true,
+      exportText: 'Toàn bộ thời gian',
+      fileSuffix: 'Tat_ca'
+    };
+  }, [statsPeriod, statsSelectedDate, statsSelectedWeekDate, statsSelectedMonth]);
 
   // Speech recognition ref for search
   const recognitionRef = useRef<any>(null);
@@ -624,16 +899,24 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
     setInspectSuccessMsg('');
 
     try {
+      // Tự động lấy tọa độ GPS của thiết bị khi bấm lưu (X: Vĩ độ / Latitude, Y: Kinh độ / Longitude)
+      const gps = await getCurrentGPSCoords();
+      const toadoX = gps?.x || selectedCustomer.x || '';
+      const toadoY = gps?.y || selectedCustomer.y || '';
+
       const res = await DataStore.updateKthtdd({
         maKh: selectedCustomer.maKh,
         ngay: inspectNgay || getTodayFormatted(),
         ketQua: inspectKetQua,
         chi: inspectChi,
-        deXuat: inspectDeXuat
+        deXuat: inspectDeXuat,
+        x: toadoX,
+        y: toadoY
       });
 
       if (res.ok) {
-        setInspectSuccessMsg(`✓ Đã lưu kết quả kiểm tra cho khách hàng ${selectedCustomer.tenKh} (${selectedCustomer.maKh})`);
+        const gpsNotice = toadoX && toadoY ? ` [Tọa độ X: ${toadoX}, Y: ${toadoY}]` : '';
+        setInspectSuccessMsg(`✓ Đã lưu kết quả kiểm tra & tọa độ GPS${gpsNotice} cho khách hàng ${selectedCustomer.tenKh} (${selectedCustomer.maKh})`);
 
         if (andNext) {
           const sameStationKhs = entries.filter(
@@ -766,7 +1049,9 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
       'Ngày KT': item.ngay,
       'Kết quả': item.ketQua,
       'Chì?': item.chi,
-      'Đề xuất': item.deXuat
+      'Đề xuất': item.deXuat,
+      'Tọa độ X': item.x || '',
+      'Tọa độ Y': item.y || ''
     }));
 
     const ws = XLSX.utils.json_to_sheet(exportRows);
@@ -785,7 +1070,9 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
       { wch: 12 },
       { wch: 15 },
       { wch: 10 },
-      { wch: 32 }
+      { wch: 32 },
+      { wch: 14 },
+      { wch: 14 }
     ];
 
     const wb = XLSX.utils.book_new();
@@ -798,44 +1085,28 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
   // Section 2.4: Thống kê số liệu thực hiện (đã có kết quả) theo ngày, tuần, tháng
   const statsData = useMemo(() => {
     const doneEntries = entries.filter(e => e.ketQua && e.ketQua.trim().length > 0);
-    const now = new Date();
-    const todayStr = getTodayFormatted();
-
-    const parseDateStr = (str: string) => {
-      if (!str) return null;
-      const parts = str.split('/');
-      if (parts.length === 3) {
-        return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
-      }
-      return null;
-    };
 
     const filteredByTime = doneEntries.filter(item => {
       if (statsPeriod === 'all') return true;
 
-      const itemDate = parseDateStr(item.ngay);
+      const itemDate = parseAnyDate(item.ngay);
       if (!itemDate) return false;
 
       if (statsPeriod === 'day') {
-        const targetDay = statsCustomDate || todayStr;
-        return item.ngay.trim() === targetDay.trim();
+        return formatDateToISO(itemDate) === statsSelectedDate;
       }
 
       if (statsPeriod === 'week') {
-        const dayOfWeek = now.getDay() || 7;
-        const monday = new Date(now);
-        monday.setDate(now.getDate() - dayOfWeek + 1);
-        monday.setHours(0, 0, 0, 0);
-
-        const sunday = new Date(monday);
-        sunday.setDate(monday.getDate() + 6);
-        sunday.setHours(23, 59, 59, 999);
-
+        const selectedWeekDateObj = parseAnyDate(statsSelectedWeekDate) || new Date();
+        const { monday, sunday } = getWeekBoundaries(selectedWeekDateObj);
         return itemDate >= monday && itemDate <= sunday;
       }
 
       if (statsPeriod === 'month') {
-        return itemDate.getMonth() === now.getMonth() && itemDate.getFullYear() === now.getFullYear();
+        const parts = statsSelectedMonth.split('-').map(Number);
+        const targetYear = parts[0] || new Date().getFullYear();
+        const targetMonth = parts[1] || (new Date().getMonth() + 1);
+        return itemDate.getFullYear() === targetYear && (itemDate.getMonth() + 1) === targetMonth;
       }
 
       return true;
@@ -941,7 +1212,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
       areaList: Object.values(areaStatsMap),
       assigneeList: Object.values(assigneeStatsMap).sort((a, b) => b.doneCount - a.doneCount)
     };
-  }, [entries, statsPeriod, statsCustomDate]);
+  }, [entries, statsPeriod, statsSelectedDate, statsSelectedWeekDate, statsSelectedMonth]);
 
   // Xuất Excel Báo cáo Thống kê Phần 2.4
   const handleExportStatsExcel = () => {
@@ -950,13 +1221,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
       return;
     }
 
-    const periodLabels: Record<string, string> = {
-      day: statsCustomDate ? `Ngày ${statsCustomDate}` : `Hôm nay (${getTodayFormatted()})`,
-      week: 'Tuần này',
-      month: `Tháng này (Tháng ${new Date().getMonth() + 1}/${new Date().getFullYear()})`,
-      all: 'Tất cả thời gian'
-    };
-    const periodText = periodLabels[statsPeriod] || statsPeriod;
+    const periodText = statsPeriodInfo.exportText;
 
     const wb = XLSX.utils.book_new();
 
@@ -1041,7 +1306,9 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
         'Ngày KT': item.ngay,
         'Kết quả': item.ketQua,
         'Chì?': item.chi,
-        'Đề xuất': item.deXuat
+        'Đề xuất': item.deXuat,
+        'Tọa độ X': item.x || '',
+        'Tọa độ Y': item.y || ''
       }));
 
       const wsDetails = XLSX.utils.json_to_sheet(detailRows);
@@ -1060,13 +1327,15 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
         { wch: 12 },
         { wch: 14 },
         { wch: 10 },
-        { wch: 32 }
+        { wch: 32 },
+        { wch: 14 },
+        { wch: 14 }
       ];
       XLSX.utils.book_append_sheet(wb, wsDetails, 'Chi tiết KH đã KT');
     }
 
     const safeDate = new Date().toISOString().slice(0, 10);
-    const fileName = `Thong_Ke_KTHTDD_${statsPeriod}_${safeDate}.xlsx`;
+    const fileName = `Thong_Ke_KTHTDD_${statsPeriodInfo.fileSuffix}_${safeDate}.xlsx`;
     XLSX.writeFile(wb, fileName);
   };
 
@@ -1478,6 +1747,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                                             setMobileTab('inspect');
                                             setOpenSections(prev => ({ ...prev, inspect: true }));
                                           }}
+                                          title={`Mã KH: ${customer.maKh}\nTên KH: ${customer.tenKh}${customer.diaChi ? '\nĐịa chỉ: ' + customer.diaChi : ''}${customer.soDienThoai ? '\nSĐT: ' + formatPhoneNumber(customer.soDienThoai) : ''}`}
                                           className={`flex items-center justify-between p-1.5 rounded-lg text-xs cursor-pointer transition-all ${
                                             isSelected
                                               ? 'bg-[#005a9c] text-white font-bold shadow-xs'
@@ -1730,156 +2000,425 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                     </div>
                   </div>
 
-                  {/* Grid details (Phone formatted with leading 0) */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 pt-1 text-slate-600">
-                    <div className="flex items-start gap-1.5 sm:col-span-2">
-                      <MapPin className="w-3.5 h-3.5 text-rose-500 shrink-0 mt-0.5" />
-                      <span>
-                        <b className="text-slate-700">Địa chỉ:</b> {selectedCustomer.diaChi || 'Chưa có thông tin'}
-                      </span>
-                    </div>
+                  {/* Grid details (Địa chỉ có chỉ đường, Phone có Gọi Call & Zalo) */}
+                  {(() => {
+                    const customerPhone = formatPhoneNumber(selectedCustomer.soDienThoai);
+                    const directionsUrl = getCustomerDirectionsUrl(
+                      selectedCustomer.diaChi,
+                      selectedCustomer.khuVuc,
+                      selectedCustomer.tenTram,
+                      selectedCustomer.x,
+                      selectedCustomer.y
+                    );
+                    const hasCoords = Boolean(selectedCustomer.x && selectedCustomer.y);
 
-                    <div className="flex items-center gap-1.5">
-                      <Building2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                      <span>
-                        <b className="text-slate-700">Khu vực:</b> {selectedCustomer.khuVuc}
-                      </span>
-                    </div>
+                    return (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 text-slate-600">
+                        {/* Hàng Địa chỉ - Icon vị trí chính là nút chỉ đường (kết hợp) */}
+                        <div className="flex items-center gap-2.5 sm:col-span-2 lg:col-span-3 bg-white p-2.5 rounded-xl border border-slate-200/90 shadow-2xs hover:border-rose-200 transition-all group">
+                          {directionsUrl ? (
+                            <a
+                              href={directionsUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="w-9 h-9 rounded-xl bg-rose-500 hover:bg-rose-600 text-white flex items-center justify-center shrink-0 shadow-xs transition-transform active:scale-90 cursor-pointer"
+                              title={
+                                hasCoords
+                                  ? `Bấm vào biểu tượng vị trí này để chỉ đường Google Maps đến tọa độ GPS (${selectedCustomer.x}, ${selectedCustomer.y})`
+                                  : 'Bấm vào biểu tượng vị trí này để mở chỉ đường Google Maps'
+                              }
+                            >
+                              <MapPin className="w-4 h-4 transition-transform group-hover:scale-110" />
+                            </a>
+                          ) : (
+                            <div className="w-9 h-9 rounded-xl bg-slate-200 text-slate-400 flex items-center justify-center shrink-0">
+                              <MapPin className="w-4 h-4" />
+                            </div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Địa chỉ khách hàng</span>
+                              {directionsUrl && (
+                                <span className="text-[10px] text-rose-600 font-semibold flex items-center gap-0.5">
+                                  <Navigation className="w-2.5 h-2.5" />
+                                  {hasCoords ? 'Chỉ đường GPS' : 'Bấm icon để chỉ đường'}
+                                </span>
+                              )}
+                              {hasCoords && (
+                                <span
+                                  className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 font-mono font-bold border border-emerald-200 flex items-center gap-1"
+                                  title={`Tọa độ GPS đã lưu: X=${selectedCustomer.x}, Y=${selectedCustomer.y}`}
+                                >
+                                  <MapPin className="w-3 h-3 text-emerald-600 shrink-0" />
+                                  GPS: {selectedCustomer.x}, {selectedCustomer.y}
+                                </span>
+                              )}
+                            </div>
+                            {selectedCustomer.diaChi ? (
+                              <a
+                                href={directionsUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs sm:text-sm font-semibold text-slate-900 hover:text-rose-700 hover:underline block truncate mt-0.5 transition-colors cursor-pointer"
+                                title={
+                                  hasCoords
+                                    ? `Chỉ đường GPS đến (${selectedCustomer.x}, ${selectedCustomer.y}) - ${selectedCustomer.diaChi}`
+                                    : `Chỉ đường đến: ${selectedCustomer.diaChi}`
+                                }
+                              >
+                                {selectedCustomer.diaChi}
+                                {selectedCustomer.khuVuc && (
+                                  <span className="text-slate-500 text-xs font-normal ml-1.5">
+                                    ({selectedCustomer.khuVuc})
+                                  </span>
+                                )}
+                              </a>
+                            ) : hasCoords ? (
+                              <a
+                                href={directionsUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs sm:text-sm font-semibold text-emerald-700 hover:underline block truncate mt-0.5 transition-colors cursor-pointer"
+                                title={`Chỉ đường tới tọa độ GPS: ${selectedCustomer.x}, ${selectedCustomer.y}`}
+                              >
+                                Tọa độ GPS: {selectedCustomer.x}, {selectedCustomer.y}
+                              </a>
+                            ) : (
+                              <span className="text-slate-400 italic text-xs block mt-0.5">
+                                Chưa có thông tin địa chỉ
+                              </span>
+                            )}
+                          </div>
+                        </div>
 
-                    <div className="flex items-center gap-1.5">
-                      <Layers className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                      <span className="truncate">
-                        <b className="text-slate-700">Trạm:</b> {selectedCustomer.maTram} - {selectedCustomer.tenTram}
-                      </span>
-                    </div>
+                        {/* Hàng Số điện thoại - Thiết kế tương tự với icon Gọi và Zalo kết hợp */}
+                        <div className="flex items-center justify-between gap-2.5 sm:col-span-2 lg:col-span-3 bg-white p-2.5 rounded-xl border border-slate-200/90 shadow-2xs hover:border-emerald-200 transition-all">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            {customerPhone ? (
+                              <a
+                                href={`tel:${customerPhone}`}
+                                className="w-9 h-9 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center shrink-0 shadow-xs transition-transform active:scale-90 cursor-pointer"
+                                title={`Bấm vào biểu tượng để gọi trực tiếp số ${customerPhone}`}
+                              >
+                                <PhoneCall className="w-4 h-4" />
+                              </a>
+                            ) : (
+                              <div className="w-9 h-9 rounded-xl bg-slate-200 text-slate-400 flex items-center justify-center shrink-0">
+                                <Phone className="w-4 h-4" />
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Số điện thoại liên hệ</span>
+                              {customerPhone ? (
+                                <a
+                                  href={`tel:${customerPhone}`}
+                                  className="font-mono font-black text-sm text-slate-900 hover:text-emerald-700 tracking-wider block mt-0.5"
+                                  title={`Bấm để gọi số ${customerPhone}`}
+                                >
+                                  {customerPhone}
+                                </a>
+                              ) : (
+                                <span className="text-slate-400 italic text-xs block mt-0.5">Chưa có số điện thoại</span>
+                              )}
+                            </div>
+                          </div>
 
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-mono font-bold text-slate-500">No:</span>
-                      <span>
-                        <b className="text-slate-700">Số No:</b> {selectedCustomer.soNo || 'N/A'}
-                      </span>
-                    </div>
+                          {customerPhone && (
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {/* Nút icon Call */}
+                              <a
+                                href={`tel:${customerPhone}`}
+                                className="w-9 h-9 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center shadow-xs transition-transform active:scale-90 cursor-pointer"
+                                title={`Gọi điện thoại đến số ${customerPhone}`}
+                              >
+                                <PhoneCall className="w-4 h-4" />
+                              </a>
+                              {/* Nút icon Zalo */}
+                              <a
+                                href={`https://zalo.me/${customerPhone}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="w-9 h-9 rounded-xl bg-[#0068ff] hover:bg-[#0052cc] text-white flex items-center justify-center shadow-xs transition-transform active:scale-90 cursor-pointer"
+                                title={`Gọi hoặc nhắn tin Zalo tới số ${customerPhone}`}
+                              >
+                                <MessageCircle className="w-4 h-4" />
+                              </a>
+                            </div>
+                          )}
+                        </div>
 
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-mono font-bold text-slate-500">DS:</span>
-                      <span>
-                        <b className="text-slate-700">Danh số:</b> {selectedCustomer.danhSo || 'N/A'}
-                      </span>
-                    </div>
+                        {/* Các thông tin khác */}
+                        <div className="flex items-center gap-2 p-2 bg-slate-50/80 rounded-xl border border-slate-200/60">
+                          <Building2 className="w-4 h-4 text-blue-500 shrink-0" />
+                          <div className="min-w-0 truncate">
+                            <span className="text-[10px] font-bold text-slate-400 block uppercase">Khu vực</span>
+                            <span className="font-semibold text-slate-800 text-xs truncate">{selectedCustomer.khuVuc || 'N/A'}</span>
+                          </div>
+                        </div>
 
-                    {/* Số điện thoại (Tự động thêm số 0 ở trước - Requirement 3) */}
-                    {selectedCustomer.soDienThoai && (
-                      <div className="flex items-center gap-1.5">
-                        <Phone className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                        <span>
-                          <b className="text-slate-700">Số ĐT:</b>{' '}
-                          <a
-                            href={`tel:${formatPhoneNumber(selectedCustomer.soDienThoai)}`}
-                            className="text-[#005a9c] hover:underline font-bold font-mono"
-                          >
-                            {formatPhoneNumber(selectedCustomer.soDienThoai)}
-                          </a>
-                        </span>
+                        <div className="flex items-center gap-2 p-2 bg-slate-50/80 rounded-xl border border-slate-200/60">
+                          <Layers className="w-4 h-4 text-amber-500 shrink-0" />
+                          <div className="min-w-0 truncate">
+                            <span className="text-[10px] font-bold text-slate-400 block uppercase">Trạm</span>
+                            <span className="font-semibold text-slate-800 text-xs truncate" title={`${selectedCustomer.maTram} - ${selectedCustomer.tenTram}`}>
+                              {selectedCustomer.maTram ? `${selectedCustomer.maTram} - ${selectedCustomer.tenTram}` : selectedCustomer.tenTram}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 p-2 bg-slate-50/80 rounded-xl border border-slate-200/60">
+                          <div className="w-4 h-4 rounded text-slate-500 font-mono font-black text-[10px] flex items-center justify-center border border-slate-300">
+                            No
+                          </div>
+                          <div className="min-w-0 truncate">
+                            <span className="text-[10px] font-bold text-slate-400 block uppercase">Số No công tơ</span>
+                            <span className="font-mono font-semibold text-slate-800 text-xs truncate">{selectedCustomer.soNo || 'N/A'}</span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 p-2 bg-slate-50/80 rounded-xl border border-slate-200/60">
+                          <div className="w-4 h-4 rounded text-slate-500 font-mono font-black text-[10px] flex items-center justify-center border border-slate-300">
+                            DS
+                          </div>
+                          <div className="min-w-0 truncate">
+                            <span className="text-[10px] font-bold text-slate-400 block uppercase">Danh số</span>
+                            <span className="font-mono font-semibold text-slate-800 text-xs truncate">{selectedCustomer.danhSo || 'N/A'}</span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 p-2 bg-slate-50/80 rounded-xl border border-slate-200/60 sm:col-span-2">
+                          <UserCheck className="w-4 h-4 text-indigo-500 shrink-0" />
+                          <div className="min-w-0 truncate">
+                            <span className="text-[10px] font-bold text-slate-400 block uppercase">Người thực hiện</span>
+                            <span className="font-semibold text-slate-800 text-xs truncate">
+                              {selectedCustomer.nguoiThucHien || <span className="text-amber-500 italic">Chưa phân công</span>}
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                    )}
-
-                    <div className="flex items-center gap-1.5 sm:col-span-2">
-                      <UserCheck className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                      <span>
-                        <b className="text-slate-700">Người thực hiện:</b>{' '}
-                        {selectedCustomer.nguoiThucHien || 'Chưa phân công'}
-                      </span>
-                    </div>
-                  </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Form Input Section */}
-                <div className="bg-white rounded-xl border border-teal-200/80 p-3 md:p-4 shadow-xs flex flex-col gap-3">
-                  <div className="text-xs font-bold text-teal-800 uppercase tracking-wider flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-teal-600" />
-                    <span>Nhập kết quả kiểm tra</span>
-                  </div>
+                <div className="bg-white rounded-2xl border border-slate-200/90 p-4 md:p-5 shadow-xs flex flex-col gap-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center font-bold text-xs border border-teal-200/60">
+                        <CheckCircle2 className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs md:text-sm font-bold text-slate-900 uppercase tracking-wide">
+                          Phiếu kết quả kiểm tra kiện toàn HTĐĐ
+                        </h4>
+                        <p className="text-[11px] text-slate-500">
+                          Ghi nhận tình trạng kiểm tra thực tế tại hiện trường
+                        </p>
+                      </div>
+                    </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    {/* 1. Trường Ngày (mặc định hôm nay dd/mm/yyyy) */}
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
-                        <Calendar className="w-3 h-3 text-[#005a9c]" />
-                        <span>Ngày kiểm tra</span>
-                      </label>
+                    {/* Ngày kiểm tra compact */}
+                    <div className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200 transition-colors">
+                      <Calendar className="w-3.5 h-3.5 text-[#005a9c]" />
+                      <span className="text-[11px] font-bold text-slate-600">Ngày KT:</span>
                       <input
                         type="text"
                         value={inspectNgay}
                         onChange={e => setInspectNgay(e.target.value)}
                         placeholder="dd/mm/yyyy"
-                        className="w-full px-3 py-2 text-xs md:text-sm bg-slate-50 border border-slate-300 rounded-lg focus:bg-white focus:border-[#005a9c] focus:ring-1 focus:ring-[#005a9c] outline-none font-medium"
+                        className="w-24 bg-transparent font-mono text-xs font-bold text-slate-900 outline-none text-center"
                       />
                     </div>
+                  </div>
 
-                    {/* 2. Trường Kết quả: chỉ 2 giá trị "Bình thường" hoặc "Không" */}
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[11px] font-bold text-slate-700">
-                        Kết quả <span className="text-rose-500">*</span>
-                      </label>
-                      <div className="grid grid-cols-2 gap-1.5">
+                  {/* 2 Khối chọn hiện đại: Kết quả & Chì? */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Phần 1: Kết quả kiểm tra */}
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-slate-800 flex items-center gap-1">
+                          <span>1. Kết quả kiểm tra</span>
+                          <span className="text-rose-500">*</span>
+                        </label>
+                        {inspectKetQua && (
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              inspectKetQua === 'Bình thường'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-rose-100 text-rose-800'
+                            }`}
+                          >
+                            ✓ {inspectKetQua}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2.5">
+                        {/* Card: Bình thường */}
                         <button
                           type="button"
                           onClick={() => setInspectKetQua('Bình thường')}
-                          className={`py-2 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-all border ${
+                          className={`relative p-3 rounded-xl border-2 text-left transition-all cursor-pointer active:scale-98 flex flex-col justify-between gap-2.5 ${
                             inspectKetQua === 'Bình thường'
-                              ? 'bg-emerald-600 border-emerald-700 text-white shadow-sm'
-                              : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-emerald-50 hover:text-emerald-700'
+                              ? 'bg-emerald-50/90 border-emerald-600 text-emerald-950 shadow-sm ring-2 ring-emerald-500/20'
+                              : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
                           }`}
                         >
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>Bình thường</span>
+                          <div className="flex items-center justify-between">
+                            <div
+                              className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                                inspectKetQua === 'Bình thường'
+                                  ? 'bg-emerald-600 text-white'
+                                  : 'bg-emerald-50 text-emerald-600 border border-emerald-200'
+                              }`}
+                            >
+                              <CheckCircle2 className="w-5 h-5" />
+                            </div>
+                            <div
+                              className={`w-5 h-5 rounded-full border-2 flex items-center justify-center text-[10px] font-black transition-all ${
+                                inspectKetQua === 'Bình thường'
+                                  ? 'border-emerald-600 bg-emerald-600 text-white'
+                                  : 'border-slate-300 text-transparent'
+                              }`}
+                            >
+                              ✓
+                            </div>
+                          </div>
+                          <div>
+                            <div className="font-bold text-xs sm:text-sm">Bình thường</div>
+                            <div className="text-[11px] text-slate-500 font-normal">Đạt chuẩn HTĐĐ</div>
+                          </div>
                         </button>
 
+                        {/* Card: Không (Bất thường) */}
                         <button
                           type="button"
                           onClick={() => setInspectKetQua('Không')}
-                          className={`py-2 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-all border ${
+                          className={`relative p-3 rounded-xl border-2 text-left transition-all cursor-pointer active:scale-98 flex flex-col justify-between gap-2.5 ${
                             inspectKetQua === 'Không'
-                              ? 'bg-rose-600 border-rose-700 text-white shadow-sm'
-                              : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-rose-50 hover:text-rose-700'
+                              ? 'bg-rose-50/90 border-rose-600 text-rose-950 shadow-sm ring-2 ring-rose-500/20'
+                              : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
                           }`}
                         >
-                          <AlertTriangle className="w-3.5 h-3.5" />
-                          <span>Không</span>
+                          <div className="flex items-center justify-between">
+                            <div
+                              className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                                inspectKetQua === 'Không'
+                                  ? 'bg-rose-600 text-white'
+                                  : 'bg-rose-50 text-rose-600 border border-rose-200'
+                              }`}
+                            >
+                              <AlertTriangle className="w-5 h-5" />
+                            </div>
+                            <div
+                              className={`w-5 h-5 rounded-full border-2 flex items-center justify-center text-[10px] font-black transition-all ${
+                                inspectKetQua === 'Không'
+                                  ? 'border-rose-600 bg-rose-600 text-white'
+                                  : 'border-slate-300 text-transparent'
+                              }`}
+                            >
+                              ✓
+                            </div>
+                          </div>
+                          <div>
+                            <div className="font-bold text-xs sm:text-sm">Không</div>
+                            <div className="text-[11px] text-slate-500 font-normal">Phát hiện bất thường</div>
+                          </div>
                         </button>
                       </div>
                     </div>
 
-                    {/* 3. Trường Chì?: chỉ 2 trạng thái "Có" hoặc "Không" */}
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[11px] font-bold text-slate-700">
-                        Chì? <span className="text-rose-500">*</span>
-                      </label>
-                      <div className="grid grid-cols-2 gap-1.5">
+                    {/* Phần 2: Chì? */}
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-slate-800 flex items-center gap-1">
+                          <span>2. Tình trạng niêm chì (Chì?)</span>
+                          <span className="text-rose-500">*</span>
+                        </label>
+                        {inspectChi && (
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              inspectChi === 'Có'
+                                ? 'bg-blue-100 text-blue-800'
+                                : 'bg-amber-100 text-amber-800'
+                            }`}
+                          >
+                            ✓ {inspectChi === 'Có' ? 'Có chì' : 'Không chì'}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2.5">
+                        {/* Card: Có chì */}
                         <button
                           type="button"
                           onClick={() => setInspectChi('Có')}
-                          className={`py-2 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-all border ${
+                          className={`relative p-3 rounded-xl border-2 text-left transition-all cursor-pointer active:scale-98 flex flex-col justify-between gap-2.5 ${
                             inspectChi === 'Có'
-                              ? 'bg-blue-600 border-blue-700 text-white shadow-sm'
-                              : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-blue-50 hover:text-blue-700'
+                              ? 'bg-blue-50/90 border-blue-600 text-blue-950 shadow-sm ring-2 ring-blue-500/20'
+                              : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
                           }`}
                         >
-                          <ShieldCheck className="w-3.5 h-3.5" />
-                          <span>Có chì</span>
+                          <div className="flex items-center justify-between">
+                            <div
+                              className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                                inspectChi === 'Có'
+                                  ? 'bg-blue-600 text-white'
+                                  : 'bg-blue-50 text-blue-600 border border-blue-200'
+                              }`}
+                            >
+                              <ShieldCheck className="w-5 h-5" />
+                            </div>
+                            <div
+                              className={`w-5 h-5 rounded-full border-2 flex items-center justify-center text-[10px] font-black transition-all ${
+                                inspectChi === 'Có'
+                                  ? 'border-blue-600 bg-blue-600 text-white'
+                                  : 'border-slate-300 text-transparent'
+                              }`}
+                            >
+                              ✓
+                            </div>
+                          </div>
+                          <div>
+                            <div className="font-bold text-xs sm:text-sm">Có chì</div>
+                            <div className="text-[11px] text-slate-500 font-normal">Niêm chì nguyên vẹn</div>
+                          </div>
                         </button>
 
+                        {/* Card: Không chì */}
                         <button
                           type="button"
                           onClick={() => setInspectChi('Không')}
-                          className={`py-2 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-all border ${
+                          className={`relative p-3 rounded-xl border-2 text-left transition-all cursor-pointer active:scale-98 flex flex-col justify-between gap-2.5 ${
                             inspectChi === 'Không'
-                              ? 'bg-amber-600 border-amber-700 text-white shadow-sm'
-                              : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-amber-50 hover:text-amber-700'
+                              ? 'bg-amber-50/90 border-amber-600 text-amber-950 shadow-sm ring-2 ring-amber-500/20'
+                              : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
                           }`}
                         >
-                          <ShieldAlert className="w-3.5 h-3.5" />
-                          <span>Không chì</span>
+                          <div className="flex items-center justify-between">
+                            <div
+                              className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                                inspectChi === 'Không'
+                                  ? 'bg-amber-600 text-white'
+                                  : 'bg-amber-50 text-amber-600 border border-amber-200'
+                              }`}
+                            >
+                              <ShieldAlert className="w-5 h-5" />
+                            </div>
+                            <div
+                              className={`w-5 h-5 rounded-full border-2 flex items-center justify-center text-[10px] font-black transition-all ${
+                                inspectChi === 'Không'
+                                  ? 'border-amber-600 bg-amber-600 text-white'
+                                  : 'border-slate-300 text-transparent'
+                              }`}
+                            >
+                              ✓
+                            </div>
+                          </div>
+                          <div>
+                            <div className="font-bold text-xs sm:text-sm">Không chì</div>
+                            <div className="text-[11px] text-slate-500 font-normal">Mất chì / đứt niêm</div>
+                          </div>
                         </button>
                       </div>
                     </div>
@@ -2287,13 +2826,25 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                               {/* Cột Số điện thoại có thêm số 0 ở trước (Requirement 3) */}
                               <td className="py-2 px-3 font-mono text-slate-600 text-[11px] whitespace-nowrap">
                                 {formattedPhone ? (
-                                  <a
-                                    href={`tel:${formattedPhone}`}
-                                    onClick={e => e.stopPropagation()}
-                                    className="hover:underline hover:text-[#005a9c]"
-                                  >
-                                    {formattedPhone}
-                                  </a>
+                                  <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+                                    <a
+                                      href={`tel:${formattedPhone}`}
+                                      className="font-bold text-emerald-700 hover:text-emerald-900 hover:underline flex items-center gap-1"
+                                      title={`Bấm để gọi điện thoại đến số ${formattedPhone}`}
+                                    >
+                                      <Phone className="w-3 h-3 text-emerald-600 shrink-0" />
+                                      <span>{formattedPhone}</span>
+                                    </a>
+                                    <a
+                                      href={`https://zalo.me/${formattedPhone}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="p-1 rounded bg-[#0068ff]/10 hover:bg-[#0068ff] text-[#0068ff] hover:text-white transition-colors"
+                                      title={`Gọi điện hoặc nhắn tin Zalo tới số ${formattedPhone}`}
+                                    >
+                                      <MessageCircle className="w-3 h-3" />
+                                    </a>
+                                  </div>
                                 ) : (
                                   '-'
                                 )}
@@ -2338,18 +2889,39 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                                 </td>
                               )}
                               <td className="py-2 px-3 text-center whitespace-nowrap">
-                                <button
-                                  type="button"
-                                  onClick={e => {
-                                    e.stopPropagation();
-                                    setSelectedMaKh(item.maKh);
-                                    setMobileTab('inspect');
-                                    setOpenSections(prev => ({ ...prev, inspect: true }));
-                                  }}
-                                  className="px-2 py-1 bg-[#005a9c] hover:bg-[#004b87] text-white text-[10px] font-bold rounded shadow-xs"
-                                >
-                                  Kiểm tra
-                                </button>
+                                <div className="flex items-center justify-center gap-1.5" onClick={e => e.stopPropagation()}>
+                                  {(() => {
+                                    const dirUrl = getCustomerDirectionsUrl(item.diaChi, item.khuVuc, item.tenTram, item.x, item.y);
+                                    if (!dirUrl) return null;
+                                    const hasGps = Boolean(item.x && item.y);
+                                    return (
+                                      <a
+                                        href={dirUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-rose-200 transition-all active:scale-95 shadow-xs"
+                                        title={
+                                          hasGps
+                                            ? `Chỉ đường Google Maps đến tọa độ GPS (${item.x}, ${item.y})`
+                                            : `Chỉ đường Google Maps đến địa chỉ: ${item.diaChi || item.tenTram}`
+                                        }
+                                      >
+                                        <Navigation className="w-3.5 h-3.5 text-rose-600" />
+                                      </a>
+                                    );
+                                  })()}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedMaKh(item.maKh);
+                                      setMobileTab('inspect');
+                                      setOpenSections(prev => ({ ...prev, inspect: true }));
+                                    }}
+                                    className="px-2.5 py-1 bg-[#005a9c] hover:bg-[#004b87] text-white text-[10px] font-bold rounded shadow-xs active:scale-95 transition-all"
+                                  >
+                                    Kiểm tra
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           );
@@ -2446,47 +3018,35 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                 >
                   <button
                     type="button"
-                    onClick={() => {
-                      setStatsPeriod('day');
-                      setStatsCustomDate('');
-                    }}
-                    className={`px-3 py-1.5 rounded-lg transition-all ${
+                    onClick={() => setStatsPeriod('day')}
+                    className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
                       statsPeriod === 'day' ? 'bg-[#005a9c] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
-                    Hôm nay
+                    Theo Ngày
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      setStatsPeriod('week');
-                      setStatsCustomDate('');
-                    }}
-                    className={`px-3 py-1.5 rounded-lg transition-all ${
+                    onClick={() => setStatsPeriod('week')}
+                    className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
                       statsPeriod === 'week' ? 'bg-[#005a9c] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
-                    Tuần này
+                    Theo Tuần
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      setStatsPeriod('month');
-                      setStatsCustomDate('');
-                    }}
-                    className={`px-3 py-1.5 rounded-lg transition-all ${
+                    onClick={() => setStatsPeriod('month')}
+                    className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
                       statsPeriod === 'month' ? 'bg-[#005a9c] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
-                    Tháng này
+                    Theo Tháng
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      setStatsPeriod('all');
-                      setStatsCustomDate('');
-                    }}
-                    className={`px-3 py-1.5 rounded-lg transition-all ${
+                    onClick={() => setStatsPeriod('all')}
+                    className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
                       statsPeriod === 'all' ? 'bg-[#005a9c] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
@@ -2525,34 +3085,177 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                 className="p-3 bg-slate-50 hover:bg-slate-100 rounded-xl text-xs font-semibold text-slate-600 border border-dashed border-slate-300 flex items-center justify-between cursor-pointer transition-colors"
               >
                 <span>
-                  📊 Thống kê đang thu gọn • Đã kiểm tra: <b>{statsData.totalDone.toLocaleString('vi-VN')}</b> KH (Bình thường: <b>{statsData.totalBinhThuong}</b>, Không: <b>{statsData.totalKhong}</b>)
+                  📊 Thống kê đang thu gọn • Khoảng thời gian: <b className="text-slate-800">{statsPeriodInfo.label}</b> • Đã kiểm tra: <b>{statsData.totalDone.toLocaleString('vi-VN')}</b> KH (Bình thường: <b>{statsData.totalBinhThuong}</b>, Không: <b>{statsData.totalKhong}</b>)
                 </span>
                 <span className="text-emerald-600 font-bold text-[11px] underline">Mở rộng ➔</span>
               </div>
             ) : (
               <>
-                {/* Custom date picker if period === 'day' */}
-                {statsPeriod === 'day' && (
-                  <div className="flex items-center gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200 text-xs">
-                    <span className="font-bold text-slate-600">Chọn ngày xem thống kê:</span>
-                    <input
-                      type="text"
-                      value={statsCustomDate}
-                      onChange={e => setStatsCustomDate(e.target.value)}
-                      placeholder={`Mặc định: ${getTodayFormatted()}`}
-                      className="px-2.5 py-1 bg-white border border-slate-300 rounded-lg font-medium outline-none text-xs"
-                    />
-                    {statsCustomDate && (
+                {/* Thanh điều khiển chọn giá trị thống kê cụ thể (ngày / tuần / tháng) */}
+                <div className="bg-slate-50/90 border border-slate-200 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+                  {/* Case 1: Chọn ngày */}
+                  {statsPeriod === 'day' && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex items-center gap-1.5 font-bold text-slate-700">
+                        <Calendar className="w-4 h-4 text-[#005a9c]" />
+                        <span>Chọn ngày:</span>
+                      </div>
+                      <div className="flex items-center gap-1 bg-white border border-slate-300 rounded-lg p-0.5 shadow-2xs">
+                        <button
+                          type="button"
+                          onClick={handlePrevDay}
+                          className="p-1 hover:bg-slate-100 rounded text-slate-600 hover:text-slate-900 transition-colors cursor-pointer"
+                          title="Hôm trước"
+                        >
+                          <ChevronLeft className="w-4 h-4" />
+                        </button>
+                        <input
+                          type="date"
+                          value={statsSelectedDate}
+                          onChange={e => e.target.value && setStatsSelectedDate(e.target.value)}
+                          className="px-2 py-0.5 text-xs font-semibold text-slate-800 bg-transparent outline-none cursor-pointer"
+                          title="Bấm để chọn ngày cụ thể từ lịch"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleNextDay}
+                          className="p-1 hover:bg-slate-100 rounded text-slate-600 hover:text-slate-900 transition-colors cursor-pointer"
+                          title="Hôm sau"
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
                       <button
                         type="button"
-                        onClick={() => setStatsCustomDate('')}
-                        className="text-xs text-rose-500 font-bold hover:underline"
+                        onClick={handleToday}
+                        className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          statsPeriodInfo.isCurrent
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 cursor-default'
+                            : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 shadow-2xs active:scale-95'
+                        }`}
+                        title="Xem số liệu hôm nay"
                       >
-                        Về hôm nay
+                        <RotateCcw className="w-3 h-3 text-emerald-600" />
+                        <span>Hôm nay</span>
                       </button>
-                    )}
+                    </div>
+                  )}
+
+                  {/* Case 2: Chọn tuần */}
+                  {statsPeriod === 'week' && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex items-center gap-1.5 font-bold text-slate-700">
+                        <Calendar className="w-4 h-4 text-[#005a9c]" />
+                        <span>Chọn tuần (ngày trong tuần):</span>
+                      </div>
+                      <div className="flex items-center gap-1 bg-white border border-slate-300 rounded-lg p-0.5 shadow-2xs">
+                        <button
+                          type="button"
+                          onClick={handlePrevWeek}
+                          className="p-1 hover:bg-slate-100 rounded text-slate-600 hover:text-slate-900 transition-colors cursor-pointer"
+                          title="Tuần trước"
+                        >
+                          <ChevronLeft className="w-4 h-4" />
+                        </button>
+                        <input
+                          type="date"
+                          value={statsSelectedWeekDate}
+                          onChange={e => e.target.value && setStatsSelectedWeekDate(e.target.value)}
+                          className="px-2 py-0.5 text-xs font-semibold text-slate-800 bg-transparent outline-none cursor-pointer"
+                          title="Chọn một ngày bất kỳ để xem tuần chứa ngày đó"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleNextWeek}
+                          className="p-1 hover:bg-slate-100 rounded text-slate-600 hover:text-slate-900 transition-colors cursor-pointer"
+                          title="Tuần sau"
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleCurrentWeek}
+                        className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          statsPeriodInfo.isCurrent
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 cursor-default'
+                            : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 shadow-2xs active:scale-95'
+                        }`}
+                        title="Xem tuần hiện tại"
+                      >
+                        <RotateCcw className="w-3 h-3 text-emerald-600" />
+                        <span>Tuần này</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Case 3: Chọn tháng */}
+                  {statsPeriod === 'month' && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex items-center gap-1.5 font-bold text-slate-700">
+                        <Calendar className="w-4 h-4 text-[#005a9c]" />
+                        <span>Chọn tháng:</span>
+                      </div>
+                      <div className="flex items-center gap-1 bg-white border border-slate-300 rounded-lg p-0.5 shadow-2xs">
+                        <button
+                          type="button"
+                          onClick={handlePrevMonth}
+                          className="p-1 hover:bg-slate-100 rounded text-slate-600 hover:text-slate-900 transition-colors cursor-pointer"
+                          title="Tháng trước"
+                        >
+                          <ChevronLeft className="w-4 h-4" />
+                        </button>
+                        <input
+                          type="month"
+                          value={statsSelectedMonth}
+                          onChange={e => e.target.value && setStatsSelectedMonth(e.target.value)}
+                          className="px-2 py-0.5 text-xs font-semibold text-slate-800 bg-transparent outline-none cursor-pointer"
+                          title="Chọn tháng / năm"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleNextMonth}
+                          className="p-1 hover:bg-slate-100 rounded text-slate-600 hover:text-slate-900 transition-colors cursor-pointer"
+                          title="Tháng sau"
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleCurrentMonth}
+                        className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          statsPeriodInfo.isCurrent
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 cursor-default'
+                            : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 shadow-2xs active:scale-95'
+                        }`}
+                        title="Xem tháng hiện tại"
+                      >
+                        <RotateCcw className="w-3 h-3 text-emerald-600" />
+                        <span>Tháng này</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Case 4: Tất cả thời gian */}
+                  {statsPeriod === 'all' && (
+                    <div className="flex items-center gap-2 text-slate-700 font-semibold">
+                      <BarChart3 className="w-4 h-4 text-[#005a9c]" />
+                      <span>Đang thống kê toàn bộ thời gian ghi nhận dữ liệu trong bảng</span>
+                    </div>
+                  )}
+
+                  {/* Badge tóm tắt khoảng thời gian đang lọc */}
+                  <div className="flex items-center gap-2 ml-auto text-xs">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-white border border-slate-200 rounded-full font-bold text-slate-700 shadow-2xs">
+                      <span className="w-2 h-2 rounded-full bg-[#005a9c] animate-pulse"></span>
+                      <span>{statsPeriodInfo.subLabel}</span>
+                    </span>
+                    <span className="px-2.5 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-full font-bold">
+                      {statsData.totalDone.toLocaleString('vi-VN')} KH đã kiểm tra
+                    </span>
                   </div>
-                )}
+                </div>
 
                 {/* KPI Cards */}
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">

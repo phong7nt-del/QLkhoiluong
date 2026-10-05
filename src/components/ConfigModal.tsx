@@ -787,20 +787,35 @@ function doPost(e) {
       var values = dataRange.getValues();
       var headers = values.length > 0 ? values[0] : [];
 
-      var colMaKh = -1, colNgay = -1, colKetQua = -1, colChi = -1, colDeXuat = -1;
+      var colMaKh = -1, colNgay = -1, colKetQua = -1, colChi = -1, colDeXuat = -1, colX = -1, colY = -1;
       for (var c = 0; c < headers.length; c++) {
-        var h = String(headers[c]).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[\s_?]+/g, '');
+        var rawH = String(headers[c] || '').trim();
+        var h = rawH.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[\s_?]+/g, '');
         if (h.includes('makh')) colMaKh = c;
         if (h === 'ngay' || h.includes('ngay')) colNgay = c;
         if (h.includes('ketqua')) colKetQua = c;
         if (h.includes('chi')) colChi = c;
         if (h.includes('dexuat') || h.includes('ghichu')) colDeXuat = c;
+        if (rawH.toUpperCase() === 'X' || h === 'x' || h === 'toadox' || h === 'vido' || h.includes('toadox')) colX = c;
+        if (rawH.toUpperCase() === 'Y' || h === 'y' || h === 'toadoy' || h === 'kinhdo' || h.includes('toadoy')) colY = c;
       }
       if (colMaKh === -1) colMaKh = 1; // Default Col B
       if (colNgay === -1) colNgay = 10; // Default Col K
       if (colKetQua === -1) colKetQua = 11; // Default Col L
       if (colChi === -1) colChi = 12; // Default Col M
       if (colDeXuat === -1) colDeXuat = 13; // Default Col N
+
+      // Nếu có tọa độ X, Y gửi lên mà sheet chưa có cột X hoặc Y, tự động thêm cột X, Y vào tiêu đề
+      if (data.x !== undefined && data.x !== '' && colX === -1) {
+        colX = headers.length;
+        sheet.getRange(1, colX + 1).setValue('X');
+        headers.push('X');
+      }
+      if (data.y !== undefined && data.y !== '' && colY === -1) {
+        colY = headers.length;
+        sheet.getRange(1, colY + 1).setValue('Y');
+        headers.push('Y');
+      }
 
       var updated = false;
       for (var r = 1; r < values.length; r++) {
@@ -810,6 +825,8 @@ function doPost(e) {
           if (data.ketQua !== undefined) sheet.getRange(r + 1, colKetQua + 1).setValue(data.ketQua);
           if (data.chi !== undefined) sheet.getRange(r + 1, colChi + 1).setValue(data.chi);
           if (data.deXuat !== undefined) sheet.getRange(r + 1, colDeXuat + 1).setValue(data.deXuat);
+          if (data.x !== undefined && data.x !== '' && colX > -1) sheet.getRange(r + 1, colX + 1).setValue(data.x);
+          if (data.y !== undefined && data.y !== '' && colY > -1) sheet.getRange(r + 1, colY + 1).setValue(data.y);
           updated = true;
           break;
         }

@@ -65,6 +65,8 @@ export interface KthtddEntry {
   chi: string;    // 'Có' | 'Không' | ''
   deXuat: string;
   nguoiThucHien: string;
+  x?: string;     // Tọa độ X (Vĩ độ / Latitude hoặc X sheet)
+  y?: string;     // Tọa độ Y (Kinh độ / Longitude hoặc Y sheet)
 }
 
 export interface OnlineStats {
@@ -2993,10 +2995,19 @@ export const DataStore = {
       const maTram = String(r['Mã trạm'] || r['Ma tram'] || '').trim();
       const tenTram = String(r['Tên trạm'] || r['Ten tram'] || '').trim();
       const danhSo = String(r['Danh số'] || r['Danh so'] || '').trim();
-      let soDienThoai = String(r['Số điện thoại'] || r['SDT'] || '').trim().replace(/\s+/g, '');
-      if (soDienThoai && /^\d+$/.test(soDienThoai) && !soDienThoai.startsWith('0')) {
-        soDienThoai = '0' + soDienThoai;
+      const rawPhone = String(r['Số điện thoại'] || r['SDT'] || r['Số ĐT'] || r['So DT'] || r['Điện thoại'] || r['Dien thoai'] || r['Phone'] || '').trim();
+      let cleanPhone = rawPhone.replace(/[\s\.\-_]/g, '');
+      if (cleanPhone.startsWith('+84')) {
+        cleanPhone = '0' + cleanPhone.slice(3);
+      } else if (cleanPhone.startsWith('84') && cleanPhone.length >= 11) {
+        cleanPhone = '0' + cleanPhone.slice(2);
       }
+      if (cleanPhone && /^\d+$/.test(cleanPhone)) {
+        if (!cleanPhone.startsWith('0')) {
+          cleanPhone = '0' + cleanPhone;
+        }
+      }
+      const soDienThoai = cleanPhone || rawPhone;
       const soNo = String(r['Số No'] || r['So No'] || r['Số công tơ'] || '').trim();
       let khuVuc = String(r['Khu vực'] || r['Khu vuc'] || '').trim();
       if (!khuVuc) {
@@ -3019,6 +3030,8 @@ export const DataStore = {
       const chi = String(r['Chì?'] || r['Chì'] || r['Chi'] || '').trim();
       const deXuat = String(r['Đề xuất'] || r['De xuat'] || r['Ghi chú'] || '').trim();
       const nguoiThucHien = String(r['Người thực hiện'] || r['Nguoi thuc hien'] || '').trim();
+      const x = String(r['X'] || r['x'] || r['Tọa độ X'] || r['Toa do X'] || r['Toạ độ X'] || r['Vĩ độ'] || r['Vi do'] || r['Latitude'] || r['Lat'] || '').trim();
+      const y = String(r['Y'] || r['y'] || r['Tọa độ Y'] || r['Toa do Y'] || r['Toạ độ Y'] || r['Kinh độ'] || r['Kinh do'] || r['Longitude'] || r['Lng'] || r['Long'] || '').trim();
 
       entries.push({
         stt,
@@ -3035,7 +3048,9 @@ export const DataStore = {
         ketQua,
         chi,
         deXuat,
-        nguoiThucHien
+        nguoiThucHien,
+        x,
+        y
       });
     }
 
@@ -3043,7 +3058,7 @@ export const DataStore = {
     return entries;
   },
 
-  updateKthtdd: async (data: { maKh: string; ngay: string; ketQua: string; chi: string; deXuat: string }): Promise<{ ok: boolean; message: string }> => {
+  updateKthtdd: async (data: { maKh: string; ngay: string; ketQua: string; chi: string; deXuat: string; x?: string; y?: string }): Promise<{ ok: boolean; message: string }> => {
     // 1. Optimistic update
     if (memCacheKthtddList) {
       const idx = memCacheKthtddList.findIndex(e => e.maKh.toLowerCase().trim() === data.maKh.toLowerCase().trim());
@@ -3053,7 +3068,9 @@ export const DataStore = {
           ngay: data.ngay,
           ketQua: data.ketQua,
           chi: data.chi,
-          deXuat: data.deXuat
+          deXuat: data.deXuat,
+          ...(data.x !== undefined && data.x !== '' ? { x: data.x } : {}),
+          ...(data.y !== undefined && data.y !== '' ? { y: data.y } : {})
         };
         set('sheet_kthtdd_v1', memCacheKthtddList).catch(() => {});
         window.dispatchEvent(new CustomEvent('kthtdd_updated'));
