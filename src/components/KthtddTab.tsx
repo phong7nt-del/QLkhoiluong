@@ -744,14 +744,13 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
     return filteredListEntries.slice(start, start + listPageSize);
   }, [filteredListEntries, listPage, listPageSize]);
 
-  // Export List to Excel (Format Phone number with leading 0)
+  // Export Section 2.3 List to Excel (Format Phone number with leading 0)
   const handleExportExcel = () => {
     if (filteredListEntries.length === 0) {
       alert('Không có dữ liệu để xuất Excel.');
       return;
     }
 
-    const title = listType === 'done' ? 'DANH SÁCH ĐÃ KIỆN TOÀN HTDD' : 'DANH SÁCH CHƯA KIỆN TOÀN HTDD';
     const exportRows = filteredListEntries.map((item, idx) => ({
       'STT': idx + 1,
       'Mã KH': item.maKh,
@@ -771,8 +770,26 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
     }));
 
     const ws = XLSX.utils.json_to_sheet(exportRows);
+    ws['!cols'] = [
+      { wch: 6 },
+      { wch: 15 },
+      { wch: 26 },
+      { wch: 35 },
+      { wch: 12 },
+      { wch: 24 },
+      { wch: 12 },
+      { wch: 15 },
+      { wch: 14 },
+      { wch: 16 },
+      { wch: 24 },
+      { wch: 12 },
+      { wch: 15 },
+      { wch: 10 },
+      { wch: 32 }
+    ];
+
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Kiện toàn HTDD');
+    XLSX.utils.book_append_sheet(wb, ws, listType === 'done' ? 'Đã kiện toàn' : 'Chưa kiện toàn');
 
     const fileName = `Kien_Toan_HTDD_${listType === 'done' ? 'Da_Kien_Toan' : 'Chua_Kien_Toan'}_${new Date().toISOString().slice(0, 10)}.xlsx`;
     XLSX.writeFile(wb, fileName);
@@ -920,10 +937,138 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
       totalCoChi,
       totalMatChi,
       totalDeXuat,
+      filteredByTime,
       areaList: Object.values(areaStatsMap),
       assigneeList: Object.values(assigneeStatsMap).sort((a, b) => b.doneCount - a.doneCount)
     };
   }, [entries, statsPeriod, statsCustomDate]);
+
+  // Xuất Excel Báo cáo Thống kê Phần 2.4
+  const handleExportStatsExcel = () => {
+    if (statsData.totalDone === 0) {
+      alert('Không có dữ liệu thống kê trong khoảng thời gian đã chọn để xuất Excel.');
+      return;
+    }
+
+    const periodLabels: Record<string, string> = {
+      day: statsCustomDate ? `Ngày ${statsCustomDate}` : `Hôm nay (${getTodayFormatted()})`,
+      week: 'Tuần này',
+      month: `Tháng này (Tháng ${new Date().getMonth() + 1}/${new Date().getFullYear()})`,
+      all: 'Tất cả thời gian'
+    };
+    const periodText = periodLabels[statsPeriod] || statsPeriod;
+
+    const wb = XLSX.utils.book_new();
+
+    // 1. SHEET BÁO CÁO TỔNG HỢP (Chỉ số KPI, Bảng theo Khu vực, Bảng theo Người thực hiện)
+    const summaryAoa: any[][] = [
+      ['BÁO CÁO THỐNG KÊ SỐ LIỆU KIỆN TOÀN HỆ THỐNG ĐO ĐẾM (KTHTDD)'],
+      [`Khoảng thời gian: ${periodText}`],
+      [`Thời gian kết xuất: ${new Date().toLocaleString('vi-VN')}`],
+      [],
+      ['I. CHỈ SỐ KPI TOÀN BỘ'],
+      ['Chỉ số đánh giá', 'Số lượng (Công tơ / KH)', 'Tỷ lệ %'],
+      ['Tổng số khách hàng đã kiểm tra', statsData.totalDone, '100%'],
+      ['Kết quả: Bình thường', statsData.totalBinhThuong, statsData.totalDone > 0 ? `${Math.round((statsData.totalBinhThuong / statsData.totalDone) * 100)}%` : '0%'],
+      ['Kết quả: Không bình thường', statsData.totalKhong, statsData.totalDone > 0 ? `${Math.round((statsData.totalKhong / statsData.totalDone) * 100)}%` : '0%'],
+      ['Tình trạng niêm chì: Còn chì', statsData.totalCoChi, statsData.totalDone > 0 ? `${Math.round((statsData.totalCoChi / statsData.totalDone) * 100)}%` : '0%'],
+      ['Tình trạng niêm chì: Không chì / mất chì', statsData.totalMatChi, statsData.totalDone > 0 ? `${Math.round((statsData.totalMatChi / statsData.totalDone) * 100)}%` : '0%'],
+      ['Số lượng có đề xuất xử lý', statsData.totalDeXuat, statsData.totalDone > 0 ? `${Math.round((statsData.totalDeXuat / statsData.totalDone) * 100)}%` : '0%'],
+      [],
+      ['II. TIẾN ĐỘ THỰC HIỆN THEO KHU VỰC'],
+      ['STT', 'Khu vực', 'Tổng KH trong khu vực', 'Số KH đã kiểm tra', 'Tỷ lệ hoàn thành %', 'Bình thường', 'Không bình thường', 'Còn chì', 'Không chì'],
+    ];
+
+    statsData.areaList.forEach((area, idx) => {
+      const pct = area.totalInSheet > 0 ? `${Math.round((area.doneCount / area.totalInSheet) * 100)}%` : '0%';
+      summaryAoa.push([
+        idx + 1,
+        area.khuVuc,
+        area.totalInSheet,
+        area.doneCount,
+        pct,
+        area.binhThuong,
+        area.khong,
+        area.coChi,
+        area.matChi
+      ]);
+    });
+
+    summaryAoa.push([]);
+    summaryAoa.push(['III. THỐNG KÊ THEO NGƯỜI THỰC HIỆN / ĐỘI CÔNG TÁC']);
+    summaryAoa.push(['STT', 'Người thực hiện / Tổ', 'Số KH đã kiểm tra', 'Bình thường', 'Không bình thường', 'Còn chì', 'Có đề xuất']);
+
+    statsData.assigneeList.forEach((person, idx) => {
+      summaryAoa.push([
+        idx + 1,
+        person.name,
+        person.doneCount,
+        person.binhThuong,
+        person.khong,
+        person.coChi,
+        person.deXuatCount
+      ]);
+    });
+
+    const wsSummary = XLSX.utils.aoa_to_sheet(summaryAoa);
+    wsSummary['!cols'] = [
+      { wch: 6 },
+      { wch: 32 },
+      { wch: 22 },
+      { wch: 20 },
+      { wch: 18 },
+      { wch: 15 },
+      { wch: 18 },
+      { wch: 12 },
+      { wch: 12 }
+    ];
+    XLSX.utils.book_append_sheet(wb, wsSummary, 'Báo cáo Tổng hợp');
+
+    // 2. SHEET CHI TIẾT CÁC CÔNG TƠ ĐÃ KIỂM TRA TRONG KHOẢNG THỜI GIAN
+    if (statsData.filteredByTime && statsData.filteredByTime.length > 0) {
+      const detailRows = statsData.filteredByTime.map((item, idx) => ({
+        'STT': idx + 1,
+        'Mã KH': item.maKh,
+        'Tên khách hàng': item.tenKh,
+        'Địa chỉ': item.diaChi,
+        'Mã trạm': item.maTram,
+        'Tên trạm': item.tenTram,
+        'Danh số': item.danhSo,
+        'Số No công tơ': item.soNo,
+        'Số ĐT': formatPhoneNumber(item.soDienThoai),
+        'Khu vực': item.khuVuc,
+        'Người thực hiện': item.nguoiThucHien,
+        'Ngày KT': item.ngay,
+        'Kết quả': item.ketQua,
+        'Chì?': item.chi,
+        'Đề xuất': item.deXuat
+      }));
+
+      const wsDetails = XLSX.utils.json_to_sheet(detailRows);
+      wsDetails['!cols'] = [
+        { wch: 6 },
+        { wch: 15 },
+        { wch: 26 },
+        { wch: 35 },
+        { wch: 12 },
+        { wch: 24 },
+        { wch: 12 },
+        { wch: 15 },
+        { wch: 14 },
+        { wch: 16 },
+        { wch: 24 },
+        { wch: 12 },
+        { wch: 14 },
+        { wch: 10 },
+        { wch: 32 }
+      ];
+      XLSX.utils.book_append_sheet(wb, wsDetails, 'Chi tiết KH đã KT');
+    }
+
+    const safeDate = new Date().toISOString().slice(0, 10);
+    const fileName = `Thong_Ke_KTHTDD_${statsPeriod}_${safeDate}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+  };
 
   // Overall Global KPI
   const globalKpi = useMemo(() => {
@@ -1898,6 +2043,21 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                   </button>
                 </div>
 
+                {/* Nút Xuất Excel Danh sách phần 2.3 */}
+                <button
+                  type="button"
+                  onClick={e => {
+                    e.stopPropagation();
+                    handleExportExcel();
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer"
+                  title="Xuất danh sách khách hàng ra file Excel"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Xuất Excel</span>
+                  <span className="sm:hidden">Excel</span>
+                </button>
+
                 <button
                   type="button"
                   className="p-1 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors"
@@ -2334,6 +2494,21 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                   </button>
                 </div>
 
+                {/* Nút Xuất Excel Thống kê phần 2.4 */}
+                <button
+                  type="button"
+                  onClick={e => {
+                    e.stopPropagation();
+                    handleExportStatsExcel();
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer"
+                  title="Xuất báo cáo thống kê KPI ra file Excel"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Xuất Excel Thống kê</span>
+                  <span className="sm:hidden">Excel TK</span>
+                </button>
+
                 <button
                   type="button"
                   className="p-1 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors"
@@ -2425,10 +2600,21 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
 
                 {/* Breakdown Table 1: Thống kê theo Từng Khu vực */}
                 <div className="flex flex-col gap-2 pt-1">
-                  <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                    <Building2 className="w-3.5 h-3.5 text-[#005a9c]" />
-                    <span>Thống kê theo Từng Khu vực</span>
-                  </span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                      <Building2 className="w-3.5 h-3.5 text-[#005a9c]" />
+                      <span>Thống kê theo Từng Khu vực</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleExportStatsExcel}
+                      className="flex items-center gap-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-lg shadow-xs transition-all active:scale-95 cursor-pointer"
+                      title="Xuất toàn bộ báo cáo thống kê ra Excel"
+                    >
+                      <Download className="w-3 h-3" />
+                      <span>Xuất Excel Báo cáo</span>
+                    </button>
+                  </div>
                   <div className="overflow-x-auto rounded-xl border border-slate-200">
                     <table className="w-full text-left text-xs text-slate-700">
                       <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200">
