@@ -102,32 +102,68 @@ export const formatPhoneNumber = (rawPhone?: string | number): string => {
   return p;
 };
 
-// Helper: Tự động lấy tọa độ GPS của thiết bị khi lưu kết quả kiểm tra
+// Bộ nhớ đệm tọa độ GPS để lấy tức thì trong 0ms khi người dùng bấm Lưu
+let cachedGPSCoords: { x: string; y: string; time: number } | null = null;
+
+if (typeof window !== 'undefined' && 'geolocation' in navigator) {
+  try {
+    navigator.geolocation.watchPosition(
+      (pos) => {
+        cachedGPSCoords = {
+          x: pos.coords.latitude.toFixed(6),
+          y: pos.coords.longitude.toFixed(6),
+          time: Date.now()
+        };
+      },
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 30000, timeout: 8000 }
+    );
+  } catch (e) {}
+}
+
+// Helper: Tự động lấy tọa độ GPS của thiết bị khi lưu kết quả kiểm tra (Tối ưu phản hồi tức thì)
 export const getCurrentGPSCoords = (): Promise<{ x: string; y: string } | null> => {
+  // 1. Nếu có tọa độ vừa lấy trong vòng 3 phút -> trả về ngay lập tức (0ms)
+  if (cachedGPSCoords && Date.now() - cachedGPSCoords.time < 180000) {
+    return Promise.resolve({ x: cachedGPSCoords.x, y: cachedGPSCoords.y });
+  }
+
+  // 2. Nếu chưa có, yêu cầu nhanh với timeout ngắn 600ms để không làm người dùng phải chờ đợi
   return new Promise((resolve) => {
     if (typeof window === 'undefined' || !navigator.geolocation) {
       resolve(null);
       return;
     }
+    let done = false;
+    const timer = setTimeout(() => {
+      if (!done) {
+        done = true;
+        resolve(cachedGPSCoords ? { x: cachedGPSCoords.x, y: cachedGPSCoords.y } : null);
+      }
+    }, 600);
+
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        const lat = position.coords.latitude;
-        const lng = position.coords.longitude;
-        // Tọa độ X = Vĩ độ (Latitude), Tọa độ Y = Kinh độ (Longitude)
-        // Chuẩn hóa 6 chữ số thập phân (độ chính xác ~0.1m)
-        resolve({
-          x: lat.toFixed(6),
-          y: lng.toFixed(6)
-        });
+        if (!done) {
+          done = true;
+          clearTimeout(timer);
+          const x = position.coords.latitude.toFixed(6);
+          const y = position.coords.longitude.toFixed(6);
+          cachedGPSCoords = { x, y, time: Date.now() };
+          resolve({ x, y });
+        }
       },
       (error) => {
-        console.warn('Không thể lấy tọa độ GPS tự động:', error);
-        resolve(null);
+        if (!done) {
+          done = true;
+          clearTimeout(timer);
+          resolve(cachedGPSCoords ? { x: cachedGPSCoords.x, y: cachedGPSCoords.y } : null);
+        }
       },
       {
         enableHighAccuracy: true,
-        timeout: 6000,
-        maximumAge: 15000
+        timeout: 600,
+        maximumAge: 60000
       }
     );
   });
@@ -847,6 +883,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
   };
 
   // Save Assignment
+  // Save Assignment (Tối ưu phản hồi ngay lập tức cho 200k dòng)
   const handleSaveAssign = async () => {
     if (!assignStation) return;
     if (selectedAssignees.length === 0) {
@@ -855,32 +892,38 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
     }
 
     const nguoiThucHien = selectedAssignees.join('; ');
-    setIsSavingAssign(true);
-    setAssignMsg(null);
+    const targetTram = assignStation.maTram;
 
-    try {
-      const res = await DataStore.assignKthtdd({
-        maTram: assignStation.maTram,
-        nguoiThucHien
+    // 1. Phản hồi giao diện NGAY LẬP TỨC (0ms)
+    setAssignMsg({ text: `✓ Đã phân công thành công cho trạm ${assignStation.tenTram}!`, type: 'success' });
+    setEntries(prev => {
+      const cleanT = targetTram.trim().toLowerCase();
+      let changed = false;
+      const updated = prev.map(item => {
+        if (item.maTram.trim().toLowerCase() === cleanT) {
+          changed = true;
+          return { ...item, nguoiThucHien };
+        }
+        return item;
       });
+      return changed ? updated : prev;
+    });
 
-      if (res.ok) {
-        setAssignMsg({ text: `Đã phân công thành công cho trạm ${assignStation.tenTram}!`, type: 'success' });
-        setTimeout(() => {
-          setAssignStation(null);
-          setAssignMsg(null);
-        }, 1200);
-      } else {
-        setAssignMsg({ text: res.message || 'Lỗi phân công', type: 'error' });
-      }
-    } catch (e: any) {
-      setAssignMsg({ text: e.message || 'Lỗi kết nối', type: 'error' });
-    } finally {
-      setIsSavingAssign(false);
-    }
+    setTimeout(() => {
+      setAssignStation(null);
+      setAssignMsg(null);
+    }, 700);
+
+    // 2. Đồng bộ nền xuống DataStore và Google Sheets
+    DataStore.assignKthtdd({
+      maTram: targetTram,
+      nguoiThucHien
+    }).catch(e => {
+      console.warn('Lỗi đồng bộ phân công:', e);
+    });
   };
 
-  // Save Customer Inspection Result (Section 2.2)
+  // Save Customer Inspection Result (Section 2.2 - Tối ưu phản hồi tức thì 0ms)
   const handleSaveInspection = async (andNext: boolean = false) => {
     if (!selectedCustomer) {
       alert('Vui lòng chọn khách hàng cần cập nhật kết quả.');
@@ -895,51 +938,61 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
       return;
     }
 
-    setIsSavingInspect(true);
-    setInspectSuccessMsg('');
+    // 1. Lấy tọa độ GPS siêu nhanh (từ bộ nhớ đệm cache hoặc timeout tối đa 600ms)
+    const gps = await getCurrentGPSCoords();
+    const toadoX = gps?.x || selectedCustomer.x || '';
+    const toadoY = gps?.y || selectedCustomer.y || '';
+    const targetNgay = inspectNgay || getTodayFormatted();
+    const targetCustomer = selectedCustomer;
 
-    try {
-      // Tự động lấy tọa độ GPS của thiết bị khi bấm lưu (X: Vĩ độ / Latitude, Y: Kinh độ / Longitude)
-      const gps = await getCurrentGPSCoords();
-      const toadoX = gps?.x || selectedCustomer.x || '';
-      const toadoY = gps?.y || selectedCustomer.y || '';
-
-      const res = await DataStore.updateKthtdd({
-        maKh: selectedCustomer.maKh,
-        ngay: inspectNgay || getTodayFormatted(),
+    // 2. Cập nhật state entries trong React NGAY LẬP TỨC (0ms)
+    setEntries(prev => {
+      const idx = prev.findIndex(e => e.maKh === targetCustomer.maKh);
+      if (idx === -1) return prev;
+      const updated = [...prev];
+      updated[idx] = {
+        ...updated[idx],
+        ngay: targetNgay,
         ketQua: inspectKetQua,
         chi: inspectChi,
         deXuat: inspectDeXuat,
-        x: toadoX,
-        y: toadoY
-      });
+        ...(toadoX ? { x: toadoX } : {}),
+        ...(toadoY ? { y: toadoY } : {})
+      };
+      return updated;
+    });
 
-      if (res.ok) {
-        const gpsNotice = toadoX && toadoY ? ` [Tọa độ X: ${toadoX}, Y: ${toadoY}]` : '';
-        setInspectSuccessMsg(`✓ Đã lưu kết quả kiểm tra & tọa độ GPS${gpsNotice} cho khách hàng ${selectedCustomer.tenKh} (${selectedCustomer.maKh})`);
+    const gpsNotice = toadoX && toadoY ? ` [Tọa độ X: ${toadoX}, Y: ${toadoY}]` : '';
+    setInspectSuccessMsg(`✓ Đã lưu kết quả kiểm tra & tọa độ GPS${gpsNotice} cho khách hàng ${targetCustomer.tenKh} (${targetCustomer.maKh})`);
 
-        if (andNext) {
-          const sameStationKhs = entries.filter(
-            e => e.maTram === selectedCustomer.maTram && e.maKh !== selectedCustomer.maKh && !e.ketQua
-          );
-          if (sameStationKhs.length > 0) {
-            setSelectedMaKh(sameStationKhs[0].maKh);
-          } else {
-            const allInStation = entries.filter(e => e.maTram === selectedCustomer.maTram);
-            const currIdx = allInStation.findIndex(e => e.maKh === selectedCustomer.maKh);
-            if (currIdx !== -1 && currIdx < allInStation.length - 1) {
-              setSelectedMaKh(allInStation[currIdx + 1].maKh);
-            }
-          }
-        }
+    // 3. Nếu chọn "Lưu & Tiếp tục KH sau", chuyển ngay lập tức sang KH tiếp theo mà không cần chờ mạng!
+    if (andNext) {
+      const sameStationKhs = entries.filter(
+        e => e.maTram === targetCustomer.maTram && e.maKh !== targetCustomer.maKh && !e.ketQua
+      );
+      if (sameStationKhs.length > 0) {
+        setSelectedMaKh(sameStationKhs[0].maKh);
       } else {
-        alert('Lỗi cập nhật: ' + res.message);
+        const allInStation = entries.filter(e => e.maTram === targetCustomer.maTram);
+        const currIdx = allInStation.findIndex(e => e.maKh === targetCustomer.maKh);
+        if (currIdx !== -1 && currIdx < allInStation.length - 1) {
+          setSelectedMaKh(allInStation[currIdx + 1].maKh);
+        }
       }
-    } catch (e: any) {
-      alert('Lỗi lưu kết quả: ' + (e.message || String(e)));
-    } finally {
-      setIsSavingInspect(false);
     }
+
+    // 4. Đồng bộ nền xuống DataStore và Google Sheets (Background Sync)
+    DataStore.updateKthtdd({
+      maKh: targetCustomer.maKh,
+      ngay: targetNgay,
+      ketQua: inspectKetQua,
+      chi: inspectChi,
+      deXuat: inspectDeXuat,
+      x: toadoX,
+      y: toadoY
+    }).catch(e => {
+      console.warn('Lỗi đồng bộ kết quả kiểm tra:', e);
+    });
   };
 
   // Next / Previous customer navigation in Section 2.2

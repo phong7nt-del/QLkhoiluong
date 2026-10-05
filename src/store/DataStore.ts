@@ -225,6 +225,52 @@ let memCacheSangTaiList: any[] | null = null;
 let memCacheKhoList: any[] | null = null;
 let memCacheVTTBList: any[] | null = null;
 let memCacheKthtddList: KthtddEntry[] | null = null;
+let kthtddMaKhIndexMap = new Map<string, number>();
+let kthtddMaTramIndexMap = new Map<string, number[]>();
+let saveKthtddIDBTimeout: any = null;
+
+export const rebuildKthtddIndexes = (list: KthtddEntry[] | null) => {
+  kthtddMaKhIndexMap.clear();
+  kthtddMaTramIndexMap.clear();
+  if (!list || !Array.isArray(list)) return;
+  for (let i = 0; i < list.length; i++) {
+    const item = list[i];
+    if (item.maKh) {
+      kthtddMaKhIndexMap.set(item.maKh.trim().toLowerCase(), i);
+    }
+    if (item.maTram) {
+      const tramKey = item.maTram.trim().toLowerCase();
+      let arr = kthtddMaTramIndexMap.get(tramKey);
+      if (!arr) {
+        arr = [];
+        kthtddMaTramIndexMap.set(tramKey, arr);
+      }
+      arr.push(i);
+    }
+  }
+};
+
+const debouncedSaveKthtddToIDB = () => {
+  if (saveKthtddIDBTimeout) clearTimeout(saveKthtddIDBTimeout);
+  saveKthtddIDBTimeout = setTimeout(async () => {
+    if (memCacheKthtddList) {
+      try {
+        await set('sheet_kthtdd_v1', memCacheKthtddList);
+      } catch (e) {
+        console.warn('Error debounced save kthtdd to IDB:', e);
+      }
+    }
+  }, 1500);
+};
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    if (saveKthtddIDBTimeout && memCacheKthtddList) {
+      clearTimeout(saveKthtddIDBTimeout);
+      set('sheet_kthtdd_v1', memCacheKthtddList).catch(() => {});
+    }
+  });
+}
 
 let memoryCache: Record<string, string | null> = {};
 
@@ -233,6 +279,7 @@ export const initDB = async () => {
       const kthtddVal = await get('sheet_kthtdd_v1');
       if (kthtddVal && Array.isArray(kthtddVal)) {
         memCacheKthtddList = kthtddVal;
+        rebuildKthtddIndexes(memCacheKthtddList);
       }
     } catch (e) {
       console.warn('Could not preload kthtdd from IDB', e);
@@ -2941,6 +2988,7 @@ export const DataStore = {
       const val = await get('sheet_kthtdd_v1');
       if (val && Array.isArray(val) && val.length > 0) {
         memCacheKthtddList = val;
+        rebuildKthtddIndexes(memCacheKthtddList);
         return val;
       }
     } catch (e) {
@@ -2951,6 +2999,7 @@ export const DataStore = {
 
   setKthtddEntriesAsync: async (list: KthtddEntry[]): Promise<void> => {
     memCacheKthtddList = list;
+    rebuildKthtddIndexes(memCacheKthtddList);
     try {
       await set('sheet_kthtdd_v1', list);
     } catch (e) {
@@ -3059,25 +3108,30 @@ export const DataStore = {
   },
 
   updateKthtdd: async (data: { maKh: string; ngay: string; ketQua: string; chi: string; deXuat: string; x?: string; y?: string }): Promise<{ ok: boolean; message: string }> => {
-    // 1. Optimistic update
-    if (memCacheKthtddList) {
-      const idx = memCacheKthtddList.findIndex(e => e.maKh.toLowerCase().trim() === data.maKh.toLowerCase().trim());
-      if (idx !== -1) {
-        memCacheKthtddList[idx] = {
-          ...memCacheKthtddList[idx],
-          ngay: data.ngay,
-          ketQua: data.ketQua,
-          chi: data.chi,
-          deXuat: data.deXuat,
-          ...(data.x !== undefined && data.x !== '' ? { x: data.x } : {}),
-          ...(data.y !== undefined && data.y !== '' ? { y: data.y } : {})
-        };
-        set('sheet_kthtdd_v1', memCacheKthtddList).catch(() => {});
-        window.dispatchEvent(new CustomEvent('kthtdd_updated'));
-      }
+    // 1. Tối ưu O(1) qua Index Map cho danh sách 200k dòng: cập nhật RAM ngay lập tức
+    const cleanMaKh = (data.maKh || '').trim().toLowerCase();
+    let idx = kthtddMaKhIndexMap.get(cleanMaKh);
+    if (idx === undefined && memCacheKthtddList) {
+      idx = memCacheKthtddList.findIndex(e => e.maKh.toLowerCase().trim() === cleanMaKh);
+      if (idx !== -1) kthtddMaKhIndexMap.set(cleanMaKh, idx);
     }
 
-    // 2. Send to Google Apps Script
+    if (idx !== undefined && idx !== -1 && memCacheKthtddList) {
+      memCacheKthtddList[idx] = {
+        ...memCacheKthtddList[idx],
+        ngay: data.ngay,
+        ketQua: data.ketQua,
+        chi: data.chi,
+        deXuat: data.deXuat,
+        ...(data.x !== undefined && data.x !== '' ? { x: data.x } : {}),
+        ...(data.y !== undefined && data.y !== '' ? { y: data.y } : {})
+      };
+      // Ghi IDB nền qua debounced timer để tránh đơ giao diện với 200k dòng
+      debouncedSaveKthtddToIDB();
+      window.dispatchEvent(new CustomEvent('kthtdd_updated'));
+    }
+
+    // 2. Gửi sang Google Apps Script
     try {
       const url = DataStore.getAppScriptUrl();
       if (!url) return { ok: true, message: 'Đã lưu cục bộ (chưa cấu hình Apps Script)' };
@@ -3100,21 +3154,37 @@ export const DataStore = {
   },
 
   assignKthtdd: async (data: { maTram: string; nguoiThucHien: string }): Promise<{ ok: boolean; message: string }> => {
-    // 1. Optimistic update
+    // 1. Tối ưu O(1) phân công qua Index Map: cập nhật trực tiếp chỉ các dòng thuộc trạm
+    const cleanTram = (data.maTram || '').trim().toLowerCase();
+    const targetIndices = kthtddMaTramIndexMap.get(cleanTram);
+
     if (memCacheKthtddList) {
-      let count = 0;
-      memCacheKthtddList = memCacheKthtddList.map(item => {
-        if (item.maTram.toLowerCase().trim() === data.maTram.toLowerCase().trim()) {
-          count++;
-          return { ...item, nguoiThucHien: data.nguoiThucHien };
+      if (targetIndices && targetIndices.length > 0) {
+        for (let i = 0; i < targetIndices.length; i++) {
+          const idx = targetIndices[i];
+          if (memCacheKthtddList[idx]) {
+            memCacheKthtddList[idx] = {
+              ...memCacheKthtddList[idx],
+              nguoiThucHien: data.nguoiThucHien
+            };
+          }
         }
-        return item;
-      });
-      set('sheet_kthtdd_v1', memCacheKthtddList).catch(() => {});
+      } else {
+        // Fallback duyệt tuần tự nếu index chưa kịp dựng
+        for (let i = 0; i < memCacheKthtddList.length; i++) {
+          if (memCacheKthtddList[i].maTram.toLowerCase().trim() === cleanTram) {
+            memCacheKthtddList[i] = {
+              ...memCacheKthtddList[i],
+              nguoiThucHien: data.nguoiThucHien
+            };
+          }
+        }
+      }
+      debouncedSaveKthtddToIDB();
       window.dispatchEvent(new CustomEvent('kthtdd_updated'));
     }
 
-    // 2. Send to Google Apps Script
+    // 2. Gửi sang Google Apps Script
     try {
       const url = DataStore.getAppScriptUrl();
       if (!url) return { ok: true, message: 'Đã phân công cục bộ (chưa cấu hình Apps Script)' };
