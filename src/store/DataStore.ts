@@ -3008,8 +3008,8 @@ export const DataStore = {
     window.dispatchEvent(new CustomEvent('kthtdd_updated'));
   },
 
-  fetchKthtddFromSheet: async (sheetId?: string, onProgress?: (msg: string) => void): Promise<KthtddEntry[]> => {
-    onProgress?.('Đang tải dữ liệu từ Google Sheets...');
+  fetchKthtddFromSheet: async (sheetId?: string, onProgress?: (msg: string) => void, onlyAssigned?: boolean): Promise<KthtddEntry[]> => {
+    onProgress?.(onlyAssigned ? 'Đang tải dữ liệu đã phân công từ Google Sheets...' : 'Đang tải dữ liệu từ Google Sheets...');
     const sId = sheetId || DataStore.getSpreadsheetId() || DEFAULT_SPREADSHEET_ID;
     const possibleSheets = ['KTHTDD', 'KT_HTDD', 'Kiện toàn HTDD', 'KienToanHTDD'];
     let csvText = '';
@@ -3028,7 +3028,7 @@ export const DataStore = {
       throw new Error('Không thể tải sheet KTHTDD từ Google Sheets');
     }
 
-    onProgress?.('Đang xử lý dữ liệu kiểm tra hệ thống đo đếm...');
+    onProgress?.('Đang lọc và xử lý dữ liệu kiểm tra hệ thống đo đếm...');
     const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
     const rawRows = (parsed.data || []) as Record<string, any>[];
 
@@ -3037,6 +3037,12 @@ export const DataStore = {
       const r = rawRows[i];
       const maKh = String(r['Mã KH'] || r['Ma KH'] || r['makh'] || '').trim();
       if (!maKh) continue;
+
+      const nguoiThucHien = String(r['Người thực hiện'] || r['Nguoi thuc hien'] || '').trim();
+      // Tối ưu hóa siêu tốc cho nhân viên đi kiện toàn: chỉ nạp các dòng đã được phân công
+      if (onlyAssigned && !nguoiThucHien) {
+        continue;
+      }
 
       const stt = r['Stt'] || r['STT'] || (i + 1);
       const tenKh = String(r['Tên KH'] || r['Ten KH'] || '').trim();
@@ -3078,7 +3084,6 @@ export const DataStore = {
       const ketQua = String(r['Kết quả'] || r['Ket qua'] || '').trim();
       const chi = String(r['Chì?'] || r['Chì'] || r['Chi'] || '').trim();
       const deXuat = String(r['Đề xuất'] || r['De xuat'] || r['Ghi chú'] || '').trim();
-      const nguoiThucHien = String(r['Người thực hiện'] || r['Nguoi thuc hien'] || '').trim();
       const x = String(r['X'] || r['x'] || r['Tọa độ X'] || r['Toa do X'] || r['Toạ độ X'] || r['Vĩ độ'] || r['Vi do'] || r['Latitude'] || r['Lat'] || '').trim();
       const y = String(r['Y'] || r['y'] || r['Tọa độ Y'] || r['Toa do Y'] || r['Toạ độ Y'] || r['Kinh độ'] || r['Kinh do'] || r['Longitude'] || r['Lng'] || r['Long'] || '').trim();
 

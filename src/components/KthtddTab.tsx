@@ -37,10 +37,13 @@ import {
   Info,
   Maximize2,
   Minimize2,
-  RotateCcw
+  RotateCcw,
+  Zap,
+  ScanBarcode
 } from 'lucide-react';
 import * as XLSX from 'xlsx-js-style';
 import { DataStore, KthtddEntry, SheetMember } from '../store/DataStore';
+import BarcodeScannerModal from './BarcodeScannerModal';
 
 export interface StationNode {
   maTram: string;
@@ -349,6 +352,36 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
   const [expandedKhuVuc, setExpandedKhuVuc] = useState<Record<string, boolean>>({});
   const [expandedTram, setExpandedTram] = useState<Record<string, boolean>>({});
 
+  // Barcode Scanner State (Section 2.1)
+  const [isBarcodeModalOpen, setIsBarcodeModalOpen] = useState(false);
+  const [barcodeScanToast, setBarcodeScanToast] = useState('');
+
+  // Xử lý khi quét mã Barcode số điện kế (Số No) thành công
+  const handleBarcodeScanned = (code: string) => {
+    const cleanCode = code.trim();
+    if (!cleanCode) return;
+    setSearchQuery(cleanCode);
+
+    // Tìm khách hàng khớp theo Số No hoặc Mã KH
+    const cleanLower = cleanCode.toLowerCase();
+    const matched = entries.find(
+      e =>
+        (e.soNo && e.soNo.toLowerCase().trim() === cleanLower) ||
+        (e.maKh && e.maKh.toLowerCase().trim() === cleanLower)
+    );
+
+    if (matched) {
+      setSelectedMaKh(matched.maKh);
+      setMobileTab('inspect');
+      setOpenSections(prev => ({ ...prev, inspect: true }));
+      setBarcodeScanToast(`✓ Đã tìm thấy: ${matched.tenKh} (Số No: ${matched.soNo || cleanCode})`);
+      setTimeout(() => setBarcodeScanToast(''), 4500);
+    } else {
+      setBarcodeScanToast(`Đã lọc mã: "${cleanCode}" trên sơ đồ cây`);
+      setTimeout(() => setBarcodeScanToast(''), 4500);
+    }
+  };
+
   // Assignment Modal State (Section 2.1)
   const [assignStation, setAssignStation] = useState<{ maTram: string; tenTram: string; khuVuc: string; totalKh: number; currentAssignee: string } | null>(null);
   const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
@@ -538,6 +571,36 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
     return !isToTruong;
   }, [isToTruong]);
 
+  // Bộ lọc dữ liệu sơ đồ cây: 'assigned' (chỉ đã phân công), 'mine' (phân công cho tôi), 'all' (tất cả)
+  // Đối với nhân viên ra ngoài đi kiện toàn: mặc định là 'assigned' để tối ưu hóa dữ liệu & tốc độ
+  const [filterAssignedMode, setFilterAssignedMode] = useState<'all' | 'assigned' | 'mine'>(
+    isEmployee ? 'assigned' : 'all'
+  );
+
+  // Tự động đồng bộ chế độ lọc khi vai trò người dùng thay đổi
+  useEffect(() => {
+    if (isEmployee) {
+      setFilterAssignedMode('assigned');
+    }
+  }, [isEmployee]);
+
+  // Thống kê số lượng phân công
+  const assignedCounts = useMemo(() => {
+    let totalAssigned = 0;
+    let myAssigned = 0;
+    const myNorm = sessionUser?.name ? normalizeSearchStr(sessionUser.name) : '';
+    for (let i = 0; i < entries.length; i++) {
+      const e = entries[i];
+      if (e.nguoiThucHien && e.nguoiThucHien.trim().length > 0) {
+        totalAssigned++;
+        if (myNorm && normalizeSearchStr(e.nguoiThucHien).includes(myNorm)) {
+          myAssigned++;
+        }
+      }
+    }
+    return { totalAssigned, myAssigned, total: entries.length };
+  }, [entries, sessionUser]);
+
   // Auto reset mobile tab if employee somehow landed on 'list' or 'stats'
   useEffect(() => {
     if (isEmployee && (mobileTab === 'list' || mobileTab === 'stats')) {
@@ -584,13 +647,23 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
   }, []);
 
   // Fetch or sync from sheet
-  const handleSyncFromSheet = async () => {
+  const handleSyncFromSheet = async (forceAll: boolean = false) => {
     try {
       setSyncing(true);
-      setSyncProgress('Đang kết nối tới Google Sheets...');
-      const fresh = await DataStore.fetchKthtddFromSheet(undefined, msg => {
-        setSyncProgress(msg);
-      });
+      // Đối với nhân viên ra ngoài đi kiện toàn: chỉ load dữ liệu đã phân công (nhẹ hơn và siêu tốc)
+      const loadOnlyAssigned = forceAll ? false : (isEmployee || filterAssignedMode !== 'all');
+      setSyncProgress(
+        loadOnlyAssigned
+          ? 'Đang tải dữ liệu đã phân công từ Google Sheets...'
+          : 'Đang kết nối tới Google Sheets...'
+      );
+      const fresh = await DataStore.fetchKthtddFromSheet(
+        undefined,
+        msg => {
+          setSyncProgress(msg);
+        },
+        loadOnlyAssigned
+      );
       setEntries(fresh);
       const now = new Date();
       setLastSyncTime(
@@ -754,14 +827,24 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
     const qLower = qRaw.toLowerCase();
 
     let filtered = entries;
+
+    // Bộ lọc phân công (tối ưu hóa dữ liệu & tốc độ cho nhân viên đi kiện toàn)
+    if (filterAssignedMode === 'assigned') {
+      filtered = filtered.filter(e => e.nguoiThucHien && e.nguoiThucHien.trim().length > 0);
+    } else if (filterAssignedMode === 'mine' && sessionUser?.name) {
+      const myNorm = normalizeSearchStr(sessionUser.name);
+      filtered = filtered.filter(e => e.nguoiThucHien && normalizeSearchStr(e.nguoiThucHien).includes(myNorm));
+    }
+
     if (qNorm) {
-      filtered = entries.filter(e => {
-        // Direct match with accents
+      filtered = filtered.filter(e => {
+        // Direct match with accents (Mã trạm, Tên trạm, Mã KH, Tên KH, Số No, Địa chỉ)
         if (
           e.maTram?.toLowerCase().includes(qLower) ||
           e.tenTram?.toLowerCase().includes(qLower) ||
           e.maKh?.toLowerCase().includes(qLower) ||
           e.tenKh?.toLowerCase().includes(qLower) ||
+          e.soNo?.toLowerCase().includes(qLower) ||
           e.diaChi?.toLowerCase().includes(qLower)
         ) {
           return true;
@@ -772,6 +855,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
         const tenTramNorm = normalizeSearchStr(e.tenTram);
         const maKhNorm = normalizeSearchStr(e.maKh);
         const tenKhNorm = normalizeSearchStr(e.tenKh);
+        const soNoNorm = normalizeSearchStr(e.soNo);
         const diaChiNorm = normalizeSearchStr(e.diaChi);
 
         return (
@@ -779,6 +863,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
           tenTramNorm.includes(qNorm) ||
           maKhNorm.includes(qNorm) ||
           tenKhNorm.includes(qNorm) ||
+          soNoNorm.includes(qNorm) ||
           diaChiNorm.includes(qNorm)
         );
       });
@@ -826,7 +911,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
     }
 
     return areaMap;
-  }, [entries, searchQuery]);
+  }, [entries, searchQuery, filterAssignedMode, sessionUser]);
 
   // Thống kê kết quả tìm kiếm trên sơ đồ cây
   const treeMatchStats = useMemo(() => {
@@ -1463,7 +1548,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
               </span>
             )}
             <button
-              onClick={handleSyncFromSheet}
+              onClick={() => handleSyncFromSheet(false)}
               disabled={syncing}
               className="flex items-center gap-2 px-3.5 py-2 bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-700/60 text-white text-xs md:text-sm font-bold rounded-xl shadow-md transition-all active:scale-95 cursor-pointer"
               title="Tải lại dữ liệu mới nhất từ Google Sheets"
@@ -1591,26 +1676,109 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
               </div>
             </div>
 
-            {/* Search Input with Voice Mic - Hỗ trợ tìm kiếm theo Mã trạm, Tên trạm, Mã KH, Tên KH, Địa chỉ */}
+            {/* Chế độ tối ưu hóa cho nhân viên ra ngoài đi kiện toàn */}
+            {isEmployee && (
+              <div className="flex items-center justify-between px-2.5 py-1.5 bg-sky-50 border border-sky-200 rounded-xl text-[11px] text-[#005a9c]">
+                <div className="flex items-center gap-1.5 font-semibold">
+                  <Zap className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                  <span>Chế độ nhân viên: Chỉ load {assignedCounts.totalAssigned} KH đã phân công</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleSyncFromSheet(true)}
+                  disabled={syncing}
+                  className="text-[10px] text-slate-500 hover:text-[#005a9c] underline cursor-pointer shrink-0 ml-1 font-medium"
+                  title="Tải toàn bộ sheet nếu cần tra cứu thêm"
+                >
+                  Tải tất cả
+                </button>
+              </div>
+            )}
+
+            {/* Quick Filter: Đã phân công / Của tôi / Tất cả */}
+            <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => setFilterAssignedMode('assigned')}
+                className={`flex-1 py-1 px-2 rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer text-xs ${
+                  filterAssignedMode === 'assigned'
+                    ? 'bg-white text-[#005a9c] shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="Chỉ hiển thị dữ liệu các trạm đã được phân công"
+              >
+                <UserCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span>Đã phân công</span>
+                <span className="text-[10px] px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded-full font-bold">
+                  {assignedCounts.totalAssigned}
+                </span>
+              </button>
+
+              {sessionUser?.name && (
+                <button
+                  type="button"
+                  onClick={() => setFilterAssignedMode('mine')}
+                  className={`py-1 px-2 rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer text-xs ${
+                    filterAssignedMode === 'mine'
+                      ? 'bg-white text-[#005a9c] shadow-xs font-bold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                  title={`Chỉ hiển thị các trạm phân công cho ${sessionUser.name}`}
+                >
+                  <span>Của tôi</span>
+                  <span className="text-[10px] px-1.5 py-0.2 bg-blue-100 text-[#005a9c] rounded-full font-bold">
+                    {assignedCounts.myAssigned}
+                  </span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setFilterAssignedMode('all')}
+                className={`py-1 px-2 rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer text-xs ${
+                  filterAssignedMode === 'all'
+                    ? 'bg-white text-[#005a9c] shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="Hiển thị tất cả dữ liệu (kể cả chưa phân công)"
+              >
+                <span>Tất cả</span>
+                <span className="text-[10px] px-1.5 py-0.2 bg-slate-200 text-slate-700 rounded-full font-bold">
+                  {assignedCounts.total}
+                </span>
+              </button>
+            </div>
+
+            {/* Search Input with Voice Mic & Barcode Scanner - Hỗ trợ tìm kiếm theo Mã trạm, Tên trạm, Mã KH, Tên KH, Số No điện kế, Địa chỉ */}
             <div className="relative flex items-center mt-1">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 pointer-events-none" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Tìm Mã trạm, Tên trạm, Mã KH, Tên KH, Địa chỉ..."
-                className="w-full pl-9 pr-20 py-2.5 text-xs md:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#005a9c] focus:ring-2 focus:ring-[#005a9c]/20 outline-none transition-all placeholder:text-slate-400 font-medium"
+                placeholder="Tìm Mã trạm, Tên trạm, Mã KH, Số No điện kế, Địa chỉ..."
+                className="w-full pl-9 pr-24 py-2.5 text-xs md:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#005a9c] focus:ring-2 focus:ring-[#005a9c]/20 outline-none transition-all placeholder:text-slate-400 font-medium"
               />
 
               {searchQuery && (
                 <button
                   onClick={() => setSearchQuery('')}
-                  className="absolute right-10 p-1 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                  className="absolute right-17 p-1 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
                   title="Xóa tìm kiếm"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
               )}
+
+              {/* Barcode Scanner Button - Quét mã vạch Số No điện kế bằng Camera */}
+              <button
+                type="button"
+                onClick={() => setIsBarcodeModalOpen(true)}
+                className="absolute right-9 p-1.5 rounded-lg bg-slate-200/80 hover:bg-[#005a9c] text-slate-600 hover:text-white transition-all cursor-pointer"
+                title="Quét Barcode / Mã vạch Số No điện kế bằng Camera"
+              >
+                <ScanBarcode className="w-4 h-4" />
+              </button>
 
               {/* Voice Input Mic Button */}
               <button
@@ -1626,6 +1794,14 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                 {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
               </button>
             </div>
+
+            {/* Barcode Scan Toast Feedback */}
+            {barcodeScanToast && (
+              <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-300 px-3 py-1.5 rounded-xl animate-in fade-in">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span className="truncate">{barcodeScanToast}</span>
+              </div>
+            )}
 
             {/* Listening Feedback / Error */}
             {isListening && (
@@ -1800,7 +1976,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                                             setMobileTab('inspect');
                                             setOpenSections(prev => ({ ...prev, inspect: true }));
                                           }}
-                                          title={`Mã KH: ${customer.maKh}\nTên KH: ${customer.tenKh}${customer.diaChi ? '\nĐịa chỉ: ' + customer.diaChi : ''}${customer.soDienThoai ? '\nSĐT: ' + formatPhoneNumber(customer.soDienThoai) : ''}`}
+                                          title={`Mã KH: ${customer.maKh}\nTên KH: ${customer.tenKh}${customer.soNo ? '\nSố No (Điện kế): ' + customer.soNo : ''}${customer.diaChi ? '\nĐịa chỉ: ' + customer.diaChi : ''}${customer.soDienThoai ? '\nSĐT: ' + formatPhoneNumber(customer.soDienThoai) : ''}`}
                                           className={`flex items-center justify-between p-1.5 rounded-lg text-xs cursor-pointer transition-all ${
                                             isSelected
                                               ? 'bg-[#005a9c] text-white font-bold shadow-xs'
@@ -1822,7 +1998,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                                               />
                                             )}
                                             <span className="truncate">
-                                              <b>{customer.maKh}</b> ➔ {customer.tenKh}
+                                              <b>{customer.maKh}</b> ➔ {customer.tenKh} ➔ {customer.soNo || '---'}
                                             </span>
                                           </div>
 
@@ -3638,6 +3814,17 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
           </div>
         </div>
       )}
+
+      {/* ======================================================== */}
+      {/* MODAL QUÉT MÃ VẠCH (BARCODE) SỐ NO ĐIỆN KẾ                */}
+      {/* ======================================================== */}
+      <BarcodeScannerModal
+        isOpen={isBarcodeModalOpen}
+        onClose={() => setIsBarcodeModalOpen(false)}
+        onScan={handleBarcodeScanned}
+        title="Quét Barcode Số No Điện Kế"
+        subtitle="Hướng camera vào mã vạch (Barcode / QR) trên mặt đồng hồ điện kế"
+      />
     </div>
   );
 }
