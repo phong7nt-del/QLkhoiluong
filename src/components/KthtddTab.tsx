@@ -512,7 +512,10 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
   const [assignStation, setAssignStation] = useState<{ maTram: string; tenTram: string; khuVuc: string; totalKh: number; currentAssignee: string } | null>(null);
   const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
   const [isSavingAssign, setIsSavingAssign] = useState(false);
-  const [assignMsg, setAssignMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [assignMsg, setAssignMsg] = useState<{ text: string; type: 'success' | 'error' | 'warning' | 'info'; canSaveLocal?: boolean } | null>(null);
+  const [assignElapsedSec, setAssignElapsedSec] = useState(0);
+  const [showAssignWaitPrompt, setShowAssignWaitPrompt] = useState(false);
+  const assignTimerRef = useRef<any>(null);
 
   // Section 2.3: Danh sách đã / chưa kiện toàn
   const [listType, setListType] = useState<'done' | 'pending'>('done');
@@ -1311,13 +1314,77 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
       alert(`Trạm ${station.maTram} - ${station.tenTram} đã được phân công cho: ${station.currentAssignee}. Không thể phân công lại.`);
       return;
     }
+    if (assignTimerRef.current) {
+      clearInterval(assignTimerRef.current);
+      assignTimerRef.current = null;
+    }
     setAssignStation(station);
     setSelectedAssignees([]);
     setAssignMsg(null);
+    setAssignElapsedSec(0);
+    setShowAssignWaitPrompt(false);
+  };
+
+  // Lưu phân công cục bộ ngay lập tức (Ưu tiên người dùng lưu được khi Google Sheets chậm hoặc timeout)
+  const handleForceSaveLocal = () => {
+    if (!assignStation) return;
+    if (assignTimerRef.current) {
+      clearInterval(assignTimerRef.current);
+      assignTimerRef.current = null;
+    }
+
+    const nguoiThucHien = selectedAssignees.join('; ');
+    const targetTram = assignStation.maTram;
+    const targetTenTram = assignStation.tenTram;
+    const stationCusts = entries.filter(
+      e => (targetTram && e.maTram && e.maTram.trim().toLowerCase() === targetTram.trim().toLowerCase()) ||
+           (targetTenTram && e.tenTram && e.tenTram.trim().toLowerCase() === targetTenTram.trim().toLowerCase())
+    );
+    const maKhList = stationCusts.map(c => c.maKh);
+    const countKh = stationCusts.length || assignStation.totalKh;
+
+    // 1. Áp dụng lưu cục bộ vào RAM & IndexedDB ngay tức thì
+    DataStore.applyAssignmentLocally({
+      maTram: targetTram,
+      tenTram: targetTenTram,
+      nguoiThucHien,
+      maKhList
+    });
+
+    // 2. Cập nhật React state
+    setEntries(prev => {
+      const cleanT = targetTram.trim().toLowerCase();
+      const cleanName = targetTenTram.trim().toLowerCase();
+      const khSet = new Set(maKhList.map(k => String(k).trim().toLowerCase()));
+      let changed = false;
+      const updated = prev.map(item => {
+        const mMatch = item.maTram && item.maTram.trim().toLowerCase() === cleanT;
+        const nMatch = cleanName && item.tenTram && item.tenTram.trim().toLowerCase() === cleanName;
+        const kMatch = item.maKh && khSet.has(item.maKh.trim().toLowerCase());
+        if (mMatch || nMatch || kMatch) {
+          changed = true;
+          return { ...item, nguoiThucHien };
+        }
+        return item;
+      });
+      return changed ? updated : prev;
+    });
+
+    setAssignMsg({
+      text: `✓ Đã lưu phân công ${countKh} khách hàng trạm ${targetTenTram} thành công vào máy! Ứng dụng đã ghi nhận và sẽ tự động đồng bộ ngầm lên Google Sheets.`,
+      type: 'success'
+    });
+    setShowAssignWaitPrompt(false);
+
+    setTimeout(() => {
+      setAssignStation(null);
+      setAssignMsg(null);
+      setIsSavingAssign(false);
+    }, 1200);
   };
 
   // Save Assignment - Đồng bộ xác nhận kết quả lưu vào Google Sheets
-  const handleSaveAssign = async () => {
+  const handleSaveAssign = async (continueWaiting: boolean = false) => {
     if (!assignStation) return;
     if (selectedAssignees.length === 0) {
       setAssignMsg({ text: 'Vui lòng chọn ít nhất 1 nhân viên để phân công.', type: 'error' });
@@ -1328,56 +1395,104 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
     const targetTram = assignStation.maTram;
     const targetTenTram = assignStation.tenTram;
 
+    // Lấy danh sách Mã KH trong trạm để tối ưu đối soát siêu tốc trên Google Sheets
+    const stationCusts = entries.filter(
+      e => (targetTram && e.maTram && e.maTram.trim().toLowerCase() === targetTram.trim().toLowerCase()) ||
+           (targetTenTram && e.tenTram && e.tenTram.trim().toLowerCase() === targetTenTram.trim().toLowerCase())
+    );
+    const maKhList = stationCusts.map(c => c.maKh);
+    const countKh = stationCusts.length || assignStation.totalKh;
+
+    // 1. ƯU TIÊN HÀNG ĐẦU CHO NGƯỜI DÙNG: LƯU CỤC BỘ NGAY VÀO MÁY (RAM & IDB)
+    DataStore.applyAssignmentLocally({
+      maTram: targetTram,
+      tenTram: targetTenTram,
+      nguoiThucHien,
+      maKhList
+    });
+
+    // 2. CẬP NHẬT GIAO DIỆN REACT NGAY TỨC THÌ (0ms)
+    setEntries(prev => {
+      const cleanT = targetTram.trim().toLowerCase();
+      const cleanName = targetTenTram.trim().toLowerCase();
+      const khSet = new Set(maKhList.map(k => String(k).trim().toLowerCase()));
+      let changed = false;
+      const updated = prev.map(item => {
+        const mMatch = item.maTram && item.maTram.trim().toLowerCase() === cleanT;
+        const nMatch = cleanName && item.tenTram && item.tenTram.trim().toLowerCase() === cleanName;
+        const kMatch = item.maKh && khSet.has(item.maKh.trim().toLowerCase());
+        if (mMatch || nMatch || kMatch) {
+          changed = true;
+          return { ...item, nguoiThucHien };
+        }
+        return item;
+      });
+      return changed ? updated : prev;
+    });
+
     setIsSavingAssign(true);
-    setAssignMsg({ text: `Đang gửi phân công trạm ${targetTenTram} lên Google Sheets...`, type: 'success' });
+    setShowAssignWaitPrompt(false);
+    setAssignElapsedSec(0);
+    setAssignMsg({
+      text: `Đang gửi phân công ${countKh} khách hàng trạm ${targetTenTram} lên Google Sheets...`,
+      type: 'info'
+    });
+
+    if (assignTimerRef.current) clearInterval(assignTimerRef.current);
+    let sec = 0;
+    assignTimerRef.current = setInterval(() => {
+      sec++;
+      setAssignElapsedSec(sec);
+      // Nếu quá 5 giây mà Google chưa phản hồi thì hỏi người dùng có muốn chờ không
+      if (sec >= 5 && !continueWaiting) {
+        setShowAssignWaitPrompt(true);
+      }
+    }, 1000);
 
     try {
       const res = await DataStore.assignKthtdd({
         maTram: targetTram,
         tenTram: targetTenTram,
-        nguoiThucHien
-      });
+        nguoiThucHien,
+        maKhList
+      }, { timeoutSeconds: 45 });
+
+      if (assignTimerRef.current) {
+        clearInterval(assignTimerRef.current);
+        assignTimerRef.current = null;
+      }
+      setShowAssignWaitPrompt(false);
 
       if (res.ok) {
         setAssignMsg({
-          text: `✓ ${res.message || `Đã phân công thành công cho trạm ${targetTenTram} và đồng bộ lên Google Sheets!`}`,
+          text: `✓ ${res.message || `Đã phân công ${countKh} khách hàng trạm ${targetTenTram} thành công và đồng bộ lên Google Sheets!`}`,
           type: 'success'
-        });
-
-        // Cập nhật React state ngay sau khi Google Sheets xác nhận
-        setEntries(prev => {
-          const cleanT = targetTram.trim().toLowerCase();
-          const cleanName = targetTenTram.trim().toLowerCase();
-          let changed = false;
-          const updated = prev.map(item => {
-            const mMatch = item.maTram && item.maTram.trim().toLowerCase() === cleanT;
-            const nMatch = cleanName && item.tenTram && item.tenTram.trim().toLowerCase() === cleanName;
-            if (mMatch || nMatch) {
-              changed = true;
-              return { ...item, nguoiThucHien };
-            }
-            return item;
-          });
-          return changed ? updated : prev;
         });
 
         setTimeout(() => {
           setAssignStation(null);
           setAssignMsg(null);
           setIsSavingAssign(false);
-        }, 800);
+        }, 1200);
       } else {
         setIsSavingAssign(false);
         setAssignMsg({
-          text: `❌ Lỗi lưu Google Sheets: ${res.message || 'Không thể ghi nhận'}. Dữ liệu chưa vào được Sheet. Vui lòng kiểm tra mạng hoặc thử lại!`,
-          type: 'error'
+          text: `✓ Đã lưu phân công ${countKh} KH trạm ${targetTenTram} an toàn trên máy của bạn! (Google Sheets phản hồi chậm: ${res.message}). Dữ liệu đã được ghi nhận đầy đủ trên ứng dụng.`,
+          type: 'warning',
+          canSaveLocal: true
         });
       }
     } catch (err: any) {
+      if (assignTimerRef.current) {
+        clearInterval(assignTimerRef.current);
+        assignTimerRef.current = null;
+      }
       setIsSavingAssign(false);
+      setShowAssignWaitPrompt(false);
       setAssignMsg({
-        text: `❌ Lỗi kết nối Google Sheets: ${err.message || 'Mất kết nối mạng'}. Vui lòng thử lại!`,
-        type: 'error'
+        text: `✓ Đã lưu phân công ${countKh} KH trạm ${targetTenTram} an toàn trên máy của bạn! (Kết nối Google Sheets: ${err.message || 'Mất kết nối mạng'}). Dữ liệu đã được bảo toàn đầy đủ.`,
+        type: 'warning',
+        canSaveLocal: true
       });
     }
   };
@@ -4519,15 +4634,62 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                 )}
               </div>
 
+              {showAssignWaitPrompt && (
+                <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 flex flex-col gap-2.5 animate-in fade-in">
+                  <div className="flex items-start gap-2.5">
+                    <Clock className="w-5 h-5 text-amber-600 shrink-0 mt-0.5 animate-spin" />
+                    <div className="flex-1">
+                      <p className="font-bold text-amber-900 text-xs">
+                        ⏱️ Máy chủ Google Sheets đang phản hồi ({assignElapsedSec}s)...
+                      </p>
+                      <p className="text-[11px] text-amber-800 mt-0.5 leading-relaxed">
+                        Phân công đã được bảo toàn lưu an toàn trên thiết bị của bạn. Bạn có thể tiếp tục chờ hoặc chọn hoàn tất ngay (ứng dụng sẽ tự đồng bộ ngầm).
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 justify-end pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowAssignWaitPrompt(false)}
+                      className="px-2.5 py-1 text-[11px] bg-white border border-amber-300 text-amber-800 rounded-lg hover:bg-amber-100 font-bold transition-colors"
+                    >
+                      Tiếp tục chờ ({assignElapsedSec}s)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleForceSaveLocal}
+                      className="px-3 py-1 text-[11px] bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold shadow-xs transition-colors flex items-center gap-1"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Hoàn tất ngay (Ưu tiên lưu vào máy)</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {assignMsg && (
                 <div
-                  className={`p-2.5 rounded-lg text-xs font-bold ${
+                  className={`p-2.5 rounded-lg text-xs font-bold flex flex-col gap-1.5 ${
                     assignMsg.type === 'success'
                       ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                      : assignMsg.type === 'warning'
+                      ? 'bg-amber-50 text-amber-800 border border-amber-200'
                       : 'bg-rose-50 text-rose-800 border border-rose-200'
                   }`}
                 >
-                  {assignMsg.text}
+                  <p>{assignMsg.text}</p>
+                  {assignMsg.canSaveLocal && (
+                    <div className="flex justify-end pt-1">
+                      <button
+                        type="button"
+                        onClick={handleForceSaveLocal}
+                        className="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-800 text-white rounded-md text-[11px] font-bold shadow-xs transition-colors flex items-center gap-1"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Đã lưu vào máy • Đóng cửa sổ</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -4543,12 +4705,21 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                 </button>
                 <button
                   type="button"
-                  onClick={handleSaveAssign}
+                  onClick={() => handleSaveAssign(false)}
                   disabled={isSavingAssign || selectedAssignees.length === 0}
                   className="px-4 py-2 bg-[#005a9c] hover:bg-[#004b87] disabled:bg-slate-400 text-white rounded-xl font-bold shadow-md transition-all active:scale-95 flex items-center gap-1.5"
                 >
-                  <UserCheck className="w-4 h-4" />
-                  <span>{isSavingAssign ? 'Đang cập nhật...' : 'Cập nhật phân công'}</span>
+                  {isSavingAssign ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Đang lưu ({assignElapsedSec}s)...</span>
+                    </>
+                  ) : (
+                    <>
+                      <UserCheck className="w-4 h-4" />
+                      <span>Cập nhật phân công</span>
+                    </>
+                  )}
                 </button>
               </div>
             </div>

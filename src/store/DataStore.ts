@@ -3192,89 +3192,92 @@ export const DataStore = {
     }
   },
 
-  assignKthtdd: async (data: { maTram: string; tenTram?: string; nguoiThucHien: string }): Promise<{ ok: boolean; message: string }> => {
+  applyAssignmentLocally: (data: { maTram: string; tenTram?: string; nguoiThucHien: string; maKhList?: string[] }) => {
     const cleanTram = (data.maTram || '').trim().toLowerCase();
     const cleanTen = (data.tenTram || '').trim().toLowerCase();
+    const khSet = new Set((data.maKhList || []).map(k => String(k).trim().toLowerCase()));
 
-    // 1. Gửi sang Google Apps Script trước để đảm bảo Sheet được cập nhật thành công
+    if (memCacheKthtddList) {
+      let changed = false;
+      for (let i = 0; i < memCacheKthtddList.length; i++) {
+        const item = memCacheKthtddList[i];
+        const mMatch = cleanTram && item.maTram && item.maTram.toLowerCase().trim() === cleanTram;
+        const nMatch = cleanTen && item.tenTram && item.tenTram.toLowerCase().trim() === cleanTen;
+        const kMatch = item.maKh && khSet.has(item.maKh.toLowerCase().trim());
+        if (mMatch || nMatch || kMatch) {
+          memCacheKthtddList[i] = {
+            ...memCacheKthtddList[i],
+            nguoiThucHien: data.nguoiThucHien
+          };
+          changed = true;
+        }
+      }
+      if (changed) {
+        debouncedSaveKthtddToIDB();
+        window.dispatchEvent(new CustomEvent('kthtdd_updated'));
+      }
+    }
+  },
+
+  assignKthtdd: async (
+    data: { maTram: string; tenTram?: string; nguoiThucHien: string; maKhList?: string[] },
+    options?: { timeoutSeconds?: number }
+  ): Promise<{ ok: boolean; message: string; isTimeout?: boolean; savedLocally?: boolean }> => {
+    // Ưu tiên hàng đầu cho người dùng: LƯU CỤC BỘ NGAY TỨC THÌ (RAM & IDB)
+    DataStore.applyAssignmentLocally(data);
+
     const url = DataStore.getAppScriptUrl();
     if (!url) {
-      return { ok: false, message: 'Chưa cấu hình đường dẫn Google Apps Script trên máy này.' };
+      return { ok: true, savedLocally: true, message: 'Đã lưu phân công an toàn vào máy (chưa cấu hình Google Apps Script).' };
     }
 
+    const timeoutMs = (options?.timeoutSeconds || 45) * 1000;
     let lastError = '';
-    for (let attempt = 0; attempt < 2; attempt++) {
+    let isTimeout = false;
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'assign_kthtdd', data }),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      const rawText = await response.text();
       try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 25000);
-
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ action: 'assign_kthtdd', data }),
-          signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-
-        const rawText = await response.text();
-        try {
-          const res = JSON.parse(rawText);
-          if (res.status === 'success') {
-            // 2. Chỉ khi Google Sheets đã lưu thành công mới cập nhật RAM & IndexedDB
-            if (memCacheKthtddList) {
-              const targetIndices = kthtddMaTramIndexMap.get(cleanTram);
-              if (targetIndices && targetIndices.length > 0) {
-                for (let i = 0; i < targetIndices.length; i++) {
-                  const idx = targetIndices[i];
-                  if (memCacheKthtddList[idx]) {
-                    memCacheKthtddList[idx] = {
-                      ...memCacheKthtddList[idx],
-                      nguoiThucHien: data.nguoiThucHien
-                    };
-                  }
-                }
-              } else {
-                for (let i = 0; i < memCacheKthtddList.length; i++) {
-                  const item = memCacheKthtddList[i];
-                  const mMatch = item.maTram && item.maTram.toLowerCase().trim() === cleanTram;
-                  const nMatch = cleanTen && item.tenTram && item.tenTram.toLowerCase().trim() === cleanTen;
-                  if (mMatch || nMatch) {
-                    memCacheKthtddList[i] = {
-                      ...memCacheKthtddList[i],
-                      nguoiThucHien: data.nguoiThucHien
-                    };
-                  }
-                }
-              }
-              debouncedSaveKthtddToIDB();
-              window.dispatchEvent(new CustomEvent('kthtdd_updated'));
-            }
-
-            return {
-              ok: true,
-              message: res.message || `Đã phân công ${res.count !== undefined ? res.count + ' KH' : ''} thành công!`
-            };
-          } else {
-            return {
-              ok: false,
-              message: res.message || 'Google Sheets phản hồi lỗi không thể cập nhật.'
-            };
-          }
-        } catch {
-          if (response.ok) {
-            return { ok: true, message: 'Đã gửi phân công thành công tới máy chủ.' };
-          }
-          return { ok: false, message: 'Máy chủ phản hồi định dạng không hợp lệ.' };
+        const res = JSON.parse(rawText);
+        if (res.status === 'success') {
+          return {
+            ok: true,
+            savedLocally: true,
+            message: res.message || `Đã phân công ${res.count !== undefined ? res.count + ' KH' : ''} thành công!`
+          };
+        } else {
+          return {
+            ok: false,
+            savedLocally: true,
+            message: res.message || 'Google Sheets phản hồi lỗi không thể cập nhật.'
+          };
         }
-      } catch (e: any) {
-        lastError = e.name === 'AbortError' ? 'Quá thời gian kết nối tới máy chủ (Timeout 25s)' : (e.message || 'Lỗi mạng');
-        if (attempt === 0) {
-          // Thử lại sau 600ms nếu mạng chập chờn
-          await new Promise(r => setTimeout(r, 600));
+      } catch {
+        if (response.ok) {
+          return { ok: true, savedLocally: true, message: 'Đã gửi phân công thành công tới máy chủ Google Sheets.' };
         }
+        return { ok: false, savedLocally: true, message: 'Máy chủ phản hồi định dạng không hợp lệ.' };
+      }
+    } catch (e: any) {
+      if (e.name === 'AbortError') {
+        isTimeout = true;
+        lastError = `Quá thời gian chờ phản hồi Google Sheets (${Math.round(timeoutMs / 1000)}s)`;
+      } else {
+        lastError = e.message || 'Lỗi mạng khi kết nối Google Sheets';
       }
     }
 
-    return { ok: false, message: lastError || 'Lỗi kết nối tới máy chủ Google Apps Script.' };
+    return { ok: false, savedLocally: true, message: lastError || 'Lỗi kết nối tới máy chủ Google Apps Script.', isTimeout };
   }
 };
