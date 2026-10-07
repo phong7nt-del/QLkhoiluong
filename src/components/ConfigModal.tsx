@@ -793,6 +793,7 @@ function doPost(e) {
       // Đọc chỉ 1 dòng tiêu đề (cực nhanh < 15ms thay vì đọc toàn bộ 200k dòng)
       var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
       var colMaKh = -1, colNgay = -1, colKetQua = -1, colChi = -1, colDeXuat = -1, colX = -1, colY = -1;
+      var colNguoiThucHien = -1, colSoDienThoai = -1, colPic = -1;
       for (var c = 0; c < headers.length; c++) {
         var rawH = String(headers[c] || '').trim();
         var h = rawH.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[\s_?]+/g, '');
@@ -803,6 +804,9 @@ function doPost(e) {
         if (h.includes('dexuat') || h.includes('ghichu')) colDeXuat = c;
         if (rawH.toUpperCase() === 'X' || h === 'x' || h === 'toadox' || h === 'vido' || h.includes('toadox')) colX = c;
         if (rawH.toUpperCase() === 'Y' || h === 'y' || h === 'toadoy' || h === 'kinhdo' || h.includes('toadoy')) colY = c;
+        if (h.includes('nguoithuchien') || h.includes('nguoi_thuc_hien')) colNguoiThucHien = c;
+        if (h.includes('sodienthoai') || h.includes('sdt') || h.includes('dienthoai') || h.includes('sodt')) colSoDienThoai = c;
+        if (rawH.toUpperCase() === 'PIC' || h === 'pic' || h.includes('pic') || h.includes('hinhanh') || h.includes('anh')) colPic = c;
       }
       if (colMaKh === -1) colMaKh = 1; // Default Col B
       if (colNgay === -1) colNgay = 10; // Default Col K
@@ -820,6 +824,12 @@ function doPost(e) {
         colY = headers.length;
         sheet.getRange(1, colY + 1).setValue('Y');
         headers.push('Y');
+      }
+      // Nếu có trường Pic (link ảnh) gửi lên mà sheet chưa có cột Pic, tự động thêm cột Pic
+      if (data.pic !== undefined && data.pic !== '' && colPic === -1) {
+        colPic = headers.length;
+        sheet.getRange(1, colPic + 1).setValue('Pic');
+        headers.push('Pic');
       }
 
       // Tìm dòng bằng TextFinder của Google Sheets (thuật toán tìm nhị phân native C++ siêu tốc < 50ms cho 200k dòng)
@@ -856,7 +866,7 @@ function doPost(e) {
 
       if (targetRow > 1) {
         // Đọc 1 dòng duy nhất để ghi cập nhật theo mảng 1 lần (Single Batch Range Update)
-        var rowRange = sheet.getRange(targetRow, 1, 1, Math.max(headers.length, colX + 1, colY + 1));
+        var rowRange = sheet.getRange(targetRow, 1, 1, Math.max(headers.length, colX + 1, colY + 1, colPic + 1));
         var rowArr = rowRange.getValues()[0];
         if (data.ngay !== undefined) rowArr[colNgay] = "'" + data.ngay;
         if (data.ketQua !== undefined) rowArr[colKetQua] = data.ketQua;
@@ -864,6 +874,9 @@ function doPost(e) {
         if (data.deXuat !== undefined) rowArr[colDeXuat] = data.deXuat;
         if (data.x !== undefined && data.x !== '' && colX > -1) rowArr[colX] = data.x;
         if (data.y !== undefined && data.y !== '' && colY > -1) rowArr[colY] = data.y;
+        if (data.nguoiThucHien !== undefined && data.nguoiThucHien !== '' && colNguoiThucHien > -1) rowArr[colNguoiThucHien] = data.nguoiThucHien;
+        if (data.soDienThoai !== undefined && colSoDienThoai > -1) rowArr[colSoDienThoai] = "'" + data.soDienThoai;
+        if (data.pic !== undefined && colPic > -1) rowArr[colPic] = data.pic;
         rowRange.setValues([rowArr]);
 
         return ContentService.createTextOutput(JSON.stringify({ 
@@ -1375,24 +1388,38 @@ function doPost(e) {
     }
 
     
-    if (action === 'upload_image') {
+    if (action === 'upload_image' || action === 'upload_kthtdd_image') {
        try {
-           // Tìm hoặc tạo thư mục "App_Images" ở thư mục gốc của Drive
-           var folder = DriveApp.getFolderById("1eze4kVWtdUr0gjKSEAB_BKSfm5CNg3fv");
+           var folderId = payload.folderId || "1eze4kVWtdUr0gjKSEAB_BKSfm5CNg3fv";
+           var folder = DriveApp.getFolderById(folderId);
            var b64 = payload.base64.split(',')[1] || payload.base64;
            var bytes = Utilities.base64Decode(b64);
            var mime = payload.mimeType || 'image/jpeg';
-           var fName = payload.fileName || ('IMG_' + new Date().getTime() + '.jpg');
+           var fName = payload.fileName || ('KT_' + (payload.maKh || new Date().getTime()) + '.jpg');
+
+           // Xóa file cũ cùng tên trong thư mục nếu có để tiết kiệm dung lượng Drive và cập nhật ảnh mới
+           try {
+             var oldFiles = folder.getFilesByName(fName);
+             while (oldFiles.hasNext()) {
+               oldFiles.next().setTrashed(true);
+             }
+           } catch(delErr) {}
+
            var blob = Utilities.newBlob(bytes, mime, fName);
            var file = folder.createFile(blob);
            try {
                file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
            } catch(shareErr) {
-               console.warn("Could not set public sharing (might be blocked by domain): ", shareErr);
+               console.warn("Could not set public sharing: ", shareErr);
            }
+           var driveViewUrl = "https://drive.google.com/uc?export=view&id=" + file.getId();
+           var driveThumbUrl = "https://drive.google.com/thumbnail?id=" + file.getId() + "&sz=w1200";
            return ContentService.createTextOutput(JSON.stringify({ 
                status: 'success', 
-               url: "https://drive.google.com/thumbnail?id=" + file.getId() + "&sz=w1200" 
+               url: driveViewUrl,
+               thumbnailUrl: driveThumbUrl,
+               fileId: file.getId(),
+               fileName: fName
            })).setMimeType(ContentService.MimeType.JSON);
        } catch(e) {
            return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: e.toString() })).setMimeType(ContentService.MimeType.JSON);

@@ -67,6 +67,7 @@ export interface KthtddEntry {
   nguoiThucHien: string;
   x?: string;     // Tọa độ X (Vĩ độ / Latitude hoặc X sheet)
   y?: string;     // Tọa độ Y (Kinh độ / Longitude hoặc Y sheet)
+  pic?: string;   // Đường link ảnh công tơ trên Google Drive (trường Pic sheet KTHTDD)
 }
 
 export interface OnlineStats {
@@ -1099,29 +1100,43 @@ export const DataStore = {
      }
   },
   
-  uploadImageToDrive: async (base64: string, fileName: string, mimeType: string) => {
-     try {
-         const url = DataStore.getAppScriptUrl();
-         // we need to use cors to get the response JSON, but Apps Script might not return CORS properly if not deployed as Web App with 'Anyone' access.
-         // Usually Apps script web apps deployed as "Execute as: me", "Who has access: anyone" do return CORS if configured, but fetch handles follow-redirects.
-         // wait, previously we used 'no-cors' for POSTs to Apps Script because of CORS issues.
-         // If we use no-cors, we can't read the response to get the URL!
-         // Let's try 'cors' first. 
-         const res = await fetch(url, {
-             method: 'POST',
-             // mode: 'cors', // Let's omit mode, let fetch default or use cors
-             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-             body: JSON.stringify({
-                 action: 'upload_image', base64, fileName, mimeType
-             })
-         });
-         const json = await res.json();
-         if (json.status === 'success') return json.url;
-         throw new Error(json.message || 'Upload failed');
-     } catch(e) {
-         console.error('Lỗi upload ảnh:', e);
-         throw e;
-     }
+  uploadImageToDrive: async (
+    base64: string,
+    fileName: string,
+    mimeType: string = 'image/jpeg',
+    folderId: string = '1eze4kVWtdUr0gjKSEAB_BKSfm5CNg3fv'
+  ): Promise<string> => {
+    try {
+      const url = DataStore.getAppScriptUrl();
+      if (!url) {
+        throw new Error('Chưa cấu hình URL Google Apps Script');
+      }
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'upload_image',
+          base64,
+          fileName,
+          mimeType,
+          folderId
+        })
+      });
+      const text = await res.text();
+      let json: any;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        throw new Error('Phản hồi từ Google Apps Script không hợp lệ: ' + text);
+      }
+      if (json.status === 'success' && (json.url || json.thumbnailUrl)) {
+        return json.url || json.thumbnailUrl;
+      }
+      throw new Error(json.message || 'Upload ảnh lên Google Drive thất bại');
+    } catch (e: any) {
+      console.error('Lỗi upload ảnh:', e);
+      throw e;
+    }
   },
 
   getXuLyDoXa: async () => {
@@ -3086,6 +3101,7 @@ export const DataStore = {
       const deXuat = String(r['Đề xuất'] || r['De xuat'] || r['Ghi chú'] || '').trim();
       const x = String(r['X'] || r['x'] || r['Tọa độ X'] || r['Toa do X'] || r['Toạ độ X'] || r['Vĩ độ'] || r['Vi do'] || r['Latitude'] || r['Lat'] || '').trim();
       const y = String(r['Y'] || r['y'] || r['Tọa độ Y'] || r['Toa do Y'] || r['Toạ độ Y'] || r['Kinh độ'] || r['Kinh do'] || r['Longitude'] || r['Lng'] || r['Long'] || '').trim();
+      const pic = String(r['Pic'] || r['pic'] || r['PIC'] || r['Ảnh'] || r['Anh'] || r['Hinh anh'] || r['Hình ảnh'] || '').trim();
 
       entries.push({
         stt,
@@ -3104,7 +3120,8 @@ export const DataStore = {
         deXuat,
         nguoiThucHien,
         x,
-        y
+        y,
+        pic
       });
     }
 
@@ -3112,7 +3129,18 @@ export const DataStore = {
     return entries;
   },
 
-  updateKthtdd: async (data: { maKh: string; ngay: string; ketQua: string; chi: string; deXuat: string; x?: string; y?: string }): Promise<{ ok: boolean; message: string }> => {
+  updateKthtdd: async (data: {
+    maKh: string;
+    ngay?: string;
+    ketQua?: string;
+    chi?: string;
+    deXuat?: string;
+    x?: string;
+    y?: string;
+    nguoiThucHien?: string;
+    soDienThoai?: string;
+    pic?: string;
+  }): Promise<{ ok: boolean; message: string }> => {
     // 1. Tối ưu O(1) qua Index Map cho danh sách 200k dòng: cập nhật RAM ngay lập tức
     const cleanMaKh = (data.maKh || '').trim().toLowerCase();
     let idx = kthtddMaKhIndexMap.get(cleanMaKh);
@@ -3124,12 +3152,15 @@ export const DataStore = {
     if (idx !== undefined && idx !== -1 && memCacheKthtddList) {
       memCacheKthtddList[idx] = {
         ...memCacheKthtddList[idx],
-        ngay: data.ngay,
-        ketQua: data.ketQua,
-        chi: data.chi,
-        deXuat: data.deXuat,
+        ...(data.ngay !== undefined ? { ngay: data.ngay } : {}),
+        ...(data.ketQua !== undefined ? { ketQua: data.ketQua } : {}),
+        ...(data.chi !== undefined ? { chi: data.chi } : {}),
+        ...(data.deXuat !== undefined ? { deXuat: data.deXuat } : {}),
         ...(data.x !== undefined && data.x !== '' ? { x: data.x } : {}),
-        ...(data.y !== undefined && data.y !== '' ? { y: data.y } : {})
+        ...(data.y !== undefined && data.y !== '' ? { y: data.y } : {}),
+        ...(data.nguoiThucHien !== undefined ? { nguoiThucHien: data.nguoiThucHien } : {}),
+        ...(data.soDienThoai !== undefined ? { soDienThoai: data.soDienThoai } : {}),
+        ...(data.pic !== undefined ? { pic: data.pic } : {})
       };
       // Ghi IDB nền qua debounced timer để tránh đơ giao diện với 200k dòng
       debouncedSaveKthtddToIDB();

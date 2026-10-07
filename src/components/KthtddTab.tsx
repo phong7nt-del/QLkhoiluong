@@ -39,7 +39,18 @@ import {
   Minimize2,
   RotateCcw,
   Zap,
-  ScanBarcode
+  ScanBarcode,
+  Crosshair,
+  Pencil,
+  Plus,
+  Camera,
+  Image as ImageIcon,
+  Trash2,
+  Eye,
+  ExternalLink,
+  Loader2,
+  Upload,
+  FolderOpen
 } from 'lucide-react';
 import * as XLSX from 'xlsx-js-style';
 import { DataStore, KthtddEntry, SheetMember } from '../store/DataStore';
@@ -170,6 +181,101 @@ export const getCurrentGPSCoords = (): Promise<{ x: string; y: string } | null> 
       }
     );
   });
+};
+
+// Helper: Tính khoảng cách theo mét giữa 2 tọa độ GPS (Công thức Haversine)
+export const calculateDistanceMeters = (
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+): number => {
+  if (isNaN(lat1) || isNaN(lon1) || isNaN(lat2) || isNaN(lon2)) return 0;
+  const R = 6371000; // Bán kính Trái Đất (mét)
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+};
+
+// Helper: Nén ảnh chụp công tơ để đạt kích thước nhỏ nhất (~60-120KB) nhưng vẫn cực kỳ rõ nét mặt số
+export const compressImageFile = (
+  file: File | Blob,
+  maxWidth = 1200,
+  maxHeight = 1200,
+  quality = 0.75
+): Promise<{ base64: string; sizeKb: number }> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = e => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxWidth || height > maxHeight) {
+          if (width / height > maxWidth / maxHeight) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          } else {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Canvas context not available'));
+          return;
+        }
+
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, width, height);
+
+        const base64 = canvas.toDataURL('image/jpeg', quality);
+        const sizeKb = Math.round((base64.length * 0.75) / 1024);
+        resolve({ base64, sizeKb });
+      };
+      img.src = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+};
+
+// Helper: Chuyển đổi link Google Drive thành link thumbnail trực tiếp có thể hiển thị trong thẻ <img> mượt mà
+export const getDrivePreviewUrl = (url?: string): string => {
+  if (!url) return '';
+  const trimmed = url.trim();
+  if (trimmed.startsWith('data:image')) return trimmed;
+  const match = trimmed.match(/(?:id=|file\/d\/)([a-zA-Z0-9_-]+)/);
+  if (match && match[1]) {
+    return `https://drive.google.com/thumbnail?id=${match[1]}&sz=w1000`;
+  }
+  return trimmed;
+};
+
+// Helper: Lấy liên kết mở trực tiếp file trên Google Drive
+export const getDriveDirectViewUrl = (url?: string): string => {
+  if (!url) return '';
+  const trimmed = url.trim();
+  if (trimmed.startsWith('data:image')) return '';
+  const match = trimmed.match(/(?:id=|file\/d\/)([a-zA-Z0-9_-]+)/);
+  if (match && match[1]) {
+    return `https://drive.google.com/file/d/${match[1]}/view?usp=drivesdk`;
+  }
+  return trimmed;
 };
 
 // Helper: Tạo liên kết chỉ đường Google Maps đến tọa độ GPS hoặc địa chỉ của khách hàng
@@ -339,6 +445,16 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
   const [isSavingInspect, setIsSavingInspect] = useState(false);
   const [inspectSuccessMsg, setInspectSuccessMsg] = useState<string>('');
 
+  // Meter Photo State (Requirement: Lưu ảnh công tơ lên Google Drive & trường Pic sheet KTHTDD)
+  const [inspectPicUrl, setInspectPicUrl] = useState<string>('');
+  const [inspectPicPreview, setInspectPicPreview] = useState<string>('');
+  const [isUploadingPic, setIsUploadingPic] = useState<boolean>(false);
+  const [uploadPicError, setUploadPicError] = useState<string>('');
+  const [picSizeKb, setPicSizeKb] = useState<number | null>(null);
+  const [showEnlargeModal, setShowEnlargeModal] = useState<boolean>(false);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // Voice Input for Đề xuất (Requirement 1)
   const [isListeningDeXuat, setIsListeningDeXuat] = useState(false);
   const [speechDeXuatError, setSpeechDeXuatError] = useState('');
@@ -362,11 +478,12 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
     if (!cleanCode) return;
     setSearchQuery(cleanCode);
 
-    // Tìm khách hàng khớp theo Số No hoặc Mã KH
+    // Tìm khách hàng khớp theo Số No, Danh số hoặc Mã KH
     const cleanLower = cleanCode.toLowerCase();
     const matched = entries.find(
       e =>
         (e.soNo && e.soNo.toLowerCase().trim() === cleanLower) ||
+        (e.danhSo && e.danhSo.toLowerCase().trim() === cleanLower) ||
         (e.maKh && e.maKh.toLowerCase().trim() === cleanLower)
     );
 
@@ -571,9 +688,12 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
     return !isToTruong;
   }, [isToTruong]);
 
-  // Bộ lọc dữ liệu sơ đồ cây: 'assigned' (chỉ đã phân công), 'mine' (phân công cho tôi), 'all' (tất cả)
-  // Đối với nhân viên ra ngoài đi kiện toàn: mặc định là 'assigned' để tối ưu hóa dữ liệu & tốc độ
-  const [filterAssignedMode, setFilterAssignedMode] = useState<'all' | 'assigned' | 'mine'>(
+  // Bộ lọc dữ liệu sơ đồ cây:
+  // - 'assigned': chỉ đã phân công (Mặc định cho nhân viên đi kiện toàn - Tối ưu dữ liệu)
+  // - 'unassigned': nhập phát sinh kiện toàn (ngoài phân công, tìm kiếm các KH chưa phân công)
+  // - 'mine': phân công cho tôi
+  // - 'all': tất cả dữ liệu
+  const [filterAssignedMode, setFilterAssignedMode] = useState<'all' | 'assigned' | 'unassigned' | 'mine'>(
     isEmployee ? 'assigned' : 'all'
   );
 
@@ -587,6 +707,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
   // Thống kê số lượng phân công
   const assignedCounts = useMemo(() => {
     let totalAssigned = 0;
+    let totalUnassigned = 0;
     let myAssigned = 0;
     const myNorm = sessionUser?.name ? normalizeSearchStr(sessionUser.name) : '';
     for (let i = 0; i < entries.length; i++) {
@@ -596,10 +717,137 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
         if (myNorm && normalizeSearchStr(e.nguoiThucHien).includes(myNorm)) {
           myAssigned++;
         }
+      } else {
+        totalUnassigned++;
       }
     }
-    return { totalAssigned, myAssigned, total: entries.length };
+    return { totalAssigned, totalUnassigned, myAssigned, total: entries.length };
   }, [entries, sessionUser]);
+
+  // Tọa độ GPS thời gian thực của thiết bị
+  const [currentGps, setCurrentGps] = useState<{ x: string; y: string } | null>(
+    cachedGPSCoords ? { x: cachedGPSCoords.x, y: cachedGPSCoords.y } : null
+  );
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !navigator.geolocation) return;
+    getCurrentGPSCoords().then(pos => {
+      if (pos) setCurrentGps(pos);
+    });
+
+    const watchId = navigator.geolocation.watchPosition(
+      pos => {
+        const x = pos.coords.latitude.toFixed(6);
+        const y = pos.coords.longitude.toFixed(6);
+        cachedGPSCoords = { x, y, time: Date.now() };
+        setCurrentGps({ x, y });
+      },
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 10000, timeout: 10000 }
+    );
+
+    return () => {
+      navigator.geolocation.clearWatch(watchId);
+    };
+  }, []);
+
+  // Tính khoảng cách giữa vị trí người dùng đang đứng và tọa độ cũ của khách hàng (khi KH có tọa độ)
+  const coordDiffDistance = useMemo(() => {
+    if (!selectedCustomer || !selectedCustomer.x || !selectedCustomer.y || !currentGps) {
+      return null;
+    }
+    const oldLat = parseFloat(String(selectedCustomer.x).replace(',', '.'));
+    const oldLng = parseFloat(String(selectedCustomer.y).replace(',', '.'));
+    const curLat = parseFloat(currentGps.x);
+    const curLng = parseFloat(currentGps.y);
+
+    if (isNaN(oldLat) || isNaN(oldLng) || isNaN(curLat) || isNaN(curLng)) {
+      return null;
+    }
+    return calculateDistanceMeters(oldLat, oldLng, curLat, curLng);
+  }, [selectedCustomer, currentGps]);
+
+  // Cập nhật lại tọa độ tại điểm đứng hiện tại cho khách hàng
+  const handleUpdateCoordsToCurrent = async () => {
+    if (!selectedCustomer || !currentGps) return;
+    const newX = currentGps.x;
+    const newY = currentGps.y;
+    const distText = coordDiffDistance !== null ? `${Math.round(coordDiffDistance)}m` : '';
+
+    // Cập nhật React state ngay lập tức (0ms)
+    setEntries(prev => {
+      const idx = prev.findIndex(e => e.maKh === selectedCustomer.maKh);
+      if (idx === -1) return prev;
+      const updated = [...prev];
+      updated[idx] = {
+        ...updated[idx],
+        x: newX,
+        y: newY
+      };
+      return updated;
+    });
+
+    setInspectSuccessMsg(
+      `✓ Đã cập nhật tọa độ mới cho KH ${selectedCustomer.tenKh} (${selectedCustomer.maKh}): X=${newX}, Y=${newY}${distText ? ` (cách vị trí cũ ${distText})` : ''}`
+    );
+
+    // Đồng bộ ngầm xuống Google Sheets
+    DataStore.updateKthtdd({
+      maKh: selectedCustomer.maKh,
+      x: newX,
+      y: newY
+    }).catch(err => {
+      console.warn('Lỗi đồng bộ tọa độ mới:', err);
+    });
+  };
+
+  // State chỉnh sửa / cập nhật số điện thoại cho khách hàng
+  const [isEditingPhone, setIsEditingPhone] = useState(false);
+  const [editingPhoneVal, setEditingPhoneVal] = useState('');
+  const [isSavingPhone, setIsSavingPhone] = useState(false);
+
+  // Lưu số điện thoại mới cho khách hàng
+  const handleSavePhone = async () => {
+    if (!selectedCustomer) return;
+    let cleanPhone = editingPhoneVal.trim().replace(/[\s\.\-_]/g, '');
+    if (cleanPhone.startsWith('+84')) {
+      cleanPhone = '0' + cleanPhone.slice(3);
+    } else if (cleanPhone.startsWith('84') && cleanPhone.length >= 11) {
+      cleanPhone = '0' + cleanPhone.slice(2);
+    }
+    if (cleanPhone && /^\d+$/.test(cleanPhone) && !cleanPhone.startsWith('0')) {
+      cleanPhone = '0' + cleanPhone;
+    }
+
+    setIsSavingPhone(true);
+    // Cập nhật React state ngay lập tức (0ms)
+    setEntries(prev => {
+      const idx = prev.findIndex(e => e.maKh === selectedCustomer.maKh);
+      if (idx === -1) return prev;
+      const updated = [...prev];
+      updated[idx] = {
+        ...updated[idx],
+        soDienThoai: cleanPhone
+      };
+      return updated;
+    });
+
+    setIsEditingPhone(false);
+    setIsSavingPhone(false);
+    setInspectSuccessMsg(
+      cleanPhone
+        ? `✓ Đã cập nhật số điện thoại ${formatPhoneNumber(cleanPhone)} cho KH ${selectedCustomer.tenKh}`
+        : `✓ Đã xóa số điện thoại cho KH ${selectedCustomer.tenKh}`
+    );
+
+    // Đồng bộ ngầm xuống Google Sheets
+    DataStore.updateKthtdd({
+      maKh: selectedCustomer.maKh,
+      soDienThoai: cleanPhone
+    }).catch(err => {
+      console.warn('Lỗi đồng bộ số điện thoại:', err);
+    });
+  };
 
   // Auto reset mobile tab if employee somehow landed on 'list' or 'stats'
   useEffect(() => {
@@ -650,19 +898,14 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
   const handleSyncFromSheet = async (forceAll: boolean = false) => {
     try {
       setSyncing(true);
-      // Đối với nhân viên ra ngoài đi kiện toàn: chỉ load dữ liệu đã phân công (nhẹ hơn và siêu tốc)
-      const loadOnlyAssigned = forceAll ? false : (isEmployee || filterAssignedMode !== 'all');
-      setSyncProgress(
-        loadOnlyAssigned
-          ? 'Đang tải dữ liệu đã phân công từ Google Sheets...'
-          : 'Đang kết nối tới Google Sheets...'
-      );
+      // Nạp toàn bộ sheet KTHTDD vào bộ nhớ/IndexedDB để nhân viên ra ngoài vừa có dữ liệu phân công, vừa có sẵn dữ liệu chưa phân công phục vụ nhập phát sinh kiện toàn
+      setSyncProgress('Đang đồng bộ dữ liệu KTHTDD từ Google Sheets...');
       const fresh = await DataStore.fetchKthtddFromSheet(
         undefined,
         msg => {
           setSyncProgress(msg);
         },
-        loadOnlyAssigned
+        false // Nạp đầy đủ để người dùng tra cứu được cả khách hàng chưa phân công khi chọn phát sinh
       );
       setEntries(fresh);
       const now = new Date();
@@ -686,11 +929,102 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
       setInspectKetQua((selectedCustomer.ketQua as any) || '');
       setInspectChi((selectedCustomer.chi as any) || '');
       setInspectDeXuat(selectedCustomer.deXuat || '');
+      setInspectPicUrl(selectedCustomer.pic || '');
+      setInspectPicPreview(selectedCustomer.pic || '');
+      setUploadPicError('');
+      setPicSizeKb(null);
       setInspectSuccessMsg('');
+      setIsEditingPhone(false);
+      setEditingPhoneVal(selectedCustomer.soDienThoai || '');
       // Auto open inspect section if closed
       setOpenSections(prev => ({ ...prev, inspect: true }));
     }
   }, [selectedCustomer]);
+
+  // Kích hoạt mở Camera trực tiếp
+  const handleTriggerCamera = () => {
+    if (!selectedCustomer) {
+      alert('Vui lòng chọn khách hàng trước khi chụp ảnh công tơ.');
+      return;
+    }
+    cameraInputRef.current?.click();
+  };
+
+  // Kích hoạt chọn ảnh từ thư viện
+  const handleTriggerFile = () => {
+    if (!selectedCustomer) {
+      alert('Vui lòng chọn khách hàng trước khi chọn ảnh công tơ.');
+      return;
+    }
+    fileInputRef.current?.click();
+  };
+
+  // Xử lý nén ảnh tối ưu kích thước nhỏ nhất & tải lên Google Drive
+  const handleImageSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !selectedCustomer) return;
+
+    setIsUploadingPic(true);
+    setUploadPicError('');
+
+    try {
+      // 1. Tối ưu hóa để ảnh lưu kích thước nhỏ nhất (~60-120KB) nhưng sắc nét
+      const { base64, sizeKb } = await compressImageFile(file, 1024, 1024, 0.7);
+      setPicSizeKb(sizeKb);
+      setInspectPicPreview(base64);
+
+      // 2. Tên ảnh theo cấu trúc: "KT_" + Mã KH
+      const fileName = `KT_${selectedCustomer.maKh}.jpg`;
+      const folderId = '1eze4kVWtdUr0gjKSEAB_BKSfm5CNg3fv';
+
+      // 3. Tải lên Google Drive qua Google Apps Script
+      const driveUrl = await DataStore.uploadImageToDrive(base64, fileName, 'image/jpeg', folderId);
+
+      setInspectPicUrl(driveUrl);
+      setInspectSuccessMsg(`✓ Đã lưu ảnh công tơ (${fileName}, ${sizeKb}KB) lên Google Drive thành công!`);
+
+      // Cập nhật ngay vào RAM & đồng bộ Google Sheets trường Pic
+      setEntries(prev => {
+        const idx = prev.findIndex(item => item.maKh === selectedCustomer.maKh);
+        if (idx === -1) return prev;
+        const updated = [...prev];
+        updated[idx] = { ...updated[idx], pic: driveUrl };
+        return updated;
+      });
+
+      DataStore.updateKthtdd({
+        maKh: selectedCustomer.maKh,
+        pic: driveUrl
+      }).catch(err => console.warn('Lỗi lưu trường pic:', err));
+    } catch (err: any) {
+      console.error('Lỗi upload ảnh công tơ:', err);
+      setUploadPicError(err?.message || 'Không thể tải ảnh lên Google Drive. Vui lòng thử lại.');
+    } finally {
+      setIsUploadingPic(false);
+    }
+  };
+
+  // Xóa ảnh công tơ
+  const handleRemovePic = () => {
+    if (!window.confirm('Bạn có chắc chắn muốn xóa liên kết ảnh công tơ này không?')) return;
+    setInspectPicUrl('');
+    setInspectPicPreview('');
+    setPicSizeKb(null);
+    if (selectedCustomer) {
+      setEntries(prev => {
+        const idx = prev.findIndex(item => item.maKh === selectedCustomer.maKh);
+        if (idx === -1) return prev;
+        const updated = [...prev];
+        updated[idx] = { ...updated[idx], pic: '' };
+        return updated;
+      });
+      DataStore.updateKthtdd({
+        maKh: selectedCustomer.maKh,
+        pic: ''
+      }).catch(err => console.warn('Lỗi xóa trường pic:', err));
+    }
+  };
 
   // Voice Search Setup for Search Query (Web Speech API)
   useEffect(() => {
@@ -819,61 +1153,54 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
     }
   };
 
-  // Grouping for Tree View (Khu vực -> Mã trạm -> Tên trạm -> Mã KH -> Tên KH)
-  // Hỗ trợ tìm kiếm theo: Mã trạm, Tên trạm, Mã KH, Tên KH, Địa chỉ (cả có dấu & không dấu)
+  // Tối ưu hóa thuật toán tìm kiếm siêu tốc O(1):
+  // Tiền lập chỉ mục (Index) 1 lần duy nhất khi danh sách entries thay đổi
+  const indexedEntries = useMemo(() => {
+    return entries.map(e => {
+      const raw = `${e.maTram} ${e.tenTram} ${e.maKh} ${e.tenKh} ${e.danhSo || ''} ${e.soNo || ''} ${e.diaChi || ''} ${e.soDienThoai || ''}`.toLowerCase();
+      const norm = normalizeSearchStr(raw);
+      return {
+        entry: e,
+        raw,
+        norm
+      };
+    });
+  }, [entries]);
+
+  // Grouping for Tree View (Khu vực -> Mã trạm -> Tên trạm -> Mã KH -> Tên KH -> Số No)
+  // Hỗ trợ tìm kiếm siêu tốc theo: Mã trạm, Tên trạm, Mã KH, Tên KH, Số No, Danh số, Địa chỉ, Số ĐT
   const treeData = useMemo<Record<string, AreaNode>>(() => {
     const qRaw = searchQuery.trim();
-    const qNorm = normalizeSearchStr(qRaw);
     const qLower = qRaw.toLowerCase();
-
-    let filtered = entries;
-
-    // Bộ lọc phân công (tối ưu hóa dữ liệu & tốc độ cho nhân viên đi kiện toàn)
-    if (filterAssignedMode === 'assigned') {
-      filtered = filtered.filter(e => e.nguoiThucHien && e.nguoiThucHien.trim().length > 0);
-    } else if (filterAssignedMode === 'mine' && sessionUser?.name) {
-      const myNorm = normalizeSearchStr(sessionUser.name);
-      filtered = filtered.filter(e => e.nguoiThucHien && normalizeSearchStr(e.nguoiThucHien).includes(myNorm));
-    }
-
-    if (qNorm) {
-      filtered = filtered.filter(e => {
-        // Direct match with accents (Mã trạm, Tên trạm, Mã KH, Tên KH, Số No, Địa chỉ)
-        if (
-          e.maTram?.toLowerCase().includes(qLower) ||
-          e.tenTram?.toLowerCase().includes(qLower) ||
-          e.maKh?.toLowerCase().includes(qLower) ||
-          e.tenKh?.toLowerCase().includes(qLower) ||
-          e.soNo?.toLowerCase().includes(qLower) ||
-          e.diaChi?.toLowerCase().includes(qLower)
-        ) {
-          return true;
-        }
-
-        // Normalized diacritic-insensitive match
-        const maTramNorm = normalizeSearchStr(e.maTram);
-        const tenTramNorm = normalizeSearchStr(e.tenTram);
-        const maKhNorm = normalizeSearchStr(e.maKh);
-        const tenKhNorm = normalizeSearchStr(e.tenKh);
-        const soNoNorm = normalizeSearchStr(e.soNo);
-        const diaChiNorm = normalizeSearchStr(e.diaChi);
-
-        return (
-          maTramNorm.includes(qNorm) ||
-          tenTramNorm.includes(qNorm) ||
-          maKhNorm.includes(qNorm) ||
-          tenKhNorm.includes(qNorm) ||
-          soNoNorm.includes(qNorm) ||
-          diaChiNorm.includes(qNorm)
-        );
-      });
-    }
+    const qNorm = qRaw ? normalizeSearchStr(qRaw) : '';
+    const myNorm = sessionUser?.name ? normalizeSearchStr(sessionUser.name) : '';
 
     const areaMap: Record<string, AreaNode> = {};
 
-    for (const item of filtered) {
-      const kv = item.khuVuc || 'Chưa phân khu vực';
-      const stKey = item.maTram || item.tenTram || 'Không rõ trạm';
+    for (let i = 0; i < indexedEntries.length; i++) {
+      const item = indexedEntries[i];
+      const e = item.entry;
+
+      // 1. Bộ lọc phân công (tối ưu hóa dữ liệu & tốc độ cho nhân viên đi kiện toàn)
+      if (filterAssignedMode === 'assigned') {
+        if (!e.nguoiThucHien || e.nguoiThucHien.trim().length === 0) continue;
+      } else if (filterAssignedMode === 'unassigned') {
+        // Chế độ nhập phát sinh kiện toàn (ngoài phân công): chỉ tìm kiếm & hiển thị các KH CHƯA phân công
+        if (e.nguoiThucHien && e.nguoiThucHien.trim().length > 0) continue;
+      } else if (filterAssignedMode === 'mine') {
+        if (!e.nguoiThucHien || !myNorm || !normalizeSearchStr(e.nguoiThucHien).includes(myNorm)) continue;
+      }
+
+      // 2. Tìm kiếm siêu tốc qua index đã tiền xử lý
+      if (qRaw) {
+        if (!item.raw.includes(qLower) && !item.norm.includes(qNorm)) {
+          continue;
+        }
+      }
+
+      // 3. Gom nhóm theo Khu vực & Trạm
+      const kv = e.khuVuc || 'Chưa phân khu vực';
+      const stKey = e.maTram || e.tenTram || 'Không rõ trạm';
 
       if (!areaMap[kv]) {
         areaMap[kv] = {
@@ -884,16 +1211,16 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
         };
       }
       areaMap[kv].totalKh++;
-      if (item.ketQua && item.ketQua.trim().length > 0) {
+      if (e.ketQua && e.ketQua.trim().length > 0) {
         areaMap[kv].checkedKh++;
       }
 
       if (!areaMap[kv].stations[stKey]) {
         areaMap[kv].stations[stKey] = {
-          maTram: item.maTram || '',
-          tenTram: item.tenTram || 'Trạm không tên',
+          maTram: e.maTram || '',
+          tenTram: e.tenTram || 'Trạm không tên',
           khuVuc: kv,
-          nguoiThucHien: item.nguoiThucHien || '',
+          nguoiThucHien: e.nguoiThucHien || '',
           totalKh: 0,
           checkedKh: 0,
           customers: []
@@ -901,17 +1228,17 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
       }
 
       areaMap[kv].stations[stKey].totalKh++;
-      if (item.ketQua && item.ketQua.trim().length > 0) {
+      if (e.ketQua && e.ketQua.trim().length > 0) {
         areaMap[kv].stations[stKey].checkedKh++;
       }
-      if (!areaMap[kv].stations[stKey].nguoiThucHien && item.nguoiThucHien) {
-        areaMap[kv].stations[stKey].nguoiThucHien = item.nguoiThucHien;
+      if (!areaMap[kv].stations[stKey].nguoiThucHien && e.nguoiThucHien) {
+        areaMap[kv].stations[stKey].nguoiThucHien = e.nguoiThucHien;
       }
-      areaMap[kv].stations[stKey].customers.push(item);
+      areaMap[kv].stations[stKey].customers.push(e);
     }
 
     return areaMap;
-  }, [entries, searchQuery, filterAssignedMode, sessionUser]);
+  }, [indexedEntries, searchQuery, filterAssignedMode, sessionUser]);
 
   // Thống kê kết quả tìm kiếm trên sơ đồ cây
   const treeMatchStats = useMemo(() => {
@@ -925,6 +1252,10 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
     });
     return { stationCount, custCount };
   }, [searchQuery, treeData]);
+
+  // Chuỗi tìm kiếm chuẩn hóa một lần dùng cho toàn bộ sơ đồ cây
+  const searchNorm = useMemo(() => normalizeSearchStr(searchQuery), [searchQuery]);
+  const searchLower = useMemo(() => searchQuery.trim().toLowerCase(), [searchQuery]);
 
   // Auto-expand branches when searching (tự động mở nhánh khi có từ khóa tìm kiếm)
   useEffect(() => {
@@ -1055,6 +1386,15 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
     const targetNgay = inspectNgay || getTodayFormatted();
     const targetCustomer = selectedCustomer;
 
+    // Ghi nhận Người thực hiện: nếu khách hàng chưa có phân công hoặc đang ở chế độ nhập phát sinh kiện toàn
+    // thì tự động ghi nhận người thực hiện là tài khoản đang đăng nhập / cập nhật
+    let targetNguoiThucHien = targetCustomer.nguoiThucHien;
+    if (!targetNguoiThucHien || filterAssignedMode === 'unassigned') {
+      targetNguoiThucHien = sessionUser?.name || 'Nhân viên';
+    }
+
+    const targetPic = inspectPicUrl || targetCustomer.pic || '';
+
     // 2. Cập nhật state entries trong React NGAY LẬP TỨC (0ms)
     setEntries(prev => {
       const idx = prev.findIndex(e => e.maKh === targetCustomer.maKh);
@@ -1066,6 +1406,8 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
         ketQua: inspectKetQua,
         chi: inspectChi,
         deXuat: inspectDeXuat,
+        nguoiThucHien: targetNguoiThucHien,
+        pic: targetPic,
         ...(toadoX ? { x: toadoX } : {}),
         ...(toadoY ? { y: toadoY } : {})
       };
@@ -1073,7 +1415,9 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
     });
 
     const gpsNotice = toadoX && toadoY ? ` [Tọa độ X: ${toadoX}, Y: ${toadoY}]` : '';
-    setInspectSuccessMsg(`✓ Đã lưu kết quả kiểm tra & tọa độ GPS${gpsNotice} cho khách hàng ${targetCustomer.tenKh} (${targetCustomer.maKh})`);
+    const assigneeNotice = targetNguoiThucHien ? ` [Người TH: ${targetNguoiThucHien}]` : '';
+    const picNotice = targetPic ? ` [Ảnh: KT_${targetCustomer.maKh}.jpg]` : '';
+    setInspectSuccessMsg(`✓ Đã lưu kết quả kiểm tra & tọa độ GPS${gpsNotice}${assigneeNotice}${picNotice} cho khách hàng ${targetCustomer.tenKh} (${targetCustomer.maKh})`);
 
     // 3. Nếu chọn "Lưu & Tiếp tục KH sau", chuyển ngay lập tức sang KH tiếp theo mà không cần chờ mạng!
     if (andNext) {
@@ -1098,8 +1442,10 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
       ketQua: inspectKetQua,
       chi: inspectChi,
       deXuat: inspectDeXuat,
+      nguoiThucHien: targetNguoiThucHien,
       x: toadoX,
-      y: toadoY
+      y: toadoY,
+      pic: targetPic
     }).catch(e => {
       console.warn('Lỗi đồng bộ kết quả kiểm tra:', e);
     });
@@ -1686,7 +2032,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="text-[11px] font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full hidden sm:inline">
-                  Khu vực ➔ Trạm ➔ KH
+                  Khu vực ➔ Trạm ➔ DS ➔ Mã ➔ Tên ➔ No
                 </span>
                 {/* Nút co lại theo hướng ngang */}
                 <button
@@ -1720,17 +2066,17 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
               </div>
             )}
 
-            {/* Quick Filter: Đã phân công / Của tôi / Tất cả */}
-            <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl text-xs font-semibold">
+            {/* Quick Filter: Đã phân công / Phát sinh kiện toàn / Của tôi / Tất cả */}
+            <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-100 rounded-xl text-xs font-semibold">
               <button
                 type="button"
                 onClick={() => setFilterAssignedMode('assigned')}
-                className={`flex-1 py-1 px-2 rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer text-xs ${
+                className={`flex-1 min-w-[105px] py-1.5 px-2 rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer text-xs ${
                   filterAssignedMode === 'assigned'
-                    ? 'bg-white text-[#005a9c] shadow-xs font-bold'
+                    ? 'bg-white text-[#005a9c] shadow-xs font-bold ring-1 ring-[#005a9c]/20'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
-                title="Chỉ hiển thị dữ liệu các trạm đã được phân công"
+                title="Chỉ hiển thị dữ liệu các trạm/KH đã được phân công (Mặc định)"
               >
                 <UserCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                 <span>Đã phân công</span>
@@ -1739,13 +2085,30 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                 </span>
               </button>
 
+              <button
+                type="button"
+                onClick={() => setFilterAssignedMode('unassigned')}
+                className={`flex-1 min-w-[105px] py-1.5 px-2 rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer text-xs ${
+                  filterAssignedMode === 'unassigned'
+                    ? 'bg-amber-500 text-white shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-amber-700'
+                }`}
+                title="Nhập phát sinh kiện toàn ngoài phân công: Tìm kiếm & kiểm tra các KH chưa phân công. Khi lưu, Người thực hiện sẽ tự động được ghi nhận là bạn!"
+              >
+                <Zap className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                <span>Phát sinh KT</span>
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${filterAssignedMode === 'unassigned' ? 'bg-amber-600 text-white' : 'bg-amber-100 text-amber-800'}`}>
+                  {assignedCounts.totalUnassigned}
+                </span>
+              </button>
+
               {sessionUser?.name && (
                 <button
                   type="button"
                   onClick={() => setFilterAssignedMode('mine')}
-                  className={`py-1 px-2 rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer text-xs ${
+                  className={`py-1.5 px-2 rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer text-xs ${
                     filterAssignedMode === 'mine'
-                      ? 'bg-white text-[#005a9c] shadow-xs font-bold'
+                      ? 'bg-white text-[#005a9c] shadow-xs font-bold ring-1 ring-[#005a9c]/20'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                   title={`Chỉ hiển thị các trạm phân công cho ${sessionUser.name}`}
@@ -1760,12 +2123,12 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
               <button
                 type="button"
                 onClick={() => setFilterAssignedMode('all')}
-                className={`py-1 px-2 rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer text-xs ${
+                className={`py-1.5 px-2 rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer text-xs ${
                   filterAssignedMode === 'all'
-                    ? 'bg-white text-[#005a9c] shadow-xs font-bold'
+                    ? 'bg-white text-[#005a9c] shadow-xs font-bold ring-1 ring-[#005a9c]/20'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
-                title="Hiển thị tất cả dữ liệu (kể cả chưa phân công)"
+                title="Hiển thị tất cả dữ liệu (kể cả đã và chưa phân công)"
               >
                 <span>Tất cả</span>
                 <span className="text-[10px] px-1.5 py-0.2 bg-slate-200 text-slate-700 rounded-full font-bold">
@@ -1774,14 +2137,24 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
               </button>
             </div>
 
-            {/* Search Input with Voice Mic & Barcode Scanner - Hỗ trợ tìm kiếm theo Mã trạm, Tên trạm, Mã KH, Tên KH, Số No điện kế, Địa chỉ */}
+            {/* Hướng dẫn khi bật chế độ Phát sinh kiện toàn */}
+            {filterAssignedMode === 'unassigned' && (
+              <div className="flex items-center justify-between px-2.5 py-1.5 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-900 animate-in fade-in">
+                <div className="flex items-center gap-1.5 font-semibold">
+                  <Zap className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <span>Chế độ phát sinh: Tìm & chọn KH chưa phân công. Khi lưu, Người thực hiện sẽ là bạn ({sessionUser?.name || 'Nhân viên'})</span>
+                </div>
+              </div>
+            )}
+
+            {/* Search Input with Voice Mic & Barcode Scanner - Hỗ trợ tìm kiếm theo Mã trạm, Tên trạm, Mã KH, Tên KH, Số No, Danh số, Địa chỉ */}
             <div className="relative flex items-center mt-1">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 pointer-events-none" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Tìm Mã trạm, Tên trạm, Mã KH, Số No điện kế, Địa chỉ..."
+                placeholder="Tìm Mã trạm, Tên trạm, Mã KH, Số No, Danh số, Địa chỉ..."
                 className="w-full pl-9 pr-24 py-2.5 text-xs md:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#005a9c] focus:ring-2 focus:ring-[#005a9c]/20 outline-none transition-all placeholder:text-slate-400 font-medium"
               />
 
@@ -1909,9 +2282,13 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                             const stKey = `${area.khuVuc}___${station.maTram || station.tenTram}`;
                             const isStOpen = Boolean(expandedTram[stKey]);
                             const isAssigned = Boolean(station.nguoiThucHien && station.nguoiThucHien.trim().length > 0);
-                            const isStationMatched = searchQuery.trim().length > 0 && (
-                              normalizeSearchStr(station.maTram).includes(normalizeSearchStr(searchQuery)) ||
-                              normalizeSearchStr(station.tenTram).includes(normalizeSearchStr(searchQuery))
+                            const isStationMatched = searchLower.length > 0 && (
+                              station.maTram?.toLowerCase().includes(searchLower) ||
+                              station.tenTram?.toLowerCase().includes(searchLower) ||
+                              (searchNorm ? (
+                                normalizeSearchStr(station.maTram).includes(searchNorm) ||
+                                normalizeSearchStr(station.tenTram).includes(searchNorm)
+                              ) : false)
                             );
 
                             return (
@@ -1986,7 +2363,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                                   </div>
                                 </div>
 
-                                {/* Level 3: Mã KH -> Tên KH */}
+                                {/* Level 3: Danh số -> Mã KH -> Tên KH -> Số No */}
                                 {isStOpen && (
                                   <div className="pl-5 pr-1 py-1 space-y-1 bg-slate-50/60 border-l border-slate-200 mb-1 rounded-r-lg">
                                     {station.customers.map(customer => {
@@ -2001,7 +2378,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                                             setMobileTab('inspect');
                                             setOpenSections(prev => ({ ...prev, inspect: true }));
                                           }}
-                                          title={`Mã KH: ${customer.maKh}\nTên KH: ${customer.tenKh}${customer.soNo ? '\nSố No (Điện kế): ' + customer.soNo : ''}${customer.diaChi ? '\nĐịa chỉ: ' + customer.diaChi : ''}${customer.soDienThoai ? '\nSĐT: ' + formatPhoneNumber(customer.soDienThoai) : ''}`}
+                                          title={`Danh số: ${customer.danhSo || '---'}\nMã KH: ${customer.maKh}\nTên KH: ${customer.tenKh}${customer.soNo ? '\nSố No (Điện kế): ' + customer.soNo : ''}${customer.diaChi ? '\nĐịa chỉ: ' + customer.diaChi : ''}${customer.soDienThoai ? '\nSĐT: ' + formatPhoneNumber(customer.soDienThoai) : ''}`}
                                           className={`flex items-center justify-between p-1.5 rounded-lg text-xs cursor-pointer transition-all ${
                                             isSelected
                                               ? 'bg-[#005a9c] text-white font-bold shadow-xs'
@@ -2023,7 +2400,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                                               />
                                             )}
                                             <span className="truncate">
-                                              <b>{customer.maKh}</b> ➔ {customer.tenKh} ➔ {customer.soNo || '---'}
+                                              {customer.danhSo || '---'} ➔ <b>{customer.maKh}</b> ➔ {customer.tenKh} ➔ {customer.soNo || '---'}
                                             </span>
                                           </div>
 
@@ -2235,7 +2612,19 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {selectedCustomer.pic && (
+                        <button
+                          type="button"
+                          onClick={() => setShowEnlargeModal(true)}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-bold text-[10px] bg-teal-100 text-teal-800 hover:bg-teal-200 transition-colors cursor-pointer border border-teal-200 shadow-2xs"
+                          title="Bấm để xem phóng to ảnh công tơ đã lưu"
+                        >
+                          <Camera className="w-3 h-3 text-teal-700" />
+                          <span>Có ảnh công tơ</span>
+                        </button>
+                      )}
+
                       {selectedCustomer.ketQua ? (
                         <span
                           className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
@@ -2307,6 +2696,18 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                                   GPS: {selectedCustomer.x}, {selectedCustomer.y}
                                 </span>
                               )}
+                              {/* Nút cập nhật lại tọa độ khi lệch từ 10m trở lên */}
+                              {hasCoords && coordDiffDistance !== null && coordDiffDistance >= 10 && (
+                                <button
+                                  type="button"
+                                  onClick={handleUpdateCoordsToCurrent}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-[10px] font-bold shadow-2xs transition-all active:scale-95 cursor-pointer animate-pulse"
+                                  title={`Điểm bạn đang đứng cách tọa độ cũ ${Math.round(coordDiffDistance)}m. Nhấp vào đây để cập nhật lại tọa độ tại vị trí này!`}
+                                >
+                                  <Crosshair className="w-3 h-3 text-amber-600 shrink-0" />
+                                  <span>Lệch {Math.round(coordDiffDistance)}m • Cập nhật lại</span>
+                                </button>
+                              )}
                             </div>
                             {selectedCustomer.diaChi ? (
                               <a
@@ -2345,9 +2746,9 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                           </div>
                         </div>
 
-                        {/* Hàng Số điện thoại - Thiết kế tương tự với icon Gọi và Zalo kết hợp */}
+                        {/* Hàng Số điện thoại - Hỗ trợ Cập nhật lại số điện thoại hoặc Thêm mới */}
                         <div className="flex items-center justify-between gap-2.5 sm:col-span-2 lg:col-span-3 bg-white p-2.5 rounded-xl border border-slate-200/90 shadow-2xs hover:border-emerald-200 transition-all">
-                          <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
                             {customerPhone ? (
                               <a
                                 href={`tel:${customerPhone}`}
@@ -2361,23 +2762,84 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                                 <Phone className="w-4 h-4" />
                               </div>
                             )}
-                            <div className="min-w-0">
+                            <div className="min-w-0 flex-1">
                               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Số điện thoại liên hệ</span>
-                              {customerPhone ? (
-                                <a
-                                  href={`tel:${customerPhone}`}
-                                  className="font-mono font-black text-sm text-slate-900 hover:text-emerald-700 tracking-wider block mt-0.5"
-                                  title={`Bấm để gọi số ${customerPhone}`}
-                                >
-                                  {customerPhone}
-                                </a>
+                              
+                              {isEditingPhone ? (
+                                <div className="flex items-center gap-1.5 mt-1 max-w-sm">
+                                  <input
+                                    type="tel"
+                                    value={editingPhoneVal}
+                                    onChange={e => setEditingPhoneVal(e.target.value)}
+                                    placeholder="Nhập số điện thoại..."
+                                    className="flex-1 px-2.5 py-1 text-xs font-mono font-bold bg-white border border-emerald-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                                    autoFocus
+                                    onKeyDown={e => {
+                                      if (e.key === 'Enter') handleSavePhone();
+                                      if (e.key === 'Escape') setIsEditingPhone(false);
+                                    }}
+                                  />
+                                  <button
+                                    type="button"
+                                    disabled={isSavingPhone}
+                                    onClick={handleSavePhone}
+                                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow-xs cursor-pointer active:scale-95"
+                                    title="Lưu số điện thoại"
+                                  >
+                                    <Check className="w-3.5 h-3.5" />
+                                    <span>Lưu</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setIsEditingPhone(false)}
+                                    className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 cursor-pointer"
+                                    title="Hủy"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              ) : customerPhone ? (
+                                <div className="flex items-center gap-1.5 mt-0.5">
+                                  <a
+                                    href={`tel:${customerPhone}`}
+                                    className="font-mono font-black text-sm text-slate-900 hover:text-emerald-700 tracking-wider block"
+                                    title={`Bấm để gọi số ${customerPhone}`}
+                                  >
+                                    {customerPhone}
+                                  </a>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingPhoneVal(selectedCustomer.soDienThoai || '');
+                                      setIsEditingPhone(true);
+                                    }}
+                                    className="p-1 rounded-md text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 transition-colors cursor-pointer"
+                                    title="Cập nhật số điện thoại khác cho khách hàng"
+                                  >
+                                    <Pencil className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
                               ) : (
-                                <span className="text-slate-400 italic text-xs block mt-0.5">Chưa có số điện thoại</span>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  <span className="text-slate-400 italic text-xs">Chưa có số điện thoại</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingPhoneVal('');
+                                      setIsEditingPhone(true);
+                                    }}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 text-[10px] font-bold shadow-2xs transition-all active:scale-95 cursor-pointer"
+                                    title="Thêm số điện thoại mới cho khách hàng này"
+                                  >
+                                    <Plus className="w-3 h-3" />
+                                    <span>Thêm SĐT</span>
+                                  </button>
+                                </div>
                               )}
                             </div>
                           </div>
 
-                          {customerPhone && (
+                          {!isEditingPhone && customerPhone && (
                             <div className="flex items-center gap-1.5 shrink-0">
                               {/* Nút icon Call */}
                               <a
@@ -2445,7 +2907,13 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                           <div className="min-w-0 truncate">
                             <span className="text-[10px] font-bold text-slate-400 block uppercase">Người thực hiện</span>
                             <span className="font-semibold text-slate-800 text-xs truncate">
-                              {selectedCustomer.nguoiThucHien || <span className="text-amber-500 italic">Chưa phân công</span>}
+                              {selectedCustomer.nguoiThucHien ? (
+                                selectedCustomer.nguoiThucHien
+                              ) : (
+                                <span className="text-amber-600 font-bold italic">
+                                  Chưa phân công (Sẽ ghi nhận: {sessionUser?.name || 'Bạn'} khi lưu)
+                                </span>
+                              )}
                             </span>
                           </div>
                         </div>
@@ -2676,6 +3144,224 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                         </button>
                       </div>
                     </div>
+                  </div>
+
+                  {/* 3. Hình ảnh công tơ đo đếm (Trường Pic & Google Drive) */}
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        <Camera className="w-4 h-4 text-[#005a9c]" />
+                        <span>3. Hình ảnh công tơ đo đếm (Trường Pic)</span>
+                      </label>
+
+                      {/* Link mở thư mục Google Drive */}
+                      <a
+                        href="https://drive.google.com/drive/folders/1eze4kVWtdUr0gjKSEAB_BKSfm5CNg3fv?usp=drive_link"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[10px] text-slate-500 hover:text-[#005a9c] font-medium flex items-center gap-1 transition-colors"
+                        title="Mở thư mục lưu ảnh công tơ trên Google Drive"
+                      >
+                        <FolderOpen className="w-3.5 h-3.5 text-amber-500" />
+                        <span className="hidden sm:inline">Thư mục Drive</span>
+                        <ExternalLink className="w-2.5 h-2.5" />
+                      </a>
+                    </div>
+
+                    {/* Hidden inputs cho chụp ảnh bằng Camera và chọn từ thư viện */}
+                    <input
+                      ref={cameraInputRef}
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      onChange={handleImageSelected}
+                      className="hidden"
+                    />
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageSelected}
+                      className="hidden"
+                    />
+
+                    {/* Khung hiển thị ảnh công tơ */}
+                    {inspectPicPreview || inspectPicUrl ? (
+                      <div className="relative rounded-xl border border-slate-200 bg-slate-900/5 p-3 flex flex-col sm:flex-row items-center gap-3.5">
+                        {/* Khung ảnh thu nhỏ có thể click xem phóng to */}
+                        <div
+                          onClick={() => setShowEnlargeModal(true)}
+                          className="relative w-full sm:w-36 h-36 rounded-xl overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center cursor-pointer group shadow-2xs shrink-0"
+                          title="Bấm vào để xem phóng to ảnh công tơ"
+                        >
+                          <img
+                            src={getDrivePreviewUrl(inspectPicPreview || inspectPicUrl)}
+                            alt={`Công tơ ${selectedCustomer.maKh}`}
+                            className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
+                            onError={(e: any) => {
+                              if (inspectPicUrl && e.target.src !== inspectPicUrl) {
+                                e.target.src = inspectPicUrl;
+                              }
+                            }}
+                          />
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white text-xs font-bold gap-1">
+                            <Eye className="w-4 h-4" />
+                            <span>Xem to</span>
+                          </div>
+                          {isUploadingPic && (
+                            <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center text-white text-xs font-bold gap-1.5">
+                              <Loader2 className="w-5 h-5 animate-spin text-teal-400" />
+                              <span>Đang tải lên...</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Thông tin chi tiết ảnh & Các nút chức năng nhỏ gọn */}
+                        <div className="flex-1 min-w-0 flex flex-col justify-between self-stretch gap-2">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-mono font-bold text-xs text-slate-800 bg-white px-2 py-0.5 rounded border border-slate-200 shadow-2xs">
+                                KT_{selectedCustomer.maKh}.jpg
+                              </span>
+                              {picSizeKb && (
+                                <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded font-bold">
+                                  Nén: {picSizeKb} KB
+                                </span>
+                              )}
+                              {isUploadingPic ? (
+                                <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded font-bold flex items-center gap-1">
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                  Đang lưu Drive...
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded font-bold">
+                                  ✓ Đã lưu Google Drive
+                                </span>
+                              )}
+                            </div>
+
+                            <p className="text-[11px] text-slate-500">
+                              Ảnh được lưu vào thư mục Drive và tự động đồng bộ vào trường <b>Pic</b> của sheet <b>KTHTDD</b>.
+                            </p>
+                          </div>
+
+                          {/* Thanh icon chức năng nhỏ gọn (Chụp lại, Đổi ảnh, Xem to, Link Drive, Xóa) */}
+                          <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                            {/* Nút chụp lại ảnh bằng Camera */}
+                            <button
+                              type="button"
+                              disabled={isUploadingPic}
+                              onClick={handleTriggerCamera}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-300 text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-2xs"
+                              title="Chụp lại ảnh mới bằng Camera"
+                            >
+                              <Camera className="w-3.5 h-3.5" />
+                              <span>Chụp lại</span>
+                            </button>
+
+                            {/* Nút đổi ảnh / tải ảnh từ máy */}
+                            <button
+                              type="button"
+                              disabled={isUploadingPic}
+                              onClick={handleTriggerFile}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-2xs"
+                              title="Chọn ảnh khác từ bộ nhớ máy"
+                            >
+                              <Upload className="w-3.5 h-3.5" />
+                              <span>Đổi ảnh</span>
+                            </button>
+
+                            {/* Nút xem to ảnh */}
+                            <button
+                              type="button"
+                              onClick={() => setShowEnlargeModal(true)}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white hover:bg-slate-50 text-slate-600 border border-slate-200 text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-2xs"
+                              title="Phóng to ảnh xem chi tiết chỉ số và niêm chì"
+                            >
+                              <Maximize2 className="w-3 h-3" />
+                              <span>Xem to</span>
+                            </button>
+
+                            {/* Mở link trực tiếp Drive */}
+                            {inspectPicUrl && !inspectPicUrl.startsWith('data:') && (
+                              <a
+                                href={getDriveDirectViewUrl(inspectPicUrl) || inspectPicUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white hover:bg-slate-50 text-blue-600 border border-slate-200 text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                                title="Mở file ảnh trên Google Drive"
+                              >
+                                <ExternalLink className="w-3 h-3" />
+                                <span>Drive</span>
+                              </a>
+                            )}
+
+                            {/* Nút xóa ảnh */}
+                            <button
+                              type="button"
+                              disabled={isUploadingPic}
+                              onClick={handleRemovePic}
+                              className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors ml-auto cursor-pointer"
+                              title="Xóa liên kết ảnh này"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      /* Khung chưa có ảnh: Giao diện trực quan chụp ảnh hoặc tải ảnh */
+                      <div className="rounded-xl border-2 border-dashed border-slate-300 hover:border-[#005a9c] bg-slate-50/50 p-3.5 transition-all">
+                        <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400 shrink-0">
+                              <ImageIcon className="w-5 h-5 text-slate-400" />
+                            </div>
+                            <div>
+                              <div className="text-xs font-bold text-slate-800">Chưa có ảnh công tơ</div>
+                              <div className="text-[11px] text-slate-500">
+                                Chụp hoặc tải ảnh lên (tự động nén siêu nhẹ ~60-120KB & lưu Drive với tên <b>KT_{selectedCustomer.maKh}</b>)
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* 2 Nút chụp ảnh hoặc tải ảnh */}
+                          <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+                            <button
+                              type="button"
+                              disabled={isUploadingPic}
+                              onClick={handleTriggerCamera}
+                              className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-[#005a9c] hover:bg-[#004b87] text-white text-xs font-bold shadow-xs transition-all active:scale-95 cursor-pointer"
+                              title="Mở Camera chụp ảnh công tơ ngay"
+                            >
+                              {isUploadingPic ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Camera className="w-3.5 h-3.5" />
+                              )}
+                              <span>Chụp ảnh</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={isUploadingPic}
+                              onClick={handleTriggerFile}
+                              className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-bold shadow-2xs transition-all active:scale-95 cursor-pointer"
+                              title="Chọn ảnh có sẵn từ bộ nhớ máy"
+                            >
+                              <Upload className="w-3.5 h-3.5 text-slate-500" />
+                              <span>Tải ảnh lên</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {uploadPicError && (
+                      <div className="text-[11px] text-rose-600 bg-rose-50 border border-rose-200 px-2.5 py-1 rounded-lg">
+                        {uploadPicError}
+                      </div>
+                    )}
                   </div>
 
                   {/* 4. Trường Đề xuất (Nhập giọng nói - Requirement 1) */}
@@ -3850,6 +4536,67 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
         title="Quét Barcode Số No Điện Kế"
         subtitle="Hướng camera vào mã vạch (Barcode / QR) trên mặt đồng hồ điện kế"
       />
+
+      {/* ======================================================== */}
+      {/* MODAL PHÓNG TO XEM ẢNH CÔNG TƠ ĐO ĐẾM                   */}
+      {/* ======================================================== */}
+      {showEnlargeModal && (inspectPicPreview || inspectPicUrl) && (
+        <div
+          className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-3 md:p-6 backdrop-blur-xs animate-in fade-in"
+          onClick={() => setShowEnlargeModal(false)}
+        >
+          <div
+            className="relative max-w-4xl w-full bg-slate-900 rounded-2xl overflow-hidden shadow-2xl flex flex-col border border-slate-700"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-4 py-3 bg-slate-800/90 text-white border-b border-slate-700">
+              <div className="flex items-center gap-2 min-w-0">
+                <Camera className="w-4 h-4 text-teal-400 shrink-0" />
+                <span className="font-mono text-xs md:text-sm font-bold truncate">
+                  KT_{selectedCustomer?.maKh}.jpg {picSizeKb ? `(${picSizeKb} KB)` : ''}
+                </span>
+                {selectedCustomer && (
+                  <span className="text-xs text-slate-400 truncate hidden sm:inline">
+                    • {selectedCustomer.tenKh}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {inspectPicUrl && !inspectPicUrl.startsWith('data:') && (
+                  <a
+                    href={getDriveDirectViewUrl(inspectPicUrl) || inspectPicUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-xs"
+                    title="Mở ảnh trong Google Drive"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Mở Drive</span>
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowEnlargeModal(false)}
+                  className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-700 transition-colors"
+                  title="Đóng xem ảnh"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body: Hình ảnh lớn */}
+            <div className="p-3 flex items-center justify-center bg-black/40 overflow-auto max-h-[80vh]">
+              <img
+                src={getDrivePreviewUrl(inspectPicPreview || inspectPicUrl)}
+                alt={`Ảnh công tơ ${selectedCustomer?.maKh}`}
+                className="max-w-full max-h-[75vh] object-contain rounded-lg shadow-lg"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
