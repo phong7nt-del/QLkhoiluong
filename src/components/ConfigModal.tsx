@@ -899,24 +899,39 @@ function doPost(e) {
 
       // Đọc chỉ dòng 1 lấy tiêu đề
       var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
-      var colMaTram = -1, colNguoiTh = -1;
+      var colMaTram = -1, colTenTram = -1, colNguoiTh = -1;
       for (var c = 0; c < headers.length; c++) {
-        var h = String(headers[c]).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[\s_?]+/g, '');
+        var h = String(headers[c] || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[\s_?]+/g, '');
         if (h.includes('matram')) colMaTram = c;
+        if (h.includes('tentram')) colTenTram = c;
         if (h.includes('nguoithuchien') || h.includes('nguoixl')) colNguoiTh = c;
       }
       if (colMaTram === -1) colMaTram = 4; // Col E
-      if (colNguoiTh === -1) colNguoiTh = 14; // Col O
+      if (colNguoiTh === -1) {
+        colNguoiTh = headers.length;
+        sheet.getRange(1, colNguoiTh + 1).setValue('Người thực hiện');
+      }
 
-      // Đọc CHỈ CỘT MÃ TRẠM và CỘT NGƯỜI THỰC HIỆN thay vì đọc toàn bộ 200k dòng x 15 cột
+      // Đọc CỘT MÃ TRẠM, TÊN TRẠM và CỘT NGƯỜI THỰC HIỆN
       var tramColRange = sheet.getRange(2, colMaTram + 1, lastRow - 1, 1);
       var tramValues = tramColRange.getValues();
+      var tenTramValues = colTenTram > -1 ? sheet.getRange(2, colTenTram + 1, lastRow - 1, 1).getValues() : null;
       var nguoiThRange = sheet.getRange(2, colNguoiTh + 1, lastRow - 1, 1);
       var nguoiThValues = nguoiThRange.getValues();
 
       var count = 0;
+      var cleanMa = String(data.maTram || '').trim().toLowerCase();
+      var cleanTen = String(data.tenTram || '').trim().toLowerCase();
+
       for (var r = 0; r < tramValues.length; r++) {
-        if (String(tramValues[r][0] || '').trim().toLowerCase() === maTram) {
+        var rMa = String(tramValues[r][0] || '').trim().toLowerCase();
+        var rTen = tenTramValues ? String(tenTramValues[r][0] || '').trim().toLowerCase() : '';
+        var isMatch = false;
+        if (cleanMa && rMa === cleanMa) isMatch = true;
+        if (!isMatch && cleanTen && rTen === cleanTen) isMatch = true;
+        if (!isMatch && cleanMa && rMa && (rMa.indexOf(cleanMa) !== -1 || cleanMa.indexOf(rMa) !== -1)) isMatch = true;
+
+        if (isMatch) {
           nguoiThValues[r][0] = nguoiThucHien;
           count++;
         }
@@ -925,12 +940,17 @@ function doPost(e) {
       if (count > 0) {
         // Ghi lại toàn bộ cột Người Thực Hiện trong 1 lệnh duy nhất (Single Batch Write)
         nguoiThRange.setValues(nguoiThValues);
+        return ContentService.createTextOutput(JSON.stringify({ 
+          status: "success", 
+          message: "Đã phân công " + count + " khách hàng thuộc trạm " + (data.maTram || data.tenTram),
+          count: count
+        })).setMimeType(ContentService.MimeType.JSON);
       }
 
       return ContentService.createTextOutput(JSON.stringify({ 
-        status: "success", 
-        message: "Đã phân công " + count + " khách hàng thuộc trạm " + data.maTram,
-        count: count
+        status: "error", 
+        message: "Không tìm thấy khách hàng nào khớp với trạm " + (data.maTram || data.tenTram) + " trong sheet KTHTDD",
+        count: 0
       })).setMimeType(ContentService.MimeType.JSON);
     }
 

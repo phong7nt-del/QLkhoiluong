@@ -3158,56 +3158,89 @@ export const DataStore = {
     }
   },
 
-  assignKthtdd: async (data: { maTram: string; nguoiThucHien: string }): Promise<{ ok: boolean; message: string }> => {
-    // 1. Tối ưu O(1) phân công qua Index Map: cập nhật trực tiếp chỉ các dòng thuộc trạm
+  assignKthtdd: async (data: { maTram: string; tenTram?: string; nguoiThucHien: string }): Promise<{ ok: boolean; message: string }> => {
     const cleanTram = (data.maTram || '').trim().toLowerCase();
-    const targetIndices = kthtddMaTramIndexMap.get(cleanTram);
+    const cleanTen = (data.tenTram || '').trim().toLowerCase();
 
-    if (memCacheKthtddList) {
-      if (targetIndices && targetIndices.length > 0) {
-        for (let i = 0; i < targetIndices.length; i++) {
-          const idx = targetIndices[i];
-          if (memCacheKthtddList[idx]) {
-            memCacheKthtddList[idx] = {
-              ...memCacheKthtddList[idx],
-              nguoiThucHien: data.nguoiThucHien
-            };
-          }
-        }
-      } else {
-        // Fallback duyệt tuần tự nếu index chưa kịp dựng
-        for (let i = 0; i < memCacheKthtddList.length; i++) {
-          if (memCacheKthtddList[i].maTram.toLowerCase().trim() === cleanTram) {
-            memCacheKthtddList[i] = {
-              ...memCacheKthtddList[i],
-              nguoiThucHien: data.nguoiThucHien
-            };
-          }
-        }
-      }
-      debouncedSaveKthtddToIDB();
-      window.dispatchEvent(new CustomEvent('kthtdd_updated'));
+    // 1. Gửi sang Google Apps Script trước để đảm bảo Sheet được cập nhật thành công
+    const url = DataStore.getAppScriptUrl();
+    if (!url) {
+      return { ok: false, message: 'Chưa cấu hình đường dẫn Google Apps Script trên máy này.' };
     }
 
-    // 2. Gửi sang Google Apps Script
-    try {
-      const url = DataStore.getAppScriptUrl();
-      if (!url) return { ok: true, message: 'Đã phân công cục bộ (chưa cấu hình Apps Script)' };
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'assign_kthtdd', data })
-      });
-      const rawText = await response.text();
+    let lastError = '';
+    for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const res = JSON.parse(rawText);
-        return { ok: res.status === 'success', message: res.message || 'Phân công thành công' };
-      } catch {
-        return { ok: response.ok, message: 'Đã gửi phân công' };
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 25000);
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ action: 'assign_kthtdd', data }),
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        const rawText = await response.text();
+        try {
+          const res = JSON.parse(rawText);
+          if (res.status === 'success') {
+            // 2. Chỉ khi Google Sheets đã lưu thành công mới cập nhật RAM & IndexedDB
+            if (memCacheKthtddList) {
+              const targetIndices = kthtddMaTramIndexMap.get(cleanTram);
+              if (targetIndices && targetIndices.length > 0) {
+                for (let i = 0; i < targetIndices.length; i++) {
+                  const idx = targetIndices[i];
+                  if (memCacheKthtddList[idx]) {
+                    memCacheKthtddList[idx] = {
+                      ...memCacheKthtddList[idx],
+                      nguoiThucHien: data.nguoiThucHien
+                    };
+                  }
+                }
+              } else {
+                for (let i = 0; i < memCacheKthtddList.length; i++) {
+                  const item = memCacheKthtddList[i];
+                  const mMatch = item.maTram && item.maTram.toLowerCase().trim() === cleanTram;
+                  const nMatch = cleanTen && item.tenTram && item.tenTram.toLowerCase().trim() === cleanTen;
+                  if (mMatch || nMatch) {
+                    memCacheKthtddList[i] = {
+                      ...memCacheKthtddList[i],
+                      nguoiThucHien: data.nguoiThucHien
+                    };
+                  }
+                }
+              }
+              debouncedSaveKthtddToIDB();
+              window.dispatchEvent(new CustomEvent('kthtdd_updated'));
+            }
+
+            return {
+              ok: true,
+              message: res.message || `Đã phân công ${res.count !== undefined ? res.count + ' KH' : ''} thành công!`
+            };
+          } else {
+            return {
+              ok: false,
+              message: res.message || 'Google Sheets phản hồi lỗi không thể cập nhật.'
+            };
+          }
+        } catch {
+          if (response.ok) {
+            return { ok: true, message: 'Đã gửi phân công thành công tới máy chủ.' };
+          }
+          return { ok: false, message: 'Máy chủ phản hồi định dạng không hợp lệ.' };
+        }
+      } catch (e: any) {
+        lastError = e.name === 'AbortError' ? 'Quá thời gian kết nối tới máy chủ (Timeout 25s)' : (e.message || 'Lỗi mạng');
+        if (attempt === 0) {
+          // Thử lại sau 600ms nếu mạng chập chờn
+          await new Promise(r => setTimeout(r, 600));
+        }
       }
-    } catch (e: any) {
-      console.warn('Error assignKthtdd:', e);
-      return { ok: false, message: e.message || 'Lỗi kết nối tới máy chủ' };
     }
+
+    return { ok: false, message: lastError || 'Lỗi kết nối tới máy chủ Google Apps Script.' };
   }
 };

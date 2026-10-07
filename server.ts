@@ -8,20 +8,27 @@ async function startServer() {
   const PORT = 3000;
 
   // API route for version info (always no-cache to ensure clients detect new releases immediately)
-  app.get("/api/version", (req, res) => {
-    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  const getVersionData = () => {
+    const candidatePaths = [
+      path.join(process.cwd(), 'version.json'),
+      path.join(process.cwd(), 'public', 'version.json'),
+      path.join(process.cwd(), 'dist', 'version.json'),
+    ];
+    for (const vPath of candidatePaths) {
+      try {
+        if (fs.existsSync(vPath)) {
+          return JSON.parse(fs.readFileSync(vPath, 'utf8'));
+        }
+      } catch (e) {}
+    }
+    return { version: "2026.10.07.1" };
+  };
+
+  app.get(["/api/version", "/version.json"], (req, res) => {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0");
     res.setHeader("Pragma", "no-cache");
     res.setHeader("Expires", "0");
-    try {
-      const vPath = path.join(process.cwd(), 'version.json');
-      if (fs.existsSync(vPath)) {
-        const data = JSON.parse(fs.readFileSync(vPath, 'utf8'));
-        return res.json(data);
-      }
-    } catch (e) {
-      console.warn("Could not read version.json:", e);
-    }
-    res.json({ version: "2026.09.21.3" });
+    res.json(getVersionData());
   });
 
   // API route to proxy Google Sheets requests

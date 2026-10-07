@@ -967,8 +967,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
     setAssignMsg(null);
   };
 
-  // Save Assignment
-  // Save Assignment (Tối ưu phản hồi ngay lập tức cho 200k dòng)
+  // Save Assignment - Đồng bộ xác nhận kết quả lưu vào Google Sheets
   const handleSaveAssign = async () => {
     if (!assignStation) return;
     if (selectedAssignees.length === 0) {
@@ -978,34 +977,60 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
 
     const nguoiThucHien = selectedAssignees.join('; ');
     const targetTram = assignStation.maTram;
+    const targetTenTram = assignStation.tenTram;
 
-    // 1. Phản hồi giao diện NGAY LẬP TỨC (0ms)
-    setAssignMsg({ text: `✓ Đã phân công thành công cho trạm ${assignStation.tenTram}!`, type: 'success' });
-    setEntries(prev => {
-      const cleanT = targetTram.trim().toLowerCase();
-      let changed = false;
-      const updated = prev.map(item => {
-        if (item.maTram.trim().toLowerCase() === cleanT) {
-          changed = true;
-          return { ...item, nguoiThucHien };
-        }
-        return item;
+    setIsSavingAssign(true);
+    setAssignMsg({ text: `Đang gửi phân công trạm ${targetTenTram} lên Google Sheets...`, type: 'success' });
+
+    try {
+      const res = await DataStore.assignKthtdd({
+        maTram: targetTram,
+        tenTram: targetTenTram,
+        nguoiThucHien
       });
-      return changed ? updated : prev;
-    });
 
-    setTimeout(() => {
-      setAssignStation(null);
-      setAssignMsg(null);
-    }, 700);
+      if (res.ok) {
+        setAssignMsg({
+          text: `✓ ${res.message || `Đã phân công thành công cho trạm ${targetTenTram} và đồng bộ lên Google Sheets!`}`,
+          type: 'success'
+        });
 
-    // 2. Đồng bộ nền xuống DataStore và Google Sheets
-    DataStore.assignKthtdd({
-      maTram: targetTram,
-      nguoiThucHien
-    }).catch(e => {
-      console.warn('Lỗi đồng bộ phân công:', e);
-    });
+        // Cập nhật React state ngay sau khi Google Sheets xác nhận
+        setEntries(prev => {
+          const cleanT = targetTram.trim().toLowerCase();
+          const cleanName = targetTenTram.trim().toLowerCase();
+          let changed = false;
+          const updated = prev.map(item => {
+            const mMatch = item.maTram && item.maTram.trim().toLowerCase() === cleanT;
+            const nMatch = cleanName && item.tenTram && item.tenTram.trim().toLowerCase() === cleanName;
+            if (mMatch || nMatch) {
+              changed = true;
+              return { ...item, nguoiThucHien };
+            }
+            return item;
+          });
+          return changed ? updated : prev;
+        });
+
+        setTimeout(() => {
+          setAssignStation(null);
+          setAssignMsg(null);
+          setIsSavingAssign(false);
+        }, 800);
+      } else {
+        setIsSavingAssign(false);
+        setAssignMsg({
+          text: `❌ Lỗi lưu Google Sheets: ${res.message || 'Không thể ghi nhận'}. Dữ liệu chưa vào được Sheet. Vui lòng kiểm tra mạng hoặc thử lại!`,
+          type: 'error'
+        });
+      }
+    } catch (err: any) {
+      setIsSavingAssign(false);
+      setAssignMsg({
+        text: `❌ Lỗi kết nối Google Sheets: ${err.message || 'Mất kết nối mạng'}. Vui lòng thử lại!`,
+        type: 'error'
+      });
+    }
   };
 
   // Save Customer Inspection Result (Section 2.2 - Tối ưu phản hồi tức thì 0ms)
