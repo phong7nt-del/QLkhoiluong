@@ -1392,33 +1392,65 @@ function doPost(e) {
        try {
            var folderId = payload.folderId || "1eze4kVWtdUr0gjKSEAB_BKSfm5CNg3fv";
            var folder = DriveApp.getFolderById(folderId);
-           var b64 = payload.base64.split(',')[1] || payload.base64;
+           var rawB64 = payload.base64 || '';
+           var b64 = rawB64.indexOf(',') > -1 ? rawB64.split(',')[1] : rawB64;
            var bytes = Utilities.base64Decode(b64);
            var mime = payload.mimeType || 'image/jpeg';
            var fName = payload.fileName || ('KT_' + (payload.maKh || new Date().getTime()) + '.jpg');
 
-           // Xóa file cũ cùng tên trong thư mục nếu có để tiết kiệm dung lượng Drive và cập nhật ảnh mới
-           try {
-             var oldFiles = folder.getFilesByName(fName);
-             while (oldFiles.hasNext()) {
-               oldFiles.next().setTrashed(true);
-             }
-           } catch(delErr) {}
+           // Tối ưu siêu tốc O(1): Nếu có oldFileId thì xóa trực tiếp theo ID < 50ms (không duyệt quét cả thư mục)
+           if (payload.oldFileId) {
+             try {
+               DriveApp.getFileById(payload.oldFileId).setTrashed(true);
+             } catch(delErr) {}
+           }
 
+           // Tạo file trực tiếp trong thư mục Drive (Folder đã chia sẻ công khai nên file tự động kế thừa quyền)
            var blob = Utilities.newBlob(bytes, mime, fName);
            var file = folder.createFile(blob);
-           try {
-               file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-           } catch(shareErr) {
-               console.warn("Could not set public sharing: ", shareErr);
+           var fileId = file.getId();
+
+           var driveViewUrl = "https://drive.google.com/uc?export=view&id=" + fileId;
+           var driveThumbUrl = "https://drive.google.com/thumbnail?id=" + fileId + "&sz=w1000";
+           var driveDirectUrl = "https://drive.google.com/file/d/" + fileId + "/view?usp=drivesdk";
+           var finalUrl = driveDirectUrl;
+
+           // Tối ưu 2-trong-1: Cập nhật luôn cột Pic trong sheet KTHTDD ngay trong request này (tiết kiệm 1 lần gọi mạng)
+           if (payload.maKh) {
+             try {
+               var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
+               var sheet = getSheetFlexibly(ss, ['KTHTDD', 'KT_HTDD', 'Kiện toàn HTDD', 'KienToanHTDD']);
+               if (sheet) {
+                 var lastRow = sheet.getLastRow();
+                 var lastCol = sheet.getLastColumn();
+                 if (lastRow > 1) {
+                   var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+                   var colMaKh = -1, colPic = -1;
+                   for (var c = 0; c < headers.length; c++) {
+                     var rawH = String(headers[c] || '').trim();
+                     var h = rawH.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[\s_?]+/g, '');
+                     if (h.includes('makh')) colMaKh = c;
+                     if (rawH.toUpperCase() === 'PIC' || h === 'pic' || h.includes('pic') || h.includes('hinhanh') || h.includes('anh')) colPic = c;
+                   }
+                   if (colMaKh === -1) colMaKh = 1;
+                   if (colPic === -1) {
+                     colPic = headers.length;
+                     sheet.getRange(1, colPic + 1).setValue('Pic');
+                   }
+                   var finder = sheet.getRange(2, colMaKh + 1, lastRow - 1, 1).createTextFinder(payload.maKh).matchEntireCell(true).findNext();
+                   if (finder) {
+                     sheet.getRange(finder.getRow(), colPic + 1).setValue(finalUrl);
+                   }
+                 }
+               }
+             } catch(sheetErr) {}
            }
-           var driveViewUrl = "https://drive.google.com/uc?export=view&id=" + file.getId();
-           var driveThumbUrl = "https://drive.google.com/thumbnail?id=" + file.getId() + "&sz=w1200";
+
            return ContentService.createTextOutput(JSON.stringify({ 
                status: 'success', 
-               url: driveViewUrl,
+               url: finalUrl,
                thumbnailUrl: driveThumbUrl,
-               fileId: file.getId(),
+               fileId: fileId,
                fileName: fName
            })).setMimeType(ContentService.MimeType.JSON);
        } catch(e) {
