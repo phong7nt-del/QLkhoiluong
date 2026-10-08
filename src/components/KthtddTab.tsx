@@ -61,6 +61,7 @@ export interface StationNode {
   tenTram: string;
   khuVuc: string;
   nguoiThucHien: string;
+  prefixDanhSo?: string;
   totalKh: number;
   checkedKh: number;
   customers: KthtddEntry[];
@@ -470,12 +471,25 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
   const recognitionDeXuatRef = useRef<any>(null);
 
   // Sơ đồ cây (Tree view) State (Section 2.1)
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchInput, setSearchInput] = useState(''); // Nội dung người dùng đang nhập trong ô tìm kiếm
+  const [searchQuery, setSearchQuery] = useState(''); // Từ khóa đã kích hoạt tìm kiếm (chỉ lọc khi bấm nút kính lúp hoặc Enter)
   const [isListening, setIsListening] = useState(false);
   const [voiceSupported, setVoiceSupported] = useState(true);
   const [speechError, setSpeechError] = useState('');
   const [expandedKhuVuc, setExpandedKhuVuc] = useState<Record<string, boolean>>({});
   const [expandedTram, setExpandedTram] = useState<Record<string, boolean>>({});
+
+  // Kích hoạt tìm kiếm khi người dùng bấm nút kính lúp hoặc nhấn Enter
+  const handleExecuteSearch = (valOverride?: string) => {
+    const q = (valOverride !== undefined ? valOverride : searchInput).trim();
+    setSearchQuery(q);
+  };
+
+  // Xóa từ khóa tìm kiếm và đưa sơ đồ cây về trạng thái ban đầu
+  const handleClearSearch = () => {
+    setSearchInput('');
+    setSearchQuery('');
+  };
 
   // Barcode Scanner State (Section 2.1)
   const [isBarcodeModalOpen, setIsBarcodeModalOpen] = useState(false);
@@ -485,15 +499,16 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
   const handleBarcodeScanned = (code: string) => {
     const cleanCode = code.trim();
     if (!cleanCode) return;
+    setSearchInput(cleanCode);
     setSearchQuery(cleanCode);
 
-    // Tìm khách hàng khớp theo Số No, Danh số hoặc Mã KH
+    // Tìm khách hàng khớp theo Số No, Danh số hoặc Mã Trạm
     const cleanLower = cleanCode.toLowerCase();
     const matched = entries.find(
       e =>
         (e.soNo && e.soNo.toLowerCase().trim() === cleanLower) ||
         (e.danhSo && e.danhSo.toLowerCase().trim() === cleanLower) ||
-        (e.maKh && e.maKh.toLowerCase().trim() === cleanLower)
+        (e.maTram && e.maTram.toLowerCase().trim() === cleanLower)
     );
 
     if (matched) {
@@ -1068,7 +1083,9 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
       recognition.onresult = (event: any) => {
         const transcript = event.results?.[0]?.[0]?.transcript || '';
         if (transcript) {
-          setSearchQuery(transcript.trim());
+          const q = transcript.trim();
+          setSearchInput(q);
+          setSearchQuery(q);
         }
         setIsListening(false);
       };
@@ -1175,10 +1192,10 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
   };
 
   // Tối ưu hóa thuật toán tìm kiếm siêu tốc O(1):
-  // Tiền lập chỉ mục (Index) 1 lần duy nhất khi danh sách entries thay đổi
+  // Yêu cầu: CHỈ tìm kiếm theo Danh số, Số No, Mã Trạm
   const indexedEntries = useMemo(() => {
     return entries.map(e => {
-      const raw = `${e.maTram} ${e.tenTram} ${e.maKh} ${e.tenKh} ${e.danhSo || ''} ${e.soNo || ''} ${e.diaChi || ''} ${e.soDienThoai || ''}`.toLowerCase();
+      const raw = `${e.danhSo || ''} ${e.soNo || ''} ${e.maTram || ''}`.toLowerCase();
       const norm = normalizeSearchStr(raw);
       return {
         entry: e,
@@ -1188,8 +1205,8 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
     });
   }, [entries]);
 
-  // Grouping for Tree View (Khu vực -> Mã trạm -> Tên trạm -> Mã KH -> Tên KH -> Số No)
-  // Hỗ trợ tìm kiếm siêu tốc theo: Mã trạm, Tên trạm, Mã KH, Tên KH, Số No, Danh số, Địa chỉ, Số ĐT
+  // Grouping for Tree View (Khu vực -> 3 ký tự DS ➔ Mã trạm ➔ Tên trạm -> Danh số ➔ Số No ➔ Mã KH)
+  // Chỉ tìm kiếm theo: Danh số, Số No, Mã Trạm
   const treeData = useMemo<Record<string, AreaNode>>(() => {
     const qRaw = searchQuery.trim();
     const qLower = qRaw.toLowerCase();
@@ -1212,7 +1229,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
         if (!e.nguoiThucHien || !myNorm || !normalizeSearchStr(e.nguoiThucHien).includes(myNorm)) continue;
       }
 
-      // 2. Tìm kiếm siêu tốc qua index đã tiền xử lý
+      // 2. Tìm kiếm siêu tốc qua index đã tiền xử lý (CHỈ KHỚP Danh số, Số No, Mã Trạm)
       if (qRaw) {
         if (!item.raw.includes(qLower) && !item.norm.includes(qNorm)) {
           continue;
@@ -1242,10 +1259,15 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
           tenTram: e.tenTram || 'Trạm không tên',
           khuVuc: kv,
           nguoiThucHien: e.nguoiThucHien || '',
+          prefixDanhSo: (e.danhSo || '').trim().slice(0, 3),
           totalKh: 0,
           checkedKh: 0,
           customers: []
         };
+      }
+
+      if (!areaMap[kv].stations[stKey].prefixDanhSo && e.danhSo && e.danhSo.trim()) {
+        areaMap[kv].stations[stKey].prefixDanhSo = e.danhSo.trim().slice(0, 3);
       }
 
       areaMap[kv].stations[stKey].totalKh++;
@@ -1257,6 +1279,27 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
       }
       areaMap[kv].stations[stKey].customers.push(e);
     }
+
+    // Đảm bảo mỗi trạm có đúng 3 ký tự đầu của Danh số và sắp xếp khách hàng Tầng 3 theo: Danh số ➔ Số No ➔ Mã KH
+    Object.values(areaMap).forEach(area => {
+      Object.values(area.stations).forEach(station => {
+        if (!station.prefixDanhSo) {
+          const found = station.customers.find(c => c.danhSo && c.danhSo.trim());
+          if (found) {
+            station.prefixDanhSo = found.danhSo.trim().slice(0, 3);
+          }
+        }
+        station.customers.sort((a, b) => {
+          const dsA = (a.danhSo || '').trim();
+          const dsB = (b.danhSo || '').trim();
+          if (dsA !== dsB) return dsA.localeCompare(dsB, undefined, { numeric: true });
+          const noA = (a.soNo || '').trim();
+          const noB = (b.soNo || '').trim();
+          if (noA !== noB) return noA.localeCompare(noB, undefined, { numeric: true });
+          return (a.maKh || '').localeCompare(b.maKh || '', undefined, { numeric: true });
+        });
+      });
+    });
 
     return areaMap;
   }, [indexedEntries, searchQuery, filterAssignedMode, sessionUser]);
@@ -2176,8 +2219,8 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                 <span>SƠ ĐỒ CÂY PHÂN CẤP</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <span className="text-[11px] font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full hidden sm:inline">
-                  Khu vực ➔ Trạm ➔ DS ➔ Mã ➔ Tên ➔ No
+                <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full hidden sm:inline">
+                  Khu vực ➔ (3 ký tự DS ➔ Trạm) ➔ (DS ➔ Số No ➔ Mã KH)
                 </span>
                 {/* Nút co lại theo hướng ngang */}
                 <button
@@ -2292,51 +2335,93 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
               </div>
             )}
 
-            {/* Search Input with Voice Mic & Barcode Scanner - Hỗ trợ tìm kiếm theo Mã trạm, Tên trạm, Mã KH, Tên KH, Số No, Danh số, Địa chỉ */}
-            <div className="relative flex items-center mt-1">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 pointer-events-none" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Tìm Mã trạm, Tên trạm, Mã KH, Số No, Danh số, Địa chỉ..."
-                className="w-full pl-9 pr-24 py-2.5 text-xs md:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#005a9c] focus:ring-2 focus:ring-[#005a9c]/20 outline-none transition-all placeholder:text-slate-400 font-medium"
-              />
+            {/* Search Input with Voice Mic, Barcode Scanner & Search button (Chỉ tìm theo: Danh số, Số No, Mã Trạm) */}
+            <div className="flex items-center gap-1.5 mt-1">
+              <div className="relative flex-1 flex items-center">
+                <input
+                  type="text"
+                  value={searchInput}
+                  onChange={e => setSearchInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleExecuteSearch();
+                    }
+                  }}
+                  placeholder="Tìm theo: Danh số, Số No, Mã trạm (Nhập xong bấm Tìm)..."
+                  className="w-full pl-3 pr-20 py-2.5 text-xs md:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#005a9c] focus:ring-2 focus:ring-[#005a9c]/20 outline-none transition-all placeholder:text-slate-400 font-medium"
+                />
 
-              {searchQuery && (
+                {searchInput && (
+                  <button
+                    type="button"
+                    onClick={handleClearSearch}
+                    className="absolute right-14 p-1 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                    title="Xóa ô tìm kiếm"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+
+                {/* Barcode Scanner Button - Quét mã vạch Số No điện kế bằng Camera */}
                 <button
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-17 p-1 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
-                  title="Xóa tìm kiếm"
+                  type="button"
+                  onClick={() => setIsBarcodeModalOpen(true)}
+                  className="absolute right-7.5 p-1.5 rounded-lg bg-slate-200/80 hover:bg-[#005a9c] text-slate-600 hover:text-white transition-all cursor-pointer"
+                  title="Quét Barcode / Mã vạch Số No điện kế bằng Camera"
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <ScanBarcode className="w-4 h-4" />
                 </button>
-              )}
 
-              {/* Barcode Scanner Button - Quét mã vạch Số No điện kế bằng Camera */}
+                {/* Voice Input Mic Button */}
+                <button
+                  type="button"
+                  onClick={toggleVoiceSearch}
+                  className={`absolute right-1 p-1.5 rounded-lg transition-all cursor-pointer ${
+                    isListening
+                      ? 'bg-rose-500 text-white animate-pulse shadow-md ring-2 ring-rose-300'
+                      : 'bg-slate-200/80 hover:bg-[#005a9c] text-slate-600 hover:text-white'
+                  }`}
+                  title={isListening ? 'Đang lắng nghe... bấm để dừng' : 'Nhập bằng giọng nói (Voice Search)'}
+                >
+                  {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                </button>
+              </div>
+
+              {/* Nút kính lúp Tìm kiếm (Người dùng nhập xong bấm nút kính lúp mới tìm kiếm) */}
               <button
                 type="button"
-                onClick={() => setIsBarcodeModalOpen(true)}
-                className="absolute right-9 p-1.5 rounded-lg bg-slate-200/80 hover:bg-[#005a9c] text-slate-600 hover:text-white transition-all cursor-pointer"
-                title="Quét Barcode / Mã vạch Số No điện kế bằng Camera"
-              >
-                <ScanBarcode className="w-4 h-4" />
-              </button>
-
-              {/* Voice Input Mic Button */}
-              <button
-                type="button"
-                onClick={toggleVoiceSearch}
-                className={`absolute right-1.5 p-1.5 rounded-lg transition-all cursor-pointer ${
-                  isListening
-                    ? 'bg-rose-500 text-white animate-pulse shadow-md ring-2 ring-rose-300'
-                    : 'bg-slate-200/80 hover:bg-[#005a9c] text-slate-600 hover:text-white'
+                onClick={() => handleExecuteSearch()}
+                className={`px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                  searchInput.trim() && searchInput.trim() !== searchQuery
+                    ? 'bg-[#005a9c] hover:bg-[#004b87] text-white shadow-md ring-2 ring-sky-300 animate-pulse'
+                    : 'bg-[#005a9c] hover:bg-[#004b87] text-white shadow-xs'
                 }`}
-                title={isListening ? 'Đang lắng nghe... bấm để dừng' : 'Nhập bằng giọng nói (Voice Search)'}
+                title="Bấm để tìm kiếm (hoặc nhấn phím Enter)"
               >
-                {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                <Search className="w-4 h-4" />
+                <span className="hidden sm:inline">Tìm</span>
               </button>
             </div>
+
+            {/* Gợi ý bấm nút Tìm kiếm khi đang nhập nội dung mới */}
+            {searchInput.trim() && searchInput.trim() !== searchQuery && (
+              <div className="flex items-center justify-between px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 animate-in fade-in">
+                <div className="flex items-center gap-1.5 truncate">
+                  <span className="text-amber-600">💡</span>
+                  <span className="truncate">
+                    Bấm nút <b>"Tìm"</b> hoặc nhấn <b>Enter</b> để lọc kết quả theo: Danh số, Số No, Mã Trạm
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleExecuteSearch()}
+                  className="font-bold underline text-[#005a9c] hover:text-[#004b87] ml-2 shrink-0 cursor-pointer"
+                >
+                  Tìm ngay
+                </button>
+              </div>
+            )}
 
             {/* Barcode Scan Toast Feedback */}
             {barcodeScanToast && (
@@ -2350,7 +2435,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
             {isListening && (
               <div className="flex items-center gap-2 text-xs font-bold text-rose-600 bg-rose-50 border border-rose-200 px-2.5 py-1.5 rounded-lg animate-in fade-in">
                 <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
-                <span>Đang nghe giọng nói... Hãy đọc Mã trạm, Tên trạm, Mã KH, Tên KH hoặc Địa chỉ...</span>
+                <span>Đang nghe giọng nói... Hãy đọc Danh số, Số No hoặc Mã trạm...</span>
               </div>
             )}
             {speechError && (
@@ -2365,12 +2450,22 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                 <div className="flex items-center gap-1.5 truncate">
                   <Search className="w-3.5 h-3.5 text-[#005a9c] shrink-0" />
                   <span className="truncate">
-                    Khớp: <b>"{searchQuery}"</b>
+                    Lọc (DS/No/Trạm): <b>"{searchQuery}"</b>
                   </span>
                 </div>
-                <span className="text-[11px] font-bold text-teal-800 bg-white px-2 py-0.5 rounded-full border border-teal-200 shrink-0">
-                  {treeMatchStats.stationCount} trạm • {treeMatchStats.custCount} KH
-                </span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[11px] font-bold text-teal-800 bg-white px-2 py-0.5 rounded-full border border-teal-200">
+                    {treeMatchStats.stationCount} trạm • {treeMatchStats.custCount} KH
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleClearSearch}
+                    className="text-[11px] font-bold text-rose-600 hover:text-rose-800 underline cursor-pointer"
+                    title="Hủy lọc và hiển thị lại toàn bộ cây"
+                  >
+                    Hủy lọc
+                  </button>
+                </div>
               </div>
             )}
 
@@ -2420,19 +2515,20 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                         </div>
                       </div>
 
-                      {/* Level 2: Mã trạm -> Tên trạm */}
+                      {/* Level 2: 3 ký tự đầu của Danh số -> Mã trạm -> Tên trạm */}
                       {isKvOpen && (
                         <div className="divide-y divide-slate-100 bg-white">
                           {kvStations.map(station => {
                             const stKey = `${area.khuVuc}___${station.maTram || station.tenTram}`;
                             const isStOpen = Boolean(expandedTram[stKey]);
                             const isAssigned = Boolean(station.nguoiThucHien && station.nguoiThucHien.trim().length > 0);
+                            const dsPrefix = station.prefixDanhSo || (station.customers.find(c => c.danhSo && c.danhSo.trim())?.danhSo?.trim().slice(0, 3)) || '---';
                             const isStationMatched = searchLower.length > 0 && (
-                              station.maTram?.toLowerCase().includes(searchLower) ||
-                              station.tenTram?.toLowerCase().includes(searchLower) ||
+                              (station.maTram && station.maTram.toLowerCase().includes(searchLower)) ||
+                              (dsPrefix !== '---' && dsPrefix.toLowerCase().includes(searchLower)) ||
                               (searchNorm ? (
-                                normalizeSearchStr(station.maTram).includes(searchNorm) ||
-                                normalizeSearchStr(station.tenTram).includes(searchNorm)
+                                (station.maTram && normalizeSearchStr(station.maTram).includes(searchNorm)) ||
+                                (dsPrefix !== '---' && normalizeSearchStr(dsPrefix).includes(searchNorm))
                               ) : false)
                             );
 
@@ -2450,9 +2546,19 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                                     )}
                                     <Layers className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                                     <div className="flex flex-col min-w-0">
-                                      <div className="flex items-center gap-1.5">
-                                        <span className="text-xs font-bold text-slate-800 truncate">
-                                          {station.maTram ? `${station.maTram} ➔ ${station.tenTram}` : station.tenTram}
+                                      <div className="flex items-center gap-1.5 min-w-0">
+                                        <span className="text-xs font-bold text-slate-800 truncate flex items-center gap-1">
+                                          <span className="text-[#005a9c] font-mono bg-sky-50 px-1.5 py-0.5 rounded border border-sky-200 shrink-0 font-bold" title="3 ký tự đầu của Danh số">
+                                            {dsPrefix}
+                                          </span>
+                                          <span className="text-slate-400 font-normal">➔</span>
+                                          <span className="font-mono text-slate-800 font-bold shrink-0">
+                                            {station.maTram || '---'}
+                                          </span>
+                                          <span className="text-slate-400 font-normal">➔</span>
+                                          <span className="text-slate-900 truncate" title={station.tenTram}>
+                                            {station.tenTram}
+                                          </span>
                                         </span>
                                         {isStationMatched && (
                                           <span className="text-[9px] font-bold text-teal-800 bg-teal-100 border border-teal-300 px-1 rounded shrink-0">
@@ -2508,7 +2614,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                                   </div>
                                 </div>
 
-                                {/* Level 3: Danh số -> Mã KH -> Tên KH -> Số No */}
+                                {/* Level 3: Danh số -> Số No -> Mã KH */}
                                 {isStOpen && (
                                   <div className="pl-5 pr-1 py-1 space-y-1 bg-slate-50/60 border-l border-slate-200 mb-1 rounded-r-lg">
                                     {station.customers.map(customer => {
@@ -2523,7 +2629,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                                             setMobileTab('inspect');
                                             setOpenSections(prev => ({ ...prev, inspect: true }));
                                           }}
-                                          title={`Danh số: ${customer.danhSo || '---'}\nMã KH: ${customer.maKh}\nTên KH: ${customer.tenKh}${customer.soNo ? '\nSố No (Điện kế): ' + customer.soNo : ''}${customer.diaChi ? '\nĐịa chỉ: ' + customer.diaChi : ''}${customer.soDienThoai ? '\nSĐT: ' + formatPhoneNumber(customer.soDienThoai) : ''}`}
+                                          title={`Danh số: ${customer.danhSo || '---'}\nSố No (Điện kế): ${customer.soNo || '---'}\nMã KH: ${customer.maKh}\nTên KH: ${customer.tenKh}${customer.diaChi ? '\nĐịa chỉ: ' + customer.diaChi : ''}${customer.soDienThoai ? '\nSĐT: ' + formatPhoneNumber(customer.soDienThoai) : ''}`}
                                           className={`flex items-center justify-between p-1.5 rounded-lg text-xs cursor-pointer transition-all ${
                                             isSelected
                                               ? 'bg-[#005a9c] text-white font-bold shadow-xs'
@@ -2544,8 +2650,18 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                                                 }`}
                                               />
                                             )}
-                                            <span className="truncate">
-                                              {customer.danhSo || '---'} ➔ <b>{customer.maKh}</b> ➔ {customer.tenKh} ➔ {customer.soNo || '---'}
+                                            <span className="truncate flex items-center gap-1.5">
+                                              <span className={`font-mono ${isSelected ? 'text-blue-100 font-semibold' : 'text-slate-800'}`}>
+                                                {customer.danhSo || '---'}
+                                              </span>
+                                              <span className={isSelected ? 'text-blue-200' : 'text-slate-400'}>➔</span>
+                                              <span className={`font-mono font-semibold ${isSelected ? 'text-amber-200' : 'text-amber-700'}`}>
+                                                {customer.soNo || '---'}
+                                              </span>
+                                              <span className={isSelected ? 'text-blue-200' : 'text-slate-400'}>➔</span>
+                                              <span className={`font-mono font-bold ${isSelected ? 'text-white' : 'text-slate-900'}`}>
+                                                {customer.maKh}
+                                              </span>
                                             </span>
                                           </div>
 
