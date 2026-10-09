@@ -502,13 +502,14 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
     setSearchInput(cleanCode);
     setSearchQuery(cleanCode);
 
-    // Tìm khách hàng khớp theo Số No, Danh số hoặc Mã Trạm
+    // Tìm khách hàng khớp theo Số No, Danh số, Mã Trạm hoặc Mã KH
     const cleanLower = cleanCode.toLowerCase();
     const matched = entries.find(
       e =>
         (e.soNo && e.soNo.toLowerCase().trim() === cleanLower) ||
         (e.danhSo && e.danhSo.toLowerCase().trim() === cleanLower) ||
-        (e.maTram && e.maTram.toLowerCase().trim() === cleanLower)
+        (e.maTram && e.maTram.toLowerCase().trim() === cleanLower) ||
+        (e.maKh && e.maKh.toLowerCase().trim() === cleanLower)
     );
 
     if (matched) {
@@ -1192,10 +1193,10 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
   };
 
   // Tối ưu hóa thuật toán tìm kiếm siêu tốc O(1):
-  // Yêu cầu: CHỈ tìm kiếm theo Danh số, Số No, Mã Trạm
+  // Yêu cầu: Tìm kiếm theo: Danh số, Số No, Mã Trạm, Mã KH
   const indexedEntries = useMemo(() => {
     return entries.map(e => {
-      const raw = `${e.danhSo || ''} ${e.soNo || ''} ${e.maTram || ''}`.toLowerCase();
+      const raw = `${e.danhSo || ''} ${e.soNo || ''} ${e.maTram || ''} ${e.maKh || ''}`.toLowerCase();
       const norm = normalizeSearchStr(raw);
       return {
         entry: e,
@@ -1206,7 +1207,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
   }, [entries]);
 
   // Grouping for Tree View (Khu vực -> 3 ký tự DS ➔ Mã trạm ➔ Tên trạm -> Danh số ➔ Số No ➔ Mã KH)
-  // Chỉ tìm kiếm theo: Danh số, Số No, Mã Trạm
+  // Tìm kiếm theo: Danh số, Số No, Mã Trạm, Mã KH
   const treeData = useMemo<Record<string, AreaNode>>(() => {
     const qRaw = searchQuery.trim();
     const qLower = qRaw.toLowerCase();
@@ -1229,7 +1230,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
         if (!e.nguoiThucHien || !myNorm || !normalizeSearchStr(e.nguoiThucHien).includes(myNorm)) continue;
       }
 
-      // 2. Tìm kiếm siêu tốc qua index đã tiền xử lý (CHỈ KHỚP Danh số, Số No, Mã Trạm)
+      // 2. Tìm kiếm siêu tốc qua index đã tiền xử lý (Khớp Danh số, Số No, Mã Trạm, Mã KH)
       if (qRaw) {
         if (!item.raw.includes(qLower) && !item.norm.includes(qNorm)) {
           continue;
@@ -2335,7 +2336,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
               </div>
             )}
 
-            {/* Search Input with Voice Mic, Barcode Scanner & Search button (Chỉ tìm theo: Danh số, Số No, Mã Trạm) */}
+            {/* Search Input with Voice Mic, Barcode Scanner & Search button (Tìm theo: Danh số, Số No, Mã Trạm, Mã KH) */}
             <div className="flex items-center gap-1.5 mt-1">
               <div className="relative flex-1 flex items-center">
                 <input
@@ -2348,7 +2349,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                       handleExecuteSearch();
                     }
                   }}
-                  placeholder="Tìm theo: Danh số, Số No, Mã trạm (Nhập xong bấm Tìm)..."
+                  placeholder="Tìm theo: Danh số, Số No, Mã trạm, Mã KH (Nhập xong bấm Tìm)..."
                   className="w-full pl-3 pr-20 py-2.5 text-xs md:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-[#005a9c] focus:ring-2 focus:ring-[#005a9c]/20 outline-none transition-all placeholder:text-slate-400 font-medium"
                 />
 
@@ -2410,7 +2411,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                 <div className="flex items-center gap-1.5 truncate">
                   <span className="text-amber-600">💡</span>
                   <span className="truncate">
-                    Bấm nút <b>"Tìm"</b> hoặc nhấn <b>Enter</b> để lọc kết quả theo: Danh số, Số No, Mã Trạm
+                    Bấm nút <b>"Tìm"</b> hoặc nhấn <b>Enter</b> để lọc kết quả theo: Danh số, Số No, Mã trạm, Mã KH
                   </span>
                 </div>
                 <button
@@ -2435,7 +2436,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
             {isListening && (
               <div className="flex items-center gap-2 text-xs font-bold text-rose-600 bg-rose-50 border border-rose-200 px-2.5 py-1.5 rounded-lg animate-in fade-in">
                 <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
-                <span>Đang nghe giọng nói... Hãy đọc Danh số, Số No hoặc Mã trạm...</span>
+                <span>Đang nghe giọng nói... Hãy đọc Danh số, Số No, Mã trạm hoặc Mã KH...</span>
               </div>
             )}
             {speechError && (
