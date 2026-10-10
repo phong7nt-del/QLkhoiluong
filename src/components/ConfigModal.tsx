@@ -275,7 +275,7 @@ function doGet(e) {
                }
                if (h.indexOf('chung nhom') > -1) groupCol = j;
                if (h.indexOf('quan he') > -1) relationCol = j;
-               if (h.indexOf('thang') > -1 || /\\d+\\/\\d{4}/.test(h)) {
+               if (h.indexOf('thang') > -1 || (/\\d+[/]\\d{4}/).test(h)) {
                    historyCols[rawVal] = j;
                }
             }
@@ -790,47 +790,70 @@ function doPost(e) {
           .setMimeType(ContentService.MimeType.JSON);
       }
 
-      // Đọc chỉ 1 dòng tiêu đề (cực nhanh < 15ms thay vì đọc toàn bộ 200k dòng)
+      // Đọc các dòng đầu tiên để tìm đúng dòng tiêu đề bảng (tránh lỗi nếu dòng 1 là tiêu đề gộp ô)
+      var headerRowIdx = 1;
       var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+      for (var rScan = 1; rScan <= Math.min(5, lastRow); rScan++) {
+        var rVals = sheet.getRange(rScan, 1, 1, lastCol).getValues()[0];
+        var matchCount = 0;
+        for (var cs = 0; cs < rVals.length; cs++) {
+          var nH = String(rVals[cs] || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[^a-z0-9]/g, '');
+          if (nH.includes('makh') || nH.includes('matram') || nH.includes('ketqua') || nH.includes('nguoith') || nH.includes('danhso') || nH.includes('sono')) matchCount++;
+        }
+        if (matchCount >= 2) {
+          headerRowIdx = rScan;
+          headers = rVals;
+          break;
+        }
+      }
+
       var colMaKh = -1, colNgay = -1, colKetQua = -1, colChi = -1, colDeXuat = -1, colX = -1, colY = -1;
       var colNguoiThucHien = -1, colSoDienThoai = -1, colPic = -1;
+      var allNguoiThCols = [];
       for (var c = 0; c < headers.length; c++) {
         var rawH = String(headers[c] || '').trim();
-        var h = rawH.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[\s_?]+/g, '');
+        var rawLower = rawH.toLowerCase();
+        var h = rawH.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[^a-z0-9]/g, '');
+        if (!h) continue;
+
         if (h.includes('makh')) colMaKh = c;
-        if (h === 'ngay' || h.includes('ngay')) colNgay = c;
+        if (h === 'ngay' || h.includes('ngaykt') || h.includes('ngaykiemtra') || rawLower.indexOf('ngày') !== -1) {
+          if (colNgay === -1) colNgay = c;
+        }
         if (h.includes('ketqua')) colKetQua = c;
         if (h.includes('chi')) colChi = c;
         if (h.includes('dexuat') || h.includes('ghichu')) colDeXuat = c;
         if (rawH.toUpperCase() === 'X' || h === 'x' || h === 'toadox' || h === 'vido' || h.includes('toadox')) colX = c;
         if (rawH.toUpperCase() === 'Y' || h === 'y' || h === 'toadoy' || h === 'kinhdo' || h.includes('toadoy')) colY = c;
-        if (h.includes('nguoithuchien') || h.includes('nguoi_thuc_hien')) colNguoiThucHien = c;
+        if (h.includes('nguoithuchien') || h === 'nguoith' || h.includes('nhanvienthuchien') || h.includes('nvth') || 
+            h.includes('nguoikt') || h.includes('nguoikiemtra') || h.includes('phancong') || h.includes('nguoixl') ||
+            rawLower.indexOf('thực hiện') !== -1 || rawLower.indexOf('thuc hien') !== -1 || rawLower.indexOf('người th') !== -1) {
+          if (colNguoiThucHien === -1) colNguoiThucHien = c;
+          if (allNguoiThCols.indexOf(c) === -1) allNguoiThCols.push(c);
+        }
         if (h.includes('sodienthoai') || h.includes('sdt') || h.includes('dienthoai') || h.includes('sodt')) colSoDienThoai = c;
         if (rawH.toUpperCase() === 'PIC' || h === 'pic' || h.includes('pic') || h.includes('hinhanh') || h.includes('anh')) colPic = c;
       }
-      if (colMaKh === -1) colMaKh = 1; // Default Col B
-      if (colNgay === -1) colNgay = 10; // Default Col K
-      if (colKetQua === -1) colKetQua = 11; // Default Col L
-      if (colChi === -1) colChi = 12; // Default Col M
-      if (colDeXuat === -1) colDeXuat = 13; // Default Col N
+      if (colMaKh === -1) colMaKh = 1; // Default Col B (cột 2)
+      if (colNgay === -1) colNgay = 10; // Default Col K (cột 11)
+      if (colKetQua === -1) colKetQua = 11; // Default Col L (cột 12)
+      if (colChi === -1) colChi = 12; // Default Col M (cột 13)
+      if (colDeXuat === -1) colDeXuat = 13; // Default Col N (cột 14)
+      
+      // CỐ ĐỊNH DỨT ĐIỂM: CỘT O (CỘT 15, INDEX 14) LÀ CỘT "NGƯỜI THỰC HIỆN"
+      if (colNguoiThucHien === -1) colNguoiThucHien = 14;
+      if (allNguoiThCols.indexOf(14) === -1) allNguoiThCols.unshift(14);
+      if (colX === -1) colX = 15; // Default Col P (cột 16)
+      if (colY === -1) colY = 16; // Default Col Q (cột 17)
+      if (colPic === -1) colPic = 17; // Default Col R (cột 18)
 
-      // Nếu có tọa độ X, Y gửi lên mà sheet chưa có cột X hoặc Y, tự động thêm cột X, Y vào tiêu đề
-      if (data.x !== undefined && data.x !== '' && colX === -1) {
-        colX = headers.length;
-        sheet.getRange(1, colX + 1).setValue('X');
-        headers.push('X');
-      }
-      if (data.y !== undefined && data.y !== '' && colY === -1) {
-        colY = headers.length;
-        sheet.getRange(1, colY + 1).setValue('Y');
-        headers.push('Y');
-      }
-      // Nếu có trường Pic (link ảnh) gửi lên mà sheet chưa có cột Pic, tự động thêm cột Pic
-      if (data.pic !== undefined && data.pic !== '' && colPic === -1) {
-        colPic = headers.length;
-        sheet.getRange(1, colPic + 1).setValue('Pic');
-        headers.push('Pic');
-      }
+      // Đảm bảo dòng tiêu đề chuẩn xác, TUYỆT ĐỐI KHÔNG TỰ ĐỘNG THÊM CỘT BỪA BÃI
+      try {
+        if (!String(sheet.getRange(headerRowIdx, 15).getValue() || '').trim()) sheet.getRange(headerRowIdx, 15).setValue('Người thực hiện');
+        if (data.x !== undefined && data.x !== '' && !String(sheet.getRange(headerRowIdx, 16).getValue() || '').trim()) sheet.getRange(headerRowIdx, 16).setValue('X');
+        if (data.y !== undefined && data.y !== '' && !String(sheet.getRange(headerRowIdx, 17).getValue() || '').trim()) sheet.getRange(headerRowIdx, 17).setValue('Y');
+        if (data.pic !== undefined && data.pic !== '' && !String(sheet.getRange(headerRowIdx, 18).getValue() || '').trim()) sheet.getRange(headerRowIdx, 18).setValue('Pic');
+      } catch (eHdr) {}
 
       // Tìm dòng bằng TextFinder của Google Sheets (thuật toán tìm nhị phân native C++ siêu tốc < 50ms cho 200k dòng)
       var targetRow = -1;
@@ -866,15 +889,24 @@ function doPost(e) {
 
       if (targetRow > 1) {
         // Đọc 1 dòng duy nhất để ghi cập nhật theo mảng 1 lần (Single Batch Range Update)
-        var rowRange = sheet.getRange(targetRow, 1, 1, Math.max(headers.length, colX + 1, colY + 1, colPic + 1));
+        var maxColNeeded = Math.max(headers.length, colX + 1, colY + 1, colPic + 1, colNgay + 1, 15);
+        var rowRange = sheet.getRange(targetRow, 1, 1, maxColNeeded);
         var rowArr = rowRange.getValues()[0];
-        if (data.ngay !== undefined) rowArr[colNgay] = "'" + data.ngay;
-        if (data.ketQua !== undefined) rowArr[colKetQua] = data.ketQua;
-        if (data.chi !== undefined) rowArr[colChi] = data.chi;
-        if (data.deXuat !== undefined) rowArr[colDeXuat] = data.deXuat;
+        if (data.ngay !== undefined && data.ngay !== '') {
+          if (colNgay > -1) rowArr[colNgay] = "'" + data.ngay;
+          rowArr[10] = "'" + data.ngay; // Cố định Cột K (cột 11, index 10)
+        }
+        if (data.ketQua !== undefined && colKetQua > -1) rowArr[colKetQua] = data.ketQua;
+        if (data.chi !== undefined && colChi > -1) rowArr[colChi] = data.chi;
+        if (data.deXuat !== undefined && colDeXuat > -1) rowArr[colDeXuat] = data.deXuat;
         if (data.x !== undefined && data.x !== '' && colX > -1) rowArr[colX] = data.x;
         if (data.y !== undefined && data.y !== '' && colY > -1) rowArr[colY] = data.y;
-        if (data.nguoiThucHien !== undefined && data.nguoiThucHien !== '' && colNguoiThucHien > -1) rowArr[colNguoiThucHien] = data.nguoiThucHien;
+        if (data.nguoiThucHien !== undefined && data.nguoiThucHien !== '') {
+          rowArr[14] = data.nguoiThucHien; // CỐ ĐỊNH CỘT O (CỘT 15, INDEX 14)
+          for (var nc = 0; nc < allNguoiThCols.length; nc++) {
+            rowArr[allNguoiThCols[nc]] = data.nguoiThucHien;
+          }
+        }
         if (data.soDienThoai !== undefined && colSoDienThoai > -1) rowArr[colSoDienThoai] = "'" + data.soDienThoai;
         if (data.pic !== undefined && colPic > -1) rowArr[colPic] = data.pic;
         rowRange.setValues([rowArr]);
@@ -906,53 +938,138 @@ function doPost(e) {
       var cleanTen = String(data.tenTram || '').trim();
       var nguoiThucHien = String(data.nguoiThucHien || '').trim();
       var maKhList = data.maKhList || [];
+      var now = new Date();
+      var ngayPhanCong = String(data.ngay || '').trim() || Utilities.formatDate(now, "GMT+7", "dd/MM/yyyy");
       var lastRow = sheet.getLastRow();
       var lastCol = sheet.getLastColumn();
       if (lastRow < 2) {
         return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "Sheet rỗng" })).setMimeType(ContentService.MimeType.JSON);
       }
 
-      // Đọc chỉ dòng 1 lấy tiêu đề (15ms)
+      // Quét 5 dòng đầu tiên để xác định chính xác dòng tiêu đề bảng
+      var headerRowIdx = 1;
       var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
-      var colMaTram = -1, colTenTram = -1, colNguoiTh = -1, colMaKh = -1;
+      for (var rScan = 1; rScan <= Math.min(5, lastRow); rScan++) {
+        var curRowVals = sheet.getRange(rScan, 1, 1, lastCol).getValues()[0];
+        var matchCount = 0;
+        for (var cs = 0; cs < curRowVals.length; cs++) {
+          var normH = String(curRowVals[cs] || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[^a-z0-9]/g, '');
+          if (normH.includes('makh') || normH.includes('matram') || normH.includes('tentram') || normH.includes('danhso') || normH.includes('sono') || normH.includes('nguoith')) {
+            matchCount++;
+          }
+        }
+        if (matchCount >= 2) {
+          headerRowIdx = rScan;
+          headers = curRowVals;
+          break;
+        }
+      }
+
+      var colMaTram = -1, colTenTram = -1, colMaKh = -1, colNgay = -1;
+      var colNguoiThList = [];
       for (var c = 0; c < headers.length; c++) {
-        var h = String(headers[c] || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[\s_?]+/g, '');
+        var rawH = String(headers[c] || '').trim();
+        var rawLower = rawH.toLowerCase();
+        var h = rawH.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[^a-z0-9]/g, '');
+        if (!h) continue;
+
         if (h.includes('makh')) colMaKh = c;
         if (h.includes('matram')) colMaTram = c;
         if (h.includes('tentram')) colTenTram = c;
-        if (h.includes('nguoithuchien') || h.includes('nguoixl')) colNguoiTh = c;
+        if (h === 'ngay' || h.includes('ngaykt') || h.includes('ngaykiemtra') || h.includes('ngayphancong') || rawLower.indexOf('ngày') !== -1) {
+          if (colNgay === -1) colNgay = c;
+        }
+        if (h.includes('nguoithuchien') || h === 'nguoith' || h.includes('nhanvienthuchien') || 
+            h.includes('nvth') || h.includes('nguoikt') || h.includes('nguoikiemtra') || 
+            h.includes('phancong') || h.includes('nguoiduocgiao') || h.includes('nguoixl') ||
+            rawLower.indexOf('thực hiện') !== -1 || rawLower.indexOf('thuc hien') !== -1 || 
+            rawLower.indexOf('người th') !== -1 || rawLower.indexOf('phân công') !== -1) {
+          if (colNguoiThList.indexOf(c) === -1) {
+            colNguoiThList.push(c);
+          }
+        }
       }
-      if (colMaTram === -1) colMaTram = 4; // Col E mặc định
-      if (colNguoiTh === -1) {
-        colNguoiTh = headers.length;
-        sheet.getRange(1, colNguoiTh + 1).setValue('Người thực hiện');
+      if (colMaTram === -1) colMaTram = 4; // Col E mặc định (cột 5)
+      if (colTenTram === -1) colTenTram = 5; // Col F mặc định (cột 6)
+      if (colMaKh === -1) colMaKh = 1; // Col B mặc định (cột 2)
+      if (colNgay === -1) colNgay = 10; // Col K mặc định (cột 11)
+
+      // CỐ ĐỊNH DỨT ĐIỂM: CỘT O (CỘT 15, INDEX 14) LÀ CỘT "NGƯỜI THỰC HIỆN"!
+      // TUYỆT ĐỐI KHÔNG TỰ TẠO THÊM BẤT KỲ CỘT MỚI NÀO Ở CUỐI BẢNG!
+      var colO_Index = 14; // Cột O = cột thứ 15 trong bảng tính Google Sheet (0-based index là 14)
+      if (colNguoiThList.indexOf(colO_Index) === -1) {
+        colNguoiThList.unshift(colO_Index);
       }
 
+      // Đảm bảo tiêu đề cột O và cột K chuẩn xác
+      try {
+        if (!String(sheet.getRange(headerRowIdx, 15).getValue() || '').trim()) {
+          sheet.getRange(headerRowIdx, 15).setValue('Người thực hiện');
+        }
+        if (!String(sheet.getRange(headerRowIdx, 11).getValue() || '').trim()) {
+          sheet.getRange(headerRowIdx, 11).setValue('Ngày');
+        }
+      } catch (eHdr2) {}
+
+      var escapeRegex = function(text) {
+        if (!text) return "";
+        var bs = String.fromCharCode(92);
+        var specials = [bs, "^", "$", "*", "+", "?", ".", "(", ")", "|", "{", "}", "[", "]"];
+        var s = String(text);
+        for (var sp = 0; sp < specials.length; sp++) {
+          s = s.split(specials[sp]).join(bs + specials[sp]);
+        }
+        return s;
+      };
+
+      var bs = String.fromCharCode(92);
       var rowNumbers = [];
 
-      // THUẬT TOÁN 1: TextFinder Regex C++ Native siêu tốc (< 50ms cho 200k dòng)
+      // THUẬT TOÁN 1: TextFinder C++ Native siêu tốc (< 50ms cho 200k dòng)
       if (cleanMa) {
-        var esc = cleanMa.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
         var finder = sheet.getRange(2, colMaTram + 1, lastRow - 1, 1)
-          .createTextFinder("^\\s*" + esc + "\\s*$")
-          .useRegularExpression(true)
+          .createTextFinder(cleanMa)
+          .matchEntireCell(true)
           .matchCase(false);
         var matches = finder.findAll();
         for (var m = 0; m < matches.length; m++) {
           rowNumbers.push(matches[m].getRow());
         }
+
+        if (rowNumbers.length === 0) {
+          var safeMa = escapeRegex(cleanMa);
+          var finderRegex = sheet.getRange(2, colMaTram + 1, lastRow - 1, 1)
+            .createTextFinder("^" + bs + "s*" + safeMa + bs + "s*$")
+            .useRegularExpression(true)
+            .matchCase(false);
+          var matchesRegex = finderRegex.findAll();
+          for (var mr = 0; mr < matchesRegex.length; mr++) {
+            rowNumbers.push(matchesRegex[mr].getRow());
+          }
+        }
       }
 
       // Nếu không tìm thấy theo Mã trạm, thử theo Tên trạm
       if (rowNumbers.length === 0 && cleanTen && colTenTram > -1) {
-        var escTen = cleanTen.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
         var finderTen = sheet.getRange(2, colTenTram + 1, lastRow - 1, 1)
-          .createTextFinder("^\\s*" + escTen + "\\s*$")
-          .useRegularExpression(true)
+          .createTextFinder(cleanTen)
+          .matchEntireCell(true)
           .matchCase(false);
         var matchesTen = finderTen.findAll();
         for (var mt = 0; mt < matchesTen.length; mt++) {
           rowNumbers.push(matchesTen[mt].getRow());
+        }
+
+        if (rowNumbers.length === 0) {
+          var safeTen = escapeRegex(cleanTen);
+          var finderTenRegex = sheet.getRange(2, colTenTram + 1, lastRow - 1, 1)
+            .createTextFinder("^" + bs + "s*" + safeTen + bs + "s*$")
+            .useRegularExpression(true)
+            .matchCase(false);
+          var matchesTenRegex = finderTenRegex.findAll();
+          for (var mtr = 0; mtr < matchesTenRegex.length; mtr++) {
+            rowNumbers.push(matchesTenRegex[mtr].getRow());
+          }
         }
       }
 
@@ -1020,24 +1137,43 @@ function doPost(e) {
           }
           return letter;
         }
-        var colLetter = getColLetter(colNguoiTh + 1);
 
-        // Tạo danh sách địa chỉ A1 notation cho các dải ô
-        var a1Ranges = [];
-        for (var b = 0; b < blocks.length; b++) {
-          var blk = blocks[b];
-          if (blk.count === 1) {
-            a1Ranges.push(colLetter + blk.start);
-          } else {
-            a1Ranges.push(colLetter + blk.start + ':' + colLetter + (blk.start + blk.count - 1));
+        var batchSize = 100;
+
+        // 1. CẬP NHẬT CỘT NGƯỜI THỰC HIỆN (Ghi vào TẤT CẢ các cột Người thực hiện nếu có để đảm bảo đồng bộ 100%)
+        for (var cn = 0; cn < colNguoiThList.length; cn++) {
+          var colLetter = getColLetter(colNguoiThList[cn] + 1);
+          var a1Ranges = [];
+          for (var b = 0; b < blocks.length; b++) {
+            var blk = blocks[b];
+            if (blk.count === 1) {
+              a1Ranges.push(colLetter + blk.start);
+            } else {
+              a1Ranges.push(colLetter + blk.start + ':' + colLetter + (blk.start + blk.count - 1));
+            }
+          }
+          for (var bi = 0; bi < a1Ranges.length; bi += batchSize) {
+            var chunk = a1Ranges.slice(bi, bi + batchSize);
+            sheet.getRangeList(chunk).setValue(nguoiThucHien);
           }
         }
 
-        // Ghi hàng loạt bằng sheet.getRangeList() (Chỉ 1 lệnh duy nhất cho toàn bộ trạm, < 200ms!)
-        var batchSize = 100;
-        for (var bi = 0; bi < a1Ranges.length; bi += batchSize) {
-          var chunk = a1Ranges.slice(bi, bi + batchSize);
-          sheet.getRangeList(chunk).setValue(nguoiThucHien);
+        // 2. CẬP NHẬT TRƯỜNG "NGÀY" (Lấy ngày hiện tại dd/MM/yyyy khi phân công cập nhật vào trường Ngày trong sheet KTHTDD)
+        if (colNgay > -1) {
+          var colNgayLetter = getColLetter(colNgay + 1);
+          var a1RangesNgay = [];
+          for (var bn = 0; bn < blocks.length; bn++) {
+            var blkn = blocks[bn];
+            if (blkn.count === 1) {
+              a1RangesNgay.push(colNgayLetter + blkn.start);
+            } else {
+              a1RangesNgay.push(colNgayLetter + blkn.start + ':' + colNgayLetter + (blkn.start + blkn.count - 1));
+            }
+          }
+          for (var bin = 0; bin < a1RangesNgay.length; bin += batchSize) {
+            var chunkNgay = a1RangesNgay.slice(bin, bin + batchSize);
+            sheet.getRangeList(chunkNgay).setValue("'" + ngayPhanCong);
+          }
         }
 
         return ContentService.createTextOutput(JSON.stringify({ 
@@ -1137,7 +1273,7 @@ function doPost(e) {
       var targetDateStr = dateParts[2] + '/' + dateParts[1] + '/' + dateParts[0]; // DD/MM/YYYY
       var targetDateStrAlt = dateParts[2] + '/' + dateParts[1]; // DD/MM
       
-      var stripZero = function(s) { return String(s).replace(/(^|\\/)0+(\\d)/g, '$1$2'); };
+      var stripZero = function(s) { return String(s).replace(/(^|[/])0+(\\d)/g, '$1$2'); };
       var cleanTarget = stripZero(targetDateStr);
       var cleanTargetAlt = stripZero(targetDateStrAlt);
       
@@ -1207,7 +1343,7 @@ function doPost(e) {
       var targetDateStr = dateParts[2] + '/' + dateParts[1] + '/' + dateParts[0];
       var targetDateStrAlt = dateParts[2] + '/' + dateParts[1];
       
-      var stripZero = function(s) { return String(s).replace(/(^|\\/)0+(\\d)/g, '$1$2'); };
+      var stripZero = function(s) { return String(s).replace(/(^|[/])0+(\\d)/g, '$1$2'); };
       var cleanTarget = stripZero(targetDateStr);
       var cleanTargetAlt = stripZero(targetDateStrAlt);
       

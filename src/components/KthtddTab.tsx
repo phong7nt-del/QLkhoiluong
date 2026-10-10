@@ -711,6 +711,30 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
     );
   }, [userRoleStr, sessionUser]);
 
+  // Kiểm tra nếu là Đội trưởng, Đội phó hoặc lãnh đạo quản trị cấp trên
+  // (Đội trưởng, Đội phó khi phân công sẽ hiện danh sách toàn bộ nhân viên các tổ)
+  const isDoiTruongOrAbove = useMemo(() => {
+    const norm = normalizeSearchStr(userRoleStr);
+    const normName = normalizeSearchStr(sessionUser?.name || '');
+    if (
+      normName.includes('nguyen thanh phong') ||
+      normName.includes('thanh phong') ||
+      (sessionUser as any)?.email?.includes('phong7nt')
+    ) {
+      return true;
+    }
+    return (
+      norm.includes('doi truong') ||
+      norm.includes('doi pho') ||
+      norm.includes('giam doc') ||
+      norm.includes('pho giam doc') ||
+      norm.includes('truong phong') ||
+      norm.includes('pho phong') ||
+      norm.includes('quan tri') ||
+      norm.includes('admin')
+    );
+  }, [userRoleStr, sessionUser]);
+
   // Requirement: Khi người dùng là nhân viên vào thì phần 2.3 và 2.4 sẽ ẩn đi!
   const isEmployee = useMemo(() => {
     return !isToTruong;
@@ -884,16 +908,37 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
     }
   }, [isEmployee, mobileTab]);
 
+  // Requirement 2: Đối với Đội trưởng hay Đội phó thì khi hiện danh sách phân công,
+  // phải hiện danh sách hết của cấp dưới (tức là nhân viên của các tổ luôn)
+  const availableTeams = useMemo(() => {
+    return DataStore.getTeams();
+  }, [refreshToggle]);
+
+  const [assignFilterTeam, setAssignFilterTeam] = useState<string>('ALL');
+
   // All members belonging to current user's team from CongTac
   const teamMembers = useMemo(() => {
     const allMembers = DataStore.getMembers();
+    // Đối với Đội trưởng, Đội phó (hoặc cấp trên): hiển thị toàn bộ cấp dưới (nhân viên của các tổ luôn)
+    if (isDoiTruongOrAbove) {
+      return allMembers;
+    }
+    // Đối với Tổ trưởng / Tổ phó: chỉ hiện nhân viên thuộc tổ của mình
     const myTeam = String(sessionUser?.team || '').trim().toLowerCase();
-    if (!myTeam || myTeam === 'không xác định') {
+    if (!myTeam || myTeam === 'không xác định' || myTeam === 'tất cả') {
       return allMembers;
     }
     const filtered = allMembers.filter(m => String(m.team || '').trim().toLowerCase() === myTeam);
     return filtered.length > 0 ? filtered : allMembers;
-  }, [sessionUser, refreshToggle]);
+  }, [sessionUser, isDoiTruongOrAbove, refreshToggle]);
+
+  // Danh sách nhân viên hiển thị trong modal phân công (có thể lọc theo từng tổ đối với Đội trưởng, Đội phó)
+  const displayedAssigneeMembers = useMemo(() => {
+    if (!isDoiTruongOrAbove || assignFilterTeam === 'ALL') {
+      return teamMembers;
+    }
+    return teamMembers.filter(m => String(m.team || '').trim().toLowerCase() === assignFilterTeam.toLowerCase());
+  }, [teamMembers, assignFilterTeam, isDoiTruongOrAbove]);
 
   // Load Initial Data from IndexedDB cache
   useEffect(() => {
@@ -953,7 +998,10 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
   // Populate inspection form when selectedCustomer changes
   useEffect(() => {
     if (selectedCustomer) {
-      setInspectNgay(selectedCustomer.ngay || getTodayFormatted());
+      // Nếu khách hàng đã được kiểm tra (có kết quả KT) thì lấy ngày KT đã lưu;
+      // nếu chưa kiểm tra thì ngày KT mặc định là hôm nay!
+      const hasResult = Boolean(selectedCustomer.ketQua && selectedCustomer.ketQua.trim().length > 0);
+      setInspectNgay(hasResult ? (selectedCustomer.ngay || getTodayFormatted()) : getTodayFormatted());
       setInspectKetQua((selectedCustomer.ketQua as any) || '');
       setInspectChi((selectedCustomer.chi as any) || '');
       setInspectDeXuat(selectedCustomer.deXuat || '');
@@ -1364,6 +1412,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
     }
     setAssignStation(station);
     setSelectedAssignees([]);
+    setAssignFilterTeam('ALL');
     setAssignMsg(null);
     setAssignElapsedSec(0);
     setShowAssignWaitPrompt(false);
@@ -1386,13 +1435,15 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
     );
     const maKhList = stationCusts.map(c => c.maKh);
     const countKh = stationCusts.length || assignStation.totalKh;
+    const todayStr = getTodayFormatted();
 
-    // 1. Áp dụng lưu cục bộ vào RAM & IndexedDB ngay tức thì
+    // 1. Áp dụng lưu cục bộ vào RAM & IndexedDB ngay tức thì (cập nhật Người thực hiện và Ngày hiện tại)
     DataStore.applyAssignmentLocally({
       maTram: targetTram,
       tenTram: targetTenTram,
       nguoiThucHien,
-      maKhList
+      maKhList,
+      ngay: todayStr
     });
 
     // 2. Cập nhật React state
@@ -1407,7 +1458,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
         const kMatch = item.maKh && khSet.has(item.maKh.trim().toLowerCase());
         if (mMatch || nMatch || kMatch) {
           changed = true;
-          return { ...item, nguoiThucHien };
+          return { ...item, nguoiThucHien, ngay: todayStr };
         }
         return item;
       });
@@ -1446,13 +1497,15 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
     );
     const maKhList = stationCusts.map(c => c.maKh);
     const countKh = stationCusts.length || assignStation.totalKh;
+    const todayStr = getTodayFormatted();
 
     // 1. ƯU TIÊN HÀNG ĐẦU CHO NGƯỜI DÙNG: LƯU CỤC BỘ NGAY VÀO MÁY (RAM & IDB)
     DataStore.applyAssignmentLocally({
       maTram: targetTram,
       tenTram: targetTenTram,
       nguoiThucHien,
-      maKhList
+      maKhList,
+      ngay: todayStr
     });
 
     // 2. CẬP NHẬT GIAO DIỆN REACT NGAY TỨC THÌ (0ms)
@@ -1467,7 +1520,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
         const kMatch = item.maKh && khSet.has(item.maKh.trim().toLowerCase());
         if (mMatch || nMatch || kMatch) {
           changed = true;
-          return { ...item, nguoiThucHien };
+          return { ...item, nguoiThucHien, ngay: todayStr };
         }
         return item;
       });
@@ -1498,7 +1551,8 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
         maTram: targetTram,
         tenTram: targetTenTram,
         nguoiThucHien,
-        maKhList
+        maKhList,
+        ngay: todayStr
       }, { timeoutSeconds: 45 });
 
       if (assignTimerRef.current) {
@@ -4688,29 +4742,69 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-slate-700">
-                    Chọn nhân viên thuộc tổ để phân công:
+                    {isDoiTruongOrAbove
+                      ? `Chọn nhân viên cấp dưới để phân công (${teamMembers.length} người):`
+                      : 'Chọn nhân viên thuộc tổ để phân công:'}
                   </span>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => setSelectedAssignees(teamMembers.map(m => m.name))}
-                      className="text-[11px] font-bold text-[#005a9c] hover:underline"
+                      onClick={() => {
+                        const targetNames = displayedAssigneeMembers.map(m => m.name);
+                        setSelectedAssignees(prev => Array.from(new Set([...prev, ...targetNames])));
+                      }}
+                      className="text-[11px] font-bold text-[#005a9c] hover:underline cursor-pointer"
                     >
-                      Chọn tất cả
+                      {assignFilterTeam === 'ALL' ? 'Chọn tất cả' : 'Chọn tổ này'}
                     </button>
                     <span className="text-slate-300">|</span>
                     <button
                       type="button"
                       onClick={() => setSelectedAssignees([])}
-                      className="text-[11px] font-bold text-slate-500 hover:underline"
+                      className="text-[11px] font-bold text-slate-500 hover:underline cursor-pointer"
                     >
                       Bỏ chọn
                     </button>
                   </div>
                 </div>
 
+                {/* Bộ lọc Tổ dành riêng cho Đội trưởng, Đội phó để phân công tiện lợi */}
+                {isDoiTruongOrAbove && availableTeams.length > 0 && (
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-[11px]">
+                    <span className="text-slate-500 font-semibold shrink-0">Lọc tổ:</span>
+                    <button
+                      type="button"
+                      onClick={() => setAssignFilterTeam('ALL')}
+                      className={`px-2 py-0.5 rounded-md font-bold transition-all shrink-0 cursor-pointer ${
+                        assignFilterTeam === 'ALL'
+                          ? 'bg-[#005a9c] text-white shadow-2xs'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      Tất cả tổ ({teamMembers.length})
+                    </button>
+                    {availableTeams.map(t => {
+                      const count = teamMembers.filter(m => String(m.team || '').trim().toLowerCase() === t.toLowerCase()).length;
+                      return (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => setAssignFilterTeam(t)}
+                          className={`px-2 py-0.5 rounded-md font-bold transition-all shrink-0 cursor-pointer ${
+                            assignFilterTeam.toLowerCase() === t.toLowerCase()
+                              ? 'bg-[#005a9c] text-white shadow-2xs'
+                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          }`}
+                        >
+                          {t} ({count})
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
                 <div className="max-h-52 overflow-y-auto space-y-1.5 p-2 bg-slate-50/80 rounded-xl border border-slate-200">
-                  {teamMembers.map(member => {
+                  {displayedAssigneeMembers.map(member => {
                     const isChecked = selectedAssignees.includes(member.name);
                     return (
                       <label
@@ -4719,7 +4813,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                           isChecked ? 'bg-teal-50 border-teal-300 text-teal-900 font-bold' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
                         }`}
                       >
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
                           <input
                             type="checkbox"
                             checked={isChecked}
@@ -4728,13 +4822,22 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                                 isChecked ? prev.filter(n => n !== member.name) : [...prev, member.name]
                               );
                             }}
-                            className="w-4 h-4 rounded text-[#005a9c] focus:ring-[#005a9c]"
+                            className="w-4 h-4 rounded text-[#005a9c] focus:ring-[#005a9c] shrink-0"
                           />
-                          <span>{member.name}</span>
+                          <span className="truncate">{member.name}</span>
                         </div>
-                        <span className="text-[10px] text-slate-400 font-normal">
-                          {member.role || member.team}
-                        </span>
+                        <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                          {member.team && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-sky-50 text-[#005a9c] border border-sky-200">
+                              {member.team}
+                            </span>
+                          )}
+                          {member.role && (
+                            <span className="text-[10px] text-slate-400 font-normal">
+                              {member.role}
+                            </span>
+                          )}
+                        </div>
                       </label>
                     );
                   })}

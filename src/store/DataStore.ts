@@ -3050,13 +3050,96 @@ export const DataStore = {
     const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
     const rawRows = (parsed.data || []) as Record<string, any>[];
 
+    // Đọc đồng thời dạng ma trận hàng (raw array) để xác định chính xác CỘT O (vị trí thứ 15, index 14)
+    // và CỘT K (vị trí thứ 11, index 10) bất kể tiêu đề có bị biến đổi hay không
+    const parsedArr = Papa.parse(csvText, { header: false, skipEmptyLines: true });
+    const rawRowsArr = (parsedArr.data || []) as string[][];
+
+    // Xác định dòng tiêu đề trong mảng rawRowsArr
+    let headerRowIdxArr = 0;
+    for (let r = 0; r < Math.min(10, rawRowsArr.length); r++) {
+      const row = rawRowsArr[r];
+      let matches = 0;
+      for (const cell of row) {
+        const norm = String(cell || '')
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toLowerCase()
+          .replace(/đ/g, 'd')
+          .replace(/[^a-z0-9]/g, '');
+        if (norm.includes('makh') || norm.includes('matram') || norm.includes('danhso') || norm.includes('sono') || norm.includes('tentram')) {
+          matches++;
+        }
+      }
+      if (matches >= 2) {
+        headerRowIdxArr = r;
+        break;
+      }
+    }
+
     const entries: KthtddEntry[] = [];
     for (let i = 0; i < rawRows.length; i++) {
       const r = rawRows[i];
-      const maKh = String(r['Mã KH'] || r['Ma KH'] || r['makh'] || '').trim();
+      // Lấy dòng tương ứng từ mảng ma trận rawRowsArr
+      const rArr = rawRowsArr[headerRowIdxArr + 1 + i];
+
+      let maKh = String(r['Mã KH'] || r['Ma KH'] || r['makh'] || '').trim();
+      if (!maKh && rArr && rArr.length > 1) {
+        maKh = String(rArr[1] || '').trim(); // Fallback Cột B (index 1)
+      }
       if (!maKh) continue;
 
-      const nguoiThucHien = String(r['Người thực hiện'] || r['Nguoi thuc hien'] || '').trim();
+      // ƯU TIÊN SỐ 1: CỘT O TRONG SHEET KTHTDD (VỊ TRÍ CỘT 15, INDEX 14)
+      const colOVal = rArr && rArr.length > 14 ? String(rArr[14] || '').trim() : '';
+
+      // Nhận diện cột Người thực hiện linh hoạt (chống mất dữ liệu nếu sheet dùng tiêu đề Người TH, Phân công, NVTH,...)
+      let nguoiThucHien = colOVal;
+      if (!nguoiThucHien) {
+        nguoiThucHien = String(
+          r['Người thực hiện'] ||
+          r['Nguoi thuc hien'] ||
+          r['Người TH'] ||
+          r['Nguoi TH'] ||
+          r['Người th'] ||
+          r['Nguoi th'] ||
+          r['Nhân viên thực hiện'] ||
+          r['NV thực hiện'] ||
+          r['NVTH'] ||
+          r['Người kiểm tra'] ||
+          r['Nguoi kiem tra'] ||
+          r['Phân công'] ||
+          r['Phan cong'] ||
+          ''
+        ).trim();
+      }
+
+      // Nếu vẫn rỗng, quét các trường của row để tìm cột tương ứng
+      if (!nguoiThucHien) {
+        for (const k of Object.keys(r)) {
+          const normK = k
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase()
+            .replace(/đ/g, 'd')
+            .replace(/[^a-z0-9]/g, '');
+          if (
+            normK.includes('nguoithuchien') ||
+            normK === 'nguoith' ||
+            normK.includes('nhanvienthuchien') ||
+            normK.includes('nvth') ||
+            normK.includes('nguoikt') ||
+            normK.includes('nguoikiemtra') ||
+            normK.includes('phancong')
+          ) {
+            const v = String(r[k] || '').trim();
+            if (v) {
+              nguoiThucHien = v;
+              break;
+            }
+          }
+        }
+      }
+
       // Tối ưu hóa siêu tốc cho nhân viên đi kiện toàn: chỉ nạp các dòng đã được phân công
       if (onlyAssigned && !nguoiThucHien) {
         continue;
@@ -3098,7 +3181,28 @@ export const DataStore = {
         }
       }
 
-      const ngay = String(r['Ngày'] || r['Ngay'] || '').trim();
+      let ngay = String(r['Ngày'] || r['Ngay'] || r['Ngày KT'] || r['Ngay KT'] || r['Ngày kiểm tra'] || '').trim();
+      if (!ngay && rArr && rArr.length > 10) {
+        const colKVal = String(rArr[10] || '').trim(); // Cột K (vị trí thứ 11, index 10)
+        if (colKVal) ngay = colKVal;
+      }
+      if (!ngay) {
+        for (const k of Object.keys(r)) {
+          const normK = k
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase()
+            .replace(/đ/g, 'd')
+            .replace(/[^a-z0-9]/g, '');
+          if (normK === 'ngay' || normK.includes('ngaykt') || normK.includes('ngaykiemtra')) {
+            const v = String(r[k] || '').trim();
+            if (v) {
+              ngay = v;
+              break;
+            }
+          }
+        }
+      }
       const ketQua = String(r['Kết quả'] || r['Ket qua'] || '').trim();
       const chi = String(r['Chì?'] || r['Chì'] || r['Chi'] || '').trim();
       const deXuat = String(r['Đề xuất'] || r['De xuat'] || r['Ghi chú'] || '').trim();
@@ -3192,10 +3296,20 @@ export const DataStore = {
     }
   },
 
-  applyAssignmentLocally: (data: { maTram: string; tenTram?: string; nguoiThucHien: string; maKhList?: string[] }) => {
+  applyAssignmentLocally: (data: { maTram: string; tenTram?: string; nguoiThucHien: string; maKhList?: string[]; ngay?: string }) => {
     const cleanTram = (data.maTram || '').trim().toLowerCase();
     const cleanTen = (data.tenTram || '').trim().toLowerCase();
     const khSet = new Set((data.maKhList || []).map(k => String(k).trim().toLowerCase()));
+
+    // Lấy ngày phân công (nếu không truyền thì lấy ngày hiện tại dd/MM/yyyy)
+    let assignDate = data.ngay;
+    if (!assignDate) {
+      const now = new Date();
+      const dd = String(now.getDate()).padStart(2, '0');
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      const yyyy = now.getFullYear();
+      assignDate = `${dd}/${mm}/${yyyy}`;
+    }
 
     if (memCacheKthtddList) {
       let changed = false;
@@ -3207,7 +3321,8 @@ export const DataStore = {
         if (mMatch || nMatch || kMatch) {
           memCacheKthtddList[i] = {
             ...memCacheKthtddList[i],
-            nguoiThucHien: data.nguoiThucHien
+            nguoiThucHien: data.nguoiThucHien,
+            ngay: assignDate
           };
           changed = true;
         }
@@ -3220,11 +3335,21 @@ export const DataStore = {
   },
 
   assignKthtdd: async (
-    data: { maTram: string; tenTram?: string; nguoiThucHien: string; maKhList?: string[] },
+    data: { maTram: string; tenTram?: string; nguoiThucHien: string; maKhList?: string[]; ngay?: string },
     options?: { timeoutSeconds?: number }
   ): Promise<{ ok: boolean; message: string; isTimeout?: boolean; savedLocally?: boolean }> => {
+    let assignDate = data.ngay;
+    if (!assignDate) {
+      const now = new Date();
+      const dd = String(now.getDate()).padStart(2, '0');
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      const yyyy = now.getFullYear();
+      assignDate = `${dd}/${mm}/${yyyy}`;
+    }
+    const payloadData = { ...data, ngay: assignDate };
+
     // Ưu tiên hàng đầu cho người dùng: LƯU CỤC BỘ NGAY TỨC THÌ (RAM & IDB)
-    DataStore.applyAssignmentLocally(data);
+    DataStore.applyAssignmentLocally(payloadData);
 
     const url = DataStore.getAppScriptUrl();
     if (!url) {
@@ -3242,7 +3367,7 @@ export const DataStore = {
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'assign_kthtdd', data }),
+        body: JSON.stringify({ action: 'assign_kthtdd', data: payloadData }),
         signal: controller.signal
       });
       clearTimeout(timeoutId);
