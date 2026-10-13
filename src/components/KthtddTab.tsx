@@ -538,6 +538,9 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
   const [filterKhuVuc, setFilterKhuVuc] = useState('ALL');
   const [filterTram, setFilterTram] = useState('ALL');
   const [filterAssignee, setFilterAssignee] = useState('ALL');
+  const [filterDate, setFilterDate] = useState('ALL');
+  const [filterCustomDate, setFilterCustomDate] = useState('');
+  const [isCustomDate, setIsCustomDate] = useState(false);
   const [filterKetQua, setFilterKetQua] = useState('ALL');
   const [filterChi, setFilterChi] = useState('ALL');
   const [listSearchText, setListSearchText] = useState('');
@@ -1741,6 +1744,32 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
     return Array.from(s).sort();
   }, [entries]);
 
+  // Section 2.3: Danh sách các ngày có dữ liệu để lọc tại tiêu đề
+  const allDatesForFilter = useMemo(() => {
+    const counts = new Map<string, number>();
+    entries.forEach(e => {
+      const isDone = Boolean(e.ketQua && e.ketQua.trim().length > 0);
+      if (listType === 'done' && !isDone) return;
+      if (listType === 'pending' && isDone) return;
+
+      const dt = parseAnyDate(e.ngay);
+      if (dt) {
+        const iso = formatDateToISO(dt);
+        counts.set(iso, (counts.get(iso) || 0) + 1);
+      }
+    });
+
+    const sortedIso = Array.from(counts.keys()).sort().reverse();
+    return sortedIso.map(iso => ({
+      iso,
+      count: counts.get(iso) || 0,
+      label: (() => {
+        const d = parseAnyDate(iso);
+        return d ? formatDisplayDate(d) : iso;
+      })()
+    }));
+  }, [entries, listType]);
+
   const filteredListEntries = useMemo(() => {
     const q = listSearchText.toLowerCase().trim();
     return entries.filter(item => {
@@ -1753,6 +1782,14 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
       if (filterAssignee !== 'ALL' && (!item.nguoiThucHien || !item.nguoiThucHien.includes(filterAssignee))) return false;
       if (filterKetQua !== 'ALL' && item.ketQua !== filterKetQua) return false;
       if (filterChi !== 'ALL' && item.chi !== filterChi) return false;
+
+      // LỌC THEO NGÀY (trong Bộ lọc tiêu đề)
+      if (filterDate && filterDate !== 'ALL') {
+        const itemDate = parseAnyDate(item.ngay);
+        if (!itemDate) return false;
+        const itemIso = formatDateToISO(itemDate);
+        if (itemIso !== filterDate) return false;
+      }
 
       if (q) {
         const match =
@@ -1770,7 +1807,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
 
       return true;
     });
-  }, [entries, listType, filterKhuVuc, filterTram, filterAssignee, filterKetQua, filterChi, listSearchText]);
+  }, [entries, listType, filterKhuVuc, filterTram, filterAssignee, filterDate, filterKetQua, filterChi, listSearchText]);
 
   // Paginated List
   const totalPages = Math.ceil(filteredListEntries.length / listPageSize) || 1;
@@ -1830,7 +1867,10 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, listType === 'done' ? 'Đã kiện toàn' : 'Chưa kiện toàn');
 
-    const fileName = `Kien_Toan_HTDD_${listType === 'done' ? 'Da_Kien_Toan' : 'Chua_Kien_Toan'}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const dateSuffix = filterDate !== 'ALL' && filterDate !== ''
+      ? `_Ngay_${filterDate}`
+      : `_${new Date().toISOString().slice(0, 10)}`;
+    const fileName = `Kien_Toan_HTDD_${listType === 'done' ? 'Da_Kien_Toan' : 'Chua_Kien_Toan'}${dateSuffix}.xlsx`;
     XLSX.writeFile(wb, fileName);
   };
 
@@ -3870,6 +3910,11 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
               >
                 <span>
                   📋 Danh sách đang thu gọn • Đang có <b>{filteredListEntries.length.toLocaleString('vi-VN')}</b> khách hàng ({listType === 'done' ? 'Đã kiểm tra' : 'Chưa kiểm tra'})
+                  {filterDate !== 'ALL' && (
+                    <span className="text-emerald-700 font-bold ml-1.5 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                      📅 {parseAnyDate(filterDate) ? formatDisplayDate(parseAnyDate(filterDate)!) : filterDate}
+                    </span>
+                  )}
                 </span>
                 <span className="text-indigo-600 font-bold text-[11px] underline">Mở rộng ➔</span>
               </div>
@@ -3889,6 +3934,9 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                           setFilterKhuVuc('ALL');
                           setFilterTram('ALL');
                           setFilterAssignee('ALL');
+                          setFilterDate('ALL');
+                          setFilterCustomDate('');
+                          setIsCustomDate(false);
                           setFilterKetQua('ALL');
                           setFilterChi('ALL');
                           setListSearchText('');
@@ -3911,7 +3959,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                   </div>
 
                   {/* Filters grid */}
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 text-xs">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2 text-xs">
                     {/* 1. Lọc Khu vực */}
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-slate-500 uppercase">Khu vực</label>
@@ -3973,7 +4021,82 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                       </select>
                     </div>
 
-                    {/* 4. Lọc Kết quả (chỉ hiện khi tab 'done') */}
+                    {/* 4. Lọc Ngày (ngay trong Bộ lọc tiêu đề) */}
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase">
+                          {listType === 'done' ? 'Ngày KT' : 'Ngày PC'}
+                        </label>
+                        {filterDate !== 'ALL' && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFilterDate('ALL');
+                              setFilterCustomDate('');
+                              setIsCustomDate(false);
+                              setListPage(1);
+                            }}
+                            className="text-[9px] text-rose-600 hover:underline font-semibold cursor-pointer"
+                            title="Xóa lọc ngày"
+                          >
+                            Xóa
+                          </button>
+                        )}
+                      </div>
+                      <select
+                        value={isCustomDate ? 'CUSTOM' : filterDate}
+                        onChange={e => {
+                          const val = e.target.value;
+                          if (val === 'CUSTOM') {
+                            setIsCustomDate(true);
+                            if (!filterCustomDate) {
+                              const todayIso = formatDateToISO(new Date());
+                              setFilterCustomDate(todayIso);
+                              setFilterDate(todayIso);
+                            }
+                          } else if (val === 'TODAY') {
+                            setIsCustomDate(false);
+                            setFilterDate(formatDateToISO(new Date()));
+                          } else if (val === 'YESTERDAY') {
+                            setIsCustomDate(false);
+                            const y = new Date();
+                            y.setDate(y.getDate() - 1);
+                            setFilterDate(formatDateToISO(y));
+                          } else {
+                            setIsCustomDate(false);
+                            setFilterDate(val);
+                          }
+                          setListPage(1);
+                        }}
+                        className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs outline-none focus:border-[#005a9c]"
+                      >
+                        <option value="ALL">Tất cả ngày</option>
+                        <option value="TODAY">Hôm nay ({formatDisplayDate(new Date())})</option>
+                        <option value="YESTERDAY">Hôm qua</option>
+                        {allDatesForFilter.map(({ iso, label, count }) => (
+                          <option key={iso} value={iso}>
+                            {label} ({count})
+                          </option>
+                        ))}
+                        <option value="CUSTOM">📅 Chọn từ lịch...</option>
+                      </select>
+                      {isCustomDate && (
+                        <input
+                          type="date"
+                          value={filterCustomDate}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setFilterCustomDate(val);
+                            setFilterDate(val || 'ALL');
+                            setListPage(1);
+                          }}
+                          className="w-full px-2 py-1 bg-white border border-indigo-300 rounded-lg text-xs outline-none focus:border-[#005a9c] mt-0.5"
+                          title="Chọn ngày cụ thể từ lịch"
+                        />
+                      )}
+                    </div>
+
+                    {/* 5. Lọc Kết quả (chỉ hiện khi tab 'done') */}
                     {listType === 'done' && (
                       <div className="flex flex-col gap-1">
                         <label className="text-[10px] font-bold text-slate-500 uppercase">Kết quả</label>
@@ -3992,7 +4115,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                       </div>
                     )}
 
-                    {/* 5. Lọc Chì? */}
+                    {/* 6. Lọc Chì? */}
                     {listType === 'done' && (
                       <div className="flex flex-col gap-1">
                         <label className="text-[10px] font-bold text-slate-500 uppercase">Chì?</label>
@@ -4011,8 +4134,8 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                       </div>
                     )}
 
-                    {/* 6. Tìm kiếm nhanh trong bảng */}
-                    <div className={`flex flex-col gap-1 ${listType === 'pending' ? 'col-span-2' : ''}`}>
+                    {/* 7. Tìm kiếm nhanh trong bảng */}
+                    <div className={`flex flex-col gap-1 ${listType === 'pending' ? 'col-span-2 sm:col-span-1 md:col-span-2' : ''}`}>
                       <label className="text-[10px] font-bold text-slate-500 uppercase">Tìm nhanh</label>
                       <input
                         type="text"
@@ -4041,7 +4164,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                         <th className="py-2.5 px-3">Số No</th>
                         <th className="py-2.5 px-3">Khu vực</th>
                         <th className="py-2.5 px-3">Người TH</th>
-                        {listType === 'done' && <th className="py-2.5 px-3">Ngày</th>}
+                        <th className="py-2.5 px-3">{listType === 'done' ? 'Ngày KT' : 'Ngày PC'}</th>
                         {listType === 'done' && <th className="py-2.5 px-3">Kết quả</th>}
                         {listType === 'done' && <th className="py-2.5 px-3">Chì?</th>}
                         <th className="py-2.5 px-3 text-center">Thao tác</th>
@@ -4115,11 +4238,9 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                               <td className="py-2 px-3 text-slate-600 max-w-[130px] truncate" title={item.nguoiThucHien}>
                                 {item.nguoiThucHien || <span className="text-amber-500 italic">Chưa PC</span>}
                               </td>
-                              {listType === 'done' && (
-                                <td className="py-2 px-3 text-slate-500 whitespace-nowrap text-[11px] font-mono">
-                                  {item.ngay}
-                                </td>
-                              )}
+                              <td className="py-2 px-3 text-slate-500 whitespace-nowrap text-[11px] font-mono">
+                                {item.ngay || '-'}
+                              </td>
                               {listType === 'done' && (
                                 <td className="py-2 px-3 whitespace-nowrap">
                                   <span
