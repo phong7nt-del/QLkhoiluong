@@ -448,8 +448,9 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
 
   // Inspection Form State (Section 2.2)
   const [inspectNgay, setInspectNgay] = useState<string>('');
-  const [inspectKetQua, setInspectKetQua] = useState<'Bình thường' | 'Không' | ''>('');
-  const [inspectChi, setInspectChi] = useState<'Có' | 'Không' | ''>('');
+  const [inspectKetQua, setInspectKetQua] = useState<'Bình thường' | 'Không' | ''>('Bình thường');
+  const [inspectChi, setInspectChi] = useState<'Có' | 'Không' | ''>('Có');
+  const [inspectValidationWarning, setInspectValidationWarning] = useState<string>('');
   const [inspectDeXuat, setInspectDeXuat] = useState<string>('');
   const [isSavingInspect, setIsSavingInspect] = useState(false);
   const [inspectSuccessMsg, setInspectSuccessMsg] = useState<string>('');
@@ -1005,14 +1006,22 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
       // nếu chưa kiểm tra thì ngày KT mặc định là hôm nay!
       const hasResult = Boolean(selectedCustomer.ketQua && selectedCustomer.ketQua.trim().length > 0);
       setInspectNgay(hasResult ? (selectedCustomer.ngay || getTodayFormatted()) : getTodayFormatted());
-      setInspectKetQua((selectedCustomer.ketQua as any) || '');
-      setInspectChi((selectedCustomer.chi as any) || '');
+      
+      // Mặc định kết quả kiểm tra: nếu đã kiểm tra trước đó thì giữ nguyên kết quả, nếu chưa có thì mặc định "Bình thường"
+      const existingKetQua = selectedCustomer.ketQua?.trim();
+      setInspectKetQua(existingKetQua ? (existingKetQua as any) : 'Bình thường');
+
+      // Mặc định tình hình niêm chì: nếu đã có thì giữ nguyên, nếu chưa có thì mặc định "Có" (Có chì)
+      const existingChi = selectedCustomer.chi?.trim();
+      setInspectChi(existingChi ? (existingChi as any) : 'Có');
+
       setInspectDeXuat(selectedCustomer.deXuat || '');
       setInspectPicUrl(selectedCustomer.pic || '');
       setInspectPicPreview(selectedCustomer.pic || '');
       setUploadPicError('');
       setPicSizeKb(null);
       setInspectSuccessMsg('');
+      setInspectValidationWarning('');
       setIsEditingPhone(false);
       setEditingPhoneVal(selectedCustomer.soDienThoai || '');
       // Auto open inspect section if closed
@@ -1604,14 +1613,28 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
       alert('Vui lòng chọn khách hàng cần cập nhật kết quả.');
       return;
     }
+    // Nhắc người dùng nếu chưa chọn giá trị nào ở Kết quả kiểm tra hoặc Tình hình niêm chì
+    if (!inspectKetQua && !inspectChi) {
+      const msg = 'Vui lòng chọn Kết quả kiểm tra ("Bình thường" hoặc "Không") và Tình hình niêm chì ("Có chì" hoặc "Không chì") trước khi lưu.';
+      setInspectValidationWarning(msg);
+      document.getElementById('inspect-options-section')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
     if (!inspectKetQua) {
-      alert('Vui lòng chọn Kết quả kiểm tra ("Bình thường" hoặc "Không").');
+      const msg = 'Vui lòng chọn Kết quả kiểm tra ("Bình thường" hoặc "Không") trước khi lưu.';
+      setInspectValidationWarning(msg);
+      document.getElementById('inspect-options-section')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }
     if (!inspectChi) {
-      alert('Vui lòng chọn tình trạng Chì ("Có" hoặc "Không").');
+      const msg = 'Vui lòng chọn Tình hình niêm chì ("Có chì" hoặc "Không chì") trước khi lưu.';
+      setInspectValidationWarning(msg);
+      document.getElementById('inspect-options-section')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }
+
+    // Đã chọn đầy đủ, xóa thông báo nhắc nhở
+    setInspectValidationWarning('');
 
     // 1. Lấy tọa độ GPS siêu nhanh (từ bộ nhớ đệm cache hoặc timeout tối đa 600ms)
     const gps = await getCurrentGPSCoords();
@@ -3295,30 +3318,53 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                       </div>
                     </div>
 
-                    {/* Ngày kiểm tra compact */}
-                    <div className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200 transition-colors">
-                      <Calendar className="w-3.5 h-3.5 text-[#005a9c]" />
-                      <span className="text-[11px] font-bold text-slate-600">Ngày KT:</span>
-                      <input
-                        type="text"
-                        value={inspectNgay}
-                        onChange={e => setInspectNgay(e.target.value)}
-                        placeholder="dd/mm/yyyy"
-                        className="w-24 bg-transparent font-mono text-xs font-bold text-slate-900 outline-none text-center"
-                      />
+                    <div className="flex flex-wrap items-center gap-2">
+                      {/* Nút đặt mặc định nhanh */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setInspectKetQua('Bình thường');
+                          setInspectChi('Có');
+                          setInspectValidationWarning('');
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-xl text-xs font-bold cursor-pointer transition-colors active:scale-95 shadow-2xs"
+                        title="Đặt lại giá trị mặc định: Kết quả Bình thường, Có chì"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Mặc định: Bình thường • Có chì</span>
+                      </button>
+
+                      {/* Ngày kiểm tra compact */}
+                      <div className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200 transition-colors">
+                        <Calendar className="w-3.5 h-3.5 text-[#005a9c]" />
+                        <span className="text-[11px] font-bold text-slate-600">Ngày KT:</span>
+                        <input
+                          type="text"
+                          value={inspectNgay}
+                          onChange={e => setInspectNgay(e.target.value)}
+                          placeholder="dd/mm/yyyy"
+                          className="w-24 bg-transparent font-mono text-xs font-bold text-slate-900 outline-none text-center"
+                        />
+                      </div>
                     </div>
                   </div>
 
                   {/* 2 Khối chọn hiện đại: Kết quả & Chì? */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div id="inspect-options-section" className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {/* Phần 1: Kết quả kiểm tra */}
-                    <div className="flex flex-col gap-2">
+                    <div
+                      className={`flex flex-col gap-2 p-2.5 rounded-2xl transition-all ${
+                        !inspectKetQua && inspectValidationWarning
+                          ? 'border-2 border-rose-400 bg-rose-50/40 ring-2 ring-rose-200'
+                          : 'border border-transparent'
+                      }`}
+                    >
                       <div className="flex items-center justify-between">
                         <label className="text-xs font-bold text-slate-800 flex items-center gap-1">
                           <span>1. Kết quả kiểm tra</span>
                           <span className="text-rose-500">*</span>
                         </label>
-                        {inspectKetQua && (
+                        {inspectKetQua ? (
                           <span
                             className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                               inspectKetQua === 'Bình thường'
@@ -3328,6 +3374,14 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                           >
                             ✓ {inspectKetQua}
                           </span>
+                        ) : inspectValidationWarning ? (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 animate-pulse border border-rose-300">
+                            ⚠️ Chưa chọn (Bắt buộc)
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">
+                            Chưa chọn
+                          </span>
                         )}
                       </div>
 
@@ -3335,7 +3389,10 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                         {/* Card: Bình thường */}
                         <button
                           type="button"
-                          onClick={() => setInspectKetQua('Bình thường')}
+                          onClick={() => {
+                            setInspectKetQua(prev => (prev === 'Bình thường' ? '' : 'Bình thường'));
+                            setInspectValidationWarning('');
+                          }}
                           className={`relative p-3 rounded-xl border-2 text-left transition-all cursor-pointer active:scale-98 flex flex-col justify-between gap-2.5 ${
                             inspectKetQua === 'Bình thường'
                               ? 'bg-emerald-50/90 border-emerald-600 text-emerald-950 shadow-sm ring-2 ring-emerald-500/20'
@@ -3371,7 +3428,10 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                         {/* Card: Không (Bất thường) */}
                         <button
                           type="button"
-                          onClick={() => setInspectKetQua('Không')}
+                          onClick={() => {
+                            setInspectKetQua(prev => (prev === 'Không' ? '' : 'Không'));
+                            setInspectValidationWarning('');
+                          }}
                           className={`relative p-3 rounded-xl border-2 text-left transition-all cursor-pointer active:scale-98 flex flex-col justify-between gap-2.5 ${
                             inspectKetQua === 'Không'
                               ? 'bg-rose-50/90 border-rose-600 text-rose-950 shadow-sm ring-2 ring-rose-500/20'
@@ -3407,13 +3467,19 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                     </div>
 
                     {/* Phần 2: Chì? */}
-                    <div className="flex flex-col gap-2">
+                    <div
+                      className={`flex flex-col gap-2 p-2.5 rounded-2xl transition-all ${
+                        !inspectChi && inspectValidationWarning
+                          ? 'border-2 border-rose-400 bg-rose-50/40 ring-2 ring-rose-200'
+                          : 'border border-transparent'
+                      }`}
+                    >
                       <div className="flex items-center justify-between">
                         <label className="text-xs font-bold text-slate-800 flex items-center gap-1">
                           <span>2. Tình trạng niêm chì (Chì?)</span>
                           <span className="text-rose-500">*</span>
                         </label>
-                        {inspectChi && (
+                        {inspectChi ? (
                           <span
                             className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                               inspectChi === 'Có'
@@ -3423,6 +3489,14 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                           >
                             ✓ {inspectChi === 'Có' ? 'Có chì' : 'Không chì'}
                           </span>
+                        ) : inspectValidationWarning ? (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 animate-pulse border border-rose-300">
+                            ⚠️ Chưa chọn (Bắt buộc)
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">
+                            Chưa chọn
+                          </span>
                         )}
                       </div>
 
@@ -3430,7 +3504,10 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                         {/* Card: Có chì */}
                         <button
                           type="button"
-                          onClick={() => setInspectChi('Có')}
+                          onClick={() => {
+                            setInspectChi(prev => (prev === 'Có' ? '' : 'Có'));
+                            setInspectValidationWarning('');
+                          }}
                           className={`relative p-3 rounded-xl border-2 text-left transition-all cursor-pointer active:scale-98 flex flex-col justify-between gap-2.5 ${
                             inspectChi === 'Có'
                               ? 'bg-blue-50/90 border-blue-600 text-blue-950 shadow-sm ring-2 ring-blue-500/20'
@@ -3466,7 +3543,10 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                         {/* Card: Không chì */}
                         <button
                           type="button"
-                          onClick={() => setInspectChi('Không')}
+                          onClick={() => {
+                            setInspectChi(prev => (prev === 'Không' ? '' : 'Không'));
+                            setInspectValidationWarning('');
+                          }}
                           className={`relative p-3 rounded-xl border-2 text-left transition-all cursor-pointer active:scale-98 flex flex-col justify-between gap-2.5 ${
                             inspectChi === 'Không'
                               ? 'bg-amber-50/90 border-amber-600 text-amber-950 shadow-sm ring-2 ring-amber-500/20'
@@ -3781,6 +3861,47 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                     <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg text-xs font-bold text-emerald-800 flex items-center gap-2">
                       <Check className="w-4 h-4 text-emerald-600" />
                       <span>{inspectSuccessMsg}</span>
+                    </div>
+                  )}
+
+                  {/* Validation reminder warning when neither or either is selected */}
+                  {inspectValidationWarning && (
+                    <div className="p-3 bg-rose-50 border-2 border-rose-300 rounded-xl text-xs font-semibold text-rose-900 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 shadow-sm">
+                      <div className="flex items-start sm:items-center gap-2">
+                        <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5 sm:mt-0" />
+                        <div>
+                          <div className="font-bold text-rose-800">{inspectValidationWarning}</div>
+                          <div className="text-[11px] text-rose-600">
+                            {!inspectKetQua && !inspectChi
+                              ? 'Bạn chưa chọn Kết quả kiểm tra và Tình hình niêm chì. Vui lòng bấm chọn bên trên hoặc bấm nút Đặt mặc định.'
+                              : !inspectKetQua
+                              ? 'Bạn chưa chọn Kết quả kiểm tra ("Bình thường" hoặc "Không").'
+                              : 'Bạn chưa chọn Tình hình niêm chì ("Có chì" hoặc "Không chì").'}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!inspectKetQua) setInspectKetQua('Bình thường');
+                            if (!inspectChi) setInspectChi('Có');
+                            setInspectValidationWarning('');
+                          }}
+                          className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white text-[11px] font-bold rounded-lg cursor-pointer transition-all flex items-center gap-1 shadow-xs"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Đặt mặc định (Bình thường & Có chì)</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setInspectValidationWarning('')}
+                          className="p-1 text-rose-400 hover:text-rose-700 rounded cursor-pointer"
+                          title="Đóng nhắc nhở"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   )}
 
