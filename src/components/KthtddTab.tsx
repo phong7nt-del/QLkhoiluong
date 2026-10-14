@@ -398,6 +398,38 @@ export const getISOWeekNumber = (d: Date): number => {
   return 1 + Math.ceil((firstThursday - target.valueOf()) / 604800000);
 };
 
+// Nhận diện trạng thái Có chì linh hoạt và chính xác
+export const isCoChi = (val: string | undefined | null, ketQua?: string | null): boolean => {
+  if (!val || !val.trim()) {
+    // Nếu trường chì chưa điền nhưng kết quả kiểm tra là "Bình thường" (đạt chuẩn HTĐĐ) -> mặc định coi là Có chì
+    if (ketQua && String(ketQua).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().includes('binh thuong')) {
+      return true;
+    }
+    return false;
+  }
+  const s = String(val).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  if (s.includes('khong') || s.includes('mat') || s.includes('dut') || s.includes('hong') || s === '0' || s === 'ko' || s.startsWith('ko') || s === 'k' || s === 'false') {
+    return false;
+  }
+  return true;
+};
+
+// Nhận diện trạng thái Không chì / Mất chì linh hoạt
+export const isKhongChi = (val: string | undefined | null, ketQua?: string | null): boolean => {
+  if (!val || !val.trim()) {
+    // Nếu trường chì rỗng nhưng kết quả kiểm tra là "Không" hoặc bất thường -> coi là Không chì
+    if (ketQua) {
+      const kq = String(ketQua).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+      if (kq.includes('khong') || kq.includes('bat thuong') || kq.includes('hong') || kq.includes('mat')) {
+        return true;
+      }
+    }
+    return false;
+  }
+  const s = String(val).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  return s.includes('khong') || s.includes('mat') || s.includes('dut') || s.includes('hong') || s === '0' || s === 'ko' || s.startsWith('ko') || s === 'k' || s === 'false';
+};
+
 export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabProps) {
   // Data state
   const [entries, setEntries] = useState<KthtddEntry[]>([]);
@@ -1011,9 +1043,21 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
       const existingKetQua = selectedCustomer.ketQua?.trim();
       setInspectKetQua(existingKetQua ? (existingKetQua as any) : 'Bình thường');
 
-      // Mặc định tình hình niêm chì: nếu đã có thì giữ nguyên, nếu chưa có thì mặc định "Có" (Có chì)
+      // Mặc định tình hình niêm chì: nếu đã có thì nhận diện chuẩn xác "Có" / "Không", nếu chưa có thì mặc định "Có" (Có chì)
       const existingChi = selectedCustomer.chi?.trim();
-      setInspectChi(existingChi ? (existingChi as any) : 'Có');
+      let initChi: 'Có' | 'Không' = 'Có';
+      if (existingChi) {
+        if (isKhongChi(existingChi, selectedCustomer.ketQua)) {
+          initChi = 'Không';
+        } else {
+          initChi = 'Có';
+        }
+      } else if (existingKetQua) {
+        initChi = isKhongChi('', existingKetQua) ? 'Không' : 'Có';
+      } else {
+        initChi = 'Có';
+      }
+      setInspectChi(initChi);
 
       setInspectDeXuat(selectedCustomer.deXuat || '');
       setInspectPicUrl(selectedCustomer.pic || '');
@@ -1664,7 +1708,15 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
       }
     }
 
-    // 2. Cập nhật state entries trong React NGAY LẬP TỨC (0ms)
+    // 2. Xác định giá trị Chì chuẩn xác: luôn là 'Có' hoặc 'Không', tuyệt đối không bao giờ rỗng
+    let targetChi: 'Có' | 'Không' = 'Có';
+    if (inspectChi === 'Không' || isKhongChi(inspectChi, inspectKetQua)) {
+      targetChi = 'Không';
+    } else {
+      targetChi = 'Có';
+    }
+
+    // 3. Cập nhật state entries trong React NGAY LẬP TỨC (0ms)
     setEntries(prev => {
       const idx = prev.findIndex(e => e.maKh === targetCustomer.maKh);
       if (idx === -1) return prev;
@@ -1673,7 +1725,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
         ...updated[idx],
         ngay: targetNgay,
         ketQua: inspectKetQua,
-        chi: inspectChi,
+        chi: targetChi,
         deXuat: inspectDeXuat,
         nguoiThucHien: targetNguoiThucHien,
         pic: targetPic,
@@ -1688,7 +1740,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
     const picNotice = targetPic ? ` [Ảnh: KT_${targetCustomer.maKh}.jpg]` : '';
     setInspectSuccessMsg(`✓ Đã lưu kết quả kiểm tra & tọa độ GPS${gpsNotice}${assigneeNotice}${picNotice} cho khách hàng ${targetCustomer.tenKh} (${targetCustomer.maKh})`);
 
-    // 3. Nếu chọn "Lưu & Tiếp tục KH sau", chuyển ngay lập tức sang KH tiếp theo mà không cần chờ mạng!
+    // 4. Nếu chọn "Lưu & Tiếp tục KH sau", chuyển ngay lập tức sang KH tiếp theo mà không cần chờ mạng!
     if (andNext) {
       const sameStationKhs = entries.filter(
         e => e.maTram === targetCustomer.maTram && e.maKh !== targetCustomer.maKh && !e.ketQua
@@ -1704,12 +1756,12 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
       }
     }
 
-    // 4. Đồng bộ nền xuống DataStore và Google Sheets (Background Sync)
+    // 5. Đồng bộ nền xuống DataStore và Google Sheets (Background Sync)
     DataStore.updateKthtdd({
       maKh: targetCustomer.maKh,
       ngay: targetNgay,
       ketQua: inspectKetQua,
-      chi: inspectChi,
+      chi: targetChi,
       deXuat: inspectDeXuat,
       nguoiThucHien: targetNguoiThucHien,
       x: toadoX,
@@ -1804,7 +1856,10 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
       if (filterTram !== 'ALL' && item.maTram !== filterTram) return false;
       if (filterAssignee !== 'ALL' && (!item.nguoiThucHien || !item.nguoiThucHien.includes(filterAssignee))) return false;
       if (filterKetQua !== 'ALL' && item.ketQua !== filterKetQua) return false;
-      if (filterChi !== 'ALL' && item.chi !== filterChi) return false;
+      if (filterChi !== 'ALL') {
+        if (filterChi === 'Có' && !isCoChi(item.chi, item.ketQua)) return false;
+        if (filterChi === 'Không' && !isKhongChi(item.chi, item.ketQua)) return false;
+      }
 
       // LỌC THEO NGÀY (trong Bộ lọc tiêu đề)
       if (filterDate && filterDate !== 'ALL') {
@@ -1860,7 +1915,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
       'Người thực hiện': item.nguoiThucHien,
       'Ngày KT': item.ngay,
       'Kết quả': item.ketQua,
-      'Chì?': item.chi,
+      'Chì?': item.ketQua ? (isKhongChi(item.chi, item.ketQua) ? 'Không' : 'Có') : (item.chi || ''),
       'Đề xuất': item.deXuat,
       'Tọa độ X': item.x || '',
       'Tọa độ Y': item.y || ''
@@ -1899,7 +1954,8 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
 
   // Section 2.4: Thống kê số liệu thực hiện (đã có kết quả) theo ngày, tuần, tháng
   const statsData = useMemo(() => {
-    const doneEntries = entries.filter(e => e.ketQua && e.ketQua.trim().length > 0);
+    // Khách hàng đã được thực hiện (có kết quả kiểm tra hoặc có ghi nhận tình trạng niêm chì)
+    const doneEntries = entries.filter(e => (e.ketQua && e.ketQua.trim().length > 0) || (e.chi && e.chi.trim().length > 0));
 
     const filteredByTime = doneEntries.filter(item => {
       if (statsPeriod === 'all') return true;
@@ -1928,10 +1984,10 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
     });
 
     const totalDone = filteredByTime.length;
-    const totalBinhThuong = filteredByTime.filter(e => e.ketQua === 'Bình thường').length;
-    const totalKhong = filteredByTime.filter(e => e.ketQua === 'Không').length;
-    const totalCoChi = filteredByTime.filter(e => e.chi === 'Có').length;
-    const totalMatChi = filteredByTime.filter(e => e.chi === 'Không').length;
+    const totalBinhThuong = filteredByTime.filter(e => e.ketQua === 'Bình thường' || (e.ketQua && e.ketQua.toLowerCase().includes('bình thường'))).length;
+    const totalKhong = filteredByTime.filter(e => e.ketQua === 'Không' || (e.ketQua && (e.ketQua.toLowerCase().includes('không') || e.ketQua.toLowerCase().includes('bất thường')))).length;
+    const totalCoChi = filteredByTime.filter(e => isCoChi(e.chi, e.ketQua)).length;
+    const totalMatChi = filteredByTime.filter(e => isKhongChi(e.chi, e.ketQua)).length;
     const totalDeXuat = filteredByTime.filter(e => e.deXuat && e.deXuat.trim().length > 0).length;
 
     const areaStatsMap: Record<
@@ -1977,10 +2033,10 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
         };
       }
       areaStatsMap[kv].doneCount++;
-      if (e.ketQua === 'Bình thường') areaStatsMap[kv].binhThuong++;
-      if (e.ketQua === 'Không') areaStatsMap[kv].khong++;
-      if (e.chi === 'Có') areaStatsMap[kv].coChi++;
-      if (e.chi === 'Không') areaStatsMap[kv].matChi++;
+      if (e.ketQua === 'Bình thường' || (e.ketQua && e.ketQua.toLowerCase().includes('bình thường'))) areaStatsMap[kv].binhThuong++;
+      if (e.ketQua === 'Không' || (e.ketQua && (e.ketQua.toLowerCase().includes('không') || e.ketQua.toLowerCase().includes('bất thường')))) areaStatsMap[kv].khong++;
+      if (isCoChi(e.chi, e.ketQua)) areaStatsMap[kv].coChi++;
+      if (isKhongChi(e.chi, e.ketQua)) areaStatsMap[kv].matChi++;
     });
 
     const assigneeStatsMap: Record<
@@ -1991,6 +2047,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
         binhThuong: number;
         khong: number;
         coChi: number;
+        matChi: number;
         deXuatCount: number;
       }
     > = {};
@@ -2005,14 +2062,16 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
             binhThuong: 0,
             khong: 0,
             coChi: 0,
+            matChi: 0,
             deXuatCount: 0
           };
         }
         assigneeStatsMap[name].doneCount++;
-        if (e.ketQua === 'Bình thường') assigneeStatsMap[name].binhThuong++;
-        if (e.ketQua === 'Không') assigneeStatsMap[name].khong++;
-        if (e.chi === 'Có') assigneeStatsMap[name].coChi++;
-        if (e.deXuat) assigneeStatsMap[name].deXuatCount++;
+        if (e.ketQua === 'Bình thường' || (e.ketQua && e.ketQua.toLowerCase().includes('bình thường'))) assigneeStatsMap[name].binhThuong++;
+        if (e.ketQua === 'Không' || (e.ketQua && (e.ketQua.toLowerCase().includes('không') || e.ketQua.toLowerCase().includes('bất thường')))) assigneeStatsMap[name].khong++;
+        if (isCoChi(e.chi, e.ketQua)) assigneeStatsMap[name].coChi++;
+        if (isKhongChi(e.chi, e.ketQua)) assigneeStatsMap[name].matChi++;
+        if (e.deXuat && e.deXuat.trim().length > 0) assigneeStatsMap[name].deXuatCount++;
       });
     });
 
@@ -2076,7 +2135,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
 
     summaryAoa.push([]);
     summaryAoa.push(['III. THỐNG KÊ THEO NGƯỜI THỰC HIỆN / ĐỘI CÔNG TÁC']);
-    summaryAoa.push(['STT', 'Người thực hiện / Tổ', 'Số KH đã kiểm tra', 'Bình thường', 'Không bình thường', 'Còn chì', 'Có đề xuất']);
+    summaryAoa.push(['STT', 'Người thực hiện / Tổ', 'Số KH đã kiểm tra', 'Bình thường', 'Không bình thường', 'Còn chì', 'Không chì', 'Có đề xuất']);
 
     statsData.assigneeList.forEach((person, idx) => {
       summaryAoa.push([
@@ -2086,6 +2145,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
         person.binhThuong,
         person.khong,
         person.coChi,
+        person.matChi,
         person.deXuatCount
       ]);
     });
@@ -2120,7 +2180,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
         'Người thực hiện': item.nguoiThucHien,
         'Ngày KT': item.ngay,
         'Kết quả': item.ketQua,
-        'Chì?': item.chi,
+        'Chì?': isKhongChi(item.chi, item.ketQua) ? 'Không' : 'Có',
         'Đề xuất': item.deXuat,
         'Tọa độ X': item.x || '',
         'Tọa độ Y': item.y || ''
@@ -4379,10 +4439,10 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                                 <td className="py-2 px-3 whitespace-nowrap">
                                   <span
                                     className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                      item.chi === 'Có' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'
+                                      isCoChi(item.chi, item.ketQua) ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'
                                     }`}
                                   >
-                                    {item.chi}
+                                    {isCoChi(item.chi, item.ketQua) ? 'Có chì' : 'Không chì'}
                                   </span>
                                 </td>
                               )}
@@ -4902,13 +4962,14 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                           <th className="py-2 px-3 text-right text-emerald-700">Bình thường</th>
                           <th className="py-2 px-3 text-right text-rose-700">Không</th>
                           <th className="py-2 px-3 text-right text-blue-700">Có chì</th>
+                          <th className="py-2 px-3 text-right text-amber-700">Không chì</th>
                           <th className="py-2 px-3 text-right text-indigo-700">Có đề xuất</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {statsData.assigneeList.length === 0 ? (
                           <tr>
-                            <td colSpan={6} className="py-6 text-center text-slate-400 text-xs">
+                            <td colSpan={7} className="py-6 text-center text-slate-400 text-xs">
                               Chưa có số liệu thực hiện trong khoảng thời gian này.
                             </td>
                           </tr>
@@ -4928,6 +4989,9 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                               <td className="py-2 px-3 text-right font-mono text-blue-600">
                                 {item.coChi.toLocaleString('vi-VN')}
                               </td>
+                              <td className="py-2 px-3 text-right font-mono text-amber-600">
+                                {item.matChi.toLocaleString('vi-VN')}
+                              </td>
                               <td className="py-2 px-3 text-right font-mono text-indigo-600">
                                 {item.deXuatCount.toLocaleString('vi-VN')}
                               </td>
@@ -4935,6 +4999,31 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                           ))
                         )}
                       </tbody>
+                      {statsData.assigneeList.length > 0 && (
+                        <tfoot className="bg-slate-100 font-bold border-t-2 border-slate-300 sticky bottom-0">
+                          <tr>
+                            <td className="py-2 px-3 uppercase text-slate-900">TỔNG CỘNG</td>
+                            <td className="py-2 px-3 text-right font-mono text-[#005a9c]">
+                              {statsData.totalDone.toLocaleString('vi-VN')}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono text-emerald-600">
+                              {statsData.totalBinhThuong.toLocaleString('vi-VN')}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono text-rose-600">
+                              {statsData.totalKhong.toLocaleString('vi-VN')}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono text-blue-600">
+                              {statsData.totalCoChi.toLocaleString('vi-VN')}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono text-amber-600">
+                              {statsData.totalMatChi.toLocaleString('vi-VN')}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono text-indigo-600">
+                              {statsData.totalDeXuat.toLocaleString('vi-VN')}
+                            </td>
+                          </tr>
+                        </tfoot>
+                      )}
                     </table>
                   </div>
                 </div>

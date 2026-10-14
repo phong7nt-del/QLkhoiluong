@@ -3203,9 +3203,144 @@ export const DataStore = {
           }
         }
       }
-      const ketQua = String(r['Kết quả'] || r['Ket qua'] || '').trim();
-      const chi = String(r['Chì?'] || r['Chì'] || r['Chi'] || '').trim();
-      const deXuat = String(r['Đề xuất'] || r['De xuat'] || r['Ghi chú'] || '').trim();
+      // Nhận diện cột Kết quả (ưu tiên Cột L index 11 và tiêu đề linh hoạt)
+      let ketQua = String(r['Kết quả'] || r['Ket qua'] || r['KetQua'] || '').trim();
+      if (!ketQua && rArr && rArr.length > 11) {
+        ketQua = String(rArr[11] || '').trim();
+      }
+      if (!ketQua) {
+        for (const k of Object.keys(r)) {
+          const normK = k
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase()
+            .replace(/đ/g, 'd')
+            .replace(/[^a-z0-9]/g, '');
+          if (normK === 'ketqua' || normK.includes('ketquakt') || normK.includes('danhgia')) {
+            const v = String(r[k] || '').trim();
+            if (v) {
+              ketQua = v;
+              break;
+            }
+          }
+        }
+      }
+
+      // Nhận diện cột Chì? / Bấm chì / Niêm chì linh hoạt và toàn diện
+      let chi = String(
+        r['Bấm chì'] ||
+        r['Bấm chì?'] ||
+        r['Bấm Chì'] ||
+        r['Bam chi'] ||
+        r['Bam chi?'] ||
+        r['Chì?'] ||
+        r['Chì ?'] ||
+        r['Chì'] ||
+        r['Chi?'] ||
+        r['Chi ?'] ||
+        r['Chi'] ||
+        r['Niêm chì'] ||
+        r['Niem chi'] ||
+        r['Bấm niêm chì'] ||
+        r['Tình trạng niêm chì'] ||
+        r['Tình hình niêm chì'] ||
+        r['Tình trạng bấm chì'] ||
+        r['Tình hình bấm chì'] ||
+        r['Tình trạng chì'] ||
+        r['Kẹp chì'] ||
+        r['Chì niêm'] ||
+        r['Kiểm tra chì'] ||
+        ''
+      ).trim();
+
+      if (!chi) {
+        for (const k of Object.keys(r)) {
+          const rawLowerK = k.toLowerCase();
+          const normK = k
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase()
+            .replace(/đ/g, 'd')
+            .replace(/[^a-z0-9]/g, '');
+
+          // Loại trừ triệt để Địa chỉ, Chỉ số, Chi nhánh, Chi tiết, Tiêu chí, Chỉ đạo,...
+          if (
+            normK.includes('diachi') || normK.includes('chiso') || normK.includes('chinhanh') ||
+            normK.includes('chidao') || normK.includes('chitiet') || normK.includes('tieuchi') ||
+            rawLowerK.includes('địa chỉ') || rawLowerK.includes('chỉ số') || rawLowerK.includes('chi nhánh') ||
+            rawLowerK.includes('chi tiết') || rawLowerK.includes('tiêu chí')
+          ) {
+            continue;
+          }
+
+          if (
+            normK === 'chi' || normK === 'bamchi' || normK === 'niemchi' || normK === 'kepchi' ||
+            normK.includes('bamchi') || normK.includes('niemchi') || normK.includes('tinhtrangchi') ||
+            normK.includes('tinhhinhchi') || normK.includes('tinhtrangbamchi') || normK.includes('tinhtrangniemchi') ||
+            rawLowerK.includes('bấm chì') || rawLowerK.includes('niêm chì') || rawLowerK.includes('kẹp chì') ||
+            rawLowerK === 'chì' || rawLowerK === 'chì?' || rawLowerK === 'chi' || rawLowerK === 'chi?'
+          ) {
+            const v = String(r[k] || '').trim();
+            if (v) {
+              chi = v;
+              break;
+            }
+          }
+        }
+      }
+
+      if (!chi && rArr && rArr.length > 12) {
+        const candidate = String(rArr[12] || '').trim();
+        const candNorm = candidate.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+        if (candNorm.includes('khong') || candNorm.includes('co') || candNorm === '1' || candNorm === '0' || candNorm === 'x' || candNorm === 'v') {
+          chi = candidate;
+        }
+      }
+
+      // Chuẩn hóa giá trị Chì?: BẮT BUỘC là 'Có' hoặc 'Không', TUYỆT ĐỐI KHÔNG ĐỂ RỖNG NẾU ĐÃ KIỂM TRA
+      if (chi) {
+        const normChi = chi.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+        if (
+          normChi.includes('khong') || normChi.includes('mat') || normChi.includes('dut') || normChi.includes('hong') ||
+          normChi === '0' || normChi === 'ko' || normChi === 'k' || normChi === 'false'
+        ) {
+          chi = 'Không';
+        } else {
+          chi = 'Có';
+        }
+      } else if (ketQua && ketQua.trim().length > 0) {
+        // Nếu đã có kết quả kiểm tra nhưng trường Chì / Bấm chì trên sheet bị rỗng:
+        const normKq = ketQua.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+        if (normKq.includes('khong') || normKq.includes('bat thuong') || normKq.includes('hong') || normKq.includes('mat')) {
+          chi = 'Không';
+        } else {
+          chi = 'Có';
+        }
+      }
+
+      // Nhận diện cột Đề xuất (ưu tiên Cột N index 13 và tiêu đề linh hoạt)
+      let deXuat = String(r['Đề xuất'] || r['De xuat'] || r['Ghi chú'] || r['Ghi chu'] || r['Kiến nghị'] || '').trim();
+      if (!deXuat && rArr && rArr.length > 13) {
+        deXuat = String(rArr[13] || '').trim();
+      }
+      if (!deXuat) {
+        for (const k of Object.keys(r)) {
+          const normK = k
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase()
+            .replace(/đ/g, 'd')
+            .replace(/[^a-z0-9]/g, '');
+          if (normK.includes('dexuat') || normK.includes('ghichu') || normK.includes('kiennghi')) {
+            const v = String(r[k] || '').trim();
+            if (v) {
+              deXuat = v;
+              break;
+            }
+          }
+        }
+      }
+
       const x = String(r['X'] || r['x'] || r['Tọa độ X'] || r['Toa do X'] || r['Toạ độ X'] || r['Vĩ độ'] || r['Vi do'] || r['Latitude'] || r['Lat'] || '').trim();
       const y = String(r['Y'] || r['y'] || r['Tọa độ Y'] || r['Toa do Y'] || r['Toạ độ Y'] || r['Kinh độ'] || r['Kinh do'] || r['Longitude'] || r['Lng'] || r['Long'] || '').trim();
       const pic = String(r['Pic'] || r['pic'] || r['PIC'] || r['Ảnh'] || r['Anh'] || r['Hinh anh'] || r['Hình ảnh'] || '').trim();
@@ -3256,12 +3391,30 @@ export const DataStore = {
       if (idx !== -1) kthtddMaKhIndexMap.set(cleanMaKh, idx);
     }
 
+    // Chuẩn hóa tuyệt đối giá trị Chì? / Bấm chì: bắt buộc là 'Có' hoặc 'Không', tuyệt đối không để rỗng
+    let cleanChi: string | undefined = undefined;
+    if (data.chi !== undefined || data.ketQua !== undefined) {
+      if (data.chi !== undefined && String(data.chi).trim()) {
+        const s = String(data.chi).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+        if (s.includes('khong') || s.includes('mat') || s.includes('dut') || s.includes('hong') || s === '0' || s === 'ko' || s === 'k' || s === 'false') {
+          cleanChi = 'Không';
+        } else {
+          cleanChi = 'Có';
+        }
+      } else if (data.ketQua && String(data.ketQua).trim()) {
+        const s = String(data.ketQua).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+        cleanChi = (s.includes('khong') || s.includes('bat thuong') || s.includes('hong') || s.includes('mat')) ? 'Không' : 'Có';
+      } else {
+        cleanChi = 'Có';
+      }
+    }
+
     if (idx !== undefined && idx !== -1 && memCacheKthtddList) {
       memCacheKthtddList[idx] = {
         ...memCacheKthtddList[idx],
         ...(data.ngay !== undefined ? { ngay: data.ngay } : {}),
         ...(data.ketQua !== undefined ? { ketQua: data.ketQua } : {}),
-        ...(data.chi !== undefined ? { chi: data.chi } : {}),
+        ...(cleanChi !== undefined ? { chi: cleanChi } : {}),
         ...(data.deXuat !== undefined ? { deXuat: data.deXuat } : {}),
         ...(data.x !== undefined && data.x !== '' ? { x: data.x } : {}),
         ...(data.y !== undefined && data.y !== '' ? { y: data.y } : {}),
@@ -3278,10 +3431,14 @@ export const DataStore = {
     try {
       const url = DataStore.getAppScriptUrl();
       if (!url) return { ok: true, message: 'Đã lưu cục bộ (chưa cấu hình Apps Script)' };
+      const payloadData = {
+        ...data,
+        ...(cleanChi !== undefined ? { chi: cleanChi, bamChi: cleanChi, tinhTrangChi: cleanChi } : {})
+      };
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'update_kthtdd', data })
+        body: JSON.stringify({ action: 'update_kthtdd', data: payloadData })
       });
       const rawText = await response.text();
       try {

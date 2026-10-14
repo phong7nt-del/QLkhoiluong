@@ -809,7 +809,9 @@ function doPost(e) {
 
       var colMaKh = -1, colNgay = -1, colKetQua = -1, colChi = -1, colDeXuat = -1, colX = -1, colY = -1;
       var colNguoiThucHien = -1, colSoDienThoai = -1, colPic = -1;
+      var colDiaChi = -1;
       var allNguoiThCols = [];
+      var allChiCols = [];
       for (var c = 0; c < headers.length; c++) {
         var rawH = String(headers[c] || '').trim();
         var rawLower = rawH.toLowerCase();
@@ -821,7 +823,35 @@ function doPost(e) {
           if (colNgay === -1) colNgay = c;
         }
         if (h.includes('ketqua')) colKetQua = c;
-        if (h.includes('chi')) colChi = c;
+
+        // Nhận diện cột Địa chỉ để TUYỆT ĐỐI không bị nhầm với cột Chì
+        if (h.includes('diachi') || rawLower.indexOf('địa chỉ') !== -1 || rawLower.indexOf('dia chi') !== -1) {
+          colDiaChi = c;
+        }
+
+        // Nhận diện cột Chì? / Bấm chì / Niêm chì - loại trừ triệt để địa chỉ, chỉ số, chi nhánh, chi tiết, tiêu chí
+        var isNotLeadSeal = (
+          h.includes('diachi') || h.includes('chiso') || h.includes('chinhanh') || h.includes('chidao') ||
+          h.includes('chitiet') || h.includes('tieuchi') || h.includes('chidan') || h.includes('chitieu') ||
+          rawLower.indexOf('địa chỉ') !== -1 || rawLower.indexOf('chỉ số') !== -1 || rawLower.indexOf('chi nhánh') !== -1 ||
+          rawLower.indexOf('chi tiết') !== -1 || rawLower.indexOf('tiêu chí') !== -1
+        );
+        if (!isNotLeadSeal) {
+          if (
+            h === 'chi' || h === 'bamchi' || h === 'niemchi' || h === 'kepchi' ||
+            h === 'tinhtrangchi' || h === 'tinhtrangniemchi' || h === 'tinhtrangbamchi' ||
+            h === 'tinhhinhchi' || h === 'tinhhinhniemchi' || h === 'tinhhinhbamchi' ||
+            h === 'kiemtrachi' || h === 'chiniem' ||
+            rawLower.indexOf('bấm chì') !== -1 || rawLower.indexOf('bam chi') !== -1 ||
+            rawLower.indexOf('niêm chì') !== -1 || rawLower.indexOf('niem chi') !== -1 ||
+            rawLower.indexOf('kẹp chì') !== -1 || rawLower.indexOf('chì?') !== -1 ||
+            rawLower === 'chì' || rawLower === 'chi?' || rawLower === 'chi'
+          ) {
+            if (colChi === -1) colChi = c;
+            if (allChiCols.indexOf(c) === -1) allChiCols.push(c);
+          }
+        }
+
         if (h.includes('dexuat') || h.includes('ghichu')) colDeXuat = c;
         if (rawH.toUpperCase() === 'X' || h === 'x' || h === 'toadox' || h === 'vido' || h.includes('toadox')) colX = c;
         if (rawH.toUpperCase() === 'Y' || h === 'y' || h === 'toadoy' || h === 'kinhdo' || h.includes('toadoy')) colY = c;
@@ -837,7 +867,7 @@ function doPost(e) {
       if (colMaKh === -1) colMaKh = 1; // Default Col B (cột 2)
       if (colNgay === -1) colNgay = 10; // Default Col K (cột 11)
       if (colKetQua === -1) colKetQua = 11; // Default Col L (cột 12)
-      if (colChi === -1) colChi = 12; // Default Col M (cột 13)
+      if (colChi === -1 || colChi === colDiaChi) colChi = 12; // CỐ ĐỊNH CỘT M (CỘT 13, INDEX 12)
       if (colDeXuat === -1) colDeXuat = 13; // Default Col N (cột 14)
       
       // CỐ ĐỊNH DỨT ĐIỂM: CỘT O (CỘT 15, INDEX 14) LÀ CỘT "NGƯỜI THỰC HIỆN"
@@ -849,10 +879,14 @@ function doPost(e) {
 
       // Đảm bảo dòng tiêu đề chuẩn xác, TUYỆT ĐỐI KHÔNG TỰ ĐỘNG THÊM CỘT BỪA BÃI
       try {
-        if (!String(sheet.getRange(headerRowIdx, 15).getValue() || '').trim()) sheet.getRange(headerRowIdx, 15).setValue('Người thực hiện');
-        if (data.x !== undefined && data.x !== '' && !String(sheet.getRange(headerRowIdx, 16).getValue() || '').trim()) sheet.getRange(headerRowIdx, 16).setValue('X');
-        if (data.y !== undefined && data.y !== '' && !String(sheet.getRange(headerRowIdx, 17).getValue() || '').trim()) sheet.getRange(headerRowIdx, 17).setValue('Y');
-        if (data.pic !== undefined && data.pic !== '' && !String(sheet.getRange(headerRowIdx, 18).getValue() || '').trim()) sheet.getRange(headerRowIdx, 18).setValue('Pic');
+        if (!String(sheet.getRange(headerRowIdx, 11).getValue() || '').trim() && colNgay === -1) sheet.getRange(headerRowIdx, 11).setValue('Ngày');
+        if (!String(sheet.getRange(headerRowIdx, 12).getValue() || '').trim() && colKetQua === -1) sheet.getRange(headerRowIdx, 12).setValue('Kết quả');
+        if (!String(sheet.getRange(headerRowIdx, 13).getValue() || '').trim() && allChiCols.length === 0) sheet.getRange(headerRowIdx, 13).setValue('Chì?');
+        if (!String(sheet.getRange(headerRowIdx, 14).getValue() || '').trim() && colDeXuat === -1) sheet.getRange(headerRowIdx, 14).setValue('Đề xuất');
+        if (!String(sheet.getRange(headerRowIdx, 15).getValue() || '').trim() && allNguoiThCols.length === 0) sheet.getRange(headerRowIdx, 15).setValue('Người thực hiện');
+        if (data.x !== undefined && data.x !== '' && colX === -1 && !String(sheet.getRange(headerRowIdx, 16).getValue() || '').trim()) sheet.getRange(headerRowIdx, 16).setValue('X');
+        if (data.y !== undefined && data.y !== '' && colY === -1 && !String(sheet.getRange(headerRowIdx, 17).getValue() || '').trim()) sheet.getRange(headerRowIdx, 17).setValue('Y');
+        if (data.pic !== undefined && data.pic !== '' && colPic === -1 && !String(sheet.getRange(headerRowIdx, 18).getValue() || '').trim()) sheet.getRange(headerRowIdx, 18).setValue('Pic');
       } catch (eHdr) {}
 
       // Tìm dòng bằng TextFinder của Google Sheets (thuật toán tìm nhị phân native C++ siêu tốc < 50ms cho 200k dòng)
@@ -889,18 +923,65 @@ function doPost(e) {
 
       if (targetRow > 1) {
         // Đọc 1 dòng duy nhất để ghi cập nhật theo mảng 1 lần (Single Batch Range Update)
-        var maxColNeeded = Math.max(headers.length, colX + 1, colY + 1, colPic + 1, colNgay + 1, 15);
+        var maxColNeeded = Math.max(headers.length, colX + 1, colY + 1, colPic + 1, colNgay + 1, colChi + 1, 15);
         var rowRange = sheet.getRange(targetRow, 1, 1, maxColNeeded);
         var rowArr = rowRange.getValues()[0];
+        
+        // 1. Cột Ngày (Cột K, index 10)
         if (data.ngay !== undefined && data.ngay !== '') {
           if (colNgay > -1) rowArr[colNgay] = "'" + data.ngay;
-          rowArr[10] = "'" + data.ngay; // Cố định Cột K (cột 11, index 10)
+          rowArr[10] = "'" + data.ngay;
         }
-        if (data.ketQua !== undefined && colKetQua > -1) rowArr[colKetQua] = data.ketQua;
-        if (data.chi !== undefined && colChi > -1) rowArr[colChi] = data.chi;
-        if (data.deXuat !== undefined && colDeXuat > -1) rowArr[colDeXuat] = data.deXuat;
+        // 2. Cột Kết quả (Cột L, index 11)
+        if (data.ketQua !== undefined && data.ketQua !== '') {
+          if (colKetQua > -1) rowArr[colKetQua] = data.ketQua;
+          rowArr[11] = data.ketQua;
+        }
+        // 3. Cột Chì? / Bấm chì (Bắt buộc ghi "Có" hoặc "Không", tuyệt đối không để rỗng)
+        var inputChi = data.chi !== undefined ? data.chi : (data.bamChi !== undefined ? data.bamChi : (data.tinhTrangChi !== undefined ? data.tinhTrangChi : undefined));
+        var cleanChi = '';
+        if (inputChi !== undefined && String(inputChi).trim()) {
+          var normChiLower = String(inputChi).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+          if (normChiLower.indexOf('không') !== -1 || normChiLower.indexOf('khong') !== -1 || normChiLower === 'ko' || normChiLower === 'k' || normChiLower === '0' || normChiLower === 'mat' || normChiLower === 'dut' || normChiLower === 'hong' || normChiLower === 'false') {
+            cleanChi = 'Không';
+          } else {
+            cleanChi = 'Có';
+          }
+        } else if (data.ketQua !== undefined && String(data.ketQua).trim()) {
+          var normKqLower = String(data.ketQua).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+          if (normKqLower.indexOf('không') !== -1 || normKqLower.indexOf('khong') !== -1 || normKqLower.indexOf('bat thuong') !== -1 || normKqLower.indexOf('mat') !== -1) {
+            cleanChi = 'Không';
+          } else {
+            cleanChi = 'Có';
+          }
+        }
+
+        if (cleanChi) {
+          if (colChi > -1 && colChi !== colDiaChi) {
+            rowArr[colChi] = cleanChi;
+          }
+          for (var cc = 0; cc < allChiCols.length; cc++) {
+            if (allChiCols[cc] !== colDiaChi) {
+              rowArr[allChiCols[cc]] = cleanChi;
+            }
+          }
+          if (colChi === -1 && allChiCols.length === 0 && colNgay !== 12 && colKetQua !== 12 && colDeXuat !== 12 && colNguoiThucHien !== 12) {
+            rowArr[12] = cleanChi;
+          }
+        }
+
+        // 4. Cột Đề xuất (Cột N, index 13 - không ghi đè lên cột chì)
+        if (data.deXuat !== undefined) {
+          if (colDeXuat > -1 && colDeXuat !== colChi && allChiCols.indexOf(colDeXuat) === -1) {
+            rowArr[colDeXuat] = data.deXuat;
+          } else if (colDeXuat === -1 && colChi !== 13 && allChiCols.indexOf(13) === -1 && colKetQua !== 13 && colNgay !== 13) {
+            rowArr[13] = data.deXuat;
+          }
+        }
+        // 5. Cột X & Y (Tọa độ GPS)
         if (data.x !== undefined && data.x !== '' && colX > -1) rowArr[colX] = data.x;
         if (data.y !== undefined && data.y !== '' && colY > -1) rowArr[colY] = data.y;
+        // 6. Cột Người thực hiện (Cột O, index 14)
         if (data.nguoiThucHien !== undefined && data.nguoiThucHien !== '') {
           rowArr[14] = data.nguoiThucHien; // CỐ ĐỊNH CỘT O (CỘT 15, INDEX 14)
           for (var nc = 0; nc < allNguoiThCols.length; nc++) {
