@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { PermissionStore, RBACConfig, ALL_ROLES, AppRole, DEFAULT_RBAC } from '../store/PermissionStore';
+import { PermissionStore, RBACConfig, ALL_ROLES, AppRole, DEFAULT_RBAC, normalizeRoleStr } from '../store/PermissionStore';
 import { 
   Shield, 
   Save, 
@@ -49,10 +49,25 @@ import {
   Search,
   Filter,
   CheckCircle2,
-  Tag
+  Tag,
+  MapPin,
+  Users
 } from 'lucide-react';
 import * as XLSX from 'xlsx-js-style';
-import { DataStore, TuyenDuongExclusion, ExternalReportLink, DEFAULT_EXTERNAL_REPORT_LINKS, DEFAULT_APP_SCRIPT_URL, DEFAULT_SPREADSHEET_ID, Holiday, DEFAULT_HOLIDAYS_2026, DinhMucItem } from '../store/DataStore';
+import { 
+  DataStore, 
+  TuyenDuongExclusion, 
+  ExternalReportLink, 
+  DEFAULT_EXTERNAL_REPORT_LINKS, 
+  DEFAULT_APP_SCRIPT_URL, 
+  DEFAULT_SPREADSHEET_ID, 
+  Holiday, 
+  DEFAULT_HOLIDAYS_2026, 
+  DinhMucItem,
+  KthtddAreaPolicyConfig,
+  KthtddMemberAreaPermission,
+  DEFAULT_KTHTDD_AREA_POLICY
+} from '../store/DataStore';
 import { SCRIPT_TEMPLATE } from './ConfigModal';
 import { APP_VERSION, APP_VERSION_DETAILS } from '../version';
 import { checkLatestVersion, forceRefreshApp } from '../utils/versionSync';
@@ -78,7 +93,8 @@ const ACTIONS_INFO = [
     { id: 'config_system', label: 'Nút Cài đặt (Bánh răng)' },
     { id: 'edit_others_workload', label: 'Chỉnh sửa/Xóa báo cáo của người khác' },
     { id: 'bao_cao_ho', label: 'Cập nhật báo cáo hộ' },
-    { id: 'view_online_users', label: 'Xem danh sách người dùng Online' }
+    { id: 'view_online_users', label: 'Xem danh sách người dùng Online' },
+    { id: 'kthtdd_all_areas', label: 'Kiện toàn tất cả khu vực (Phát sinh KT)' }
 ];
 
 const ICON_PRESETS = [
@@ -171,6 +187,7 @@ export default function SystemTab() {
         dinhmuc: false,
         congdoan: false,
         exclusions: false,
+        kthtdd_areas: false,
         actions: false,
         version: false
     });
@@ -191,6 +208,7 @@ export default function SystemTab() {
             dinhmuc: true,
             congdoan: true,
             exclusions: true,
+            kthtdd_areas: true,
             actions: true,
             version: true
         });
@@ -205,6 +223,7 @@ export default function SystemTab() {
             dinhmuc: false,
             congdoan: false,
             exclusions: false,
+            kthtdd_areas: false,
             actions: false,
             version: false
         });
@@ -517,6 +536,126 @@ export default function SystemTab() {
     const [exclMsg, setExclMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
     const allMembers = DataStore.getMembers();
+
+    // Phân quyền khu vực Kiện toàn KTHTĐĐ
+    const [kthtddPolicy, setKthtddPolicy] = useState<KthtddAreaPolicyConfig>(() => DataStore.getKthtddAreaPolicy());
+    const [kthtddSearch, setKthtddSearch] = useState<string>('');
+    const [kthtddTeamFilter, setKthtddTeamFilter] = useState<string>('ALL');
+    const [kthtddScopeFilter, setKthtddScopeFilter] = useState<'ALL' | 'default' | 'all' | 'managed'>('ALL');
+    const [kthtddPolicyMsg, setKthtddPolicyMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+    const [knownAreas] = useState<string[]>(() => DataStore.getKthtddKnownAreas());
+
+    const handleToggleKthtddDefaultScope = (scope: 'all' | 'managed') => {
+        const updated: KthtddAreaPolicyConfig = {
+            ...kthtddPolicy,
+            defaultEmployeeScope: scope
+        };
+        setKthtddPolicy(updated);
+        DataStore.saveKthtddAreaPolicy(updated);
+        setKthtddPolicyMsg({
+            type: 'success',
+            text: `Đã đổi quy định chung: ${scope === 'all' ? 'Tất cả nhân viên được kiện toàn toàn bộ khu vực' : 'Nhân viên chỉ kiện toàn ở khu vực quản lý (mặc định)'}.`
+        });
+        setTimeout(() => setKthtddPolicyMsg(null), 4000);
+    };
+
+    const handleChangeMemberScope = (memberName: string, scope: 'default' | 'all' | 'managed') => {
+        const normName = normalizeRoleStr(memberName);
+        const newOverrides = { ...kthtddPolicy.memberOverrides };
+        if (scope === 'default') {
+            delete newOverrides[normName];
+        } else {
+            const currentOverride = newOverrides[normName];
+            const memberObj = allMembers.find(m => normalizeRoleStr(m.name) === normName);
+            const defaultArea = currentOverride?.managedArea || DataStore.resolveAreaFromTeam(memberObj?.team) || 'Phú Mỹ';
+            newOverrides[normName] = {
+                memberName,
+                scope,
+                managedArea: scope === 'managed' ? defaultArea : undefined
+            };
+        }
+        const updated: KthtddAreaPolicyConfig = {
+            ...kthtddPolicy,
+            memberOverrides: newOverrides
+        };
+        setKthtddPolicy(updated);
+    };
+
+    const handleChangeMemberArea = (memberName: string, area: string) => {
+        const normName = normalizeRoleStr(memberName);
+        const newOverrides = { ...kthtddPolicy.memberOverrides };
+        const current = newOverrides[normName] || { memberName, scope: 'managed' };
+        newOverrides[normName] = {
+            ...current,
+            scope: 'managed',
+            managedArea: area.trim()
+        };
+        const updated: KthtddAreaPolicyConfig = {
+            ...kthtddPolicy,
+            memberOverrides: newOverrides
+        };
+        setKthtddPolicy(updated);
+    };
+
+    const handleSaveKthtddPolicy = () => {
+        DataStore.saveKthtddAreaPolicy(kthtddPolicy);
+        setKthtddPolicyMsg({
+            type: 'success',
+            text: 'Đã lưu thiết lập phân quyền khu vực kiện toàn thành công!'
+        });
+        setTimeout(() => setKthtddPolicyMsg(null), 4000);
+    };
+
+    const handleQuickApplyTeamsToAll = () => {
+        const newOverrides: Record<string, KthtddMemberAreaPermission> = {};
+        allMembers.forEach(m => {
+            const norm = normalizeRoleStr(m.name);
+            const resolved = DataStore.resolveAreaFromTeam(m.team) || 'Phú Mỹ';
+            newOverrides[norm] = {
+                memberName: m.name,
+                scope: 'managed',
+                managedArea: resolved
+            };
+        });
+        const updated: KthtddAreaPolicyConfig = {
+            ...kthtddPolicy,
+            memberOverrides: newOverrides
+        };
+        setKthtddPolicy(updated);
+        DataStore.saveKthtddAreaPolicy(updated);
+        setKthtddPolicyMsg({
+            type: 'success',
+            text: `Đã áp dụng phân quyền theo Tổ/Khu vực cho toàn bộ ${allMembers.length} CBCNV!`
+        });
+        setTimeout(() => setKthtddPolicyMsg(null), 4000);
+    };
+
+    const handleQuickSetAllAreasToAll = () => {
+        const updated: KthtddAreaPolicyConfig = {
+            defaultEmployeeScope: 'all',
+            memberOverrides: {}
+        };
+        setKthtddPolicy(updated);
+        DataStore.saveKthtddAreaPolicy(updated);
+        setKthtddPolicyMsg({
+            type: 'success',
+            text: 'Đã mở quyền kiện toàn tất cả khu vực cho toàn bộ nhân viên hệ thống!'
+        });
+        setTimeout(() => setKthtddPolicyMsg(null), 4000);
+    };
+
+    const handleResetKthtddPolicy = () => {
+        if (confirm('Khôi phục thiết lập phân quyền khu vực KTHTĐĐ về mặc định (Nhân viên chỉ kiện toàn tại khu vực quản lý)?')) {
+            const def = { ...DEFAULT_KTHTDD_AREA_POLICY };
+            setKthtddPolicy(def);
+            DataStore.saveKthtddAreaPolicy(def);
+            setKthtddPolicyMsg({
+                type: 'success',
+                text: 'Đã khôi phục phân quyền khu vực về mặc định.'
+            });
+            setTimeout(() => setKthtddPolicyMsg(null), 4000);
+        }
+    };
 
     const PRESET_INFRACTION_REASONS = [
         'Vi phạm quy trình an toàn lao động',
@@ -3026,7 +3165,373 @@ export default function SystemTab() {
                     )}
                 </div>
 
-                {/* 8. MỤC: THÔNG TIN PHIÊN BẢN & ĐỒNG BỘ HỆ THỐNG */}
+                {/* 8. MỤC: PHÂN QUYỀN KHU VỰC KIỆN TOÀN (KTHTĐĐ) */}
+                <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-sm transition-all">
+                    <button
+                        type="button"
+                        onClick={() => toggleSection('kthtdd_areas')}
+                        className="w-full flex items-center justify-between p-4 sm:p-5 bg-gradient-to-r from-teal-50/60 via-slate-50/80 to-white hover:bg-teal-50/80 transition-colors text-left cursor-pointer border-b border-transparent"
+                    >
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-teal-600 flex items-center justify-center text-white shadow-md shadow-teal-500/20 shrink-0">
+                                <MapPin className="w-5 h-5" />
+                            </div>
+                            <div>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <h3 className="text-base font-bold text-slate-800">
+                                        Phân Quyền Khu Vực Kiện Toàn (KTHTĐĐ)
+                                    </h3>
+                                    <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-black tracking-wide ${
+                                        kthtddPolicy.defaultEmployeeScope === 'all'
+                                            ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                            : 'bg-teal-100 text-teal-800 border border-teal-300'
+                                    }`}>
+                                        Mặc định NV: {kthtddPolicy.defaultEmployeeScope === 'all' ? 'Tất cả khu vực' : 'Chỉ khu vực quản lý'}
+                                    </span>
+                                    <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold border border-slate-200">
+                                        {allMembers.length} nhân sự
+                                    </span>
+                                </div>
+                                <p className="text-xs text-slate-500 mt-0.5">
+                                    Quy định nhân viên chỉ kiện toàn ở khu vực quản lý (hạn chế dung lượng 3G/4G) hoặc cho phép kiện toàn tất cả khu vực.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 text-slate-400">
+                            <span className="text-xs font-semibold text-slate-500 hidden sm:inline">
+                                {openSections.kthtdd_areas ? 'Thu gọn' : 'Bấm để mở'}
+                            </span>
+                            <div className={`p-1 rounded-lg bg-slate-200/60 text-slate-700 transition-transform duration-200 ${openSections.kthtdd_areas ? 'rotate-180' : ''}`}>
+                                <ChevronDown className="w-4 h-4" />
+                            </div>
+                        </div>
+                    </button>
+
+                    {openSections.kthtdd_areas && (
+                        <div className="p-4 sm:p-5 border-t border-slate-100 bg-white animate-fade-in space-y-5">
+                            {/* Alert / Feedback message */}
+                            {kthtddPolicyMsg && (
+                                <div className={`p-3.5 rounded-xl text-xs font-semibold flex items-center gap-2 shadow-xs ${
+                                    kthtddPolicyMsg.type === 'success'
+                                        ? 'bg-emerald-50 text-emerald-900 border border-emerald-300'
+                                        : 'bg-rose-50 text-rose-900 border border-rose-300'
+                                }`}>
+                                    {kthtddPolicyMsg.type === 'success' ? (
+                                        <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                                    ) : (
+                                        <AlertOctagon className="w-4 h-4 text-rose-600 shrink-0" />
+                                    )}
+                                    <span>{kthtddPolicyMsg.text}</span>
+                                </div>
+                            )}
+
+                            {/* 1. THIẾT LẬP CHÍNH SÁCH MẶC ĐỊNH CHO NHÂN VIÊN */}
+                            <div className="bg-slate-50/80 rounded-2xl border border-slate-200/90 p-4 sm:p-5 space-y-3">
+                                <div className="flex items-center justify-between gap-2 flex-wrap">
+                                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                                        <Shield className="w-4 h-4 text-teal-600" />
+                                        <span>Quy Định Chung Cho Nhân Viên (Khi Chưa Cấu Hình Riêng)</span>
+                                    </h4>
+                                    <span className="text-[11px] text-slate-500 font-medium">
+                                        (Các vị trí Lãnh đạo/Tổ trưởng luôn có toàn quyền tất cả khu vực)
+                                    </span>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                                    <label
+                                        onClick={() => handleToggleKthtddDefaultScope('managed')}
+                                        className={`flex items-start gap-3 p-3.5 rounded-xl border-2 transition-all cursor-pointer ${
+                                            kthtddPolicy.defaultEmployeeScope === 'managed'
+                                                ? 'bg-teal-50/70 border-teal-600 shadow-xs'
+                                                : 'bg-white border-slate-200 hover:border-slate-300'
+                                        }`}
+                                    >
+                                        <input
+                                            type="radio"
+                                            name="defaultEmployeeScope"
+                                            checked={kthtddPolicy.defaultEmployeeScope === 'managed'}
+                                            onChange={() => handleToggleKthtddDefaultScope('managed')}
+                                            className="mt-0.5 text-teal-600 focus:ring-teal-500"
+                                        />
+                                        <div>
+                                            <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                                                <span>Chỉ kiện toàn ở khu vực quản lý</span>
+                                                <span className="px-1.5 py-0.2 bg-teal-100 text-teal-800 text-[10px] font-bold rounded">Khuyến nghị</span>
+                                            </div>
+                                            <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                                                Nhân viên ở khu vực nào (Phú Mỹ, Bà Rịa, Vũng Tàu, Long Sơn...) thì khi vào "Phát sinh KT" chỉ hiển thị và tìm kiếm khách hàng trong khu vực đó. Giúp giảm thiểu tối đa dung lượng dữ liệu mạng di động 3G/4G và tránh nhập trùng giữa các tổ.
+                                            </p>
+                                        </div>
+                                    </label>
+
+                                    <label
+                                        onClick={() => handleToggleKthtddDefaultScope('all')}
+                                        className={`flex items-start gap-3 p-3.5 rounded-xl border-2 transition-all cursor-pointer ${
+                                            kthtddPolicy.defaultEmployeeScope === 'all'
+                                                ? 'bg-teal-50/70 border-teal-600 shadow-xs'
+                                                : 'bg-white border-slate-200 hover:border-slate-300'
+                                        }`}
+                                    >
+                                        <input
+                                            type="radio"
+                                            name="defaultEmployeeScope"
+                                            checked={kthtddPolicy.defaultEmployeeScope === 'all'}
+                                            onChange={() => handleToggleKthtddDefaultScope('all')}
+                                            className="mt-0.5 text-teal-600 focus:ring-teal-500"
+                                        />
+                                        <div>
+                                            <div className="text-xs font-bold text-slate-800">
+                                                Được phép kiện toàn tất cả khu vực
+                                            </div>
+                                            <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                                                Mọi nhân viên có thể tra cứu và nhập phát sinh cho bất kỳ khách hàng nào trên toàn công ty. Dữ liệu nạp đầy đủ toàn bộ các trạm.
+                                            </p>
+                                        </div>
+                                    </label>
+                                </div>
+                            </div>
+
+                            {/* 2. BẢNG PHÂN QUYỀN CHI TIẾT TỪNG NHÂN VIÊN */}
+                            <div className="space-y-3">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                    <div>
+                                        <h4 className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                                            <Users className="w-4 h-4 text-teal-600" />
+                                            <span>Phân Quyền Chi Tiết Theo Từng Nhân Viên ({allMembers.length} CBCNV)</span>
+                                        </h4>
+                                        <p className="text-[11px] text-slate-500 mt-0.5">
+                                            Bạn có thể đặt quyền riêng và gán khu vực quản lý cụ thể cho từng cá nhân.
+                                        </p>
+                                    </div>
+
+                                    {/* Action buttons */}
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <button
+                                            type="button"
+                                            onClick={handleQuickApplyTeamsToAll}
+                                            className="px-2.5 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                                            title="Tự động gán khu vực theo Tổ công tác của từng nhân viên"
+                                        >
+                                            <CheckCircle2 className="w-3.5 h-3.5" />
+                                            <span>Gán theo Tổ công tác</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleQuickSetAllAreasToAll}
+                                            className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                                            title="Cấp quyền tất cả khu vực cho toàn bộ nhân viên"
+                                        >
+                                            <Globe className="w-3.5 h-3.5" />
+                                            <span>Mở tất cả khu vực</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleResetKthtddPolicy}
+                                            className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                                            title="Khôi phục mặc định"
+                                        >
+                                            <RotateCcw className="w-3.5 h-3.5" />
+                                            <span>Mặc định</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleSaveKthtddPolicy}
+                                            className="px-3 py-1.5 bg-teal-700 hover:bg-teal-800 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
+                                        >
+                                            <Save className="w-3.5 h-3.5" />
+                                            <span>Lưu phân quyền</span>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Filters Toolbar */}
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 bg-slate-50 p-2.5 rounded-xl border border-slate-200 text-xs">
+                                    <div className="relative">
+                                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                                        <input
+                                            type="text"
+                                            value={kthtddSearch}
+                                            onChange={e => setKthtddSearch(e.target.value)}
+                                            placeholder="Tìm nhân viên theo họ tên..."
+                                            className="w-full pl-8 pr-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <select
+                                            value={kthtddTeamFilter}
+                                            onChange={e => setKthtddTeamFilter(e.target.value)}
+                                            className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                                        >
+                                            <option value="ALL">-- Tất cả tổ công tác --</option>
+                                            {Array.from(new Set(allMembers.map(m => m.team).filter(Boolean))).sort().map(team => (
+                                                <option key={team} value={team}>{team}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <select
+                                            value={kthtddScopeFilter}
+                                            onChange={e => setKthtddScopeFilter(e.target.value as any)}
+                                            className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                                        >
+                                            <option value="ALL">-- Tất cả trạng thái quyền --</option>
+                                            <option value="default">Theo mặc định hệ thống</option>
+                                            <option value="all">Quyền: Tất cả khu vực</option>
+                                            <option value="managed">Quyền: Chỉ khu vực quản lý</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                {/* Member Table */}
+                                {(() => {
+                                    const searchLower = kthtddSearch.trim().toLowerCase();
+                                    const filteredMembers = allMembers.filter(m => {
+                                        if (searchLower) {
+                                            const matchName = (m.name || '').toLowerCase().includes(searchLower);
+                                            const matchTeam = (m.team || '').toLowerCase().includes(searchLower);
+                                            const matchRole = (m.role || '').toLowerCase().includes(searchLower);
+                                            if (!matchName && !matchTeam && !matchRole) return false;
+                                        }
+                                        if (kthtddTeamFilter !== 'ALL' && m.team !== kthtddTeamFilter) return false;
+
+                                        const norm = normalizeRoleStr(m.name);
+                                        const override = kthtddPolicy.memberOverrides?.[norm];
+                                        const currentScope = override ? override.scope : 'default';
+                                        if (kthtddScopeFilter !== 'ALL' && currentScope !== kthtddScopeFilter) return false;
+
+                                        return true;
+                                    });
+
+                                    return (
+                                        <div className="overflow-x-auto rounded-xl border border-slate-200">
+                                            <table className="w-full text-xs text-left">
+                                                <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px]">
+                                                    <tr>
+                                                        <th className="px-3 py-2.5 border-b border-slate-200 w-10 text-center">STT</th>
+                                                        <th className="px-3 py-2.5 border-b border-slate-200">Họ và tên</th>
+                                                        <th className="px-3 py-2.5 border-b border-slate-200">Chức danh / Vai trò</th>
+                                                        <th className="px-3 py-2.5 border-b border-slate-200">Tổ công tác</th>
+                                                        <th className="px-3 py-2.5 border-b border-slate-200">Phân quyền kiện toàn</th>
+                                                        <th className="px-3 py-2.5 border-b border-slate-200">Khu vực quản lý</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-100">
+                                                    {filteredMembers.length === 0 ? (
+                                                        <tr>
+                                                            <td colSpan={6} className="px-4 py-8 text-center text-slate-400 italic">
+                                                                Không tìm thấy nhân viên phù hợp với bộ lọc.
+                                                            </td>
+                                                        </tr>
+                                                    ) : (
+                                                        filteredMembers.map((m, idx) => {
+                                                            const norm = normalizeRoleStr(m.name);
+                                                            const override = kthtddPolicy.memberOverrides?.[norm];
+                                                            const scope = override?.scope || 'default';
+                                                            const resolvedArea = override?.managedArea || DataStore.resolveAreaFromTeam(m.team) || 'Phú Mỹ';
+
+                                                            // Determine effective scope for display
+                                                            const hasRoleAll = PermissionStore.hasActionAccess('kthtdd_all_areas', m.role || '');
+                                                            let effectiveDesc = '';
+                                                            if (scope === 'all') effectiveDesc = 'Tất cả khu vực (Cá nhân)';
+                                                            else if (scope === 'managed') effectiveDesc = `Chỉ ${resolvedArea}`;
+                                                            else if (hasRoleAll) effectiveDesc = 'Tất cả khu vực (Lãnh đạo)';
+                                                            else if (kthtddPolicy.defaultEmployeeScope === 'all') effectiveDesc = 'Tất cả khu vực (Mặc định)';
+                                                            else effectiveDesc = `Chỉ ${resolvedArea} (Mặc định)`;
+
+                                                            return (
+                                                                <tr key={m.name} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
+                                                                    <td className="px-3 py-2 text-center text-slate-400 font-medium">
+                                                                        {idx + 1}
+                                                                    </td>
+                                                                    <td className="px-3 py-2 font-bold text-slate-800 whitespace-nowrap">
+                                                                        {m.name}
+                                                                    </td>
+                                                                    <td className="px-3 py-2 text-slate-600 whitespace-nowrap">
+                                                                        {m.role || 'Nhân viên'}
+                                                                    </td>
+                                                                    <td className="px-3 py-2 text-slate-600 whitespace-nowrap">
+                                                                        <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-semibold text-[11px]">
+                                                                            {m.team || 'Chưa rõ tổ'}
+                                                                        </span>
+                                                                    </td>
+                                                                    <td className="px-3 py-2 whitespace-nowrap">
+                                                                        <select
+                                                                            value={scope}
+                                                                            onChange={e => handleChangeMemberScope(m.name, e.target.value as any)}
+                                                                            className={`px-2 py-1 rounded-lg text-xs font-semibold border focus:ring-2 focus:ring-teal-500 focus:outline-none ${
+                                                                                scope === 'all'
+                                                                                    ? 'bg-amber-50 text-amber-900 border-amber-300 font-bold'
+                                                                                    : scope === 'managed'
+                                                                                    ? 'bg-teal-50 text-teal-900 border-teal-300 font-bold'
+                                                                                    : 'bg-white text-slate-700 border-slate-300'
+                                                                            }`}
+                                                                        >
+                                                                            <option value="default">Theo mặc định hệ thống</option>
+                                                                            <option value="managed">Chỉ khu vực quản lý</option>
+                                                                            <option value="all">Kiện toàn tất cả khu vực</option>
+                                                                        </select>
+                                                                        <div className="text-[10px] text-slate-400 mt-0.5">
+                                                                            Hiện tại: <span className="font-semibold text-slate-600">{effectiveDesc}</span>
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className="px-3 py-2 whitespace-nowrap">
+                                                                        {scope === 'all' ? (
+                                                                            <span className="text-[11px] font-semibold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                                                                                Toàn bộ khu vực
+                                                                            </span>
+                                                                        ) : (
+                                                                            <div className="flex items-center gap-1.5">
+                                                                                <select
+                                                                                    value={resolvedArea}
+                                                                                    disabled={scope === 'default' && false}
+                                                                                    onChange={e => handleChangeMemberArea(m.name, e.target.value)}
+                                                                                    className="px-2 py-1 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                                                                                >
+                                                                                    {knownAreas.map(area => (
+                                                                                        <option key={area} value={area}>{area}</option>
+                                                                                    ))}
+                                                                                </select>
+                                                                                {override?.managedArea && (
+                                                                                    <span className="text-[10px] text-teal-700 font-bold">
+                                                                                        (Đã chỉnh)
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
+                                                                        )}
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })
+                                                    )}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    );
+                                })()}
+
+                                {/* Bottom Save Bar */}
+                                <div className="flex items-center justify-between pt-2">
+                                    <div className="text-[11px] text-slate-500">
+                                        * Các thay đổi phân quyền khu vực sẽ có hiệu lực ngay lập tức khi lưu.
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={handleSaveKthtddPolicy}
+                                        className="flex items-center gap-1.5 px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold rounded-xl transition-all shadow-md cursor-pointer"
+                                    >
+                                        <Save className="w-4 h-4" />
+                                        <span>Lưu phân quyền khu vực</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* 9. MỤC: THÔNG TIN PHIÊN BẢN & ĐỒNG BỘ HỆ THỐNG */}
                 <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-sm transition-all">
                     <button
                         type="button"

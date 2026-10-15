@@ -30,6 +30,7 @@ export const DEFAULT_RBAC: RBACConfig = {
     'edit_others_workload': ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'],
     'bao_cao_ho': ['đội trưởng', 'giám đốc'],
     'view_online_users': ['đội trưởng'], // xem danh sách người dùng online (mặc định Đội trưởng)
+    'kthtdd_all_areas': ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'], // Kiện toàn tất cả khu vực (nếu nhân viên không có quyền này thì chỉ kiện toàn ở khu vực quản lý)
   }
 };
 
@@ -58,6 +59,10 @@ export const PermissionStore = {
         // Ensure new action view_online_users defaults to Đội trưởng if not explicitly configured
         if (!merged.actions['view_online_users'] || !Array.isArray(merged.actions['view_online_users']) || merged.actions['view_online_users'].length === 0) {
            merged.actions['view_online_users'] = DEFAULT_RBAC.actions['view_online_users'] || ['đội trưởng'];
+        }
+        // Ensure new action kthtdd_all_areas defaults to management roles if not explicitly configured
+        if (!merged.actions['kthtdd_all_areas'] || !Array.isArray(merged.actions['kthtdd_all_areas']) || merged.actions['kthtdd_all_areas'].length === 0) {
+           merged.actions['kthtdd_all_areas'] = DEFAULT_RBAC.actions['kthtdd_all_areas'] || ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'];
         }
         return merged;
       }

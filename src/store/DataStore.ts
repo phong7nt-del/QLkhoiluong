@@ -1,5 +1,6 @@
 import Papa from 'papaparse';
 import { get, set } from 'idb-keyval';
+import { PermissionStore, normalizeRoleStr } from './PermissionStore';
 
 export interface Station {
   id: string; // Mã trạm
@@ -87,6 +88,22 @@ export interface TuyenDuongExclusion {
   createdAt: string;
   createdBy?: string;
 }
+
+export interface KthtddMemberAreaPermission {
+  memberName: string;
+  scope: 'default' | 'all' | 'managed'; // 'default': theo mặc định vai trò/hệ thống, 'all': tất cả khu vực, 'managed': chỉ khu vực quản lý
+  managedArea?: string; // Tên khu vực cụ thể hoặc rỗng (tự động theo Tổ)
+}
+
+export interface KthtddAreaPolicyConfig {
+  defaultEmployeeScope: 'all' | 'managed'; // Mặc định cho nhân viên: 'managed' (chỉ khu vực quản lý) hoặc 'all'
+  memberOverrides: Record<string, KthtddMemberAreaPermission>; // key là normalized memberName
+}
+
+export const DEFAULT_KTHTDD_AREA_POLICY: KthtddAreaPolicyConfig = {
+  defaultEmployeeScope: 'managed', // Mặc định: nhân viên chỉ làm ở khu vực của mình quản lý
+  memberOverrides: {}
+};
 
 export interface Holiday {
   id: string;
@@ -648,6 +665,130 @@ export const DataStore = {
   resetExternalReportLinks: () => {
     DataStore.setExternalReportLinks(DEFAULT_EXTERNAL_REPORT_LINKS);
   },
+
+  // ===== KTHTDD AREA PERMISSION & POLICY =====
+  getKthtddAreaPolicy: (): KthtddAreaPolicyConfig => {
+    try {
+      const val = safeGetItem('config_kthtdd_area_policy_v1');
+      if (val) {
+        const parsed = JSON.parse(val);
+        return {
+          defaultEmployeeScope: parsed.defaultEmployeeScope || 'managed',
+          memberOverrides: parsed.memberOverrides || {}
+        };
+      }
+    } catch {}
+    return { ...DEFAULT_KTHTDD_AREA_POLICY };
+  },
+
+  saveKthtddAreaPolicy: (policy: KthtddAreaPolicyConfig) => {
+    safeSetItem('config_kthtdd_area_policy_v1', JSON.stringify(policy));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('kthtdd_policy_updated', { detail: policy }));
+    }
+  },
+
+  getKthtddKnownAreas: (): string[] => {
+    const areas = new Set<string>(['Phú Mỹ', 'Bà Rịa', 'Vũng Tàu', 'Long Sơn']);
+    try {
+      const cachedKthtdd = safeGetItem('sheet_kthtdd_v1');
+      if (cachedKthtdd) {
+        const list = JSON.parse(cachedKthtdd);
+        if (Array.isArray(list)) {
+          list.forEach((e: any) => {
+            if (e.khuVuc && e.khuVuc !== 'Chưa phân khu vực') areas.add(e.khuVuc.trim());
+          });
+        }
+      }
+      const teams = DataStore.getTeams();
+      teams.forEach(t => {
+        const clean = t.trim();
+        if (clean && !clean.toLowerCase().includes('đo xa') && !clean.toLowerCase().includes('tổ công tác')) {
+          const resolved = DataStore.resolveAreaFromTeam(clean);
+          if (resolved) areas.add(resolved);
+        }
+      });
+    } catch {}
+    return Array.from(areas).filter(Boolean).sort();
+  },
+
+  resolveAreaFromTeam: (teamStr?: string): string => {
+    if (!teamStr) return '';
+    const norm = normalizeRoleStr(teamStr);
+    if (norm.includes('phu my') || norm.includes('tan thanh')) return 'Phú Mỹ';
+    if (norm.includes('ba ria') || norm.includes('long huong') || norm.includes('phuoc hung')) return 'Bà Rịa';
+    if (norm.includes('vung tau')) return 'Vũng Tàu';
+    if (norm.includes('long son')) return 'Long Sơn';
+    if (norm.includes('chau duc')) return 'Châu Đức';
+    if (norm.includes('xuyen moc')) return 'Xuyên Mộc';
+    if (norm.includes('dat do')) return 'Đất Đỏ';
+    const cleaned = teamStr.replace(/^(tổ|to|đội|doi|khu vực|khu vuc)\s+/i, '').trim();
+    return cleaned || teamStr.trim();
+  },
+
+  getMemberKthtddPermission: (
+    memberName?: string,
+    roleStr?: string,
+    teamStr?: string
+  ): { canAllAreas: boolean; allowedAreas: string[]; scope: 'all' | 'managed'; source: string } => {
+    const normName = normalizeRoleStr(memberName);
+    const policy = DataStore.getKthtddAreaPolicy();
+
+    // 1. Kiểm tra cấu hình Override riêng cho nhân viên
+    if (normName && policy.memberOverrides && policy.memberOverrides[normName]) {
+      const override = policy.memberOverrides[normName];
+      if (override.scope === 'all') {
+        return { canAllAreas: true, allowedAreas: [], scope: 'all', source: 'member_override' };
+      }
+      if (override.scope === 'managed') {
+        let area = override.managedArea?.trim();
+        if (!area) {
+          area = DataStore.resolveAreaFromTeam(teamStr) || teamStr || 'Khu vực quản lý';
+        }
+        return {
+          canAllAreas: false,
+          allowedAreas: area ? [area] : [],
+          scope: 'managed',
+          source: 'member_override'
+        };
+      }
+    }
+
+    // 2. Kiểm tra quyền lãnh đạo hoặc vai trò có action 'kthtdd_all_areas'
+    // Đội trưởng, Giám đốc, Đội phó, Tổ trưởng, Tổ phó có quyền xem tất cả khu vực
+    const hasRoleAllAreas = PermissionStore.hasActionAccess('kthtdd_all_areas', roleStr || '');
+    if (hasRoleAllAreas) {
+      return { canAllAreas: true, allowedAreas: [], scope: 'all', source: 'role_permission' };
+    }
+
+    // 3. Áp dụng chính sách mặc định chung cho Nhân viên
+    if (policy.defaultEmployeeScope === 'all') {
+      return { canAllAreas: true, allowedAreas: [], scope: 'all', source: 'global_policy' };
+    }
+
+    // 4. Mặc định: Chỉ khu vực của mình quản lý
+    let resolvedArea = DataStore.resolveAreaFromTeam(teamStr);
+    if (!resolvedArea && memberName) {
+      try {
+        const members = DataStore.getMembers();
+        const found = members.find(m => normalizeRoleStr(m.name) === normName);
+        if (found && found.team) {
+          resolvedArea = DataStore.resolveAreaFromTeam(found.team);
+        }
+      } catch {}
+    }
+    if (!resolvedArea && teamStr) {
+      resolvedArea = teamStr.trim();
+    }
+
+    return {
+      canAllAreas: false,
+      allowedAreas: resolvedArea ? [resolvedArea] : [],
+      scope: 'managed',
+      source: 'global_policy'
+    };
+  },
+
   isUserDoiTruongOrCongDoanLeader: (user: SheetMember | null | undefined): boolean => {
     let effectiveUser: any = user;
     if (!effectiveUser) {

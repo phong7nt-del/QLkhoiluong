@@ -430,6 +430,16 @@ export const isKhongChi = (val: string | undefined | null, ketQua?: string | nul
   return s.includes('khong') || s.includes('mat') || s.includes('dut') || s.includes('hong') || s === '0' || s === 'ko' || s.startsWith('ko') || s === 'k' || s === 'false';
 };
 
+// Helper: Kiểm tra khách hàng có thuộc khu vực được phân quyền hay không
+export const isCustomerInAllowedAreas = (customerKv?: string, allowedAreas: string[] = []): boolean => {
+  if (!customerKv || allowedAreas.length === 0) return true;
+  const normKv = normalizeSearchStr(customerKv);
+  return allowedAreas.some(area => {
+    const normA = normalizeSearchStr(area);
+    return normKv === normA || normKv.includes(normA) || normA.includes(normKv);
+  });
+};
+
 export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabProps) {
   // Data state
   const [entries, setEntries] = useState<KthtddEntry[]>([]);
@@ -546,6 +556,15 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
     );
 
     if (matched) {
+      // Nếu đang ở chế độ phát sinh KT và nhân viên bị giới hạn khu vực: kiểm tra quyền khu vực của khách hàng
+      if (filterAssignedMode === 'unassigned' && !userAreaPerm.canAllAreas && userAreaPerm.allowedAreas.length > 0) {
+        if (!isCustomerInAllowedAreas(matched.khuVuc, userAreaPerm.allowedAreas)) {
+          setBarcodeScanToast(`⚠️ KH "${matched.tenKh}" thuộc khu vực "${matched.khuVuc}", ngoài khu vực phân quyền của bạn (${userAreaPerm.allowedAreas.join(', ')}).`);
+          setTimeout(() => setBarcodeScanToast(''), 5500);
+          return;
+        }
+      }
+
       setSelectedMaKh(matched.maKh);
       setMobileTab('inspect');
       setOpenSections(prev => ({ ...prev, inspect: true }));
@@ -776,6 +795,26 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
     return !isToTruong;
   }, [isToTruong]);
 
+  // Lắng nghe thay đổi phân quyền khu vực kiện toàn từ Tab Hệ Thống
+  const [policyRefresh, setPolicyRefresh] = useState(0);
+  useEffect(() => {
+    const onPolicyChange = () => setPolicyRefresh(v => v + 1);
+    window.addEventListener('kthtdd_policy_updated', onPolicyChange);
+    window.addEventListener('permissions_updated', onPolicyChange);
+    return () => {
+      window.removeEventListener('kthtdd_policy_updated', onPolicyChange);
+      window.removeEventListener('permissions_updated', onPolicyChange);
+    };
+  }, []);
+
+  // Quyền hạn khu vực kiện toàn của tài khoản hiện tại
+  const userAreaPerm = useMemo(() => {
+    return DataStore.getMemberKthtddPermission(sessionUser?.name, userRoleStr, sessionUser?.team);
+  }, [sessionUser, userRoleStr, policyRefresh]);
+
+  // Bộ lọc khu vực khi ở chế độ phát sinh
+  const [unassignedAreaSelect, setUnassignedAreaSelect] = useState<string>('ALL');
+
   // Bộ lọc dữ liệu sơ đồ cây:
   // - 'assigned': chỉ đã phân công (Mặc định cho nhân viên đi kiện toàn - Tối ưu dữ liệu)
   // - 'unassigned': nhập phát sinh kiện toàn (ngoài phân công, tìm kiếm các KH chưa phân công)
@@ -792,7 +831,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
     }
   }, [isEmployee]);
 
-  // Thống kê số lượng phân công
+  // Thống kê số lượng phân công (trong chế độ phát sinh, nếu bị giới hạn khu vực thì đếm theo khu vực của nhân viên)
   const assignedCounts = useMemo(() => {
     let totalAssigned = 0;
     let totalUnassigned = 0;
@@ -806,11 +845,18 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
           myAssigned++;
         }
       } else {
-        totalUnassigned++;
+        // Trong phát sinh KT: nếu nhân viên bị giới hạn khu vực, chỉ đếm số lượng phát sinh thuộc khu vực của mình
+        if (!userAreaPerm.canAllAreas && userAreaPerm.allowedAreas.length > 0) {
+          if (isCustomerInAllowedAreas(e.khuVuc, userAreaPerm.allowedAreas)) {
+            totalUnassigned++;
+          }
+        } else {
+          totalUnassigned++;
+        }
       }
     }
     return { totalAssigned, totalUnassigned, myAssigned, total: entries.length };
-  }, [entries, sessionUser]);
+  }, [entries, sessionUser, userAreaPerm]);
 
   // Tọa độ GPS thời gian thực của thiết bị
   const [currentGps, setCurrentGps] = useState<{ x: string; y: string } | null>(
@@ -1330,6 +1376,18 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
       } else if (filterAssignedMode === 'unassigned') {
         // Chế độ nhập phát sinh kiện toàn (ngoài phân công): chỉ tìm kiếm & hiển thị các KH CHƯA phân công
         if (e.nguoiThucHien && e.nguoiThucHien.trim().length > 0) continue;
+
+        // GIỚI HẠN KHU VỰC CHO NHÂN VIÊN TRONG PHÁT SINH KT (HẠN CHẾ SỬ DỤNG DỮ LIỆU NHIỀU):
+        if (!userAreaPerm.canAllAreas && userAreaPerm.allowedAreas.length > 0) {
+          if (!isCustomerInAllowedAreas(e.khuVuc, userAreaPerm.allowedAreas)) {
+            continue;
+          }
+        }
+
+        // Lọc phụ thủ công theo khu vực (nếu người dùng chọn trong dropdown lọc phát sinh)
+        if (unassignedAreaSelect !== 'ALL' && e.khuVuc !== unassignedAreaSelect) {
+          continue;
+        }
       } else if (filterAssignedMode === 'mine') {
         if (!e.nguoiThucHien || !myNorm || !normalizeSearchStr(e.nguoiThucHien).includes(myNorm)) continue;
       }
@@ -1407,7 +1465,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
     });
 
     return areaMap;
-  }, [indexedEntries, searchQuery, filterAssignedMode, sessionUser]);
+  }, [indexedEntries, searchQuery, filterAssignedMode, sessionUser, userAreaPerm, unassignedAreaSelect]);
 
   // Thống kê kết quả tìm kiếm trên sơ đồ cây
   const treeMatchStats = useMemo(() => {
@@ -1657,6 +1715,15 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
       alert('Vui lòng chọn khách hàng cần cập nhật kết quả.');
       return;
     }
+
+    // Kiểm tra phân quyền khu vực khi ở chế độ phát sinh kiện toàn
+    if (filterAssignedMode === 'unassigned' && !userAreaPerm.canAllAreas && userAreaPerm.allowedAreas.length > 0) {
+      if (!isCustomerInAllowedAreas(selectedCustomer.khuVuc, userAreaPerm.allowedAreas)) {
+        alert(`Bạn chỉ được phân quyền thực hiện phát sinh kiện toàn tại khu vực: ${userAreaPerm.allowedAreas.join(', ')}. Khách hàng này thuộc khu vực "${selectedCustomer.khuVuc || 'Khác'}". Vui lòng liên hệ quản trị viên trong tab Hệ Thống nếu cần mở rộng phân quyền.`);
+        return;
+      }
+    }
+
     // Nhắc người dùng nếu chưa chọn giá trị nào ở Kết quả kiểm tra hoặc Tình hình niêm chì
     if (!inspectKetQua && !inspectChi) {
       const msg = 'Vui lòng chọn Kết quả kiểm tra ("Bình thường" hoặc "Không") và Tình hình niêm chì ("Có chì" hoặc "Không chì") trước khi lưu.';
@@ -2503,13 +2570,49 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
               </button>
             </div>
 
-            {/* Hướng dẫn khi bật chế độ Phát sinh kiện toàn */}
+            {/* Hướng dẫn và thông tin phân quyền khu vực khi bật chế độ Phát sinh kiện toàn */}
             {filterAssignedMode === 'unassigned' && (
-              <div className="flex items-center justify-between px-2.5 py-1.5 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-900 animate-in fade-in">
-                <div className="flex items-center gap-1.5 font-semibold">
+              <div className="flex flex-col gap-1.5 p-2.5 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/90 rounded-xl text-[11px] text-amber-900 shadow-xs animate-in fade-in">
+                <div className="flex items-center gap-1.5 font-bold">
                   <Zap className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                  <span>Chế độ phát sinh: Tìm & chọn KH chưa phân công. Khi lưu, Người thực hiện sẽ là bạn ({sessionUser?.name || 'Nhân viên'})</span>
+                  <span>Chế độ phát sinh KT: Tìm kiếm & kiện toàn KH chưa phân công</span>
                 </div>
+                
+                {/* Thông tin phân quyền khu vực */}
+                {!userAreaPerm.canAllAreas && userAreaPerm.allowedAreas.length > 0 ? (
+                  <div className="flex items-center gap-1.5 flex-wrap pt-0.5 border-t border-amber-200/60 text-[10px]">
+                    <span className="font-semibold text-amber-800">Khu vực của bạn:</span>
+                    <span className="font-bold text-amber-950 bg-amber-200/80 px-2 py-0.5 rounded-md border border-amber-300">
+                      {userAreaPerm.allowedAreas.join(', ')}
+                    </span>
+                    <span className="text-amber-700 italic">
+                      (Chỉ hiển thị KH trong khu vực này để hạn chế sử dụng dữ liệu 3G/4G)
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between gap-1.5 flex-wrap pt-0.5 border-t border-amber-200/60 text-[10px]">
+                    <div className="flex items-center gap-1">
+                      <span className="font-bold text-teal-800 bg-teal-100 px-2 py-0.5 rounded-md border border-teal-200">
+                        Toàn quyền tất cả khu vực
+                      </span>
+                      <span className="text-slate-600">Được phép làm mọi địa bàn</span>
+                    </div>
+                    {/* Cho phép chọn nhanh 1 khu vực để tiết kiệm dữ liệu nếu muốn */}
+                    <div className="flex items-center gap-1">
+                      <span className="text-slate-500 font-medium">Lọc nhanh:</span>
+                      <select
+                        value={unassignedAreaSelect}
+                        onChange={e => setUnassignedAreaSelect(e.target.value)}
+                        className="px-1.5 py-0.5 bg-white border border-amber-300 rounded text-[10px] font-bold text-amber-900 focus:outline-none"
+                      >
+                        <option value="ALL">Tất cả khu vực</option>
+                        {allKhuVucs.map(kv => (
+                          <option key={kv} value={kv}>{kv}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

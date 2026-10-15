@@ -21,8 +21,26 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
     const [filter, setFilter] = useState('');
 
     // Collapse states
+    const [isWarningExpanded, setIsWarningExpanded] = useState<boolean>(() => {
+        try {
+            const saved = localStorage.getItem('tuti_warning_expanded');
+            return saved !== null ? JSON.parse(saved) : true;
+        } catch {
+            return true;
+        }
+    });
     const [isUnprocessedExpanded, setIsUnprocessedExpanded] = useState(true);
     const [isProcessedExpanded, setIsProcessedExpanded] = useState(true);
+
+    const toggleWarningExpanded = () => {
+        setIsWarningExpanded(prev => {
+            const next = !prev;
+            try {
+                localStorage.setItem('tuti_warning_expanded', JSON.stringify(next));
+            } catch {}
+            return next;
+        });
+    };
     const [itemToDelete, setItemToDelete] = useState<TutiEntry | null>(null);
     const [toastMessage, setToastMessage] = useState<string | null>(null);
     const [unprocessedLimit, setUnprocessedLimit] = useState(30);
@@ -329,24 +347,53 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
     return (
         <div className="space-y-6">
             {missingWarnings.length > 0 && (
-                <div className="bg-red-50/80 border border-red-200/60 rounded-2xl p-4 shadow-sm backdrop-blur-sm animate-in fade-in slide-in-from-top-2">
-                    <div className="flex items-center gap-2 mb-3">
-                        <AlertCircle className="w-5 h-5 text-red-600" />
-                        <h3 className="font-bold text-red-900 text-sm uppercase tracking-wider">Cảnh báo thiếu dữ liệu kiểm tra TU - TI</h3>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                        {missingWarnings.map((w, idx) => (
-                            <div key={idx} className="bg-white/80 border border-red-100 p-3 rounded-xl shadow-sm">
-                                <div className="font-bold text-slate-800 text-sm mb-1">{w.team}</div>
-                                <div className="text-xs text-slate-600 mb-1">
-                                    Chưa nhập <span className="font-bold text-red-600">{w.count} ngày</span>
-                                </div>
-                                <div className="text-[11px] font-mono text-slate-500 bg-slate-50/50 p-1.5 rounded border border-slate-100">
-                                    {w.dates}
-                                </div>
+                <div className="bg-red-50/80 border border-red-200/60 rounded-2xl shadow-sm backdrop-blur-sm animate-in fade-in slide-in-from-top-2 overflow-hidden transition-all">
+                    <div 
+                        onClick={toggleWarningExpanded}
+                        className="flex items-center justify-between gap-3 p-3.5 sm:p-4 cursor-pointer select-none hover:bg-red-100/40 transition-colors"
+                        title={isWarningExpanded ? "Bấm để co lại cảnh báo" : "Bấm để mở ra chi tiết cảnh báo"}
+                    >
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                            <div className="w-7 h-7 rounded-lg bg-red-100 flex items-center justify-center shrink-0">
+                                <AlertCircle className="w-4 h-4 text-red-600" />
                             </div>
-                        ))}
+                            <h3 className="font-bold text-red-900 text-xs sm:text-sm uppercase tracking-wider">
+                                Cảnh báo thiếu dữ liệu kiểm tra TU - TI
+                            </h3>
+                            <span className="bg-red-100/90 text-red-700 text-xs font-bold px-2.5 py-0.5 rounded-full border border-red-200 shadow-2xs">
+                                {missingWarnings.length} tổ/đội ({missingWarnings.reduce((acc, curr) => acc + curr.count, 0)} ngày chưa nhập)
+                            </span>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                toggleWarningExpanded();
+                            }}
+                            className="flex items-center gap-1.5 text-xs font-bold text-red-700 hover:text-red-900 bg-white/70 hover:bg-white border border-red-200 px-2.5 py-1.5 rounded-xl shadow-2xs shrink-0 transition-all active:scale-95 cursor-pointer"
+                        >
+                            <span>{isWarningExpanded ? "Co lại" : "Mở ra"}</span>
+                            {isWarningExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                        </button>
                     </div>
+
+                    {isWarningExpanded && (
+                        <div className="p-3.5 sm:p-4 pt-0 border-t border-red-200/40">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 pt-3">
+                                {missingWarnings.map((w, idx) => (
+                                    <div key={idx} className="bg-white/90 border border-red-100 p-3 rounded-xl shadow-2xs hover:shadow-xs transition-shadow">
+                                        <div className="font-bold text-slate-800 text-sm mb-1">{w.team}</div>
+                                        <div className="text-xs text-slate-600 mb-1">
+                                            Chưa nhập <span className="font-bold text-red-600">{w.count} ngày</span>
+                                        </div>
+                                        <div className="text-[11px] font-mono text-slate-500 bg-slate-50/60 p-1.5 rounded-lg border border-slate-100 break-words">
+                                            {w.dates}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 
