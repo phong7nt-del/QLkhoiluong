@@ -51,7 +51,9 @@ import {
   CheckCircle2,
   Tag,
   MapPin,
-  Users
+  Users,
+  Headphones,
+  ShieldCheck
 } from 'lucide-react';
 import * as XLSX from 'xlsx-js-style';
 import { 
@@ -84,6 +86,7 @@ const TABS_INFO = [
     { id: 'tuti', label: 'TU - TI' },
     { id: 'plan_progress', label: 'Tiến độ kế hoạch' },
     { id: 'kthtdd', label: 'Kiện toàn HTDD' },
+    { id: 'dvkh', label: 'DVKH' },
     { id: 'warehouse', label: 'Kho VTTB' },
     { id: 'birthday', label: 'Công Đoàn' },
     { id: 'system', label: 'Hệ thống' }
@@ -188,6 +191,7 @@ export default function SystemTab() {
         congdoan: false,
         exclusions: false,
         kthtdd_areas: false,
+        dvkh_config: false,
         actions: false,
         version: false
     });
@@ -209,6 +213,7 @@ export default function SystemTab() {
             congdoan: true,
             exclusions: true,
             kthtdd_areas: true,
+            dvkh_config: true,
             actions: true,
             version: true
         });
@@ -224,9 +229,24 @@ export default function SystemTab() {
             congdoan: false,
             exclusions: false,
             kthtdd_areas: false,
+            dvkh_config: false,
             actions: false,
             version: false
         });
+    };
+
+    // DVKH Configuration State
+    const [allowCustomNgayHoanTatDvkh, setAllowCustomNgayHoanTatDvkh] = useState(() => DataStore.getAllowCustomNgayHoanTatDvkh());
+    const [dvkhConfigMsg, setDvkhConfigMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+    const handleToggleAllowCustomNgayHoanTat = (checked: boolean) => {
+        setAllowCustomNgayHoanTatDvkh(checked);
+        DataStore.setAllowCustomNgayHoanTatDvkh(checked);
+        setDvkhConfigMsg({
+            type: 'success',
+            text: `Đã ${checked ? 'bật cho phép chọn' : 'cố định lấy ngày hiện tại cho'} Ngày Hoàn tất (DVKH).`
+        });
+        setTimeout(() => setDvkhConfigMsg(null), 3500);
     };
 
     // Google Apps Script & Google Sheets Data Source URL State
@@ -1814,14 +1834,28 @@ export default function SystemTab() {
                     </button>
 
                     {openSections.tabs && (
-                        <div className="p-4 sm:p-5 border-t border-slate-100 bg-white animate-fade-in">
+                        <div className="p-4 sm:p-5 border-t border-slate-100 bg-white animate-fade-in space-y-3">
+                            <div className="p-3 bg-purple-50/70 border border-purple-200/80 rounded-xl text-xs text-purple-900 flex items-start gap-2.5">
+                                <Shield className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
+                                <div className="leading-relaxed">
+                                    <span className="font-bold text-purple-950">Phân quyền chức danh DVKH:</span> Nhân sự thuộc bộ phận DVKH mặc định chỉ có quyền truy cập <b>Tab DVKH</b>. Tất cả các tab khác mặc định là không thấy để đảm bảo đúng thẩm quyền và bảo mật số liệu Đội QLHTĐĐ. Bạn có thể bật/tắt quyền xem từng tab cho DVKH bằng các ô bên dưới.
+                                </div>
+                            </div>
+
                             <div className="overflow-x-auto rounded-xl border border-slate-200">
                                 <table className="w-full text-sm text-left">
                                     <thead className="bg-slate-100 text-slate-600 font-bold uppercase text-[10px]">
                                         <tr>
                                             <th className="px-4 py-3 border-b border-slate-200 whitespace-nowrap sticky left-0 bg-slate-100 z-10 shadow-[1px_0_0_#e2e8f0]">Tính năng \ Vai trò</th>
                                             {ALL_ROLES.map(r => (
-                                                <th key={r} className="px-4 py-3 border-b border-slate-200 text-center whitespace-nowrap">{r}</th>
+                                                <th 
+                                                    key={r} 
+                                                    className={`px-4 py-3 border-b border-slate-200 text-center whitespace-nowrap ${
+                                                        r === 'DVKH' ? 'bg-purple-100/70 text-purple-900 font-extrabold border-x border-purple-200' : ''
+                                                    }`}
+                                                >
+                                                    {r === 'DVKH' ? 'DVKH (Dịch vụ KH)' : r}
+                                                </th>
                                             ))}
                                         </tr>
                                     </thead>
@@ -1834,12 +1868,18 @@ export default function SystemTab() {
                                                 {ALL_ROLES.map(role => {
                                                     const isChecked = (config.tabs[tab.id] || []).includes(role);
                                                     return (
-                                                        <td key={role} className="px-4 py-3 text-center border-b border-slate-100">
+                                                        <td 
+                                                            key={role} 
+                                                            className={`px-4 py-3 text-center border-b border-slate-100 ${
+                                                                role === 'DVKH' ? 'bg-purple-50/30 border-x border-purple-100' : ''
+                                                            }`}
+                                                        >
                                                             <button 
                                                                 onClick={() => handleToggleTab(tab.id, role)}
                                                                 className="w-full flex justify-center hover:scale-110 transition-transform cursor-pointer"
+                                                                title={`Bật/Tắt quyền tab ${tab.label} cho ${role}`}
                                                             >
-                                                                {isChecked ? <CheckSquare className="w-5 h-5 text-slate-800" /> : <Square className="w-5 h-5 text-slate-300" />}
+                                                                {isChecked ? <CheckSquare className="w-5 h-5 text-purple-700" /> : <Square className="w-5 h-5 text-slate-300" />}
                                                             </button>
                                                         </td>
                                                     );
@@ -3525,6 +3565,123 @@ export default function SystemTab() {
                                         <Save className="w-4 h-4" />
                                         <span>Lưu phân quyền khu vực</span>
                                     </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+
+                {/* 8.5 MỤC: CẤU HÌNH & QUẢN TRỊ DỊCH VỤ KHÁCH HÀNG (DVKH) */}
+                <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-sm transition-all">
+                    <button
+                        type="button"
+                        onClick={() => toggleSection('dvkh_config')}
+                        className="w-full flex items-center justify-between p-4 sm:p-5 bg-gradient-to-r from-purple-50/70 via-slate-50/80 to-white hover:bg-purple-50/90 transition-colors text-left cursor-pointer border-b border-transparent"
+                    >
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-purple-600 flex items-center justify-center text-white shadow-md shadow-purple-500/20 shrink-0">
+                                <Headphones className="w-5 h-5" />
+                            </div>
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <h3 className="text-base font-bold text-slate-800">
+                                        Cấu Hình Nghiệp Vụ & Phân Quyền DVKH
+                                    </h3>
+                                    <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 text-[10px] font-bold">
+                                        Tab DVKH
+                                    </span>
+                                </div>
+                                <p className="text-xs text-slate-500 mt-0.5">
+                                    Thiết lập quyền chọn Ngày Hoàn tất, hướng dẫn quy trình chuyển giao hồ sơ giữa Đội DVKH và Đội QLHTĐĐ.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 text-slate-400">
+                            <span className="text-xs font-semibold text-slate-500 hidden sm:inline">
+                                {openSections.dvkh_config ? 'Thu gọn' : 'Bấm để mở'}
+                            </span>
+                            <div className={`p-1 rounded-lg bg-slate-200/60 text-slate-700 transition-transform duration-200 ${openSections.dvkh_config ? 'rotate-180' : ''}`}>
+                                <ChevronDown className="w-4 h-4" />
+                            </div>
+                        </div>
+                    </button>
+
+                    {openSections.dvkh_config && (
+                        <div className="p-4 sm:p-5 border-t border-slate-100 bg-white animate-fade-in space-y-5">
+                            {dvkhConfigMsg && (
+                                <div className={`p-3.5 rounded-xl text-xs font-semibold flex items-center gap-2 shadow-xs ${
+                                    dvkhConfigMsg.type === 'success' 
+                                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' 
+                                        : 'bg-red-50 text-red-800 border border-red-200'
+                                }`}>
+                                    <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+                                    <span>{dvkhConfigMsg.text}</span>
+                                </div>
+                            )}
+
+                            {/* Card: Thiết lập Ngày Hoàn Tất */}
+                            <div className="bg-slate-50 rounded-xl p-4 border border-slate-200/80 space-y-3">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                    <div>
+                                        <h4 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                                            <span>Cho phép tùy chọn Ngày Hoàn tất (NgayHoanTat)</span>
+                                            {allowCustomNgayHoanTatDvkh ? (
+                                                <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded-full">
+                                                    Đang cho phép chọn ngày
+                                                </span>
+                                            ) : (
+                                                <span className="px-2 py-0.5 bg-slate-200 text-slate-700 text-[10px] font-bold rounded-full">
+                                                    Cố định ngày hiện tại
+                                                </span>
+                                            )}
+                                        </h4>
+                                        <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                                            Khi nhân viên thi công hoàn tất hồ sơ ở Tab 3:
+                                            <br />
+                                            • <b>Không cho chọn (Mặc định):</b> Hệ thống tự động ghi nhận ngày hoàn tất là ngày hiện tại (định dạng <code>dd/mm/yyyy</code>), trường ngày bị khóa không cho sửa.
+                                            <br />
+                                            • <b>Cho phép chọn:</b> Nhân viên có thể tùy chọn ngày hoàn tất khác (nếu thi công hoàn thành vào ngày trước đó hoặc điều chỉnh lịch).
+                                        </p>
+                                    </div>
+                                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                                        <input
+                                            type="checkbox"
+                                            checked={allowCustomNgayHoanTatDvkh}
+                                            onChange={(e) => handleToggleAllowCustomNgayHoanTat(e.target.checked)}
+                                            className="sr-only peer"
+                                        />
+                                        <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                                    </label>
+                                </div>
+                            </div>
+
+                            {/* Card: Thông tin phân quyền & vai trò DVKH */}
+                            <div className="bg-purple-50/60 rounded-xl p-4 border border-purple-200/80 space-y-2.5 text-xs text-purple-950">
+                                <div className="font-bold flex items-center gap-2 text-purple-900 text-sm">
+                                    <ShieldCheck className="w-4 h-4 text-purple-600" />
+                                    <span>Quy Định Phân Quyền & Quy Trình Xử Lý Hồ Sơ DVKH</span>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+                                    <div className="bg-white p-3 rounded-lg border border-purple-100 shadow-xs">
+                                        <div className="font-bold text-slate-800 text-[11px] mb-1">1. Tab 1 - Nhập mới & Giao (DVKH)</div>
+                                        <p className="text-slate-600 leading-relaxed text-[11px]">
+                                            Người dùng thuộc <b>bộ phận DVKH</b> chỉ có quyền nhập mới hồ sơ và chọn giao sang QLHTĐĐ. Chỉ <b>Tổ trưởng/Tổ phó treo tháo, Đội trưởng/Đội phó</b> mới có quyền bấm xác nhận nhận hồ sơ đã giao.
+                                        </p>
+                                    </div>
+                                    <div className="bg-white p-3 rounded-lg border border-purple-100 shadow-xs">
+                                        <div className="font-bold text-slate-800 text-[11px] mb-1">2. Tab 2 - Giao thi công (QLHTĐĐ)</div>
+                                        <p className="text-slate-600 leading-relaxed text-[11px]">
+                                            Tổ trưởng, Tổ phó giao cho nhân viên thuộc tổ mình. Đội trưởng, Đội phó giao toàn bộ nhân viên các tổ treo tháo. <b>DVKH không thể giao ở tab này.</b>
+                                        </p>
+                                    </div>
+                                    <div className="bg-white p-3 rounded-lg border border-purple-100 shadow-xs">
+                                        <div className="font-bold text-slate-800 text-[11px] mb-1">3. Tab 3 - Báo cáo kết quả thi công</div>
+                                        <p className="text-slate-600 leading-relaxed text-[11px]">
+                                            <b>Chỉ nhân viên được giao</b> mới thấy hồ sơ để thực hiện cập nhật kết quả (Xong / Chưa - hỗ trợ ghi chú bằng giọng nói). <b>DVKH không thể cập nhật ở tab này.</b>
+                                        </p>
+                                    </div>
                                 </div>
                             </div>
                         </div>

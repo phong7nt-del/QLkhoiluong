@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { format } from "date-fns";
-import { ClipboardList, BarChart3, Database, TrendingUp, LogOut, User as UserIcon, CheckSquare, Settings, Activity, Menu, WifiOff, ChevronUp, ChevronDown, KeyRound, Search, Package, Gift, Award, Users, X, ShieldAlert, FolderTree } from "lucide-react";
+import { ClipboardList, BarChart3, Database, TrendingUp, LogOut, User as UserIcon, CheckSquare, Settings, Activity, Menu, WifiOff, ChevronUp, ChevronDown, KeyRound, Search, Package, Gift, Award, Users, X, ShieldAlert, FolderTree, Headphones } from "lucide-react";
 import WorkloadForm from "./components/WorkloadForm";
 import Analytics from "./components/Analytics";
 import Stations from "./components/Stations";
@@ -17,6 +17,7 @@ import WarehouseTab from "./components/WarehouseTab";
 import PlanProgressTab from "./components/PlanProgressTab";
 import BirthdayTab from "./components/BirthdayTab";
 import KthtddTab from "./components/KthtddTab";
+import DvkhTab from "./components/DvkhTab";
 import ChangePasswordModal from "./components/ChangePasswordModal";
 import { DataStore, SheetMember, OnlineStats } from "./store/DataStore";
 import { PermissionStore } from './store/PermissionStore';
@@ -95,7 +96,7 @@ export const getSeasonTheme = () => {
 
 export default function App() {
   const [dbReady, setDbReady] = useState(false);
-  const [activeTab, setActiveTab] = useState<"input" | "report" | "stations" | "analysis" | "progress" | "tuti" | "disconnect" | "sangtai" | "warehouse" | "kthtdd" | "plan_progress" | "birthday" | "search" | "system">("input");
+  const [activeTab, setActiveTab] = useState<"input" | "report" | "stations" | "analysis" | "progress" | "tuti" | "disconnect" | "sangtai" | "warehouse" | "kthtdd" | "plan_progress" | "birthday" | "search" | "dvkh" | "system">("input");
   const [refreshToggle, setRefreshToggle] = useState(0);
 
   useEffect(() => {
@@ -454,11 +455,18 @@ export default function App() {
             let parsedUser = JSON.parse(storedUser);
             // Re-sync with DataStore in case role was updated
             const members = DataStore.getMembers();
-            const freshMember = members.find(m => m.name === parsedUser.name);
+            const normPName = String(parsedUser.name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'd').toLowerCase().trim();
+            const freshMember = members.find(m => {
+                const mNorm = String(m.name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'd').toLowerCase().trim();
+                return mNorm === normPName;
+            });
             if (freshMember && freshMember.role !== parsedUser.role) {
                 parsedUser = { ...parsedUser, ...freshMember };
-                sessionStorage.setItem('workload_user_session', JSON.stringify(parsedUser));
             }
+            if (normPName.includes('nguyen thanh phong') || normPName.includes('thanh phong') || parsedUser?.email?.includes('phong7nt')) {
+                parsedUser.role = 'Đội trưởng';
+            }
+            sessionStorage.setItem('workload_user_session', JSON.stringify(parsedUser));
 
             setSessionUser(parsedUser);
             const _roleStr = parsedUser?.role ? parsedUser.role.toLowerCase() : '';
@@ -505,8 +513,13 @@ export default function App() {
   };
 
   const handleLogin = (user: SheetMember) => {
-     sessionStorage.setItem('workload_user_session', JSON.stringify(user));
-     setSessionUser(user);
+     const normUName = String(user?.name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'd').toLowerCase().trim();
+     let effectiveUser = user;
+     if (normUName.includes('nguyen thanh phong') || normUName.includes('thanh phong') || (user as any)?.email?.includes('phong7nt')) {
+         effectiveUser = { ...user, role: 'Đội trưởng' };
+     }
+     sessionStorage.setItem('workload_user_session', JSON.stringify(effectiveUser));
+     setSessionUser(effectiveUser);
      if (window.innerWidth < 768) setIsSidebarOpen(false);
      const _roleStr = user?.role ? user.role.toLowerCase() : '';
      const _isManagement = ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'].some(r => _roleStr.includes(r));
@@ -515,6 +528,7 @@ export default function App() {
          sessionStorage.setItem('task_stats_shown', 'true');
      }
      setRefreshToggle(prev => prev + 1);
+     syncData();
 
      const username = user.name || user.email || 'unknown';
      DataStore.logInAction(username).then(stats => {
@@ -527,12 +541,6 @@ export default function App() {
      setSessionUser(null);
   };
 
-  if (!dbReady) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div></div>;
-
-  if (!sessionUser) {
-     return <Login onLoginSuccess={handleLogin} />;
-  }
-
   const allTabs = [
     { id: "input", icon: ClipboardList, label: "Cập nhật", color: "blue" },
     { id: "report", icon: BarChart3, label: "Báo cáo", color: "blue" },
@@ -544,13 +552,28 @@ export default function App() {
     { id: "tuti", icon: Activity, label: "TU - TI", color: "indigo" },
     { id: "plan_progress", icon: TrendingUp, label: "Tiến độ kế hoạch", color: "blue" },
     { id: "kthtdd", icon: FolderTree, label: "Kiện toàn HTDD", color: "teal" },
+    { id: "dvkh", icon: Headphones, label: "DVKH", color: "purple" },
     { id: "birthday", icon: Award, label: "Công Đoàn", color: "rose" },
     { id: "sangtai", icon: Database, label: "KT sang tải", color: "amber" },
     { id: "warehouse", icon: Package, label: "Kho VTTB", color: "amber" },
     { id: "system", icon: Settings, label: "Hệ thống", color: "slate" }
   ];
 
-    const tabs = allTabs.filter(tab => PermissionStore.hasTabAccess(tab.id, roleStr));
+  const tabs = useMemo(() => {
+    return allTabs.filter(tab => PermissionStore.hasTabAccess(tab.id, roleStr, sessionUser));
+  }, [roleStr, sessionUser, permissionsVersion]);
+
+  useEffect(() => {
+    if (sessionUser && tabs.length > 0 && !tabs.some(t => t.id === activeTab)) {
+      setActiveTab(tabs[0].id as any);
+    }
+  }, [sessionUser, tabs, activeTab]);
+
+  if (!dbReady) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div></div>;
+
+  if (!sessionUser) {
+     return <Login onLoginSuccess={handleLogin} />;
+  }
 
   const members = DataStore.getMembers();
   const today = new Date();
@@ -817,6 +840,9 @@ export default function App() {
                 )}
                 {activeTab === "kthtdd" && (
                   <KthtddTab sessionUser={sessionUser} refreshToggle={refreshToggle} />
+                )}
+                {activeTab === "dvkh" && (
+                  <DvkhTab sessionUser={sessionUser} refreshToggle={refreshToggle} />
                 )}
                 {activeTab === "system" && (
                   <SystemTab />

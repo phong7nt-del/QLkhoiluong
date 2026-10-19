@@ -47,6 +47,11 @@ export interface XuLyDoXaEntry {
 export interface SheetMember {
   team: string;
   name: string;
+  role?: string;
+  msnv?: string;
+  sinhNhat?: string;
+  boPhanCongTac?: string;
+  boPhan?: string;
   [key: string]: any;
 }
 
@@ -69,6 +74,28 @@ export interface KthtddEntry {
   x?: string;     // Tọa độ X (Vĩ độ / Latitude hoặc X sheet)
   y?: string;     // Tọa độ Y (Kinh độ / Longitude hoặc Y sheet)
   pic?: string;   // Đường link ảnh công tơ trên Google Drive (trường Pic sheet KTHTDD)
+}
+
+export interface DvkhEntry {
+  stt?: number | string;
+  maKh: string;
+  tenKh: string;
+  diaChi: string;
+  ngayNhan?: string; // dd/mm/yyyy hh:mm:ss (Ngày nhận hồ sơ vào QLHTĐĐ)
+  nguoiNhan?: string; // Tên người nhận (Tổ trưởng/Đội phó/Đội trưởng)
+  ngayGiao?: string; // dd/mm/yyyy hh:mm:ss (Ngày giao thi công cho nhân viên)
+  nguoiGiao?: string; // Tên người giao việc
+  nguoiThucHien?: string; // Nhân viên thực hiện thi công
+  ngayHoanTat?: string; // dd/mm/yyyy
+  ketQua?: 'Chưa' | 'Xong' | ''; // Kết quả thực hiện
+  ghiChu?: string; // Ghi chú (bắt buộc nếu Chưa)
+  sdt?: string; // Số điện thoại liên hệ khách hàng
+  trangThai: 'Chưa giao' | 'Chờ giao' | 'Chờ nhận' | 'Đã Nhận' | 'Đã Giao thi công' | 'Trở ngại' | 'Xong';
+  loaiYeuCau?: string; // Gắn mới, Thay 3 giá, Di dời, v.v.
+  ngayTao?: string; // dd/mm/yyyy hh:mm:ss
+  nguoiTao?: string; // Người tạo từ DVKH
+  pic?: string; // Link ảnh chứng minh trở ngại trên Google Drive
+  isLocal?: boolean;
 }
 
 export interface OnlineStats {
@@ -235,7 +262,10 @@ const PROGRESS_KEY = 'sheet_progress_v1';
 const LOCAL_PROGRESS_UPDATES_KEY = 'local_progress_updates_v1';
 const TUTI_KEY = 'sheet_tuti_v1';
 const LOCAL_TUTI_UPDATES_KEY = 'local_tuti_updates_v1';
+const DVKH_KEY = 'sheet_dvkh_v1';
+const ALLOW_CUSTOM_NGAY_HOAN_TAT_DVKH_KEY = 'config_allow_custom_ngay_hoan_tat_dvkh_v1';
 
+let memCacheDvkhList: DvkhEntry[] | null = null;
 let memCacheKhuVucList: any[] | null = null;
 let memCacheMatKetNoiList: any[] | null = null;
 let memCacheChiTietMKNList: any[] | null = null;
@@ -302,10 +332,22 @@ export const initDB = async () => {
     } catch (e) {
       console.warn('Could not preload kthtdd from IDB', e);
     }
+    try {
+      const dvkhVal = await get(DVKH_KEY);
+      if (dvkhVal) {
+        let parsed = typeof dvkhVal === 'string' ? JSON.parse(dvkhVal) : dvkhVal;
+        if (Array.isArray(parsed)) {
+          memCacheDvkhList = parsed;
+          safeSetItem(DVKH_KEY, JSON.stringify(parsed));
+        }
+      }
+    } catch (e) {
+      console.warn('Could not preload DVKH from IDB', e);
+    }
     const keys = [
       STORAGE_KEY, SCRIPT_URL_KEY, SPREADSHEET_ID_KEY, TEAMS_KEY, MEMBERS_KEY, STATIONS_KEY,
       DINHMUC_KEY, PROGRESS_KEY, LOCAL_PROGRESS_UPDATES_KEY, TUTI_KEY,
-      LOCAL_TUTI_UPDATES_KEY, 'sheet_khuvuc_v1', 'sheet_matketnoi_v1',
+      LOCAL_TUTI_UPDATES_KEY, DVKH_KEY, ALLOW_CUSTOM_NGAY_HOAN_TAT_DVKH_KEY, 'sheet_khuvuc_v1', 'sheet_matketnoi_v1',
       'sheet_chitietmkn_v1', 'sheet_sangtai_v1', 'sheet_kho_v1', 'sheet_vttb_v1', 'config_exclude_saturday', 'config_exclude_sunday', 'config_exclude_nghi',
       'config_exclude_holidays', 'config_holidays_v1',
       'config_external_report_links_v1', 'config_tuyen_duong_exclusions_v1', 'config_cong_doan_leaders'
@@ -371,6 +413,9 @@ export function getTeamPrefix(teamName: string): string {
     
     return char;
 }
+
+
+export const DEFAULT_SAMPLE_DVKH: DvkhEntry[] = [];
 
 export const DataStore = {
 
@@ -1519,6 +1564,154 @@ export const DataStore = {
          return false;
      }
   },
+
+  // Tải siêu tốc danh sách nhân viên & mật khẩu MSNV để phục vụ đăng nhập tức thì (chỉ mất ~0.5s thay vì tải toàn bộ 10 sheet)
+  syncLoginMembers: async (): Promise<SheetMember[]> => {
+    try {
+      const sheetId = DataStore.getSpreadsheetId() || DEFAULT_SPREADSHEET_ID;
+      
+      const fetchWithTimeout = async (sheetName: string) => {
+        try {
+          return await DataStore.fetchSheetCSV(sheetName, sheetId);
+        } catch {
+          return '';
+        }
+      };
+
+      // Tải song song CBCNV (MSNV/Mật khẩu) và CongTac (Tổ công tác/Chức danh)
+      const [cbcnvText, ctText] = await Promise.all([
+        fetchWithTimeout('CBCNV'),
+        fetchWithTimeout('CongTac')
+      ]);
+
+      let cbcnvMap = new Map<string, { msnv: string; role: string }>();
+      if (cbcnvText && !cbcnvText.includes('<html')) {
+        const { data } = Papa.parse(cbcnvText, { header: false });
+        let headRow = -1;
+        let msnvCol = -1, nameCol = -1, roleCol = -1;
+        for (let r = 0; r < Math.min(5, data.length); r++) {
+          const rowData = data[r] as string[];
+          if (!rowData) continue;
+          for (let c = 0; c < rowData.length; c++) {
+            const val = String(rowData[c] || '').toLowerCase().trim();
+            if (val.includes('mã nhân viên') || val.includes('msnv')) {
+              msnvCol = c;
+              headRow = r;
+            }
+            if (val.includes('họ và tên') || val === 'họ tên') nameCol = c;
+            if (val.includes('chức danh') || val.includes('công việc') || val.includes('chức vụ')) roleCol = c;
+          }
+          if (headRow !== -1) break;
+        }
+
+        if (headRow !== -1 && msnvCol !== -1 && nameCol !== -1) {
+          for (let i = headRow + 1; i < data.length; i++) {
+            const row = data[i] as string[];
+            if (row && row.length > Math.max(msnvCol, nameCol)) {
+              const msnv = String(row[msnvCol] || '').trim();
+              const rawName = String(row[nameCol] || '').trim();
+              const role = roleCol !== -1 ? String(row[roleCol] || '').trim() : '';
+              if (rawName && msnv) {
+                const key = rawName.toLowerCase().replace(/\s+/g, '');
+                cbcnvMap.set(key, { msnv, role });
+              }
+            }
+          }
+        }
+      }
+
+      let newMembers: SheetMember[] = [];
+      let newTeams = new Set<string>();
+      if (ctText && !ctText.includes('<html')) {
+        const ctData = Papa.parse(ctText, { header: false }).data;
+        let headerRowIdx = -1, nameColIdx = -1, msnvColIdx = -1, roleColIdx = -1, teamColIdx = 5, boPhanColIdx = -1;
+        for (let r = 0; r < Math.min(5, ctData.length); r++) {
+          const rowData = ctData[r] as string[];
+          if (!rowData) continue;
+          for (let c = 0; c < rowData.length; c++) {
+            const val = String(rowData[c] || '').toLowerCase().trim();
+            const cleanVal = val.replace(/\s+/g, '');
+            if (val.includes('họ và tên') || val === 'họ tên' || cleanVal === 'họvàtên' || cleanVal === 'họtên') {
+              headerRowIdx = r;
+              nameColIdx = c;
+            }
+            if (cleanVal === 'msnv' || cleanVal === 'manv' || val.includes('mã nhân viên') || val.includes('msnv') || val.includes('mật khẩu') || val.includes('password')) {
+              msnvColIdx = c;
+            }
+            if (val.includes('tổ công tác') || cleanVal.includes('tổcôngtác') || val.includes('khu vực')) {
+              teamColIdx = c;
+            }
+            if (cleanVal.includes('chứcdanh') || cleanVal.includes('chucdanh') || val.includes('chức vụ') || cleanVal.includes('chứcdanh,côngviệc')) {
+              roleColIdx = c;
+            }
+            if (val.includes('bộ phận') || val.includes('bo phan')) {
+              boPhanColIdx = c;
+            }
+          }
+          if (headerRowIdx !== -1) break;
+        }
+
+        if (headerRowIdx !== -1 && nameColIdx !== -1) {
+          let currentTeam = '';
+          for (let i = headerRowIdx + 1; i < ctData.length; i++) {
+            const row = ctData[i] as string[];
+            if (!row || !row[nameColIdx]) continue;
+            const rawName = row[nameColIdx].trim();
+            if (!rawName) continue;
+
+            let teamStr = row[teamColIdx] ? row[teamColIdx].trim().replace(/\s+/g, ' ') : '';
+            if (teamStr && teamStr.toLowerCase() !== 'khu vực' && teamStr.toLowerCase() !== 'tổ công tác') {
+              currentTeam = teamStr;
+            }
+            let finalTeam = currentTeam || 'Không xác định';
+            if (finalTeam && finalTeam.toLowerCase() !== 'khu vực' && finalTeam.toLowerCase() !== 'tổ công tác') {
+              newTeams.add(finalTeam);
+            }
+
+            const key = rawName.toLowerCase().replace(/\s+/g, '');
+            const cbcnvInfo = cbcnvMap.get(key) || { msnv: '', role: '' };
+            let memberMsnv = cbcnvInfo.msnv;
+            if (msnvColIdx !== -1 && row[msnvColIdx]) {
+              memberMsnv = String(row[msnvColIdx]).trim();
+            }
+
+            let memberRole = roleColIdx !== -1 && row[roleColIdx] ? String(row[roleColIdx]).trim() : cbcnvInfo.role;
+            const normRawName = rawName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().trim();
+            if (normRawName.includes('nguyen thanh phong') || normRawName.includes('thanh phong')) {
+              memberRole = memberRole ? `Đội trưởng, ${memberRole}` : 'Đội trưởng';
+            }
+
+            let memberBoPhan = boPhanColIdx !== -1 && row[boPhanColIdx] ? String(row[boPhanColIdx]).trim() : '';
+            if (!memberBoPhan && (finalTeam.toLowerCase().includes('dvkh') || memberRole.toLowerCase().includes('dvkh'))) {
+              memberBoPhan = 'DVKH';
+            }
+
+            newMembers.push({
+              name: rawName,
+              team: finalTeam,
+              msnv: memberMsnv,
+              role: memberRole,
+              sinhNhat: '',
+              boPhanCongTac: memberBoPhan,
+              boPhan: memberBoPhan
+            });
+          }
+        }
+      }
+
+      if (newMembers.length > 0) {
+        safeSetItem(MEMBERS_KEY, JSON.stringify(newMembers));
+        if (newTeams.size > 0) {
+          safeSetItem(TEAMS_KEY, JSON.stringify(Array.from(newTeams)));
+        }
+        return newMembers;
+      }
+    } catch (e) {
+      console.warn('syncLoginMembers error:', e);
+    }
+    return DataStore.getMembers();
+  },
+
   syncMasterData: async () => {
     try {
       let json: any = { status: 'success', members: [], teams: [] };
@@ -1602,40 +1795,84 @@ export const DataStore = {
                    let nameColIdx = -1;
                    let msnvColIdx = -1;
                    let roleColIdx = -1;
-                   let teamColIdx = 5;
+                   let roleColScore = 0;
+                   let teamColIdx = -1;
+                   let teamColScore = 0;
                    let sinhNhatColIdx = -1;
+                   let boPhanColIdx = -1;
+                   let boPhanColScore = 0;
                    
                    for(let r=0; r<5; r++) {
                        if(ctData[r]) {
                            const rowData = ctData[r] as string[];
                            for(let c=0; c<rowData.length; c++) {
                                const val = String(rowData[c] || '').toLowerCase().trim();
-                               if (val.includes('họ và tên') || val === 'họ tên') {
+                               const cleanVal = val.replace(/\s+/g, '');
+                               
+                               if (val.includes('họ và tên') || val === 'họ tên' || cleanVal === 'họvàtên' || cleanVal === 'họtên') {
                                    headerRowIdx = r;
                                    nameColIdx = c;
                                }
-                               if (val.includes('mã nhân viên') || val.includes('msnv') || val.includes('mật khẩu') || val.includes('password')) {
+                               if (cleanVal === 'msnv' || cleanVal === 'manv' || val.includes('mã nhân viên') || val.includes('msnv') || val.includes('mật khẩu') || val.includes('password')) {
                                    msnvColIdx = c;
                                }
-                               if(val.includes('khu vực') || val.includes('khu vuc') || val === 'tổ công tác') {
-                                   teamColIdx = c;
-                               }
-                               if(val.includes('sinh') || val.includes('ngàysinh')) {
+                               if(val.includes('sinh') || val.includes('ngàysinh') || cleanVal.includes('ngàysinh')) {
                                    sinhNhatColIdx = c;
                                }
-                               const cleanVal = val.replace(/\s+/g, '');
-                               if (
-                                   cleanVal.includes('chứcdanh') || cleanVal.includes('chucdanh') ||
-                                   cleanVal.includes('côngviệc') || cleanVal.includes('congviec') ||
-                                   cleanVal.includes('chứcvụ') || cleanVal.includes('chucvu') ||
-                                   val.includes('chức danh') || val.includes('công việc')
-                               ) {
-                                   roleColIdx = c;
+                               
+                               // Prioritize Chức danh, công việc
+                               const isIgnoredJobDesc = val.includes('nội dung') || val.includes('nhiệm vụ') || val.includes('mô tả') || val.includes('địa bàn') || val.includes('kế hoạch') || val.includes('thực hiện');
+                               if (!isIgnoredJobDesc) {
+                                   if (cleanVal.includes('chứcdanh,côngviệc') || cleanVal.includes('chucdanh,congviec') || (val.includes('chức danh') && val.includes('công việc'))) {
+                                       if (roleColScore < 100) {
+                                           roleColIdx = c;
+                                           roleColScore = 100;
+                                       }
+                                   } else if (cleanVal.includes('chứcdanh') || cleanVal.includes('chucdanh') || cleanVal.includes('chứcvụ') || cleanVal.includes('chucvu')) {
+                                       if (roleColScore < 80) {
+                                           roleColIdx = c;
+                                           roleColScore = 80;
+                                       }
+                                   } else if (cleanVal === 'côngviệc' || cleanVal === 'congviec' || val === 'công việc') {
+                                       if (roleColScore < 50) {
+                                           roleColIdx = c;
+                                           roleColScore = 50;
+                                       }
+                                   }
+                               }
+
+                               // Prioritize Tổ công tác / Khu vực
+                               if (!val.includes('bộ phận') && !val.includes('chức danh')) {
+                                   if (val.includes('tổ công tác') || cleanVal.includes('tổcôngtác')) {
+                                       if (teamColScore < 100) {
+                                           teamColIdx = c;
+                                           teamColScore = 100;
+                                       }
+                                   } else if (val.includes('khu vực') || val.includes('khu vuc')) {
+                                       if (teamColScore < 80) {
+                                           teamColIdx = c;
+                                           teamColScore = 80;
+                                       }
+                                   }
+                               }
+
+                               // Prioritize Bộ phận công tác
+                               if (val.includes('bộ phận') || val.includes('bo phan') || val.includes('phòng ban') || val.includes('đơn vị') || val.includes('don vi')) {
+                                   if (val.includes('bộ phận công tác') || cleanVal.includes('bộphậncôngtác')) {
+                                       if (boPhanColScore < 100) {
+                                           boPhanColIdx = c;
+                                           boPhanColScore = 100;
+                                       }
+                                   } else if (boPhanColScore < 80) {
+                                       boPhanColIdx = c;
+                                       boPhanColScore = 80;
+                                   }
                                }
                            }
                        }
                        if(headerRowIdx !== -1) break;
                    }
+                   if (teamColIdx === -1) teamColIdx = 5;
 
                    if(headerRowIdx !== -1) {
                        let currentTeam = '';
@@ -1689,7 +1926,26 @@ export const DataStore = {
                           if (!memberRole && cbcnvInfo.role) {
                               memberRole = cbcnvInfo.role;
                           } else if (memberRole && cbcnvInfo.role && !memberRole.toLowerCase().includes(cbcnvInfo.role.toLowerCase())) {
-                              memberRole = memberRole + ', ' + cbcnvInfo.role;
+                              const isLeaderRole = ['đội trưởng', 'đội phó', 'giám đốc', 'tổ trưởng', 'tổ phó'].some(k => memberRole.toLowerCase().includes(k));
+                              if (!isLeaderRole) {
+                                  memberRole = memberRole + ', ' + cbcnvInfo.role;
+                              }
+                          }
+
+                          // Ensure Nguyễn Thành Phong is explicitly recognized as Đội trưởng
+                          const normRawName = rawName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'd').toLowerCase().trim();
+                          if (normRawName.includes('nguyen thanh phong') || normRawName.includes('thanh phong')) {
+                              if (!memberRole.toLowerCase().includes('đội trưởng') && !memberRole.toLowerCase().includes('doi truong')) {
+                                  memberRole = memberRole ? `Đội trưởng, ${memberRole}` : 'Đội trưởng';
+                              }
+                          }
+
+                          let memberBoPhan = '';
+                          if (boPhanColIdx !== -1 && row[boPhanColIdx]) {
+                              memberBoPhan = String(row[boPhanColIdx]).trim();
+                          }
+                          if (!memberBoPhan && (finalTeam.toLowerCase().includes('dvkh') || memberRole.toLowerCase().includes('dvkh'))) {
+                              memberBoPhan = 'DVKH';
                           }
 
                           newMembers.push({
@@ -1697,7 +1953,9 @@ export const DataStore = {
                               team: finalTeam,
                               msnv: memberMsnv,
                               role: memberRole,
-                              sinhNhat: sinhNhat
+                              sinhNhat: sinhNhat,
+                              boPhanCongTac: memberBoPhan,
+                              boPhan: memberBoPhan
                           });
                        }
                    }
@@ -2252,6 +2510,29 @@ export const DataStore = {
                }
             } catch(e) {
                console.warn('Could not fetch VTTB:', e);
+            }
+
+            // Fetch DVKH
+            try {
+               const dvkhSheetNames = ['DVKH', 'dvkh', 'Dịch vụ khách hàng', 'DV_KH'];
+               let dvkhText = '';
+               for (const sName of dvkhSheetNames) {
+                   const tempText = await DataStore.fetchSheetCSV(sName, sheetId);
+                   if (tempText && !tempText.includes('<html') && tempText.trim().length > 20) {
+                       dvkhText = tempText;
+                       break;
+                   }
+               }
+               if (dvkhText) {
+                   const parsed = DataStore.parseDvkhCSVData(dvkhText);
+                   if (parsed && parsed.length > 0) {
+                       memCacheDvkhList = parsed;
+                       safeSetItem(DVKH_KEY, JSON.stringify(parsed));
+                       try { await set(DVKH_KEY, parsed); } catch(err) {}
+                   }
+               }
+            } catch(e) {
+               console.warn('Could not fetch DVKH sheet:', e);
             }
 
          } catch (e) {
@@ -3702,5 +3983,286 @@ export const DataStore = {
     }
 
     return { ok: false, savedLocally: true, message: lastError || 'Lỗi kết nối tới máy chủ Google Apps Script.', isTimeout };
+  },
+  // ==========================================
+  // ========== DVKH DATA MANAGEMENT ==========
+  // ==========================================
+
+  parseDvkhCSVData: (input: string | any[]): DvkhEntry[] => {
+    if (!input) return [];
+    const normalizeKey = (k: string) => String(k || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[\s_]+/g, '').replace(/đ/g, 'd');
+    
+    let rows: any[] = [];
+    if (typeof input === 'string') {
+      const parsed = Papa.parse(input, { header: false, skipEmptyLines: true });
+      const allRows = (parsed.data as any[]) || [];
+      if (allRows.length === 0) return [];
+
+      let headerRowIdx = 0;
+      for (let r = 0; r < Math.min(10, allRows.length); r++) {
+        const rowNorm = (allRows[r] || []).map((c: any) => normalizeKey(String(c || ''))).join(' ');
+        if (rowNorm.includes('makh') || (rowNorm.includes('ma') && rowNorm.includes('ten'))) {
+          headerRowIdx = r;
+          break;
+        }
+      }
+
+      const headers = (allRows[headerRowIdx] || []).map((c: any) => String(c || '').trim());
+      rows = allRows.slice(headerRowIdx + 1).map((r: any[]) => {
+        const obj: any = {};
+        headers.forEach((h: string, idx: number) => {
+          if (h) obj[h] = r[idx];
+        });
+        return obj;
+      });
+    } else if (Array.isArray(input)) {
+      rows = input;
+    } else {
+      return [];
+    }
+
+    return rows.map((row: any, idx: number) => {
+      const keys = Object.keys(row);
+      const getVal = (aliases: string[]) => {
+        for (const alias of aliases) {
+          const normAlias = normalizeKey(alias);
+          for (const k of keys) {
+            if (normalizeKey(k) === normAlias) {
+              return String(row[k] || '').trim();
+            }
+          }
+        }
+        return '';
+      };
+
+      const sttRaw = getVal(['stt', 'so thu tu', 'so_thu_tu', 'stt_hs']);
+      const maKh = getVal(['makh', 'ma khach hang', 'ma kh', 'ma_kh', 'ma']);
+      const tenKh = getVal(['tenkh', 'ten khach hang', 'ten kh', 'ho va ten', 'ho ten', 'ten']);
+      const diaChi = getVal(['diachi', 'dia chi khach hang', 'dia chi']);
+      const loaiYeuCau = getVal(['loai', 'loại', 'loaiyeucau', 'loai yeu cau', 'yeu cau', 'loai hs', 'loaiyeucauhs']);
+      const ngayNhan = getVal(['ngaynhan', 'ngay nhan', 'ngay tao', 'ngaytao']);
+      const nguoiNhan = getVal(['nguoinhan', 'nguoi nhan']);
+      const ngayGiao = getVal(['ngaygiao', 'ngay giao']);
+      const nguoiGiao = getVal(['nguoigiao', 'nguoi giao']);
+      const nguoiThucHien = getVal(['nguoithuchien', 'nguoi thuc hien', 'nhan vien']);
+      const ngayHoanTat = getVal(['ngayhoantat', 'ngay hoan tat', 'ngay xong']);
+      const ketQuaRaw = getVal(['ketqua', 'ket qua']);
+      let ghiChu = getVal(['ghichu', 'ghi chu', 'noi dung ghi chu', 'tro ngai', 'noidungghichu']);
+      const trangThaiRaw = getVal(['trangthai', 'trang thai']);
+      const sdt = getVal(['sdt', 'so dien thoai', 'dien thoai', 'phone', 'tel']);
+      const pic = getVal(['pic', 'hinhanh', 'hinh anh', 'anh', 'anh chung minh', 'anh tro ngai', 'anhtrongai']);
+      const ngayTao = getVal(['ngaytao', 'ngay tao']) || ngayNhan;
+      const nguoiTao = getVal(['nguoitao', 'nguoi tao']);
+
+      let ketQua: 'Chưa' | 'Xong' | '' = '';
+      if (ketQuaRaw.toLowerCase().includes('xong')) ketQua = 'Xong';
+      else if (ketQuaRaw.toLowerCase().includes('chua')) ketQua = 'Chưa';
+
+      // Xử lý chuẩn xác trạng thái và ghi chú
+      const normTrangThai = normalizeKey(trangThaiRaw);
+      let trangThai: DvkhEntry['trangThai'] = 'Chưa giao';
+
+      if (normTrangThai.includes('xong') || ketQua === 'Xong') {
+        trangThai = 'Xong';
+      } else if (normTrangThai.includes('trongai') || normTrangThai.includes('tro ngai') || ketQua === 'Chưa') {
+        trangThai = 'Trở ngại';
+      } else if (normTrangThai.includes('giaothicong') || normTrangThai.includes('da giao') || (ngayGiao && nguoiThucHien)) {
+        trangThai = 'Đã Giao thi công';
+      } else if (normTrangThai.includes('danhan') || normTrangThai.includes('da nhan') || (ngayNhan && nguoiNhan)) {
+        trangThai = 'Đã Nhận';
+      } else if (normTrangThai.includes('chonhan') || normTrangThai.includes('cho nhan')) {
+        trangThai = 'Chờ nhận';
+      } else if (normTrangThai.includes('chuagiao') || normTrangThai.includes('chua giao')) {
+        trangThai = 'Chưa giao';
+      } else if (!trangThaiRaw) {
+        if (ngayGiao || nguoiThucHien) trangThai = 'Đã Giao thi công';
+        else if (ngayNhan && nguoiNhan) trangThai = 'Đã Nhận';
+        else trangThai = 'Chưa giao';
+      } else {
+        // Trường hợp trangThaiRaw chứa nội dung ghi chú bị lưu nhầm vào cột trạng thái trước đó
+        if (!ghiChu && trangThaiRaw.length > 0 && !normTrangThai.includes('giao') && !normTrangThai.includes('nhan')) {
+          ghiChu = trangThaiRaw;
+        }
+        trangThai = 'Chưa giao';
+      }
+
+      return {
+        stt: sttRaw ? (parseInt(sttRaw, 10) || sttRaw) : (idx + 1),
+        maKh: maKh || `KH${String(idx + 1).padStart(4, '0')}`,
+        tenKh: tenKh || 'Khách hàng',
+        diaChi: diaChi || '',
+        sdt,
+        pic,
+        ngayNhan,
+        nguoiNhan,
+        ngayGiao,
+        nguoiGiao: '', // Không cần thiết lưu người giao vì luôn là DVKH
+        nguoiThucHien: nguoiThucHien || '',
+        ngayHoanTat,
+        ketQua,
+        ghiChu,
+        trangThai,
+        loaiYeuCau: loaiYeuCau || 'Gắn mới',
+        ngayTao,
+        nguoiTao
+      } as DvkhEntry;
+    }).filter(e => e.maKh);
+  },
+
+  getDvkhEntries: (): DvkhEntry[] => {
+    if (memCacheDvkhList && Array.isArray(memCacheDvkhList)) {
+      return memCacheDvkhList;
+    }
+    try {
+      const cached = safeGetItem(DVKH_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) {
+          memCacheDvkhList = parsed;
+          return parsed;
+        }
+      }
+    } catch (e) {}
+    memCacheDvkhList = [];
+    return [];
+  },
+
+  saveDvkhEntries: (entries: DvkhEntry[]) => {
+    memCacheDvkhList = entries;
+    safeSetItem(DVKH_KEY, JSON.stringify(entries));
+    window.dispatchEvent(new CustomEvent('dvkh_updated'));
+  },
+
+  addDvkhEntry: async (entry: DvkhEntry): Promise<DvkhEntry> => {
+    const list = [...DataStore.getDvkhEntries()];
+    if (!entry.stt) {
+      const maxStt = list.reduce((max, item) => Math.max(max, typeof item.stt === 'number' ? item.stt : parseInt(String(item.stt || 0), 10) || 0), 0);
+      entry.stt = Math.max(maxStt + 1, list.length + 1);
+    }
+    if (!entry.ngayNhan) entry.ngayNhan = entry.ngayTao || new Date().toLocaleString('vi-VN');
+    entry.nguoiGiao = ''; // Người giao luôn là DVKH nên không cần thiết phải lưu
+    if (!entry.trangThai) entry.trangThai = 'Chưa giao';
+
+    list.unshift(entry);
+    DataStore.saveDvkhEntries(list);
+    DataStore.syncDvkhToSheet(entry);
+    return entry;
+  },
+
+  addDvkhEntries: async (entries: DvkhEntry[]): Promise<DvkhEntry[]> => {
+    const list = [...DataStore.getDvkhEntries()];
+    let maxStt = list.reduce((max, item) => Math.max(max, typeof item.stt === 'number' ? item.stt : parseInt(String(item.stt || 0), 10) || 0), 0);
+    if (maxStt === 0) maxStt = list.length;
+    const nowStr = new Date().toLocaleString('vi-VN');
+
+    const prepared = entries.map(e => {
+      let stt = e.stt;
+      if (!stt) {
+        maxStt++;
+        stt = maxStt;
+      }
+      return {
+        ...e,
+        stt,
+        loaiYeuCau: e.loaiYeuCau || (e as any).loai || 'Gắn mới',
+        ngayNhan: e.ngayNhan || e.ngayTao || nowStr,
+        nguoiGiao: '', // Không cần thiết lưu người giao vì luôn là DVKH
+        trangThai: e.trangThai || 'Chưa giao',
+        ghiChu: e.ghiChu || ''
+      } as DvkhEntry;
+    });
+    const updatedList = [...prepared, ...list];
+    DataStore.saveDvkhEntries(updatedList);
+    DataStore.syncDvkhToSheet(prepared);
+    return prepared;
+  },
+
+  updateDvkhEntry: async (maKh: string, updates: Partial<DvkhEntry>): Promise<DvkhEntry | null> => {
+    const list = [...DataStore.getDvkhEntries()];
+    const normTarget = String(maKh || '').trim().toLowerCase();
+    const idx = list.findIndex(e => String(e.maKh || '').trim().toLowerCase() === normTarget);
+    if (idx !== -1) {
+      list[idx] = { ...list[idx], ...updates };
+      DataStore.saveDvkhEntries(list);
+      DataStore.syncDvkhToSheet(list[idx]);
+      return list[idx];
+    }
+    return null;
+  },
+
+  batchUpdateDvkh: async (maKhs: string[], updates: Partial<DvkhEntry>): Promise<void> => {
+    const list = [...DataStore.getDvkhEntries()];
+    const setKeys = new Set(maKhs.map(k => String(k || '').trim().toLowerCase()));
+    const updatedItems: DvkhEntry[] = [];
+    const updatedList = list.map(item => {
+      if (setKeys.has(String(item.maKh || '').trim().toLowerCase())) {
+        const updated = { ...item, ...updates };
+        updatedItems.push(updated);
+        return updated;
+      }
+      return item;
+    });
+    DataStore.saveDvkhEntries(updatedList);
+    if (updatedItems.length > 0) {
+      DataStore.syncDvkhToSheet(updatedItems);
+    }
+  },
+
+  syncDvkhToSheet: async (data: DvkhEntry | DvkhEntry[]): Promise<boolean> => {
+    try {
+      const url = DataStore.getAppScriptUrl();
+      if (!url) return false;
+      const rawItems = Array.isArray(data) ? data : [data];
+      const items = rawItems.map(item => ({
+        stt: item.stt,
+        maKh: item.maKh,
+        tenKh: item.tenKh,
+        diaChi: item.diaChi || '',
+        sdt: item.sdt || '',
+        loai: item.loaiYeuCau || (item as any).loai || 'Gắn mới',
+        loaiYeuCau: item.loaiYeuCau || (item as any).loai || 'Gắn mới',
+        ngayNhan: item.ngayNhan || item.ngayTao || '',
+        nguoiNhan: item.nguoiNhan || '',
+        ngayGiao: item.ngayGiao || '',
+        nguoiGiao: '', // Luôn để trống vì người giao luôn là DVKH
+        nguoiThucHien: item.nguoiThucHien || '',
+        ngayHoanTat: item.ngayHoanTat || '',
+        ketQua: item.ketQua || '',
+        trangThai: item.trangThai || 'Chưa giao',
+        ghiChu: item.ghiChu || '',
+        pic: item.pic || '',
+        ngayTao: item.ngayTao || item.ngayNhan || '',
+        nguoiTao: item.nguoiTao || ''
+      }));
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'save_dvkh',
+          sheetName: 'DVKH',
+          items: items
+        })
+      });
+      return response.ok;
+    } catch (e) {
+      console.warn('Could not sync DVKH to sheet:', e);
+      return false;
+    }
+  },
+
+  getAllowCustomNgayHoanTatDvkh: (): boolean => {
+    try {
+      const val = safeGetItem(ALLOW_CUSTOM_NGAY_HOAN_TAT_DVKH_KEY);
+      return val === 'true';
+    } catch {
+      return false;
+    }
+  },
+
+  setAllowCustomNgayHoanTatDvkh: (val: boolean) => {
+    safeSetItem(ALLOW_CUSTOM_NGAY_HOAN_TAT_DVKH_KEY, String(val));
+    window.dispatchEvent(new CustomEvent('dvkh_config_updated'));
   }
+
 };
