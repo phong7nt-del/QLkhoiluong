@@ -47,7 +47,104 @@ export const normalizeRoleStr = (str: any) => String(str || '')
 
 const RBAC_STORAGE_KEY = 'app_rbac_config_v1';
 
+export const isDvkhStr = (str: any): boolean => {
+  if (!str) return false;
+  const n = normalizeRoleStr(str);
+  const clean = n.replace(/[^a-z0-9]/g, '');
+  return (
+    clean.includes('dvkh') ||
+    clean.includes('dichvukh') ||
+    clean.includes('dichvukhachhang') ||
+    clean.includes('chamsockhachhang') ||
+    clean.includes('cskh') ||
+    n.includes('dvkh') ||
+    n.includes('dv kh') ||
+    n.includes('dich vu kh') ||
+    n.includes('dich vu khach hang')
+  );
+};
+
 export const PermissionStore = {
+  isDvkhUser: (userObj?: any, roleString?: string): boolean => {
+    // 1. Kiểm tra trực tiếp chuỗi vai trò
+    if (roleString && isDvkhStr(roleString)) return true;
+
+    // 2. Lấy đối tượng user từ tham số hoặc sessionStorage
+    const u = userObj || (typeof window !== 'undefined' && sessionStorage.getItem('workload_user_session')
+      ? JSON.parse(sessionStorage.getItem('workload_user_session') || '{}')
+      : null);
+
+    if (!u) return false;
+
+    const rawName = u.name || u.fullName || u.hoTen || '';
+    const normName = normalizeRoleStr(rawName);
+
+    // 3. Nhân sự chủ chốt DVKH: Phạm Minh Tiến (Tổ trưởng / Phụ trách DVKH)
+    if (
+      normName.includes('pham minh tien') ||
+      normName.includes('minh tien') ||
+      normName === 'tienpm' ||
+      (u.email && normalizeRoleStr(u.email).includes('tienpm')) ||
+      (u.msnv && String(u.msnv).toLowerCase().trim() === 'dvkh')
+    ) {
+      return true;
+    }
+
+    // 4. Kiểm tra các trường thuộc tính trong đối tượng user
+    const checkFields = [
+      u.team,
+      u.boPhanCongTac,
+      u.boPhan,
+      u['Bộ phận công tác'],
+      u['Bộ phận'],
+      u['Phòng Đội'],
+      u['Phòng Đội viết tắt'],
+      u['Phòng ban/Tổ nhóm'],
+      u.department,
+      u.role,
+      u.chucDanh,
+      u.chucVu,
+      u.chuc_vu
+    ];
+
+    for (const f of checkFields) {
+      if (f && isDvkhStr(f)) return true;
+    }
+
+    // 5. Tra cứu danh sách thành viên trong cache nếu có tên nhân viên
+    if (normName) {
+      try {
+        const rawMembers = typeof window !== 'undefined' ? localStorage.getItem('sheet_members_v1') : null;
+        if (rawMembers) {
+          const members = JSON.parse(rawMembers);
+          if (Array.isArray(members)) {
+            const found = members.find((m: any) => normalizeRoleStr(m.name) === normName);
+            if (found) {
+              const mFields = [
+                found.team,
+                found.boPhanCongTac,
+                found.boPhan,
+                found['Bộ phận công tác'],
+                found['Bộ phận'],
+                found['Phòng Đội'],
+                found['Phòng Đội viết tắt'],
+                found['Phòng ban/Tổ nhóm'],
+                found.role,
+                found.chucDanh,
+                found.chucVu
+              ];
+              for (const mf of mFields) {
+                if (mf && isDvkhStr(mf)) return true;
+              }
+            }
+          }
+        }
+      } catch {}
+    }
+
+    return false;
+  },
+
   getConfig: (): RBACConfig => {
     try {
       const stored = localStorage.getItem(RBAC_STORAGE_KEY);
@@ -88,90 +185,100 @@ export const PermissionStore = {
   getUserRoles: (roleString: string, userObj?: any): AppRole[] => {
     let effectiveRoleStr = roleString || '';
     if (!effectiveRoleStr && userObj) {
-      effectiveRoleStr = String(userObj.role || userObj.chucVu || userObj.chucDanh || '');
+      effectiveRoleStr = String(userObj.role || userObj.chucDanh || userObj.chucVu || '');
     }
     const norm = normalizeRoleStr(effectiveRoleStr);
-    const roles: AppRole[] = [];
 
-    // Check DVKH department / role from string or user object
-    let isDvkh = norm.includes('dvkh') || norm.includes('dich vu khach hang');
-    if (!isDvkh) {
-      try {
-        const u = userObj || (typeof window !== 'undefined' && sessionStorage.getItem('workload_user_session') ? JSON.parse(sessionStorage.getItem('workload_user_session') || '{}') : null);
-        if (u) {
-          const bp = normalizeRoleStr(u.boPhanCongTac || u.boPhan || u['Bộ phận công tác'] || u['Bộ phận'] || u.department);
-          const tm = normalizeRoleStr(u.team);
-          if (bp.includes('dvkh') || bp.includes('dich vu khach hang') || tm.includes('dvkh') || tm.includes('dich vu khach hang')) {
-            isDvkh = true;
-          }
-        }
-      } catch {}
+    // Lấy thông tin user từ userObj hoặc session hiện tại
+    const u = userObj || (typeof window !== 'undefined' && sessionStorage.getItem('workload_user_session') ? JSON.parse(sessionStorage.getItem('workload_user_session') || '{}') : null);
+
+    // Kiểm tra có phải Lãnh đạo Đội QLHTĐĐ (Đội trưởng Nguyễn Thành Phong) hay không
+    const uName = u ? normalizeRoleStr(u.name || u.email || '') : (userObj ? normalizeRoleStr(userObj.name || userObj.email || '') : '');
+    const isDoiTruongQlhtdd = (
+      norm.includes('nguyen thanh phong') || 
+      norm.includes('thanh phong') || 
+      norm.includes('phong7nt') ||
+      uName.includes('nguyen thanh phong') || 
+      uName.includes('thanh phong') || 
+      uName.includes('phong7nt')
+    );
+
+    // Kiểm tra người dùng thuộc Bộ phận DVKH (bao gồm Phạm Minh Tiến, Tổ/Đội DVKH)
+    const isDvkh = PermissionStore.isDvkhUser(u || userObj, effectiveRoleStr);
+
+    // QUY TẮC PHÂN QUYỀN ĐẶC BIỆT CHO BỘ PHẬN DVKH:
+    // Bất kỳ ai thuộc bộ phận DVKH (kể cả Tổ trưởng/Tổ phó/Nhân viên của DVKH như Phạm Minh Tiến)
+    // trong hệ thống tác nghiệp của Đội QLHTĐĐ chỉ được cấp DUY NHẤT vai trò 'DVKH'.
+    // Tuyệt đối KHÔNG gán vai trò 'tổ trưởng', 'tổ phó' hay 'nhân viên' của Đội QLHTĐĐ!
+    if (isDvkh && !isDoiTruongQlhtdd) {
+      return ['DVKH'];
     }
 
+    const roles: AppRole[] = [];
     if (isDvkh) {
       roles.push('DVKH');
     }
 
-    // Robust normalized keyword matching (handles both NFC and NFD Unicode from Sheets)
-    const uName = userObj ? normalizeRoleStr(userObj.name || userObj.email || '') : '';
-    let isLeader = false;
+    // Phân quyền cho nhân sự Đội QLHTĐĐ
     if (
+      isDoiTruongQlhtdd ||
       norm.includes('doi truong') || 
-      norm.includes('truong doi') || 
-      norm.includes('nguyen thanh phong') || 
-      norm.includes('thanh phong') ||
-      norm.includes('phong7nt') ||
-      uName.includes('nguyen thanh phong') ||
-      uName.includes('thanh phong') ||
-      uName.includes('phong7nt')
+      norm.includes('truong doi')
     ) {
       roles.push('đội trưởng');
-      isLeader = true;
     }
     if (norm.includes('doi pho') || norm.includes('pho doi')) {
       roles.push('đội phó');
-      isLeader = true;
     }
     if (norm.includes('giam doc')) {
       roles.push('giám đốc');
-      isLeader = true;
     }
     if (norm.includes('pho giam doc') || norm.includes('pgd')) {
       roles.push('phó giám đốc');
-      isLeader = true;
     }
     if (norm.includes('to truong') || norm.includes('truong to')) {
       roles.push('tổ trưởng');
-      isLeader = true;
     }
     if (norm.includes('to pho') || norm.includes('pho to')) {
       roles.push('tổ phó');
-      isLeader = true;
     }
-    // Chức danh thuộc DVKH: chỉ có thể sử dụng tab DVKH, các tab khác mặc định là không thấy
-    // Do đó, nếu là nhân sự thuộc DVKH (và không phải lãnh đạo Đội QLHTĐĐ), KHÔNG gán role 'nhân viên'
-    if (!isDvkh && (norm.includes('nhan vien') || norm.includes('cong nhan'))) {
+    if (norm.includes('nhan vien') || norm.includes('cong nhan')) {
       roles.push('nhân viên');
     }
 
-    if (roles.length === 0) roles.push(isDvkh ? 'DVKH' : 'nhân viên'); // fallback
+    if (roles.length === 0) roles.push('nhân viên'); // fallback
     return roles;
   },
 
   hasTabAccess: (tabId: string, userRoleString: string, userObj?: any): boolean => {
+    const userRoles = PermissionStore.getUserRoles(userRoleString, userObj);
     const config = PermissionStore.getConfig();
     const allowedRoles = config.tabs[tabId] || DEFAULT_RBAC.tabs[tabId] || [];
-    const userRoles = PermissionStore.getUserRoles(userRoleString, userObj);
+
+    // Nếu người dùng thuộc DVKH (vai trò 'DVKH')
+    if (userRoles.includes('DVKH')) {
+      // Tuân thủ chính xác phân quyền trong Cấu hình hệ thống dành cho DVKH:
+      // Tab nào được tích chọn cho vai trò DVKH thì mới được hiển thị.
+      // Tuyệt đối không kế thừa các tab của tổ trưởng hay nhân viên QLHTĐĐ.
+      return allowedRoles.includes('DVKH');
+    }
+
     return userRoles.some(r => allowedRoles.includes(r));
   },
 
-  hasActionAccess: (actionId: string, userRoleString: string): boolean => {
+  hasActionAccess: (actionId: string, userRoleString: string, userObj?: any): boolean => {
+    const userRoles = PermissionStore.getUserRoles(userRoleString, userObj);
+
+    // Người dùng thuộc DVKH không có quyền các tác vụ quản trị của QLHTĐĐ
+    if (userRoles.length === 1 && userRoles[0] === 'DVKH') {
+      return false;
+    }
+
     const config = PermissionStore.getConfig();
     let allowedRoles = config.actions[actionId];
     if (!allowedRoles || !Array.isArray(allowedRoles) || allowedRoles.length === 0) {
       allowedRoles = DEFAULT_RBAC.actions[actionId] || [];
     }
-    const userRoles = PermissionStore.getUserRoles(userRoleString);
     return userRoles.some(r => allowedRoles.includes(r));
   }
 };

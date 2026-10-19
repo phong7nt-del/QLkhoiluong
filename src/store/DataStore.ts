@@ -1682,8 +1682,12 @@ export const DataStore = {
             }
 
             let memberBoPhan = boPhanColIdx !== -1 && row[boPhanColIdx] ? String(row[boPhanColIdx]).trim() : '';
-            if (!memberBoPhan && (finalTeam.toLowerCase().includes('dvkh') || memberRole.toLowerCase().includes('dvkh'))) {
+            const isTienOrDvkh = normRawName.includes('pham minh tien') || normRawName.includes('minh tien') || finalTeam.toLowerCase().includes('dvkh') || memberRole.toLowerCase().includes('dvkh');
+            if (!memberBoPhan && isTienOrDvkh) {
               memberBoPhan = 'DVKH';
+            }
+            if (isTienOrDvkh && (!finalTeam || finalTeam === 'Không xác định')) {
+              finalTeam = 'DVKH';
             }
 
             newMembers.push({
@@ -1944,8 +1948,12 @@ export const DataStore = {
                           if (boPhanColIdx !== -1 && row[boPhanColIdx]) {
                               memberBoPhan = String(row[boPhanColIdx]).trim();
                           }
-                          if (!memberBoPhan && (finalTeam.toLowerCase().includes('dvkh') || memberRole.toLowerCase().includes('dvkh'))) {
+                          const isTienOrDvkh = normRawName.includes('pham minh tien') || normRawName.includes('minh tien') || finalTeam.toLowerCase().includes('dvkh') || memberRole.toLowerCase().includes('dvkh');
+                          if (!memberBoPhan && isTienOrDvkh) {
                               memberBoPhan = 'DVKH';
+                          }
+                          if (isTienOrDvkh && (!finalTeam || finalTeam === 'Không xác định')) {
+                              finalTeam = 'DVKH';
                           }
 
                           newMembers.push({

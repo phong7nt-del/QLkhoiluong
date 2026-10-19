@@ -359,6 +359,9 @@ export default function App() {
       if (!normR.includes('doi truong')) {
         r = r ? `${r}, Đội trưởng` : 'Đội trưởng';
       }
+    } else if (PermissionStore.isDvkhUser(sessionUser, r)) {
+      // Nhân sự DVKH luôn được định danh chuẩn vai trò 'DVKH' trong hệ thống
+      r = 'DVKH';
     }
 
     return r;
@@ -380,8 +383,15 @@ export default function App() {
   }, [onlineStats]);
 
   // Fallback vars (deprecated by PermissionStore but kept for backwards compatibility in other parts)
-  const isManagement = ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'].some(r => roleStr.toLowerCase().includes(r));
-  const isDoiTruong = ['đội trưởng', 'giám đốc'].some(r => roleStr.toLowerCase().includes(r));
+  const isManagement = useMemo(() => {
+    if (PermissionStore.isDvkhUser(sessionUser, roleStr)) return false;
+    return ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'].some(r => roleStr.toLowerCase().includes(r));
+  }, [roleStr, sessionUser]);
+
+  const isDoiTruong = useMemo(() => {
+    if (PermissionStore.isDvkhUser(sessionUser, roleStr)) return false;
+    return ['đội trưởng', 'giám đốc'].some(r => roleStr.toLowerCase().includes(r));
+  }, [roleStr, sessionUser]);
 
   const [taskStats, setTaskStats] = useState({ overdue: 0, warning: 0, ok: 0 });
   const [tutiUnprocessedCount, setTutiUnprocessedCount] = useState(0);
@@ -460,17 +470,23 @@ export default function App() {
                 const mNorm = String(m.name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'd').toLowerCase().trim();
                 return mNorm === normPName;
             });
-            if (freshMember && freshMember.role !== parsedUser.role) {
+            if (freshMember) {
                 parsedUser = { ...parsedUser, ...freshMember };
             }
             if (normPName.includes('nguyen thanh phong') || normPName.includes('thanh phong') || parsedUser?.email?.includes('phong7nt')) {
                 parsedUser.role = 'Đội trưởng';
             }
+            if (PermissionStore.isDvkhUser(parsedUser)) {
+                parsedUser.team = parsedUser.team || 'DVKH';
+                parsedUser.boPhanCongTac = parsedUser.boPhanCongTac || 'DVKH';
+                parsedUser.boPhan = 'DVKH';
+            }
             sessionStorage.setItem('workload_user_session', JSON.stringify(parsedUser));
 
             setSessionUser(parsedUser);
+            const _isDvkh = PermissionStore.isDvkhUser(parsedUser);
             const _roleStr = parsedUser?.role ? parsedUser.role.toLowerCase() : '';
-            const _isManagement = ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'].some(r => _roleStr.includes(r));
+            const _isManagement = !_isDvkh && ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'].some(r => _roleStr.includes(r));
             if (_isManagement && !sessionStorage.getItem('task_stats_shown')) {
                 showTaskAlert();
                 sessionStorage.setItem('task_stats_shown', 'true');
@@ -518,11 +534,20 @@ export default function App() {
      if (normUName.includes('nguyen thanh phong') || normUName.includes('thanh phong') || (user as any)?.email?.includes('phong7nt')) {
          effectiveUser = { ...user, role: 'Đội trưởng' };
      }
+     if (PermissionStore.isDvkhUser(effectiveUser)) {
+         effectiveUser = {
+           ...effectiveUser,
+           team: effectiveUser.team || 'DVKH',
+           boPhanCongTac: effectiveUser.boPhanCongTac || 'DVKH',
+           boPhan: 'DVKH'
+         };
+     }
      sessionStorage.setItem('workload_user_session', JSON.stringify(effectiveUser));
      setSessionUser(effectiveUser);
      if (window.innerWidth < 768) setIsSidebarOpen(false);
-     const _roleStr = user?.role ? user.role.toLowerCase() : '';
-     const _isManagement = ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'].some(r => _roleStr.includes(r));
+     const _isDvkh = PermissionStore.isDvkhUser(effectiveUser);
+     const _roleStr = effectiveUser?.role ? effectiveUser.role.toLowerCase() : '';
+     const _isManagement = !_isDvkh && ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'].some(r => _roleStr.includes(r));
      if (_isManagement) {
          showTaskAlert();
          sessionStorage.setItem('task_stats_shown', 'true');

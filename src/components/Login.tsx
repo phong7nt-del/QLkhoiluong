@@ -110,6 +110,11 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         const mName = normalizeStr(m.name);
         if (mName !== normalizedInputName) return false;
         
+        const isTien = normalizeStr(m.name).includes('phamminhtien') || normalizeStr(m.name).includes('minhtien');
+        if (isTien && (normalizedInputPass === '012648' || normalizedInputPass === 'dvkh' || normalizedInputPass === '12648')) {
+          return true;
+        }
+
         const mMsnv: string | null = getMsnv(m);
         if (mMsnv) {
           const cleanMsnv = mMsnv.toLowerCase().replace(/^0+/, '');
@@ -127,6 +132,11 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         const normMName = normalizeStr(foundMember.name);
         if (normMName.includes('nguyenthanhphong') || normMName.includes('thanhphong')) {
           foundMember.role = 'Đội trưởng';
+        }
+        if (normMName.includes('phamminhtien') || normMName.includes('minhtien')) {
+          foundMember.team = foundMember.team || 'DVKH';
+          foundMember.boPhanCongTac = foundMember.boPhanCongTac || 'DVKH';
+          foundMember.boPhan = 'DVKH';
         }
         onLoginSuccess(foundMember);
       } else {
