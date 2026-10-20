@@ -574,7 +574,7 @@ export default function App() {
     { id: "disconnect", icon: WifiOff, label: "Đo xa", color: "red" },
     { id: "search", icon: Search, label: "Tìm kiếm", color: "green" },
     { id: "progress", icon: CheckSquare, label: "Tiến độ CV", color: "amber" },
-    { id: "tuti", icon: Activity, label: "TU - TI", color: "indigo" },
+    { id: "tuti", icon: Activity, label: "HTDD", color: "indigo" },
     { id: "plan_progress", icon: TrendingUp, label: "Tiến độ kế hoạch", color: "blue" },
     { id: "kthtdd", icon: FolderTree, label: "Kiện toàn HTDD", color: "teal" },
     { id: "dvkh", icon: Headphones, label: "DVKH", color: "purple" },

@@ -249,6 +249,104 @@ export interface TutiEntry {
   localTimestamp?: number;
 }
 
+export interface QuaHanEntry {
+  MA_DVIQLY?: string;
+  MA_TBI?: string;
+  SO_TBI?: string;
+  SO_HUU?: string;
+  MA_CLOAI?: string;
+  DONG_DIEN?: string;
+  DIEN_AP?: string;
+  SO_PHA?: string;
+  NGAY_KDINH?: string;
+  HAN_KDINH?: string;
+  LUU_KHO?: string;
+  MA_DDO?: string;
+  MA_KHANG?: string;
+  VH_CONG?: string;
+  HSN?: string;
+  NGAY_TTHAO?: string;
+  TEN_TCHI?: string;
+  MA_TCHI?: string;
+  MA_KVUC?: string;
+  STT?: string;
+  TEN_KHANG?: string;
+  DCHI_DDO?: string;
+  DCHI_KHANG?: string;
+  SO_COT?: string;
+  SO_HOP?: string;
+  MA_SOGCS?: string;
+  MA_TRAM?: string;
+  DTHOAI?: string;
+  HOP_BO?: string;
+  CHUOI_GIA?: string;
+  LOAI_TT_GT?: string;
+  TSO_TI?: string;
+  TSO_TU?: string;
+  DIEN_AP_TI?: string;
+  khuVuc?: string;
+}
+
+export interface TuSheetEntry {
+  MA_DVIQLY?: string;
+  MA_TBI?: string;
+  SO_TBI?: string;
+  SO_HUU?: string;
+  MA_CLOAI?: string;
+  DIEN_AP?: string;
+  CAP_CXAC?: string;
+  SO_PHA?: string;
+  TYSO_DAU?: string;
+  NGAY_KDINH?: string;
+  HAN_KDINH?: string;
+  LUU_KHO?: string;
+  MA_DDO?: string;
+  MA_KHANG?: string;
+  HSN?: string;
+  NGAY_TTHAO?: string;
+  MA_TCHI?: string;
+  MA_KVUC?: string;
+  STT?: string;
+  TEN_KHANG?: string;
+  DCHI_DDO?: string;
+  DCHI_KHANG?: string;
+  MA_SOGCS?: string;
+  DTHOAI?: string;
+  HOP_BO?: string;
+  CHUOI_GIA?: string;
+  khuVuc?: string;
+}
+
+export interface TiSheetEntry {
+  MA_DVIQLY?: string;
+  MA_TBI?: string;
+  SO_TBI?: string;
+  SO_HUU?: string;
+  MA_CLOAI?: string;
+  DIEN_AP?: string;
+  CAP_CXAC?: string;
+  SO_PHA?: string;
+  TYSO_DAU?: string;
+  NGAY_KDINH?: string;
+  HAN_KDINH?: string;
+  LUU_KHO?: string;
+  MA_DDO?: string;
+  MA_KHANG?: string;
+  HSN?: string;
+  NGAY_TTHAO?: string;
+  MA_TCHI?: string;
+  MA_KVUC?: string;
+  STT?: string;
+  TEN_KHANG?: string;
+  DCHI_DDO?: string;
+  DCHI_KHANG?: string;
+  MA_SOGCS?: string;
+  DTHOAI?: string;
+  HOP_BO?: string;
+  CHUOI_GIA?: string;
+  khuVuc?: string;
+}
+
 const STORAGE_KEY = 'workload_data_v1';
 export const DEFAULT_SPREADSHEET_ID = '1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ';
 export const DEFAULT_APP_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzpw3SlqJxXYC29qjPRqH8ehfJp764bNvQFUzqIgMW_rMrpitMKvvRvWbbGrP505Sdi/exec';
@@ -263,8 +361,20 @@ const LOCAL_PROGRESS_UPDATES_KEY = 'local_progress_updates_v1';
 const TUTI_KEY = 'sheet_tuti_v1';
 const LOCAL_TUTI_UPDATES_KEY = 'local_tuti_updates_v1';
 const DVKH_KEY = 'sheet_dvkh_v1';
+const QUAHAN_KEY = 'sheet_quahan_v1';
+const QUAHAN_NAM_KEY = 'sheet_quahan_nam_v1';
+const TU_SHEET_KEY = 'sheet_tu_entries_v1';
+const TU_NAM_KEY = 'sheet_tu_nam_v1';
+const TI_SHEET_KEY = 'sheet_ti_entries_v1';
+const TI_NAM_KEY = 'sheet_ti_nam_v1';
 const ALLOW_CUSTOM_NGAY_HOAN_TAT_DVKH_KEY = 'config_allow_custom_ngay_hoan_tat_dvkh_v1';
 
+let memCacheQuaHanList: QuaHanEntry[] | null = null;
+let memCacheQuaHanNamList: QuaHanEntry[] | null = null;
+let memCacheTuSheetList: TuSheetEntry[] | null = null;
+let memCacheTuNamList: TuSheetEntry[] | null = null;
+let memCacheTiSheetList: TiSheetEntry[] | null = null;
+let memCacheTiNamList: TiSheetEntry[] | null = null;
 let memCacheDvkhList: DvkhEntry[] | null = null;
 let memCacheKhuVucList: any[] | null = null;
 let memCacheMatKetNoiList: any[] | null = null;
@@ -342,12 +452,78 @@ export const initDB = async () => {
         }
       }
     } catch (e) {
-      console.warn('Could not preload DVKH from IDB', e);
+      console.warn('Could not preload dvkh from IDB', e);
     }
+    try {
+      const qhVal = await get(QUAHAN_KEY);
+      if (qhVal) {
+        let parsed = typeof qhVal === 'string' ? JSON.parse(qhVal) : qhVal;
+        if (Array.isArray(parsed)) {
+          memCacheQuaHanList = parsed;
+          safeSetItem(QUAHAN_KEY, JSON.stringify(parsed));
+        }
+      }
+    } catch (e) {
+      console.warn('Could not preload QuaHan from IDB', e);
+    }
+    try {
+      const tuVal = await get(TU_SHEET_KEY);
+      if (tuVal) {
+        let parsed = typeof tuVal === 'string' ? JSON.parse(tuVal) : tuVal;
+        if (Array.isArray(parsed)) {
+          memCacheTuSheetList = parsed;
+          safeSetItem(TU_SHEET_KEY, JSON.stringify(parsed));
+        }
+      }
+    } catch (e) {
+      console.warn('Could not preload TU from IDB', e);
+    }
+    try {
+      const tiVal = await get(TI_SHEET_KEY);
+      if (tiVal) {
+        let parsed = typeof tiVal === 'string' ? JSON.parse(tiVal) : tiVal;
+        if (Array.isArray(parsed)) {
+          memCacheTiSheetList = parsed;
+          safeSetItem(TI_SHEET_KEY, JSON.stringify(parsed));
+        }
+      }
+    } catch (e) {
+      console.warn('Could not preload TI from IDB', e);
+    }
+    try {
+      const qhnVal = await get(QUAHAN_NAM_KEY);
+      if (qhnVal) {
+        let parsed = typeof qhnVal === 'string' ? JSON.parse(qhnVal) : qhnVal;
+        if (Array.isArray(parsed)) {
+          memCacheQuaHanNamList = parsed;
+          safeSetItem(QUAHAN_NAM_KEY, JSON.stringify(parsed));
+        }
+      }
+    } catch (e) {}
+    try {
+      const tunVal = await get(TU_NAM_KEY);
+      if (tunVal) {
+        let parsed = typeof tunVal === 'string' ? JSON.parse(tunVal) : tunVal;
+        if (Array.isArray(parsed)) {
+          memCacheTuNamList = parsed;
+          safeSetItem(TU_NAM_KEY, JSON.stringify(parsed));
+        }
+      }
+    } catch (e) {}
+    try {
+      const tinVal = await get(TI_NAM_KEY);
+      if (tinVal) {
+        let parsed = typeof tinVal === 'string' ? JSON.parse(tinVal) : tinVal;
+        if (Array.isArray(parsed)) {
+          memCacheTiNamList = parsed;
+          safeSetItem(TI_NAM_KEY, JSON.stringify(parsed));
+        }
+      }
+    } catch (e) {}
     const keys = [
       STORAGE_KEY, SCRIPT_URL_KEY, SPREADSHEET_ID_KEY, TEAMS_KEY, MEMBERS_KEY, STATIONS_KEY,
       DINHMUC_KEY, PROGRESS_KEY, LOCAL_PROGRESS_UPDATES_KEY, TUTI_KEY,
-      LOCAL_TUTI_UPDATES_KEY, DVKH_KEY, ALLOW_CUSTOM_NGAY_HOAN_TAT_DVKH_KEY, 'sheet_khuvuc_v1', 'sheet_matketnoi_v1',
+      LOCAL_TUTI_UPDATES_KEY, DVKH_KEY, QUAHAN_KEY, QUAHAN_NAM_KEY, TU_SHEET_KEY, TU_NAM_KEY, TI_SHEET_KEY, TI_NAM_KEY, ALLOW_CUSTOM_NGAY_HOAN_TAT_DVKH_KEY, 'sheet_khuvuc_v1', 'sheet_matketnoi_v1',
       'sheet_chitietmkn_v1', 'sheet_sangtai_v1', 'sheet_kho_v1', 'sheet_vttb_v1', 'config_exclude_saturday', 'config_exclude_sunday', 'config_exclude_nghi',
       'config_exclude_holidays', 'config_holidays_v1',
       'config_external_report_links_v1', 'config_tuyen_duong_exclusions_v1', 'config_cong_doan_leaders'
@@ -460,7 +636,29 @@ export const DataStore = {
           // proxy not reachable or static host fallback
       }
 
-      // Strategy 2: Direct Google Sheets gviz CSV fetch
+      // Strategy 2: Direct Google Sheets export CSV with known GIDs (bypasses active filter views)
+      try {
+          const KNOWN_GIDS: Record<string, string> = {
+            'quahan': '934231421',
+            'tu': '790591569',
+            'ti': '602741776',
+            'tuti': '1705590920'
+          };
+          const cleanName = sheetName.trim().toLowerCase();
+          const gid = KNOWN_GIDS[cleanName];
+          if (gid) {
+              const exportUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}&_t=${Date.now()}`;
+              const exportRes = await fetch(exportUrl);
+              if (exportRes.ok) {
+                  const text = await exportRes.text();
+                  if (text && !text.includes('<html') && text.trim().length > 20) {
+                      return text;
+                  }
+              }
+          }
+      } catch (e) {}
+
+      // Strategy 3: Direct Google Sheets gviz CSV fetch
       try {
           const directUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}&_t=${Date.now()}`;
           const res = await fetch(directUrl);
@@ -2543,6 +2741,128 @@ export const DataStore = {
                console.warn('Could not fetch DVKH sheet:', e);
             }
 
+            // Fetch QuaHan
+            try {
+               const qhSheetNames = ['QuaHan', 'quahan', 'Quá hạn', 'Qua Han', 'Qua_Han'];
+               let qhText = '';
+               for (const sName of qhSheetNames) {
+                   const tempText = await DataStore.fetchSheetCSV(sName, sheetId);
+                   if (tempText && !tempText.includes('<html') && tempText.trim().length > 20) {
+                       qhText = tempText;
+                       break;
+                   }
+               }
+               if (qhText) {
+                   const parsedQh = DataStore.parseQuaHanCSVData(qhText);
+                   if (parsedQh && parsedQh.length > 0) {
+                       memCacheQuaHanList = parsedQh;
+                       safeSetItem(QUAHAN_KEY, JSON.stringify(parsedQh));
+                       try { await set(QUAHAN_KEY, parsedQh); } catch(err) {}
+                   }
+               }
+            } catch(e) {
+               console.warn('Could not fetch QuaHan sheet:', e);
+            }
+
+            // Fetch TU sheet
+            try {
+               const tuText = await DataStore.fetchSheetCSV("TU", sheetId);
+               if (tuText && !tuText.includes('<html') && tuText.trim().length > 20) {
+                   const parsedTu = DataStore.parseTuCSVData(tuText);
+                   if (parsedTu && parsedTu.length > 0) {
+                       memCacheTuSheetList = parsedTu;
+                       safeSetItem(TU_SHEET_KEY, JSON.stringify(parsedTu));
+                       try { await set(TU_SHEET_KEY, parsedTu); } catch(err) {}
+                   }
+               }
+            } catch(e) {
+               console.warn('Could not fetch TU sheet:', e);
+            }
+
+            // Fetch TI sheet
+            try {
+               const tiText = await DataStore.fetchSheetCSV("TI", sheetId);
+               if (tiText && !tiText.includes('<html') && tiText.trim().length > 20) {
+                   const parsedTi = DataStore.parseTiCSVData(tiText);
+                   if (parsedTi && parsedTi.length > 0) {
+                       memCacheTiSheetList = parsedTi;
+                       safeSetItem(TI_SHEET_KEY, JSON.stringify(parsedTi));
+                       try { await set(TI_SHEET_KEY, parsedTi); } catch(err) {}
+                   }
+               }
+            } catch(e) {
+               console.warn('Could not fetch TI sheet:', e);
+            }
+
+            // Fetch QuaHan_Nam sheet
+            try {
+               const qhnNames = ['QuaHan_Nam', 'quahan_nam', 'QuaHanNam', 'Quá hạn năm', 'Qua_Han_Nam'];
+               let qhnText = '';
+               for (const sName of qhnNames) {
+                   const tempText = await DataStore.fetchSheetCSV(sName, sheetId);
+                   if (tempText && !tempText.includes('<html') && tempText.trim().length > 20) {
+                       qhnText = tempText;
+                       break;
+                   }
+               }
+               if (qhnText) {
+                   const parsedQhn = DataStore.parseQuaHanCSVData(qhnText);
+                   if (parsedQhn && parsedQhn.length > 0) {
+                       memCacheQuaHanNamList = parsedQhn;
+                       safeSetItem(QUAHAN_NAM_KEY, JSON.stringify(parsedQhn));
+                       try { await set(QUAHAN_NAM_KEY, parsedQhn); } catch(err) {}
+                   }
+               }
+            } catch(e) {
+               console.warn('Could not fetch QuaHan_Nam sheet:', e);
+            }
+
+            // Fetch TU_Nam sheet
+            try {
+               const tuNamNames = ['TU_Nam', 'tu_nam', 'TUNam', 'TU Nam', 'TU_nam'];
+               let tunText = '';
+               for (const sName of tuNamNames) {
+                   const tempText = await DataStore.fetchSheetCSV(sName, sheetId);
+                   if (tempText && !tempText.includes('<html') && tempText.trim().length > 20) {
+                       tunText = tempText;
+                       break;
+                   }
+               }
+               if (tunText) {
+                   const parsedTun = DataStore.parseTuCSVData(tunText);
+                   if (parsedTun && parsedTun.length > 0) {
+                       memCacheTuNamList = parsedTun;
+                       safeSetItem(TU_NAM_KEY, JSON.stringify(parsedTun));
+                       try { await set(TU_NAM_KEY, parsedTun); } catch(err) {}
+                   }
+               }
+            } catch(e) {
+               console.warn('Could not fetch TU_Nam sheet:', e);
+            }
+
+            // Fetch TI_Nam sheet
+            try {
+               const tiNamNames = ['TI_Nam', 'ti_nam', 'TINam', 'TI Nam', 'TI_nam'];
+               let tinText = '';
+               for (const sName of tiNamNames) {
+                   const tempText = await DataStore.fetchSheetCSV(sName, sheetId);
+                   if (tempText && !tempText.includes('<html') && tempText.trim().length > 20) {
+                       tinText = tempText;
+                       break;
+                   }
+               }
+               if (tinText) {
+                   const parsedTin = DataStore.parseTiCSVData(tinText);
+                   if (parsedTin && parsedTin.length > 0) {
+                       memCacheTiNamList = parsedTin;
+                       safeSetItem(TI_NAM_KEY, JSON.stringify(parsedTin));
+                       try { await set(TI_NAM_KEY, parsedTin); } catch(err) {}
+                   }
+               }
+            } catch(e) {
+               console.warn('Could not fetch TI_Nam sheet:', e);
+            }
+
          } catch (e) {
             console.error('Error parsing CBCNV from CSV', e);
          }
@@ -3260,6 +3580,498 @@ export const DataStore = {
        const cached = safeGetItem(LOCAL_TUTI_UPDATES_KEY);
        return cached ? JSON.parse(cached) : [];
      } catch { return []; }
+  },
+
+  getQuaHanEntries: (): QuaHanEntry[] => {
+     if (memCacheQuaHanList && memCacheQuaHanList.length > 0) return memCacheQuaHanList;
+     try {
+       const cached = safeGetItem(QUAHAN_KEY);
+       if (cached) {
+         memCacheQuaHanList = JSON.parse(cached);
+         return memCacheQuaHanList || [];
+       }
+     } catch (e) {}
+     return [];
+  },
+
+  fetchQuaHanData: async (force?: boolean): Promise<QuaHanEntry[]> => {
+     if (!force && memCacheQuaHanList && memCacheQuaHanList.length > 0) {
+       return memCacheQuaHanList;
+     }
+     const sheetId = DataStore.getSpreadsheetId() || DEFAULT_SPREADSHEET_ID;
+     try {
+       const qhSheetNames = ['QuaHan', 'quahan', 'Quá hạn', 'Qua Han', 'Qua_Han'];
+       let qhText = '';
+       for (const sName of qhSheetNames) {
+           const tempText = await DataStore.fetchSheetCSV(sName, sheetId);
+           if (tempText && !tempText.includes('<html') && tempText.trim().length > 20) {
+               qhText = tempText;
+               break;
+           }
+       }
+       if (qhText) {
+           const parsedQh = DataStore.parseQuaHanCSVData(qhText);
+           if (parsedQh && parsedQh.length > 0) {
+               memCacheQuaHanList = parsedQh;
+               safeSetItem(QUAHAN_KEY, JSON.stringify(parsedQh));
+               try { await set(QUAHAN_KEY, parsedQh); } catch(err) {}
+               return parsedQh;
+           }
+       }
+     } catch (e) {
+       console.warn('Could not fetch QuaHan sheet', e);
+     }
+     return DataStore.getQuaHanEntries();
+  },
+
+  parseQuaHanCSVData: (input: string | any[]): QuaHanEntry[] => {
+    if (!input) return [];
+    let rawRows: any[] = [];
+    if (typeof input === 'string') {
+      const { data } = Papa.parse(input, { header: true, skipEmptyLines: true });
+      rawRows = data || [];
+    } else if (Array.isArray(input)) {
+      rawRows = input;
+    }
+
+    const getRegion = (sogcs?: string): string => {
+      if (!sogcs || sogcs.length < 3) return "Khác";
+      const char3 = sogcs[2].toUpperCase();
+      if (char3 === "A") return "Vũng Tàu";
+      if (char3 === "B") return "Bà Rịa";
+      if (char3 === "D") return "Phú Mỹ";
+      if (char3 === "N") return "Côn Đảo";
+      return "Khác";
+    };
+
+    return rawRows.map((r: any) => {
+      const maSogcs = String(r.MA_SOGCS || r.ma_sogcs || r['Mã sổ GCS'] || r['MA SOGCS'] || '').trim();
+      return {
+        MA_DVIQLY: String(r.MA_DVIQLY || r.ma_dviqly || '').trim(),
+        MA_TBI: String(r.MA_TBI || r.ma_tbi || '').trim(),
+        SO_TBI: String(r.SO_TBI || r.so_tbi || r['Số TBI'] || r['18083539'] || '').trim(),
+        SO_HUU: String(r.SO_HUU || r.so_huu || '').trim(),
+        MA_CLOAI: String(r.MA_CLOAI || r.ma_cloai || '').trim(),
+        DONG_DIEN: String(r.DONG_DIEN || r.dong_dien || '').trim(),
+        DIEN_AP: String(r.DIEN_AP || r.dien_ap || '').trim(),
+        SO_PHA: String(r.SO_PHA || r.so_pha || '').trim(),
+        NGAY_KDINH: String(r.NGAY_KDINH || r.ngay_kdinh || '').trim(),
+        HAN_KDINH: String(r.HAN_KDINH || r.han_kdinh || '').trim(),
+        LUU_KHO: String(r.LUU_KHO || r.luu_kho || '').trim(),
+        MA_DDO: String(r.MA_DDO || r.ma_ddo || '').trim(),
+        MA_KHANG: String(r.MA_KHANG || r.ma_khang || '').trim(),
+        VH_CONG: String(r.VH_CONG || r.vh_cong || '').trim(),
+        HSN: String(r.HSN || r.hsn || '').trim(),
+        NGAY_TTHAO: String(r.NGAY_TTHAO || r.ngay_tthao || '').trim(),
+        TEN_TCHI: String(r.TEN_TCHI || r.ten_tchi || '').trim(),
+        MA_TCHI: String(r.MA_TCHI || r.ma_tchi || '').trim(),
+        MA_KVUC: String(r.MA_KVUC || r.ma_kvuc || '').trim(),
+        STT: String(r.STT || r.stt || '').trim(),
+        TEN_KHANG: String(r.TEN_KHANG || r.ten_khang || '').trim(),
+        DCHI_DDO: String(r.DCHI_DDO || r.dchi_ddo || '').trim(),
+        DCHI_KHANG: String(r.DCHI_KHANG || r.dchi_khang || '').trim(),
+        SO_COT: String(r.SO_COT || r.so_cot || '').trim(),
+        SO_HOP: String(r.SO_HOP || r.so_hop || '').trim(),
+        MA_SOGCS: maSogcs,
+        MA_TRAM: String(r.MA_TRAM || r.ma_tram || '').trim(),
+        DTHOAI: String(r.DTHOAI || r.dthoai || '').trim(),
+        HOP_BO: String(r.HOP_BO || r.hop_bo || '').trim(),
+        CHUOI_GIA: String(r.CHUOI_GIA || r.chuoi_gia || '').trim(),
+        LOAI_TT_GT: String(r.LOAI_TT_GT || r.loai_tt_gt || '').trim(),
+        TSO_TI: String(r.TSO_TI || r.tso_ti || '').trim(),
+        TSO_TU: String(r.TSO_TU || r.tso_tu || '').trim(),
+        DIEN_AP_TI: String(r.DIEN_AP_TI || r.dien_ap_ti || '').trim(),
+        khuVuc: getRegion(maSogcs)
+      };
+    });
+  },
+
+  getTuSheetEntries: (): TuSheetEntry[] => {
+     if (memCacheTuSheetList && memCacheTuSheetList.length > 0) return memCacheTuSheetList;
+     try {
+       const cached = safeGetItem(TU_SHEET_KEY);
+       if (cached) {
+         memCacheTuSheetList = JSON.parse(cached);
+         return memCacheTuSheetList || [];
+       }
+     } catch (e) {}
+     return [];
+  },
+
+  fetchTuSheetData: async (force?: boolean): Promise<TuSheetEntry[]> => {
+     if (!force && memCacheTuSheetList && memCacheTuSheetList.length > 0) {
+       return memCacheTuSheetList;
+     }
+     const sheetId = DataStore.getSpreadsheetId() || DEFAULT_SPREADSHEET_ID;
+     try {
+       const tuSheetNames = ['TU', 'tu', 'Sheet_TU', 'SheetTU'];
+       let tuText = '';
+       for (const sName of tuSheetNames) {
+           const tempText = await DataStore.fetchSheetCSV(sName, sheetId);
+           if (tempText && !tempText.includes('<html') && tempText.trim().length > 20) {
+               tuText = tempText;
+               break;
+           }
+       }
+       if (tuText) {
+           const parsedTu = DataStore.parseTuCSVData(tuText);
+           if (parsedTu && parsedTu.length > 0) {
+               memCacheTuSheetList = parsedTu;
+               safeSetItem(TU_SHEET_KEY, JSON.stringify(parsedTu));
+               try { await set(TU_SHEET_KEY, parsedTu); } catch(err) {}
+               return parsedTu;
+           }
+       }
+     } catch (e) {
+       console.warn('Could not fetch TU sheet', e);
+     }
+     return DataStore.getTuSheetEntries();
+  },
+
+  parseTuCSVData: (input: string | any[]): TuSheetEntry[] => {
+    if (!input) return [];
+    let rawRows: any[] = [];
+    if (typeof input === 'string') {
+      const { data } = Papa.parse(input, { header: true, skipEmptyLines: true });
+      rawRows = data || [];
+    } else if (Array.isArray(input)) {
+      rawRows = input;
+    }
+
+    const getRegion = (sogcs?: string): string => {
+      if (!sogcs || sogcs.length < 3) return "Khác";
+      const char3 = sogcs[2].toUpperCase();
+      if (char3 === "A") return "Vũng Tàu";
+      if (char3 === "B") return "Bà Rịa";
+      if (char3 === "D") return "Phú Mỹ";
+      if (char3 === "N") return "Côn Đảo";
+      return "Khác";
+    };
+
+    return rawRows.map((r: any) => {
+      const maSogcs = String(r.MA_SOGCS || r.ma_sogcs || '').trim();
+      return {
+        MA_DVIQLY: String(r.MA_DVIQLY || r.ma_dviqly || '').trim(),
+        MA_TBI: String(r.MA_TBI || r.ma_tbi || '').trim(),
+        SO_TBI: String(r.SO_TBI || r.so_tbi || '').trim(),
+        SO_HUU: String(r.SO_HUU || r.so_huu || '').trim(),
+        MA_CLOAI: String(r.MA_CLOAI || r.ma_cloai || '').trim(),
+        DIEN_AP: String(r.DIEN_AP || r.dien_ap || '').trim(),
+        CAP_CXAC: String(r.CAP_CXAC || r.cap_cxac || '').trim(),
+        SO_PHA: String(r.SO_PHA || r.so_pha || '').trim(),
+        TYSO_DAU: String(r.TYSO_DAU || r.tyso_dau || '').trim(),
+        NGAY_KDINH: String(r.NGAY_KDINH || r.ngay_kdinh || '').trim(),
+        HAN_KDINH: String(r.HAN_KDINH || r.han_kdinh || '').trim(),
+        LUU_KHO: String(r.LUU_KHO || r.luu_kho || '').trim(),
+        MA_DDO: String(r.MA_DDO || r.ma_ddo || '').trim(),
+        MA_KHANG: String(r.MA_KHANG || r.ma_khang || '').trim(),
+        HSN: String(r.HSN || r.hsn || '').trim(),
+        NGAY_TTHAO: String(r.NGAY_TTHAO || r.ngay_tthao || '').trim(),
+        MA_TCHI: String(r.MA_TCHI || r.ma_tchi || '').trim(),
+        MA_KVUC: String(r.MA_KVUC || r.ma_kvuc || '').trim(),
+        STT: String(r.STT || r.stt || '').trim(),
+        TEN_KHANG: String(r.TEN_KHANG || r.ten_khang || '').trim(),
+        DCHI_DDO: String(r.DCHI_DDO || r.dchi_ddo || '').trim(),
+        DCHI_KHANG: String(r.DCHI_KHANG || r.dchi_khang || '').trim(),
+        MA_SOGCS: maSogcs,
+        DTHOAI: String(r.DTHOAI || r.dthoai || '').trim(),
+        HOP_BO: String(r.HOP_BO || r.hop_bo || '').trim(),
+        CHUOI_GIA: String(r.CHUOI_GIA || r.chuoi_gia || '').trim(),
+        khuVuc: getRegion(maSogcs)
+      };
+    });
+  },
+
+  getTiSheetEntries: (): TiSheetEntry[] => {
+     if (memCacheTiSheetList && memCacheTiSheetList.length > 0) return memCacheTiSheetList;
+     try {
+       const cached = safeGetItem(TI_SHEET_KEY);
+       if (cached) {
+         memCacheTiSheetList = JSON.parse(cached);
+         return memCacheTiSheetList || [];
+       }
+     } catch (e) {}
+     return [];
+  },
+
+  fetchTiSheetData: async (force?: boolean): Promise<TiSheetEntry[]> => {
+     if (!force && memCacheTiSheetList && memCacheTiSheetList.length > 0) {
+       return memCacheTiSheetList;
+     }
+     const sheetId = DataStore.getSpreadsheetId() || DEFAULT_SPREADSHEET_ID;
+     try {
+       const tiSheetNames = ['TI', 'ti', 'Sheet_TI', 'SheetTI'];
+       let tiText = '';
+       for (const sName of tiSheetNames) {
+           const tempText = await DataStore.fetchSheetCSV(sName, sheetId);
+           if (tempText && !tempText.includes('<html') && tempText.trim().length > 20) {
+               tiText = tempText;
+               break;
+           }
+       }
+       if (tiText) {
+           const parsedTi = DataStore.parseTiCSVData(tiText);
+           if (parsedTi && parsedTi.length > 0) {
+               memCacheTiSheetList = parsedTi;
+               safeSetItem(TI_SHEET_KEY, JSON.stringify(parsedTi));
+               try { await set(TI_SHEET_KEY, parsedTi); } catch(err) {}
+               return parsedTi;
+           }
+       }
+     } catch (e) {
+       console.warn('Could not fetch TI sheet', e);
+     }
+     return DataStore.getTiSheetEntries();
+  },
+
+  parseTiCSVData: (input: string | any[]): TiSheetEntry[] => {
+    if (!input) return [];
+    let rawRows: any[] = [];
+    if (typeof input === 'string') {
+      const { data } = Papa.parse(input, { header: true, skipEmptyLines: true });
+      rawRows = data || [];
+    } else if (Array.isArray(input)) {
+      rawRows = input;
+    }
+
+    const getRegion = (sogcs?: string): string => {
+      if (!sogcs || sogcs.length < 3) return "Khác";
+      const char3 = sogcs[2].toUpperCase();
+      if (char3 === "A") return "Vũng Tàu";
+      if (char3 === "B") return "Bà Rịa";
+      if (char3 === "D") return "Phú Mỹ";
+      if (char3 === "N") return "Côn Đảo";
+      return "Khác";
+    };
+
+    return rawRows.map((r: any) => {
+      const maSogcs = String(r.MA_SOGCS || r.ma_sogcs || '').trim();
+      return {
+        MA_DVIQLY: String(r.MA_DVIQLY || r.ma_dviqly || '').trim(),
+        MA_TBI: String(r.MA_TBI || r.ma_tbi || '').trim(),
+        SO_TBI: String(r.SO_TBI || r.so_tbi || '').trim(),
+        SO_HUU: String(r.SO_HUU || r.so_huu || '').trim(),
+        MA_CLOAI: String(r.MA_CLOAI || r.ma_cloai || '').trim(),
+        DIEN_AP: String(r.DIEN_AP || r.dien_ap || '').trim(),
+        CAP_CXAC: String(r.CAP_CXAC || r.cap_cxac || '').trim(),
+        SO_PHA: String(r.SO_PHA || r.so_pha || '').trim(),
+        TYSO_DAU: String(r.TYSO_DAU || r.tyso_dau || '').trim(),
+        NGAY_KDINH: String(r.NGAY_KDINH || r.ngay_kdinh || '').trim(),
+        HAN_KDINH: String(r.HAN_KDINH || r.han_kdinh || '').trim(),
+        LUU_KHO: String(r.LUU_KHO || r.luu_kho || '').trim(),
+        MA_DDO: String(r.MA_DDO || r.ma_ddo || '').trim(),
+        MA_KHANG: String(r.MA_KHANG || r.ma_khang || '').trim(),
+        HSN: String(r.HSN || r.hsn || '').trim(),
+        NGAY_TTHAO: String(r.NGAY_TTHAO || r.ngay_tthao || '').trim(),
+        MA_TCHI: String(r.MA_TCHI || r.ma_tchi || '').trim(),
+        MA_KVUC: String(r.MA_KVUC || r.ma_kvuc || '').trim(),
+        STT: String(r.STT || r.stt || '').trim(),
+        TEN_KHANG: String(r.TEN_KHANG || r.ten_khang || '').trim(),
+        DCHI_DDO: String(r.DCHI_DDO || r.dchi_ddo || '').trim(),
+        DCHI_KHANG: String(r.DCHI_KHANG || r.dchi_khang || '').trim(),
+        MA_SOGCS: maSogcs,
+        DTHOAI: String(r.DTHOAI || r.dthoai || '').trim(),
+        HOP_BO: String(r.HOP_BO || r.hop_bo || '').trim(),
+        CHUOI_GIA: String(r.CHUOI_GIA || r.chuoi_gia || '').trim(),
+        khuVuc: getRegion(maSogcs)
+      };
+    });
+  },
+
+  setQuaHanEntries: async (entries: QuaHanEntry[]): Promise<void> => {
+     memCacheQuaHanList = entries;
+     try {
+       safeSetItem(QUAHAN_KEY, JSON.stringify(entries));
+     } catch(e) {
+       console.warn('localStorage full for QuaHan', e);
+     }
+     try {
+       await set(QUAHAN_KEY, entries);
+     } catch(e) {}
+     window.dispatchEvent(new Event('workload_updated'));
+  },
+
+  getQuaHanNamEntries: (): QuaHanEntry[] => {
+     if (memCacheQuaHanNamList && memCacheQuaHanNamList.length > 0) return memCacheQuaHanNamList;
+     try {
+       const cached = safeGetItem(QUAHAN_NAM_KEY);
+       if (cached) {
+         memCacheQuaHanNamList = JSON.parse(cached);
+         return memCacheQuaHanNamList || [];
+       }
+     } catch (e) {}
+     return [];
+  },
+
+  fetchQuaHanNamData: async (force?: boolean): Promise<QuaHanEntry[]> => {
+     if (!force && memCacheQuaHanNamList && memCacheQuaHanNamList.length > 0) {
+       return memCacheQuaHanNamList;
+     }
+     const sheetId = DataStore.getSpreadsheetId() || DEFAULT_SPREADSHEET_ID;
+     try {
+       const qhnNames = ['QuaHan_Nam', 'quahan_nam', 'QuaHanNam', 'Quá hạn năm', 'Qua_Han_Nam'];
+       let qhnText = '';
+       for (const sName of qhnNames) {
+           const tempText = await DataStore.fetchSheetCSV(sName, sheetId);
+           if (tempText && !tempText.includes('<html') && tempText.trim().length > 20) {
+               qhnText = tempText;
+               break;
+           }
+       }
+       if (qhnText) {
+           const parsedQhn = DataStore.parseQuaHanCSVData(qhnText);
+           if (parsedQhn && parsedQhn.length > 0) {
+               memCacheQuaHanNamList = parsedQhn;
+               safeSetItem(QUAHAN_NAM_KEY, JSON.stringify(parsedQhn));
+               try { await set(QUAHAN_NAM_KEY, parsedQhn); } catch(err) {}
+               return parsedQhn;
+           }
+       }
+     } catch (e) {
+       console.warn('Could not fetch QuaHan_Nam sheet', e);
+     }
+     return DataStore.getQuaHanNamEntries();
+  },
+
+  setQuaHanNamEntries: async (entries: QuaHanEntry[]): Promise<void> => {
+     memCacheQuaHanNamList = entries;
+     try {
+       safeSetItem(QUAHAN_NAM_KEY, JSON.stringify(entries));
+     } catch(e) {
+       console.warn('localStorage full for QuaHan_Nam', e);
+     }
+     try {
+       await set(QUAHAN_NAM_KEY, entries);
+     } catch(e) {}
+     window.dispatchEvent(new Event('workload_updated'));
+  },
+
+  setTuSheetEntries: async (entries: TuSheetEntry[]): Promise<void> => {
+     memCacheTuSheetList = entries;
+     try {
+       safeSetItem(TU_SHEET_KEY, JSON.stringify(entries));
+     } catch(e) {}
+     try {
+       await set(TU_SHEET_KEY, entries);
+     } catch(e) {}
+     window.dispatchEvent(new Event('workload_updated'));
+  },
+
+  getTuNamEntries: (): TuSheetEntry[] => {
+     if (memCacheTuNamList && memCacheTuNamList.length > 0) return memCacheTuNamList;
+     try {
+       const cached = safeGetItem(TU_NAM_KEY);
+       if (cached) {
+         memCacheTuNamList = JSON.parse(cached);
+         return memCacheTuNamList || [];
+       }
+     } catch (e) {}
+     return [];
+  },
+
+  fetchTuNamData: async (force?: boolean): Promise<TuSheetEntry[]> => {
+     if (!force && memCacheTuNamList && memCacheTuNamList.length > 0) {
+       return memCacheTuNamList;
+     }
+     const sheetId = DataStore.getSpreadsheetId() || DEFAULT_SPREADSHEET_ID;
+     try {
+       const tuNamNames = ['TU_Nam', 'tu_nam', 'TUNam', 'TU Nam', 'TU_nam'];
+       let tunText = '';
+       for (const sName of tuNamNames) {
+           const tempText = await DataStore.fetchSheetCSV(sName, sheetId);
+           if (tempText && !tempText.includes('<html') && tempText.trim().length > 20) {
+               tunText = tempText;
+               break;
+           }
+       }
+       if (tunText) {
+           const parsedTun = DataStore.parseTuCSVData(tunText);
+           if (parsedTun && parsedTun.length > 0) {
+               memCacheTuNamList = parsedTun;
+               safeSetItem(TU_NAM_KEY, JSON.stringify(parsedTun));
+               try { await set(TU_NAM_KEY, parsedTun); } catch(err) {}
+               return parsedTun;
+           }
+       }
+     } catch (e) {
+       console.warn('Could not fetch TU_Nam sheet', e);
+     }
+     return DataStore.getTuNamEntries();
+  },
+
+  setTuNamEntries: async (entries: TuSheetEntry[]): Promise<void> => {
+     memCacheTuNamList = entries;
+     try {
+       safeSetItem(TU_NAM_KEY, JSON.stringify(entries));
+     } catch(e) {}
+     try {
+       await set(TU_NAM_KEY, entries);
+     } catch(e) {}
+     window.dispatchEvent(new Event('workload_updated'));
+  },
+
+  setTiSheetEntries: async (entries: TiSheetEntry[]): Promise<void> => {
+     memCacheTiSheetList = entries;
+     try {
+       safeSetItem(TI_SHEET_KEY, JSON.stringify(entries));
+     } catch(e) {}
+     try {
+       await set(TI_SHEET_KEY, entries);
+     } catch(e) {}
+     window.dispatchEvent(new Event('workload_updated'));
+  },
+
+  getTiNamEntries: (): TiSheetEntry[] => {
+     if (memCacheTiNamList && memCacheTiNamList.length > 0) return memCacheTiNamList;
+     try {
+       const cached = safeGetItem(TI_NAM_KEY);
+       if (cached) {
+         memCacheTiNamList = JSON.parse(cached);
+         return memCacheTiNamList || [];
+       }
+     } catch (e) {}
+     return [];
+  },
+
+  fetchTiNamData: async (force?: boolean): Promise<TiSheetEntry[]> => {
+     if (!force && memCacheTiNamList && memCacheTiNamList.length > 0) {
+       return memCacheTiNamList;
+     }
+     const sheetId = DataStore.getSpreadsheetId() || DEFAULT_SPREADSHEET_ID;
+     try {
+       const tiNamNames = ['TI_Nam', 'ti_nam', 'TINam', 'TI Nam', 'TI_nam'];
+       let tinText = '';
+       for (const sName of tiNamNames) {
+           const tempText = await DataStore.fetchSheetCSV(sName, sheetId);
+           if (tempText && !tempText.includes('<html') && tempText.trim().length > 20) {
+               tinText = tempText;
+               break;
+           }
+       }
+       if (tinText) {
+           const parsedTin = DataStore.parseTiCSVData(tinText);
+           if (parsedTin && parsedTin.length > 0) {
+               memCacheTiNamList = parsedTin;
+               safeSetItem(TI_NAM_KEY, JSON.stringify(parsedTin));
+               try { await set(TI_NAM_KEY, parsedTin); } catch(err) {}
+               return parsedTin;
+           }
+       }
+     } catch (e) {
+       console.warn('Could not fetch TI_Nam sheet', e);
+     }
+     return DataStore.getTiNamEntries();
+  },
+
+  setTiNamEntries: async (entries: TiSheetEntry[]): Promise<void> => {
+     memCacheTiNamList = entries;
+     try {
+       safeSetItem(TI_NAM_KEY, JSON.stringify(entries));
+     } catch(e) {}
+     try {
+       await set(TI_NAM_KEY, entries);
+     } catch(e) {}
+     window.dispatchEvent(new Event('workload_updated'));
   },
 
   updateTutiProgress: (id: string, updates: Partial<TutiEntry>, user: SheetMember | null) => {

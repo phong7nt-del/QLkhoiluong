@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, X, Save, Edit2, Search, CheckCircle, AlertCircle, Calendar, RefreshCw, Activity, ChevronDown, ChevronRight } from 'lucide-react';
+import { Plus, X, Save, Edit2, Search, CheckCircle, AlertCircle, Calendar, RefreshCw, Activity, ChevronDown, ChevronRight, Clock } from 'lucide-react';
 import { DataStore, TutiEntry, SheetMember } from '../store/DataStore';
+import QuaHanSubTab from './QuaHanSubTab';
 
 export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle: number, sessionUser: SheetMember | null }) {
+    const [subTab, setSubTab] = useState<'tuti' | 'quahan'>('tuti');
     const [entries, setEntries] = useState<TutiEntry[]>(() => DataStore.getTutiEntries());
+    const [quahanCount, setQuahanCount] = useState<number>(() => DataStore.getQuaHanEntries().length);
     const [showForm, setShowForm] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     
@@ -56,6 +59,7 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
 
     useEffect(() => {
         setEntries(DataStore.getTutiEntries());
+        setQuahanCount(DataStore.getQuaHanEntries().length);
     }, [refreshToggle]);
 
     const handleSaveNew = async () => {
@@ -346,6 +350,49 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
 
     return (
         <div className="space-y-6">
+            {/* Sub-tab navigation */}
+            <div className="flex items-center gap-2 bg-slate-100/90 p-1.5 rounded-2xl border border-slate-200 w-fit select-none shadow-2xs">
+                <button
+                    type="button"
+                    onClick={() => setSubTab('tuti')}
+                    className={`px-4 py-2 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
+                        subTab === 'tuti'
+                            ? 'bg-white text-indigo-700 shadow-sm shadow-slate-200'
+                            : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+                    }`}
+                >
+                    <Activity className={`w-4 h-4 ${subTab === 'tuti' ? 'text-indigo-600' : 'text-slate-400'}`} />
+                    <span>TUTI</span>
+                    <span className={`px-2 py-0.5 rounded-full text-[11px] font-mono font-bold ${
+                        subTab === 'tuti' ? 'bg-indigo-100 text-indigo-800' : 'bg-slate-200 text-slate-600'
+                    }`}>
+                        {entries.length}
+                    </span>
+                </button>
+
+                <button
+                    type="button"
+                    onClick={() => setSubTab('quahan')}
+                    className={`px-4 py-2 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
+                        subTab === 'quahan'
+                            ? 'bg-white text-rose-700 shadow-sm shadow-slate-200'
+                            : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+                    }`}
+                >
+                    <Clock className={`w-4 h-4 ${subTab === 'quahan' ? 'text-rose-600' : 'text-slate-400'}`} />
+                    <span>Quá hạn</span>
+                    <span className={`px-2 py-0.5 rounded-full text-[11px] font-mono font-bold ${
+                        subTab === 'quahan' ? 'bg-rose-100 text-rose-800' : 'bg-slate-200 text-slate-600'
+                    }`}>
+                        {quahanCount > 0 ? quahanCount.toLocaleString() : 'QuaHan'}
+                    </span>
+                </button>
+            </div>
+
+            {subTab === 'quahan' ? (
+                <QuaHanSubTab refreshToggle={refreshToggle} sessionUser={sessionUser} />
+            ) : (
+                <>
             {missingWarnings.length > 0 && (
                 <div className="bg-red-50/80 border border-red-200/60 rounded-2xl shadow-sm backdrop-blur-sm animate-in fade-in slide-in-from-top-2 overflow-hidden transition-all">
                     <div 
@@ -400,7 +447,7 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
             <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-black text-indigo-900 tracking-tight flex items-center gap-2">
                     <Activity className="w-6 h-6 text-indigo-600" />
-                    Quản lý Kiểm tra TU - TI
+                    Hệ Thống Đo Đếm (HTDD) - Phân hệ TUTI
                 </h2>
                 <div className="flex items-center gap-4">
                     {!showForm && canEditTuti && (
@@ -770,6 +817,8 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                     <CheckCircle className="w-5 h-5" />
                     {toastMessage}
                 </div>
+            )}
+            </>
             )}
         </div>
     );

@@ -83,7 +83,7 @@ const TABS_INFO = [
     { id: 'search', label: 'Tìm kiếm' },
     { id: 'sangtai', label: 'KT sang tải' },
     { id: 'progress', label: 'Tiến độ CV' },
-    { id: 'tuti', label: 'TU - TI' },
+    { id: 'tuti', label: 'HTDD' },
     { id: 'plan_progress', label: 'Tiến độ kế hoạch' },
     { id: 'kthtdd', label: 'Kiện toàn HTDD' },
     { id: 'dvkh', label: 'DVKH' },
@@ -97,7 +97,8 @@ const ACTIONS_INFO = [
     { id: 'edit_others_workload', label: 'Chỉnh sửa/Xóa báo cáo của người khác' },
     { id: 'bao_cao_ho', label: 'Cập nhật báo cáo hộ' },
     { id: 'view_online_users', label: 'Xem danh sách người dùng Online' },
-    { id: 'kthtdd_all_areas', label: 'Kiện toàn tất cả khu vực (Phát sinh KT)' }
+    { id: 'kthtdd_all_areas', label: 'Kiện toàn tất cả khu vực (Phát sinh KT)' },
+    { id: 'import_htdd_data', label: 'Import dữ liệu Quá hạn / Cuối năm (HTDD)' }
 ];
 
 const ICON_PRESETS = [
