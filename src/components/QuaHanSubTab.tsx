@@ -48,6 +48,36 @@ export const TI_COLUMNS = [
   'HOP_BO', 'CHUOI_GIA'
 ];
 
+export interface UnifiedDetailRecord {
+  id: string;
+  sourceSheet: 'dienke' | 'tu' | 'ti' | 'vuaTUTI' | 'vuaDKTUTI';
+  sourceSheetName: string;
+  deviceCategory: DeviceFilterType;
+  deviceLabel: string;
+  badgeBg: string;
+  badgeText: string;
+  MA_DDO: string;
+  TEN_KHANG: string;
+  DCHI_DDO: string;
+  DTHOAI: string;
+  MA_SOGCS: string;
+  khuVuc: string;
+  MA_KVUC: string;
+  STT: string;
+  LOAI_TT_GT: string;
+  TSO_TI: string;
+  TSO_TU: string;
+  DIEN_AP: string;
+  CAP_CXAC: string;
+  MA_TBI: string;
+  SO_TBI: string;
+  SO_PHA: string;
+  HSN: string;
+  NGAY_KDINH: string;
+  HAN_KDINH: string;
+  raw?: any;
+}
+
 interface QuaHanSubTabProps {
   refreshToggle: number;
   sessionUser: SheetMember | null;
@@ -141,15 +171,24 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
   };
 
   useEffect(() => {
-    const qh = isCuoiNam ? DataStore.getQuaHanNamEntries() : DataStore.getQuaHanEntries();
-    const tu = isCuoiNam ? DataStore.getTuNamEntries() : DataStore.getTuSheetEntries();
-    const ti = isCuoiNam ? DataStore.getTiNamEntries() : DataStore.getTiSheetEntries();
-    setEntries(qh);
-    setTuEntries(tu);
-    setTiEntries(ti);
-    if (!qh.length || !tu.length || !ti.length) {
-      loadData(false);
-    }
+    const updateAll = () => {
+      const qh = isCuoiNam ? DataStore.getQuaHanNamEntries() : DataStore.getQuaHanEntries();
+      const tu = isCuoiNam ? DataStore.getTuNamEntries() : DataStore.getTuSheetEntries();
+      const ti = isCuoiNam ? DataStore.getTiNamEntries() : DataStore.getTiSheetEntries();
+      setEntries(qh);
+      setTuEntries(tu);
+      setTiEntries(ti);
+      if (!qh.length && !tu.length && !ti.length) {
+        loadData(false);
+      }
+    };
+    updateAll();
+    window.addEventListener('workload_updated', updateAll);
+    window.addEventListener('htdd_data_updated', updateAll);
+    return () => {
+      window.removeEventListener('workload_updated', updateAll);
+      window.removeEventListener('htdd_data_updated', updateAll);
+    };
   }, [mode, refreshToggle]);
 
   // TI Trung thế: căn cứ vào cột DIEN_AP (22 hoặc 22kV, hoặc >= 1)
@@ -206,30 +245,23 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
     return new Set(tiEntries.filter(isTITrungThe).map(r => String(r.MA_DDO || '').trim().toUpperCase()).filter(Boolean));
   }, [tiEntries]);
 
-  // Helper check for device filter
-  const matchesDeviceType = (r: QuaHanEntry, type: DeviceFilterType) => {
-    if (type === 'all') return true;
-    const m = String(r.MA_DDO || '').trim().toUpperCase();
-    if (type === 'tu') {
-      return (m && tuMaddos.has(m)) || Boolean(r.TSO_TU && r.TSO_TU.trim().length > 0);
-    }
-    if (type === 'tiHaThe') {
-      return (m && tiHaTheMaddos.has(m)) || Boolean(r.TSO_TI && (r.DIEN_AP_TI?.startsWith('0') || !r.DIEN_AP_TI));
-    }
-    if (type === 'tiTrungThe') {
-      return (m && tiTrungTheMaddos.has(m)) || Boolean(r.TSO_TI && (r.DIEN_AP_TI?.startsWith('2') || r.TSO_TU));
-    }
-    if (type === 'dk1p') return isDK1P(r);
-    if (type === 'dk3pTT') return isDK3PTT(r);
-    if (type === 'dk3pGT') return isDK3PGT(r);
-    if (type === 'vuaTUTI') {
-      return (m && tuMaddos.has(m) && tiMaddos.has(m)) || Boolean(r.TSO_TU && r.TSO_TU.trim().length > 0 && r.TSO_TI && r.TSO_TI.trim().length > 0);
-    }
-    if (type === 'vuaDKTUTI') {
-      return Boolean(m && tuMaddos.has(m) && tiMaddos.has(m));
-    }
-    return true;
-  };
+  // Map MA_DDO to region
+  const maddoRegionMap = useMemo(() => {
+    const map = new Map<string, string>();
+    tuEntries.forEach(r => {
+      const m = String(r.MA_DDO || '').trim().toUpperCase();
+      if (m && !map.has(m) && r.khuVuc) map.set(m, r.khuVuc);
+    });
+    tiEntries.forEach(r => {
+      const m = String(r.MA_DDO || '').trim().toUpperCase();
+      if (m && !map.has(m) && r.khuVuc) map.set(m, r.khuVuc);
+    });
+    entries.forEach(r => {
+      const m = String(r.MA_DDO || '').trim().toUpperCase();
+      if (m && !map.has(m) && r.khuVuc) map.set(m, r.khuVuc);
+    });
+    return map;
+  }, [tuEntries, tiEntries, entries]);
 
   // Calculate Region Statistics (Phần trên)
   const regionStats = useMemo(() => {
@@ -298,21 +330,6 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
       }
     });
 
-    // Map MA_DDO to region
-    const maddoRegionMap = new Map<string, string>();
-    tuEntries.forEach(r => {
-      const m = String(r.MA_DDO || '').trim().toUpperCase();
-      if (m && !maddoRegionMap.has(m) && r.khuVuc) maddoRegionMap.set(m, r.khuVuc);
-    });
-    tiEntries.forEach(r => {
-      const m = String(r.MA_DDO || '').trim().toUpperCase();
-      if (m && !maddoRegionMap.has(m) && r.khuVuc) maddoRegionMap.set(m, r.khuVuc);
-    });
-    entries.forEach(r => {
-      const m = String(r.MA_DDO || '').trim().toUpperCase();
-      if (m && !maddoRegionMap.has(m) && r.khuVuc) maddoRegionMap.set(m, r.khuVuc);
-    });
-
     // 4. Phần vừa TU - Vừa TI: bạn rà trong 2 sheet TU và TI xem giá trị ở cột MA_DDO giống nhau
     const commonTUTI = [...tuMaddos].filter(m => tiMaddos.has(m));
     commonTUTI.forEach(m => {
@@ -366,7 +383,7 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
     });
 
     return { list: REGIONS.map(reg => stats[reg]), totals };
-  }, [entries, tuEntries, tiEntries, tuMaddos, tiMaddos, qhMaddos]);
+  }, [entries, tuEntries, tiEntries, tuMaddos, tiMaddos, qhMaddos, maddoRegionMap]);
 
   // Handle click on stats row / cell to filter table below
   const handleStatClick = (region: string, deviceType: DeviceFilterType) => {
@@ -388,18 +405,264 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
     setCurrentPage(1);
   };
 
+  // 1. Unified TU Records
+  const tuUnified = useMemo<UnifiedDetailRecord[]>(() => {
+    return tuEntries.map((r, idx) => ({
+      id: `tu_${r.MA_DDO || ''}_${r.MA_TBI || ''}_${idx}`,
+      sourceSheet: 'tu',
+      sourceSheetName: tuSheetName,
+      deviceCategory: 'tu',
+      deviceLabel: 'TU',
+      badgeBg: 'bg-blue-100',
+      badgeText: 'text-blue-800',
+      MA_DDO: r.MA_DDO || '',
+      TEN_KHANG: r.TEN_KHANG || '',
+      DCHI_DDO: r.DCHI_DDO || '',
+      DTHOAI: r.DTHOAI || '',
+      MA_SOGCS: r.MA_SOGCS || '',
+      khuVuc: r.khuVuc || 'Khác',
+      MA_KVUC: r.MA_KVUC || '',
+      STT: r.STT || '',
+      LOAI_TT_GT: 'Biến điện áp (TU)',
+      TSO_TI: '-',
+      TSO_TU: r.TYSO_DAU || '-',
+      DIEN_AP: r.DIEN_AP ? (String(r.DIEN_AP).toLowerCase().includes('kv') ? String(r.DIEN_AP) : `${r.DIEN_AP} kV`) : '22 kV',
+      CAP_CXAC: r.CAP_CXAC || '',
+      MA_TBI: r.MA_TBI || '',
+      SO_TBI: r.SO_TBI || '',
+      SO_PHA: r.SO_PHA ? `${r.SO_PHA}` : '1',
+      HSN: r.HSN || '0',
+      NGAY_KDINH: r.NGAY_KDINH || '',
+      HAN_KDINH: r.HAN_KDINH || '',
+      raw: r
+    }));
+  }, [tuEntries, tuSheetName]);
+
+  // 2. Unified TI Records (TI Hạ thế & TI Trung thế)
+  const tiUnified = useMemo<UnifiedDetailRecord[]>(() => {
+    return tiEntries.map((r, idx) => {
+      const haThe = isTIHaThe(r);
+      const cat: DeviceFilterType = haThe ? 'tiHaThe' : 'tiTrungThe';
+      const label = haThe ? 'TI Hạ thế' : 'TI Trung thế';
+      const badgeBg = haThe ? 'bg-sky-100' : 'bg-amber-100';
+      const badgeText = haThe ? 'text-sky-800' : 'text-amber-800';
+      const defaultDa = haThe ? '0.7 kV' : '22 kV';
+      const dienApStr = r.DIEN_AP ? (String(r.DIEN_AP).toLowerCase().includes('kv') ? String(r.DIEN_AP) : `${r.DIEN_AP} kV`) : defaultDa;
+
+      return {
+        id: `ti_${r.MA_DDO || ''}_${r.MA_TBI || ''}_${idx}`,
+        sourceSheet: 'ti',
+        sourceSheetName: tiSheetName,
+        deviceCategory: cat,
+        deviceLabel: label,
+        badgeBg,
+        badgeText,
+        MA_DDO: r.MA_DDO || '',
+        TEN_KHANG: r.TEN_KHANG || '',
+        DCHI_DDO: r.DCHI_DDO || '',
+        DTHOAI: r.DTHOAI || '',
+        MA_SOGCS: r.MA_SOGCS || '',
+        khuVuc: r.khuVuc || 'Khác',
+        MA_KVUC: r.MA_KVUC || '',
+        STT: r.STT || '',
+        LOAI_TT_GT: label,
+        TSO_TI: r.TYSO_DAU || '-',
+        TSO_TU: '-',
+        DIEN_AP: dienApStr,
+        CAP_CXAC: r.CAP_CXAC || '',
+        MA_TBI: r.MA_TBI || '',
+        SO_TBI: r.SO_TBI || '',
+        SO_PHA: r.SO_PHA ? `${r.SO_PHA}` : '1',
+        HSN: r.HSN || '0',
+        NGAY_KDINH: r.NGAY_KDINH || '',
+        HAN_KDINH: r.HAN_KDINH || '',
+        raw: r
+      };
+    });
+  }, [tiEntries, tiSheetName]);
+
+  // 3. Unified Meter Records (1P, 3P TT, 3P GT)
+  const meterUnified = useMemo<UnifiedDetailRecord[]>(() => {
+    return entries.map((r, idx) => {
+      const is1p = isDK1P(r);
+      const is3pGT = isDK3PGT(r);
+      const cat: DeviceFilterType = is1p ? 'dk1p' : is3pGT ? 'dk3pGT' : 'dk3pTT';
+      const label = is1p ? 'Điện kế 1 pha' : is3pGT ? 'Điện kế 3 pha gián tiếp' : 'Điện kế 3 pha trực tiếp';
+      const badgeBg = is1p ? 'bg-emerald-100' : is3pGT ? 'bg-purple-100' : 'bg-teal-100';
+      const badgeText = is1p ? 'text-emerald-800' : is3pGT ? 'text-purple-800' : 'text-teal-800';
+
+      return {
+        id: `dk_${r.MA_DDO || ''}_${r.MA_TBI || ''}_${idx}`,
+        sourceSheet: 'dienke',
+        sourceSheetName: qhSheetName,
+        deviceCategory: cat,
+        deviceLabel: label,
+        badgeBg,
+        badgeText,
+        MA_DDO: r.MA_DDO || '',
+        TEN_KHANG: r.TEN_KHANG || '',
+        DCHI_DDO: r.DCHI_DDO || '',
+        DTHOAI: r.DTHOAI || '',
+        MA_SOGCS: r.MA_SOGCS || '',
+        khuVuc: r.khuVuc || 'Khác',
+        MA_KVUC: r.MA_KVUC || '',
+        STT: r.STT || '',
+        LOAI_TT_GT: r.LOAI_TT_GT || (is1p ? '1 Pha' : is3pGT ? 'Gián tiếp' : 'Trực tiếp'),
+        TSO_TI: r.TSO_TI || '-',
+        TSO_TU: r.TSO_TU || '-',
+        DIEN_AP: r.DIEN_AP ? (String(r.DIEN_AP).toLowerCase().includes('v') ? String(r.DIEN_AP) : `${r.DIEN_AP} V`) : (is1p ? '220 V' : '380 V'),
+        CAP_CXAC: '',
+        MA_TBI: r.MA_TBI || '',
+        SO_TBI: r.SO_TBI || '',
+        SO_PHA: r.SO_PHA ? `${r.SO_PHA}` : (is1p ? '1' : '3'),
+        HSN: r.HSN || '1',
+        NGAY_KDINH: r.NGAY_KDINH || '',
+        HAN_KDINH: r.HAN_KDINH || '',
+        raw: r
+      };
+    });
+  }, [entries, qhSheetName]);
+
+  // 4. Unified Vừa TU - TI Records
+  const vuaTUTIUnified = useMemo<UnifiedDetailRecord[]>(() => {
+    const commonTUTI = [...tuMaddos].filter(m => tiMaddos.has(m));
+    const tuMap = new Map<string, TuSheetEntry>();
+    tuEntries.forEach(r => {
+      const m = String(r.MA_DDO || '').trim().toUpperCase();
+      if (m && !tuMap.has(m)) tuMap.set(m, r);
+    });
+    const tiMap = new Map<string, TiSheetEntry>();
+    tiEntries.forEach(r => {
+      const m = String(r.MA_DDO || '').trim().toUpperCase();
+      if (m && !tiMap.has(m)) tiMap.set(m, r);
+    });
+
+    return commonTUTI.map((m, idx) => {
+      const tu = tuMap.get(m);
+      const ti = tiMap.get(m);
+      const reg = maddoRegionMap.get(m) || tu?.khuVuc || ti?.khuVuc || 'Khác';
+
+      return {
+        id: `vua_tuti_${m}_${idx}`,
+        sourceSheet: 'vuaTUTI',
+        sourceSheetName: `${tuSheetName} & ${tiSheetName}`,
+        deviceCategory: 'vuaTUTI',
+        deviceLabel: 'Vừa TU - TI',
+        badgeBg: 'bg-rose-100',
+        badgeText: 'text-rose-800',
+        MA_DDO: m,
+        TEN_KHANG: tu?.TEN_KHANG || ti?.TEN_KHANG || '',
+        DCHI_DDO: tu?.DCHI_DDO || ti?.DCHI_DDO || '',
+        DTHOAI: tu?.DTHOAI || ti?.DTHOAI || '',
+        MA_SOGCS: tu?.MA_SOGCS || ti?.MA_SOGCS || '',
+        khuVuc: reg,
+        MA_KVUC: tu?.MA_KVUC || ti?.MA_KVUC || '',
+        STT: tu?.STT || ti?.STT || '',
+        LOAI_TT_GT: `TU: ${tu?.TYSO_DAU || '-'} | TI: ${ti?.TYSO_DAU || '-'}`,
+        TSO_TI: ti?.TYSO_DAU || '-',
+        TSO_TU: tu?.TYSO_DAU || '-',
+        DIEN_AP: tu?.DIEN_AP || ti?.DIEN_AP || '22 kV',
+        CAP_CXAC: `TU: ${tu?.CAP_CXAC || '-'} | TI: ${ti?.CAP_CXAC || '-'}`,
+        MA_TBI: `TU: ${tu?.MA_TBI || '-'} / TI: ${ti?.MA_TBI || '-'}`,
+        SO_TBI: `TU: ${tu?.SO_TBI || '-'} / TI: ${ti?.SO_TBI || '-'}`,
+        SO_PHA: tu?.SO_PHA || ti?.SO_PHA || '3',
+        HSN: '0',
+        NGAY_KDINH: tu?.NGAY_KDINH || ti?.NGAY_KDINH || '',
+        HAN_KDINH: tu?.HAN_KDINH || ti?.HAN_KDINH || '',
+        raw: { tu, ti }
+      };
+    });
+  }, [tuMaddos, tiMaddos, tuEntries, tiEntries, maddoRegionMap, tuSheetName, tiSheetName]);
+
+  // 5. Unified Vừa ĐK - TU - TI Records
+  const vuaDKTUTIUnified = useMemo<UnifiedDetailRecord[]>(() => {
+    const commonDKTUTI = [...qhMaddos].filter(m => tuMaddos.has(m) && tiMaddos.has(m));
+    const qhMap = new Map<string, QuaHanEntry>();
+    entries.forEach(r => {
+      const m = String(r.MA_DDO || '').trim().toUpperCase();
+      if (m && !qhMap.has(m)) qhMap.set(m, r);
+    });
+    const tuMap = new Map<string, TuSheetEntry>();
+    tuEntries.forEach(r => {
+      const m = String(r.MA_DDO || '').trim().toUpperCase();
+      if (m && !tuMap.has(m)) tuMap.set(m, r);
+    });
+    const tiMap = new Map<string, TiSheetEntry>();
+    tiEntries.forEach(r => {
+      const m = String(r.MA_DDO || '').trim().toUpperCase();
+      if (m && !tiMap.has(m)) tiMap.set(m, r);
+    });
+
+    return commonDKTUTI.map((m, idx) => {
+      const dk = qhMap.get(m);
+      const tu = tuMap.get(m);
+      const ti = tiMap.get(m);
+      const reg = maddoRegionMap.get(m) || dk?.khuVuc || tu?.khuVuc || ti?.khuVuc || 'Khác';
+
+      return {
+        id: `vua_dktuti_${m}_${idx}`,
+        sourceSheet: 'vuaDKTUTI',
+        sourceSheetName: `${qhSheetName}, ${tuSheetName}, ${tiSheetName}`,
+        deviceCategory: 'vuaDKTUTI',
+        deviceLabel: 'Vừa ĐK - TU - TI',
+        badgeBg: 'bg-pink-100',
+        badgeText: 'text-pink-800',
+        MA_DDO: m,
+        TEN_KHANG: dk?.TEN_KHANG || tu?.TEN_KHANG || ti?.TEN_KHANG || '',
+        DCHI_DDO: dk?.DCHI_DDO || tu?.DCHI_DDO || ti?.DCHI_DDO || '',
+        DTHOAI: dk?.DTHOAI || tu?.DTHOAI || ti?.DTHOAI || '',
+        MA_SOGCS: dk?.MA_SOGCS || tu?.MA_SOGCS || ti?.MA_SOGCS || '',
+        khuVuc: reg,
+        MA_KVUC: dk?.MA_KVUC || tu?.MA_KVUC || '',
+        STT: dk?.STT || tu?.STT || '',
+        LOAI_TT_GT: dk?.LOAI_TT_GT || 'Gián tiếp',
+        TSO_TI: ti?.TYSO_DAU || dk?.TSO_TI || '-',
+        TSO_TU: tu?.TYSO_DAU || dk?.TSO_TU || '-',
+        DIEN_AP: dk?.DIEN_AP || tu?.DIEN_AP || '22 kV',
+        CAP_CXAC: `TU: ${tu?.CAP_CXAC || '-'} | TI: ${ti?.CAP_CXAC || '-'}`,
+        MA_TBI: `ĐK: ${dk?.MA_TBI || '-'} / TU: ${tu?.MA_TBI || '-'} / TI: ${ti?.MA_TBI || '-'}`,
+        SO_TBI: `ĐK: ${dk?.SO_TBI || '-'} / TU: ${tu?.SO_TBI || '-'} / TI: ${ti?.SO_TBI || '-'}`,
+        SO_PHA: dk?.SO_PHA || '3',
+        HSN: dk?.HSN || '0',
+        NGAY_KDINH: dk?.NGAY_KDINH || tu?.NGAY_KDINH || '',
+        HAN_KDINH: dk?.HAN_KDINH || tu?.HAN_KDINH || '',
+        raw: { dk, tu, ti }
+      };
+    });
+  }, [qhMaddos, tuMaddos, tiMaddos, entries, tuEntries, tiEntries, maddoRegionMap, qhSheetName, tuSheetName, tiSheetName]);
+
+  // Target records based on selected device category
+  const targetRecords = useMemo<UnifiedDetailRecord[]>(() => {
+    switch (selectedDeviceType) {
+      case 'tu':
+        return tuUnified;
+      case 'tiHaThe':
+        return tiUnified.filter(r => r.deviceCategory === 'tiHaThe');
+      case 'tiTrungThe':
+        return tiUnified.filter(r => r.deviceCategory === 'tiTrungThe');
+      case 'dk1p':
+        return meterUnified.filter(r => r.deviceCategory === 'dk1p');
+      case 'dk3pTT':
+        return meterUnified.filter(r => r.deviceCategory === 'dk3pTT');
+      case 'dk3pGT':
+        return meterUnified.filter(r => r.deviceCategory === 'dk3pGT');
+      case 'vuaTUTI':
+        return vuaTUTIUnified;
+      case 'vuaDKTUTI':
+        return vuaDKTUTIUnified;
+      case 'all':
+      default:
+        return [...tuUnified, ...tiUnified, ...meterUnified];
+    }
+  }, [selectedDeviceType, tuUnified, tiUnified, meterUnified, vuaTUTIUnified, vuaDKTUTIUnified]);
+
   // Filter detail records (Phần dưới)
   const filteredRecords = useMemo(() => {
-    let result = entries;
+    let result = targetRecords;
 
     // Filter by Region
     if (selectedRegion !== 'all') {
       result = result.filter(r => (r.khuVuc || 'Khác') === selectedRegion);
-    }
-
-    // Filter by Device Type
-    if (selectedDeviceType !== 'all') {
-      result = result.filter(r => matchesDeviceType(r, selectedDeviceType));
     }
 
     // Search query
@@ -415,12 +678,15 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
         (r.SO_TBI && r.SO_TBI.toLowerCase().includes(q)) ||
         (r.MA_KVUC && r.MA_KVUC.toLowerCase().includes(q)) ||
         (r.TSO_TI && r.TSO_TI.toLowerCase().includes(q)) ||
-        (r.TSO_TU && r.TSO_TU.toLowerCase().includes(q))
+        (r.TSO_TU && r.TSO_TU.toLowerCase().includes(q)) ||
+        (r.DIEN_AP && r.DIEN_AP.toLowerCase().includes(q)) ||
+        (r.deviceLabel && r.deviceLabel.toLowerCase().includes(q)) ||
+        (r.LOAI_TT_GT && r.LOAI_TT_GT.toLowerCase().includes(q))
       );
     }
 
     return result;
-  }, [entries, selectedRegion, selectedDeviceType, searchQuery]);
+  }, [targetRecords, selectedRegion, searchQuery]);
 
   // Pagination calculation
   const totalPages = Math.max(1, Math.ceil(filteredRecords.length / pageSize));
@@ -538,6 +804,8 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
     try {
       const headers = [
         'STT',
+        'Phân loại thiết bị',
+        'Sheet nguồn',
         'Mã ĐĐO',
         'Tên khách hàng',
         'Địa chỉ ĐĐO',
@@ -546,18 +814,22 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
         'Khu vực',
         'Mã KVực',
         'STT',
-        'Loại TT/GT',
-        'TSO TI',
-        'TSO TU',
+        'Loại TT/GT / Chi tiết',
+        'Thông số TI',
+        'Thông số TU',
+        'Điện áp',
+        'Cấp chính xác',
         'Mã TBI',
-        'Số TBI (Số công tơ)',
+        'Số TBI (Số thiết bị/công tơ)',
         'Số pha',
-        'HSN'
+        'HSN',
+        'Ngày KĐ',
+        'Hạn KĐ'
       ];
 
       const reportTitle = isCuoiNam
-        ? 'DANH SÁCH CHI TIẾT HỒ SƠ QUÁ HẠN KIỂM ĐỊNH ĐẾN CUỐI NĂM - SHEET QUAHAN_NAM'
-        : 'DANH SÁCH CHI TIẾT HỒ SƠ QUÁ HẠN KIỂM ĐỊNH - SHEET QUAHAN';
+        ? 'DANH SÁCH CHI TIẾT HỒ SƠ QUÁ HẠN KIỂM ĐỊNH ĐẾN CUỐI NĂM'
+        : 'DANH SÁCH CHI TIẾT HỒ SƠ QUÁ HẠN KIỂM ĐỊNH';
 
       const rows: any[] = [
         [reportTitle],
@@ -570,6 +842,8 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
       filteredRecords.forEach((r, idx) => {
         rows.push([
           idx + 1,
+          r.deviceLabel,
+          r.sourceSheetName,
           r.MA_DDO || '',
           r.TEN_KHANG || '',
           r.DCHI_DDO || '',
@@ -581,16 +855,22 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
           r.LOAI_TT_GT || '',
           r.TSO_TI || '',
           r.TSO_TU || '',
+          r.DIEN_AP || '',
+          r.CAP_CXAC || '',
           r.MA_TBI || '',
           r.SO_TBI || '',
-          r.SO_PHA || '',
-          r.HSN || ''
+          r.SO_PHA ? `${r.SO_PHA}P` : '',
+          r.HSN || '',
+          r.NGAY_KDINH || '',
+          r.HAN_KDINH || ''
         ]);
       });
 
       const ws = XLSX.utils.aoa_to_sheet(rows);
       ws['!cols'] = [
         { wch: 6 },
+        { wch: 18 },
+        { wch: 14 },
         { wch: 18 },
         { wch: 32 },
         { wch: 40 },
@@ -599,22 +879,32 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
         { wch: 14 },
         { wch: 10 },
         { wch: 8 },
+        { wch: 22 },
+        { wch: 14 },
         { wch: 14 },
         { wch: 12 },
         { wch: 12 },
         { wch: 22 },
-        { wch: 16 },
+        { wch: 18 },
         { wch: 8 },
-        { wch: 8 }
+        { wch: 8 },
+        { wch: 12 },
+        { wch: 12 }
       ];
 
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, isCuoiNam ? 'ChiTiet_QuaHan_Nam' : 'ChiTiet_QuaHan');
+      const sheetTabName = selectedDeviceType === 'tu' ? 'ChiTiet_TU' 
+        : selectedDeviceType === 'tiHaThe' ? 'ChiTiet_TI_HaThe'
+        : selectedDeviceType === 'tiTrungThe' ? 'ChiTiet_TI_TrungThe'
+        : selectedDeviceType.startsWith('dk') ? 'ChiTiet_DienKe'
+        : 'ChiTiet_TongHop';
+      XLSX.utils.book_append_sheet(wb, ws, sheetTabName);
 
       const filterTag = selectedRegion !== 'all' ? selectedRegion.replace(/\s+/g, '_') : 'TatCa';
+      const devTag = selectedDeviceType !== 'all' ? selectedDeviceType : 'TongHop';
       const fileName = isCuoiNam
-        ? `Chi_Tiet_Qua_Han_Cuoi_Nam_${filterTag}_${new Date().toISOString().slice(0, 10)}.xlsx`
-        : `Chi_Tiet_Qua_Han_${filterTag}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+        ? `Chi_Tiet_Qua_Han_Cuoi_Nam_${devTag}_${filterTag}_${new Date().toISOString().slice(0, 10)}.xlsx`
+        : `Chi_Tiet_Qua_Han_${devTag}_${filterTag}_${new Date().toISOString().slice(0, 10)}.xlsx`;
       XLSX.writeFile(wb, fileName);
       showToast(`Đã xuất ${filteredRecords.length} hồ sơ chi tiết ra Excel!`);
     } catch (e) {
@@ -694,7 +984,7 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
     reader.readAsBinaryString(file);
   };
 
-  // Confirm Import & Overwrite
+  // Confirm Import & Clear Old Data, Put New Data In
   const handleConfirmImport = async () => {
     if (!parsedImportData || parsedImportData.length === 0) return;
     setIsImporting(true);
@@ -703,36 +993,56 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
         ? (importType === 'dienke' ? 'QuaHan_Nam' : importType === 'tu' ? 'TU_Nam' : 'TI_Nam')
         : (importType === 'dienke' ? 'QuaHan' : importType === 'tu' ? 'TU' : 'TI');
 
+      const requiredCols = importType === 'dienke' 
+        ? DIEN_KE_COLUMNS 
+        : importType === 'tu' 
+          ? TU_COLUMNS 
+          : TI_COLUMNS;
+
       if (importType === 'dienke') {
         const parsed = DataStore.parseQuaHanCSVData(parsedImportData);
         if (isCuoiNam) {
+          setEntries([]); // Xóa dữ liệu cũ trong component
           await DataStore.setQuaHanNamEntries(parsed);
           setEntries(parsed);
         } else {
+          setEntries([]); // Xóa dữ liệu cũ trong component
           await DataStore.setQuaHanEntries(parsed);
           setEntries(parsed);
         }
       } else if (importType === 'tu') {
         const parsed = DataStore.parseTuCSVData(parsedImportData);
         if (isCuoiNam) {
+          setTuEntries([]); // Xóa dữ liệu cũ trong component
           await DataStore.setTuNamEntries(parsed);
           setTuEntries(parsed);
         } else {
+          setTuEntries([]); // Xóa dữ liệu cũ trong component
           await DataStore.setTuSheetEntries(parsed);
           setTuEntries(parsed);
         }
       } else if (importType === 'ti') {
         const parsed = DataStore.parseTiCSVData(parsedImportData);
         if (isCuoiNam) {
+          setTiEntries([]); // Xóa dữ liệu cũ trong component
           await DataStore.setTiNamEntries(parsed);
           setTiEntries(parsed);
         } else {
+          setTiEntries([]); // Xóa dữ liệu cũ trong component
           await DataStore.setTiSheetEntries(parsed);
           setTiEntries(parsed);
         }
       }
 
-      showToast(`Đã ghi đè thành công ${parsedImportData.length} dòng vào sheet ${targetSheet}!`);
+      // ĐỒNG BỘ LÊN GOOGLE SHEETS QUA APPS SCRIPT (NẾU ĐÃ CẤU HÌNH URL):
+      // Gọi lệnh xóa sạch sheet cũ (clearContents()) và chèn chính xác số dòng mới vào Google Sheet
+      try {
+        await DataStore.syncHtddSheetToGoogleSheet(targetSheet, requiredCols, parsedImportData);
+      } catch (errSync) {
+        console.warn('Lưu ý đồng bộ Google Sheets nền:', errSync);
+      }
+
+      showToast(`Đã xóa sạch dữ liệu cũ và nạp ${parsedImportData.length.toLocaleString()} dòng mới vào sheet ${targetSheet}!`);
       setShowImportModal(false);
       setParsedImportData(null);
       setImportFileName('');
@@ -740,7 +1050,7 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
       setCurrentPage(1);
     } catch (err: any) {
       console.error('Import error:', err);
-      setImportError('Lỗi trong quá trình ghi đè: ' + (err.message || 'Lỗi không xác định'));
+      setImportError('Lỗi trong quá trình xử lý: ' + (err.message || 'Lỗi không xác định'));
     } finally {
       setIsImporting(false);
     }
@@ -1144,7 +1454,14 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
                 </span>
               </h3>
               <p className="text-[11px] text-slate-500 mt-0.5">
-                Hiển thị 20 records trên mỗi trang theo đúng thứ tự và trường thông tin chuẩn.
+                {selectedDeviceType === 'tu' ? `Dữ liệu lấy từ Sheet: ${tuSheetName} • Thiết bị TU` :
+                 selectedDeviceType === 'tiHaThe' ? `Dữ liệu lấy từ Sheet: ${tiSheetName} • Thiết bị TI Hạ thế` :
+                 selectedDeviceType === 'tiTrungThe' ? `Dữ liệu lấy từ Sheet: ${tiSheetName} • Thiết bị TI Trung thế` :
+                 (selectedDeviceType === 'dk1p' || selectedDeviceType === 'dk3pTT' || selectedDeviceType === 'dk3pGT') ? `Dữ liệu lấy từ Sheet: ${qhSheetName} • ${getDeviceTypeLabel(selectedDeviceType)}` :
+                 selectedDeviceType === 'vuaTUTI' ? `Dữ liệu đối soát điểm đo có cả TU và TI từ Sheet ${tuSheetName} & ${tiSheetName}` :
+                 selectedDeviceType === 'vuaDKTUTI' ? `Dữ liệu đối soát điểm đo có cả Điện kế, TU và TI` :
+                 `Tổng hợp toàn bộ thiết bị quá hạn từ các sheet: ${qhSheetName}, ${tuSheetName}, ${tiSheetName}`}
+                {' '}(20 records/trang)
               </p>
             </div>
 
@@ -1187,7 +1504,7 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
                 type="text"
                 value={searchQuery}
                 onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1); }}
-                placeholder="Tìm mã điểm đo, tên KH, địa chỉ, số ĐT, mã sổ GCS, mã/số thiết bị..."
+                placeholder="Tìm mã điểm đo, tên KH, địa chỉ, số ĐT, mã sổ GCS, mã/số thiết bị, thông số..."
                 className="w-full pl-9 pr-8 py-2 bg-white border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
               />
               {searchQuery && (
@@ -1220,9 +1537,9 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
                 className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
               >
                 <option value="all">-- Tất cả loại thiết bị --</option>
-                <option value="tu">TU (Sheet TU)</option>
-                <option value="tiHaThe">TI Hạ thế (Sheet TI)</option>
-                <option value="tiTrungThe">TI Trung thế (Sheet TI)</option>
+                <option value="tu">TU (Sheet {tuSheetName})</option>
+                <option value="tiHaThe">TI Hạ thế (Sheet {tiSheetName})</option>
+                <option value="tiTrungThe">TI Trung thế (Sheet {tiSheetName})</option>
                 <option value="dk1p">Điện kế 1 pha (SO_PHA = 1)</option>
                 <option value="dk3pTT">Điện kế 3 pha trực tiếp</option>
                 <option value="dk3pGT">Điện kế 3 pha gián tiếp</option>
@@ -1239,26 +1556,28 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
             <thead className="bg-slate-100 text-slate-700 font-black uppercase text-[10px] tracking-wider border-b border-slate-200">
               <tr>
                 <th className="px-3 py-2.5 text-center border-r border-slate-200 w-10">STT</th>
+                <th className="px-3.5 py-2.5 border-r border-slate-200 text-center min-w-[125px]">Phân loại TB</th>
                 <th className="px-3.5 py-2.5 border-r border-slate-200 whitespace-nowrap min-w-[130px]">MA_DDO</th>
                 <th className="px-3.5 py-2.5 border-r border-slate-200 min-w-[200px]">TEN_KHANG</th>
                 <th className="px-3.5 py-2.5 border-r border-slate-200 min-w-[240px]">DCHI_DDO</th>
                 <th className="px-3.5 py-2.5 border-r border-slate-200 min-w-[110px]">DTHOAI</th>
                 <th className="px-3.5 py-2.5 border-r border-slate-200 whitespace-nowrap min-w-[110px]">MA_SOGCS</th>
-                <th className="px-3.5 py-2.5 border-r border-slate-200 text-center min-w-[80px]">MA_KVUC</th>
-                <th className="px-3.5 py-2.5 border-r border-slate-200 text-center min-w-[60px]">STT</th>
-                <th className="px-3.5 py-2.5 border-r border-slate-200 text-center min-w-[100px]">LOAI_TT_GT</th>
-                <th className="px-3.5 py-2.5 border-r border-slate-200 text-center min-w-[85px]">TSO_TI</th>
-                <th className="px-3.5 py-2.5 border-r border-slate-200 text-center min-w-[85px]">TSO_TU</th>
+                <th className="px-3.5 py-2.5 border-r border-slate-200 text-center min-w-[75px]">MA_KVUC</th>
+                <th className="px-3.5 py-2.5 border-r border-slate-200 text-center min-w-[115px]">LOAI_TT_GT / Chi tiết</th>
+                <th className="px-3.5 py-2.5 border-r border-slate-200 text-center min-w-[95px]">TSO_TI</th>
+                <th className="px-3.5 py-2.5 border-r border-slate-200 text-center min-w-[95px]">TSO_TU</th>
+                <th className="px-3.5 py-2.5 border-r border-slate-200 text-center min-w-[90px]">Điện áp</th>
                 <th className="px-3.5 py-2.5 border-r border-slate-200 min-w-[140px]">MA_TBI</th>
-                <th className="px-3.5 py-2.5 border-r border-slate-200 min-w-[110px] bg-amber-50/60 font-bold">SO_TBI (18083539)</th>
+                <th className="px-3.5 py-2.5 border-r border-slate-200 min-w-[120px] bg-amber-50/60 font-bold">SO_TBI</th>
                 <th className="px-3.5 py-2.5 border-r border-slate-200 text-center min-w-[70px]">SO_PHA</th>
-                <th className="px-3.5 py-2.5 text-center min-w-[65px]">HSN</th>
+                <th className="px-3.5 py-2.5 border-r border-slate-200 text-center min-w-[65px]">HSN</th>
+                <th className="px-3.5 py-2.5 text-center min-w-[95px]">Hạn KĐ</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
               {paginatedRecords.length === 0 ? (
                 <tr>
-                  <td colSpan={15} className="py-12 text-center text-slate-400 font-sans">
+                  <td colSpan={17} className="py-12 text-center text-slate-400 font-sans">
                     <Info className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                     <p className="font-bold text-sm text-slate-600">Không tìm thấy hồ sơ nào phù hợp</p>
                     <p className="text-xs text-slate-400 mt-1">Hãy thử xóa bộ lọc hoặc tìm kiếm từ khóa khác.</p>
@@ -1268,9 +1587,14 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
                 paginatedRecords.map((r, idx) => {
                   const globalIdx = (currentPage - 1) * pageSize + idx + 1;
                   return (
-                    <tr key={`${r.MA_DDO}_${r.MA_TBI}_${idx}`} className="hover:bg-slate-50 transition-colors">
+                    <tr key={`${r.id}_${idx}`} className="hover:bg-slate-50 transition-colors">
                       <td className="px-3 py-2.5 text-center border-r border-slate-100 text-slate-400">
                         {globalIdx}
+                      </td>
+                      <td className="px-3.5 py-2.5 text-center border-r border-slate-100">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${r.badgeBg} ${r.badgeText} border`}>
+                          {r.deviceLabel}
+                        </span>
                       </td>
                       <td className="px-3.5 py-2.5 font-bold text-indigo-700 border-r border-slate-100 whitespace-nowrap">
                         {r.MA_DDO || '-'}
@@ -1295,15 +1619,16 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
                       <td className="px-3.5 py-2.5 text-center text-slate-700 border-r border-slate-100">
                         {r.MA_KVUC || '-'}
                       </td>
-                      <td className="px-3.5 py-2.5 text-center text-slate-600 border-r border-slate-100">
-                        {r.STT || '-'}
-                      </td>
                       <td className="px-3.5 py-2.5 text-center border-r border-slate-100 font-sans">
                         {r.LOAI_TT_GT ? (
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                             r.LOAI_TT_GT.toLowerCase().includes('trực tiếp') 
                               ? 'bg-teal-100 text-teal-800' 
-                              : 'bg-purple-100 text-purple-800'
+                              : r.LOAI_TT_GT.toLowerCase().includes('gián tiếp')
+                              ? 'bg-purple-100 text-purple-800'
+                              : r.LOAI_TT_GT.toLowerCase().includes('tu')
+                              ? 'bg-blue-100 text-blue-800'
+                              : 'bg-slate-100 text-slate-700'
                           }`}>
                             {r.LOAI_TT_GT}
                           </span>
@@ -1314,6 +1639,9 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
                       </td>
                       <td className="px-3.5 py-2.5 text-center text-slate-800 font-bold border-r border-slate-100">
                         {r.TSO_TU || '-'}
+                      </td>
+                      <td className="px-3.5 py-2.5 text-center text-slate-700 border-r border-slate-100 font-sans text-[10px]">
+                        {r.DIEN_AP || '-'}
                       </td>
                       <td className="px-3.5 py-2.5 text-slate-600 border-r border-slate-100 text-[10px]">
                         {r.MA_TBI || '-'}
@@ -1330,8 +1658,11 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
                           </span>
                         ) : '-'}
                       </td>
-                      <td className="px-3.5 py-2.5 text-center text-slate-800 font-bold">
+                      <td className="px-3.5 py-2.5 text-center text-slate-800 font-bold border-r border-slate-100">
                         {r.HSN || '-'}
+                      </td>
+                      <td className="px-3.5 py-2.5 text-center text-red-600 font-bold font-sans text-[10px]">
+                        {r.HAN_KDINH || '-'}
                       </td>
                     </tr>
                   );
@@ -1409,6 +1740,284 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
           </div>
         </div>
       </div>
+
+      {/* IMPORT MODAL */}
+      {showImportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] animate-scale-in">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center">
+                  <Upload className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-800">
+                    Import & Ghi Đè Dữ Liệu {isCuoiNam ? '(Cuối Năm)' : '(Quá Hạn)'}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Ghi đè dữ liệu mới vào sheet hiện hữu của Hệ Thống Đo Đếm
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowImportModal(false);
+                  setParsedImportData(null);
+                  setImportError(null);
+                }}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="py-4 space-y-4 overflow-y-auto pr-1">
+              {/* Type Selector Tabs */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-2 uppercase tracking-wider">
+                  1. Chọn loại thiết bị cần import:
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setImportType('dienke');
+                      setParsedImportData(null);
+                      setImportError(null);
+                      setImportFileName('');
+                    }}
+                    className={`p-3 rounded-2xl border text-left cursor-pointer transition-all ${
+                      importType === 'dienke'
+                        ? 'border-rose-500 bg-rose-50/70 text-rose-900 ring-2 ring-rose-500/20 shadow-xs'
+                        : 'border-slate-200 hover:border-slate-300 bg-white text-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 font-bold text-xs sm:text-sm">
+                      <Zap className="w-4 h-4 text-rose-600" />
+                      <span>Điện kế</span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-1 font-mono">
+                      Sheet: <b className="text-rose-700">{isCuoiNam ? 'QuaHan_Nam' : 'QuaHan'}</b>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setImportType('tu');
+                      setParsedImportData(null);
+                      setImportError(null);
+                      setImportFileName('');
+                    }}
+                    className={`p-3 rounded-2xl border text-left cursor-pointer transition-all ${
+                      importType === 'tu'
+                        ? 'border-indigo-500 bg-indigo-50/70 text-indigo-900 ring-2 ring-indigo-500/20 shadow-xs'
+                        : 'border-slate-200 hover:border-slate-300 bg-white text-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 font-bold text-xs sm:text-sm">
+                      <Layers className="w-4 h-4 text-indigo-600" />
+                      <span>Máy biến điện áp (TU)</span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-1 font-mono">
+                      Sheet: <b className="text-indigo-700">{isCuoiNam ? 'TU_Nam' : 'TU'}</b>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setImportType('ti');
+                      setParsedImportData(null);
+                      setImportError(null);
+                      setImportFileName('');
+                    }}
+                    className={`p-3 rounded-2xl border text-left cursor-pointer transition-all ${
+                      importType === 'ti'
+                        ? 'border-amber-500 bg-amber-50/70 text-amber-900 ring-2 ring-amber-500/20 shadow-xs'
+                        : 'border-slate-200 hover:border-slate-300 bg-white text-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 font-bold text-xs sm:text-sm">
+                      <BarChart3 className="w-4 h-4 text-amber-600" />
+                      <span>Máy biến dòng (TI)</span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-1 font-mono">
+                      Sheet: <b className="text-amber-700">{isCuoiNam ? 'TI_Nam' : 'TI'}</b>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Requirements & Template Button */}
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-2">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="text-xs text-slate-700">
+                    <span className="font-bold">Quy chuẩn cấu trúc:</span> File mới phải có đủ{' '}
+                    <b className="text-indigo-600">
+                      {importType === 'dienke' ? DIEN_KE_COLUMNS.length : TU_COLUMNS.length} trường
+                    </b>{' '}
+                    và tên cột phải khớp tuyệt đối với sheet{' '}
+                    <b className="text-slate-800">
+                      {isCuoiNam
+                        ? (importType === 'dienke' ? 'QuaHan_Nam' : importType === 'tu' ? 'TU_Nam' : 'TI_Nam')
+                        : (importType === 'dienke' ? 'QuaHan' : importType === 'tu' ? 'TU' : 'TI')}
+                    </b>.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadTemplate(importType)}
+                    className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  >
+                    <Download className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Tải file Excel mẫu</span>
+                  </button>
+                </div>
+                <details className="text-[11px] text-slate-500 cursor-pointer">
+                  <summary className="font-semibold text-indigo-600 hover:text-indigo-700 select-none">
+                    Xem danh sách các cột yêu cầu ({importType === 'dienke' ? DIEN_KE_COLUMNS.length : TU_COLUMNS.length} cột)
+                  </summary>
+                  <div className="mt-2 p-2 bg-white rounded-lg border border-slate-200 font-mono text-[10px] break-all leading-relaxed max-h-32 overflow-y-auto">
+                    {(importType === 'dienke' ? DIEN_KE_COLUMNS : importType === 'tu' ? TU_COLUMNS : TI_COLUMNS).join(', ')}
+                  </div>
+                </details>
+              </div>
+
+              {/* File Upload Drop Zone */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-2 uppercase tracking-wider">
+                  2. Chọn file dữ liệu (.xlsx, .xls, .csv):
+                </label>
+                <div className="relative border-2 border-dashed border-slate-300 hover:border-indigo-400 rounded-2xl p-6 text-center transition-all bg-slate-50/50 hover:bg-indigo-50/20">
+                  <input
+                    type="file"
+                    accept=".xlsx, .xls, .csv"
+                    onChange={handleFileUpload}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  />
+                  <div className="flex flex-col items-center justify-center gap-2 pointer-events-none">
+                    <div className="w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center">
+                      <FileSpreadsheet className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-800">
+                        {importFileName ? importFileName : 'Nhấp để chọn file hoặc kéo thả file vào đây'}
+                      </p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        Hỗ trợ định dạng Microsoft Excel (.xlsx, .xls) hoặc CSV
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Error Message */}
+              {importError && (
+                <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl text-rose-800 text-xs flex items-start gap-2.5">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="font-bold">Cấu trúc file không hợp lệ:</p>
+                    <p className="text-[11px] leading-relaxed whitespace-pre-line font-mono">{importError}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Success Preview */}
+              {parsedImportData && (
+                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                      <div>
+                        <span className="text-xs font-black text-emerald-900">
+                          File hợp lệ! Đã đọc thành công {parsedImportData.length.toLocaleString()} dòng
+                        </span>
+                        <p className="text-[11px] text-emerald-700">
+                          Tất cả các trường bắt buộc đã được kiểm tra đầy đủ.
+                        </p>
+                      </div>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-800 text-xs font-bold font-mono">
+                      {parsedImportData.length} records
+                    </span>
+                  </div>
+
+                  {/* Warning banner */}
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>
+                      <b>Quy trình xử lý:</b> Toàn bộ dữ liệu cũ trong sheet{' '}
+                      <b>
+                        {isCuoiNam
+                          ? (importType === 'dienke' ? 'QuaHan_Nam' : importType === 'tu' ? 'TU_Nam' : 'TI_Nam')
+                          : (importType === 'dienke' ? 'QuaHan' : importType === 'tu' ? 'TU' : 'TI')}
+                      </b>{' '}
+                      sẽ được <b>xóa sạch hoàn toàn</b> trước, sau đó đưa đúng <b>{parsedImportData.length.toLocaleString()}</b> dòng mới vào, đảm bảo không bị lẫn lộn dữ liệu cũ và số liệu thống kê chuẩn xác 100%.
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowImportModal(false);
+                  setParsedImportData(null);
+                  setImportError(null);
+                }}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-100 font-bold text-xs cursor-pointer transition-all"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmImport}
+                disabled={!parsedImportData || parsedImportData.length === 0 || isImporting}
+                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs shadow-md shadow-rose-600/20 active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                <Upload className="w-4 h-4" />
+                <span>{isImporting ? 'Đang xử lý...' : 'Xóa dữ liệu cũ & Nạp dữ liệu mới'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PERMISSION ALERT MODAL */}
+      {showPermissionAlert && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 text-center space-y-4 animate-scale-in">
+            <div className="w-14 h-14 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center mx-auto">
+              <ShieldAlert className="w-8 h-8" />
+            </div>
+            <div>
+              <h3 className="text-base font-black text-slate-800">
+                Không Có Quyền Thực Hiện
+              </h3>
+              <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+                Chức năng <b>Import dữ liệu Quá hạn / Cuối năm (HTDD)</b> chỉ dành cho các vai trò được phân quyền (mặc định là <b>Đội trưởng</b>).
+              </p>
+              <div className="mt-3 p-3 bg-slate-50 rounded-xl text-left border border-slate-200 text-[11px] text-slate-600 space-y-1">
+                <div>• Vai trò hiện tại của bạn: <b className="text-slate-800">{sessionUser?.role || 'Chưa xác định'}</b></div>
+                <div>• Để cấp quyền cho tài khoản này, vui lòng liên hệ Đội trưởng truy cập tab <b>Hệ thống</b> → mục <b>Phân quyền tác vụ</b>.</div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowPermissionAlert(false)}
+              className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs cursor-pointer transition-all shadow-md"
+            >
+              Đã hiểu
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

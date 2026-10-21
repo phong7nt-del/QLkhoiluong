@@ -1,5 +1,5 @@
 import Papa from 'papaparse';
-import { get, set } from 'idb-keyval';
+import { get, set, del } from 'idb-keyval';
 import { PermissionStore, normalizeRoleStr } from './PermissionStore';
 
 export interface Station {
@@ -545,6 +545,12 @@ const safeSetItem = (key: string, value: string) => {
     memoryCache[key] = value;
     try { localStorage.setItem(key, value); } catch (e) {}
     set(key, value).catch(e => console.warn('IDB quota exceeded for key', key));
+};
+
+const safeRemoveItem = (key: string) => {
+    delete memoryCache[key];
+    try { localStorage.removeItem(key); } catch (e) {}
+    del(key).catch(() => {});
 };
 
 const safeGetItem = (key: string): string | null => {
@@ -3879,7 +3885,13 @@ export const DataStore = {
   },
 
   setQuaHanEntries: async (entries: QuaHanEntry[]): Promise<void> => {
-     memCacheQuaHanList = entries;
+     // 1. XÓA SẠCH DỮ LIỆU CŨ HOÀN TOÀN
+     memCacheQuaHanList = [];
+     safeRemoveItem(QUAHAN_KEY);
+     try { await del(QUAHAN_KEY); } catch(e) {}
+
+     // 2. ĐƯA DỮ LIỆU MỚI VÀO
+     memCacheQuaHanList = [...entries];
      try {
        safeSetItem(QUAHAN_KEY, JSON.stringify(entries));
      } catch(e) {
@@ -3889,6 +3901,7 @@ export const DataStore = {
        await set(QUAHAN_KEY, entries);
      } catch(e) {}
      window.dispatchEvent(new Event('workload_updated'));
+     window.dispatchEvent(new Event('htdd_data_updated'));
   },
 
   getQuaHanNamEntries: (): QuaHanEntry[] => {
@@ -3934,7 +3947,13 @@ export const DataStore = {
   },
 
   setQuaHanNamEntries: async (entries: QuaHanEntry[]): Promise<void> => {
-     memCacheQuaHanNamList = entries;
+     // 1. XÓA SẠCH DỮ LIỆU CŨ HOÀN TOÀN
+     memCacheQuaHanNamList = [];
+     safeRemoveItem(QUAHAN_NAM_KEY);
+     try { await del(QUAHAN_NAM_KEY); } catch(e) {}
+
+     // 2. ĐƯA DỮ LIỆU MỚI VÀO
+     memCacheQuaHanNamList = [...entries];
      try {
        safeSetItem(QUAHAN_NAM_KEY, JSON.stringify(entries));
      } catch(e) {
@@ -3944,10 +3963,17 @@ export const DataStore = {
        await set(QUAHAN_NAM_KEY, entries);
      } catch(e) {}
      window.dispatchEvent(new Event('workload_updated'));
+     window.dispatchEvent(new Event('htdd_data_updated'));
   },
 
   setTuSheetEntries: async (entries: TuSheetEntry[]): Promise<void> => {
-     memCacheTuSheetList = entries;
+     // 1. XÓA SẠCH DỮ LIỆU CŨ HOÀN TOÀN
+     memCacheTuSheetList = [];
+     safeRemoveItem(TU_SHEET_KEY);
+     try { await del(TU_SHEET_KEY); } catch(e) {}
+
+     // 2. ĐƯA DỮ LIỆU MỚI VÀO
+     memCacheTuSheetList = [...entries];
      try {
        safeSetItem(TU_SHEET_KEY, JSON.stringify(entries));
      } catch(e) {}
@@ -3955,6 +3981,7 @@ export const DataStore = {
        await set(TU_SHEET_KEY, entries);
      } catch(e) {}
      window.dispatchEvent(new Event('workload_updated'));
+     window.dispatchEvent(new Event('htdd_data_updated'));
   },
 
   getTuNamEntries: (): TuSheetEntry[] => {
@@ -4000,7 +4027,13 @@ export const DataStore = {
   },
 
   setTuNamEntries: async (entries: TuSheetEntry[]): Promise<void> => {
-     memCacheTuNamList = entries;
+     // 1. XÓA SẠCH DỮ LIỆU CŨ HOÀN TOÀN
+     memCacheTuNamList = [];
+     safeRemoveItem(TU_NAM_KEY);
+     try { await del(TU_NAM_KEY); } catch(e) {}
+
+     // 2. ĐƯA DỮ LIỆU MỚI VÀO
+     memCacheTuNamList = [...entries];
      try {
        safeSetItem(TU_NAM_KEY, JSON.stringify(entries));
      } catch(e) {}
@@ -4008,10 +4041,17 @@ export const DataStore = {
        await set(TU_NAM_KEY, entries);
      } catch(e) {}
      window.dispatchEvent(new Event('workload_updated'));
+     window.dispatchEvent(new Event('htdd_data_updated'));
   },
 
   setTiSheetEntries: async (entries: TiSheetEntry[]): Promise<void> => {
-     memCacheTiSheetList = entries;
+     // 1. XÓA SẠCH DỮ LIỆU CŨ HOÀN TOÀN
+     memCacheTiSheetList = [];
+     safeRemoveItem(TI_SHEET_KEY);
+     try { await del(TI_SHEET_KEY); } catch(e) {}
+
+     // 2. ĐƯA DỮ LIỆU MỚI VÀO
+     memCacheTiSheetList = [...entries];
      try {
        safeSetItem(TI_SHEET_KEY, JSON.stringify(entries));
      } catch(e) {}
@@ -4019,6 +4059,7 @@ export const DataStore = {
        await set(TI_SHEET_KEY, entries);
      } catch(e) {}
      window.dispatchEvent(new Event('workload_updated'));
+     window.dispatchEvent(new Event('htdd_data_updated'));
   },
 
   getTiNamEntries: (): TiSheetEntry[] => {
@@ -4064,7 +4105,13 @@ export const DataStore = {
   },
 
   setTiNamEntries: async (entries: TiSheetEntry[]): Promise<void> => {
-     memCacheTiNamList = entries;
+     // 1. XÓA SẠCH DỮ LIỆU CŨ HOÀN TOÀN
+     memCacheTiNamList = [];
+     safeRemoveItem(TI_NAM_KEY);
+     try { await del(TI_NAM_KEY); } catch(e) {}
+
+     // 2. ĐƯA DỮ LIỆU MỚI VÀO
+     memCacheTiNamList = [...entries];
      try {
        safeSetItem(TI_NAM_KEY, JSON.stringify(entries));
      } catch(e) {}
@@ -4072,6 +4119,28 @@ export const DataStore = {
        await set(TI_NAM_KEY, entries);
      } catch(e) {}
      window.dispatchEvent(new Event('workload_updated'));
+     window.dispatchEvent(new Event('htdd_data_updated'));
+  },
+
+  syncHtddSheetToGoogleSheet: async (sheetName: string, headers: string[], rows: any[]): Promise<boolean> => {
+    try {
+      const url = DataStore.getAppScriptUrl();
+      if (!url) return false;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'overwrite_htdd_sheet',
+          sheetName,
+          headers,
+          rows
+        })
+      });
+      return res.ok;
+    } catch (e) {
+      console.warn('Could not sync HTDD sheet to Google Sheet:', e);
+      return false;
+    }
   },
 
   updateTutiProgress: (id: string, updates: Partial<TutiEntry>, user: SheetMember | null) => {

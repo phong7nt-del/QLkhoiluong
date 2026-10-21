@@ -2054,6 +2054,47 @@ function doPost(e) {
        }
     }
 
+    // ======== XÓA SẠCH DỮ LIỆU CŨ VÀ ĐƯA DỮ LIỆU MỚI VÀO SHEET HTDD (QUAHAN, TU, TI, QUAHAN_NAM, TU_NAM, TI_NAM) ========
+    if (action === 'overwrite_htdd_sheet' || action === 'import_htdd_sheet') {
+       var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
+       var sheetName = payload.sheetName;
+       if (!sheetName) {
+           return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Thiếu tên sheet' })).setMimeType(ContentService.MimeType.JSON);
+       }
+       var sheet = getSheetFlexibly(ss, [sheetName]);
+       if (!sheet) {
+           sheet = ss.insertSheet(sheetName);
+       }
+       // 1. XÓA SẠCH HẾT NỘI DUNG VÀ DÒNG CŨ CỦA SHEET ĐỂ TRÁNH DỮ LIỆU THỪA LƯU LẠI
+       sheet.clearContents();
+       var headers = payload.headers || [];
+       var rows = payload.rows || [];
+       if (headers.length > 0 && rows.length > 0) {
+           var matrix = [headers];
+           for (var r = 0; r < rows.length; r++) {
+               var rowItem = rows[r];
+               var rowValues = [];
+               for (var c = 0; c < headers.length; c++) {
+                   var h = headers[c];
+                   var val = rowItem[h];
+                   if (val === undefined || val === null) {
+                       val = rowItem[h.toLowerCase()] !== undefined ? rowItem[h.toLowerCase()] : '';
+                   }
+                   rowValues.push(String(val));
+               }
+               matrix.push(rowValues);
+           }
+           sheet.getRange(1, 1, matrix.length, headers.length).setValues(matrix);
+       } else if (headers.length > 0) {
+           sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+       }
+       return ContentService.createTextOutput(JSON.stringify({ 
+           status: 'success', 
+           message: 'Đã xóa sạch sheet cũ và đưa ' + rows.length + ' dòng mới vào sheet ' + sheetName, 
+           rowCount: rows.length 
+       })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     if (action === 'import_dcu') {
        var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
        var sheet = getSheetFlexibly(ss, ['DCU', 'dcu']);

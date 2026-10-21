@@ -4,9 +4,10 @@ import { DataStore, TutiEntry, SheetMember } from '../store/DataStore';
 import QuaHanSubTab from './QuaHanSubTab';
 
 export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle: number, sessionUser: SheetMember | null }) {
-    const [subTab, setSubTab] = useState<'tuti' | 'quahan'>('tuti');
+    const [subTab, setSubTab] = useState<'tuti' | 'quahan' | 'cuoinam'>('tuti');
     const [entries, setEntries] = useState<TutiEntry[]>(() => DataStore.getTutiEntries());
     const [quahanCount, setQuahanCount] = useState<number>(() => DataStore.getQuaHanEntries().length);
+    const [quahanNamCount, setQuahanNamCount] = useState<number>(() => DataStore.getQuaHanNamEntries().length);
     const [showForm, setShowForm] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     
@@ -58,8 +59,18 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                         userRole.includes('tổ phó');
 
     useEffect(() => {
-        setEntries(DataStore.getTutiEntries());
-        setQuahanCount(DataStore.getQuaHanEntries().length);
+        const updateCounts = () => {
+            setEntries(DataStore.getTutiEntries());
+            setQuahanCount(DataStore.getQuaHanEntries().length);
+            setQuahanNamCount(DataStore.getQuaHanNamEntries().length);
+        };
+        updateCounts();
+        window.addEventListener('workload_updated', updateCounts);
+        window.addEventListener('htdd_data_updated', updateCounts);
+        return () => {
+            window.removeEventListener('workload_updated', updateCounts);
+            window.removeEventListener('htdd_data_updated', updateCounts);
+        };
     }, [refreshToggle]);
 
     const handleSaveNew = async () => {
@@ -387,10 +398,30 @@ export default function TutiTab({ refreshToggle, sessionUser }: { refreshToggle:
                         {quahanCount > 0 ? quahanCount.toLocaleString() : 'QuaHan'}
                     </span>
                 </button>
+
+                <button
+                    type="button"
+                    onClick={() => setSubTab('cuoinam')}
+                    className={`px-4 py-2 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
+                        subTab === 'cuoinam'
+                            ? 'bg-white text-amber-700 shadow-sm shadow-slate-200'
+                            : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+                    }`}
+                >
+                    <Calendar className={`w-4 h-4 ${subTab === 'cuoinam' ? 'text-amber-600' : 'text-slate-400'}`} />
+                    <span>Cuối năm</span>
+                    <span className={`px-2 py-0.5 rounded-full text-[11px] font-mono font-bold ${
+                        subTab === 'cuoinam' ? 'bg-amber-100 text-amber-800' : 'bg-slate-200 text-slate-600'
+                    }`}>
+                        {quahanNamCount > 0 ? quahanNamCount.toLocaleString() : 'Cuối năm'}
+                    </span>
+                </button>
             </div>
 
             {subTab === 'quahan' ? (
-                <QuaHanSubTab refreshToggle={refreshToggle} sessionUser={sessionUser} />
+                <QuaHanSubTab refreshToggle={refreshToggle} sessionUser={sessionUser} mode="quahan" />
+            ) : subTab === 'cuoinam' ? (
+                <QuaHanSubTab refreshToggle={refreshToggle} sessionUser={sessionUser} mode="cuoinam" />
             ) : (
                 <>
             {missingWarnings.length > 0 && (
