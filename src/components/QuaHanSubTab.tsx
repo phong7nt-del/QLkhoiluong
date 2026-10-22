@@ -913,6 +913,115 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
     }
   };
 
+  // Export Current Page Excel (20 records)
+  const handleExportCurrentPageExcel = () => {
+    try {
+      const headers = [
+        'STT',
+        'Phân loại thiết bị',
+        'Sheet nguồn',
+        'Mã ĐĐO',
+        'Tên khách hàng',
+        'Địa chỉ ĐĐO',
+        'Điện thoại',
+        'Mã sổ GCS',
+        'Khu vực',
+        'Mã KVực',
+        'STT',
+        'Loại TT/GT / Chi tiết',
+        'Thông số TI',
+        'Thông số TU',
+        'Điện áp',
+        'Cấp chính xác',
+        'Mã TBI',
+        'Số TBI (Số thiết bị/công tơ)',
+        'Số pha',
+        'HSN',
+        'Ngày KĐ',
+        'Hạn KĐ'
+      ];
+
+      const reportTitle = isCuoiNam
+        ? `DANH SÁCH CHI TIẾT HỒ SƠ QUÁ HẠN KIỂM ĐỊNH ĐẾN CUỐI NĂM - TRANG ${currentPage}/${totalPages}`
+        : `DANH SÁCH CHI TIẾT HỒ SƠ QUÁ HẠN KIỂM ĐỊNH - TRANG ${currentPage}/${totalPages}`;
+
+      const rows: any[] = [
+        [reportTitle],
+        [`Bộ lọc: Khu vực [${selectedRegion === 'all' ? 'Tất cả' : selectedRegion}] - Thiết bị [${getDeviceTypeLabel(selectedDeviceType)}] - Trang ${currentPage}/${totalPages} (${paginatedRecords.length} hồ sơ)`],
+        [`Thời điểm xuất: ${new Date().toLocaleString('vi-VN')}`],
+        [],
+        headers
+      ];
+
+      paginatedRecords.forEach((r, idx) => {
+        const globalIdx = (currentPage - 1) * pageSize + idx + 1;
+        rows.push([
+          globalIdx,
+          r.deviceLabel,
+          r.sourceSheetName,
+          r.MA_DDO || '',
+          r.TEN_KHANG || '',
+          r.DCHI_DDO || '',
+          r.DTHOAI || '',
+          r.MA_SOGCS || '',
+          r.khuVuc || '',
+          r.MA_KVUC || '',
+          r.STT || '',
+          r.LOAI_TT_GT || '',
+          r.TSO_TI || '',
+          r.TSO_TU || '',
+          r.DIEN_AP || '',
+          r.CAP_CXAC || '',
+          r.MA_TBI || '',
+          r.SO_TBI || '',
+          r.SO_PHA ? `${r.SO_PHA}P` : '',
+          r.HSN || '',
+          r.NGAY_KDINH || '',
+          r.HAN_KDINH || ''
+        ]);
+      });
+
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      ws['!cols'] = [
+        { wch: 6 },
+        { wch: 18 },
+        { wch: 14 },
+        { wch: 18 },
+        { wch: 32 },
+        { wch: 40 },
+        { wch: 14 },
+        { wch: 14 },
+        { wch: 14 },
+        { wch: 10 },
+        { wch: 8 },
+        { wch: 22 },
+        { wch: 14 },
+        { wch: 14 },
+        { wch: 12 },
+        { wch: 12 },
+        { wch: 22 },
+        { wch: 18 },
+        { wch: 8 },
+        { wch: 8 },
+        { wch: 12 },
+        { wch: 12 }
+      ];
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, `Trang_${currentPage}`);
+      const filterTag = selectedRegion !== 'all' ? selectedRegion.replace(/\s+/g, '_') : 'TatCa';
+      const devTag = selectedDeviceType !== 'all' ? selectedDeviceType : 'TongHop';
+      const fileName = isCuoiNam
+        ? `Chi_Tiet_Qua_Han_Cuoi_Nam_${devTag}_${filterTag}_Trang_${currentPage}_${new Date().toISOString().slice(0, 10)}.xlsx`
+        : `Chi_Tiet_Qua_Han_${devTag}_${filterTag}_Trang_${currentPage}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+      showToast(`Đã xuất ${paginatedRecords.length} hồ sơ trang ${currentPage} ra Excel!`);
+    } catch (e) {
+      console.error('Export error:', e);
+      showToast('Lỗi khi kết xuất Excel trang hiện tại!');
+    }
+  };
+
   // Download Excel Template for importing
   const handleDownloadTemplate = (type: 'dienke' | 'tu' | 'ti') => {
     try {
@@ -1444,7 +1553,7 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
       <div id="quahan-detail-section" className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden space-y-3 scroll-mt-6">
         {/* Detail Controls & Filter summary */}
         <div className="p-4 sm:p-5 border-b border-slate-200 bg-slate-50/50 flex flex-col gap-3">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3">
             <div>
               <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
                 <Layers className="w-4 h-4 text-indigo-600" />
@@ -1452,6 +1561,11 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
                 <span className="text-xs px-2 py-0.5 rounded-full bg-slate-200 text-slate-800 font-bold font-mono">
                   {filteredRecords.length.toLocaleString()} bản ghi
                 </span>
+                {totalPages > 1 && (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-bold font-mono">
+                    Trang {currentPage}/{totalPages}
+                  </span>
+                )}
               </h3>
               <p className="text-[11px] text-slate-500 mt-0.5">
                 {selectedDeviceType === 'tu' ? `Dữ liệu lấy từ Sheet: ${tuSheetName} • Thiết bị TU` :
@@ -1465,35 +1579,65 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
               </p>
             </div>
 
-            {/* Quick Status Info */}
-            {isFiltered && (
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <div className="text-xs px-3 py-1.5 bg-indigo-50 border border-indigo-200 text-indigo-900 rounded-xl font-bold flex items-center gap-1.5">
-                  <Filter className="w-3.5 h-3.5 text-indigo-600" />
-                  <span>
-                    Khu vực: <b>{selectedRegion === 'all' ? 'Tất cả' : selectedRegion}</b>
-                  </span>
-                  <span className="text-indigo-400">•</span>
-                  <span>
-                    Thiết bị: <b>{getDeviceTypeLabel(selectedDeviceType)}</b>
-                  </span>
-                  {searchQuery && (
-                    <>
-                      <span className="text-indigo-400">•</span>
-                      <span>Từ khóa: "{searchQuery}"</span>
-                    </>
-                  )}
+            {/* Actions & Filters Header */}
+            <div className="flex items-center gap-2 flex-wrap w-full lg:w-auto justify-start lg:justify-end">
+              {/* Quick Status Info */}
+              {isFiltered && (
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <div className="text-xs px-3 py-1.5 bg-indigo-50 border border-indigo-200 text-indigo-900 rounded-xl font-bold flex items-center gap-1.5">
+                    <Filter className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>
+                      Khu vực: <b>{selectedRegion === 'all' ? 'Tất cả' : selectedRegion}</b>
+                    </span>
+                    <span className="text-indigo-400">•</span>
+                    <span>
+                      Thiết bị: <b>{getDeviceTypeLabel(selectedDeviceType)}</b>
+                    </span>
+                    {searchQuery && (
+                      <>
+                        <span className="text-indigo-400">•</span>
+                        <span>Từ khóa: "{searchQuery}"</span>
+                      </>
+                    )}
+                  </div>
+                  <button
+                    onClick={clearFilters}
+                    className="px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-600 border border-slate-300 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
+                    title="Xóa tất cả bộ lọc"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>Xóa lọc</span>
+                  </button>
                 </div>
+              )}
+
+              {/* Nút Xuất Excel ngay tại bảng danh sách chi tiết */}
+              <div className="flex items-center gap-1.5">
                 <button
-                  onClick={clearFilters}
-                  className="px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-600 border border-slate-300 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
-                  title="Xóa tất cả bộ lọc"
+                  type="button"
+                  onClick={handleExportDetailExcel}
+                  disabled={filteredRecords.length === 0}
+                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow-sm shadow-emerald-600/30 whitespace-nowrap"
+                  title={`Xuất toàn bộ ${filteredRecords.length.toLocaleString()} bản ghi chi tiết ra file Excel`}
                 >
-                  <X className="w-3.5 h-3.5" />
-                  <span>Xóa lọc</span>
+                  <FileSpreadsheet className="w-4 h-4 text-white" />
+                  <span>Xuất Excel ({filteredRecords.length.toLocaleString()})</span>
                 </button>
+
+                {totalPages > 1 && (
+                  <button
+                    type="button"
+                    onClick={handleExportCurrentPageExcel}
+                    disabled={paginatedRecords.length === 0}
+                    className="px-3 py-2 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-300 active:scale-95 disabled:opacity-40 font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap"
+                    title={`Chỉ xuất ${paginatedRecords.length} bản ghi của trang ${currentPage} ra file Excel`}
+                  >
+                    <Download className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Trang {currentPage} ({paginatedRecords.length})</span>
+                  </button>
+                )}
               </div>
-            )}
+            </div>
           </div>
 
           {/* Search bar & quick filters */}
@@ -1674,8 +1818,21 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
 
         {/* Pagination Bar (20 records per page) */}
         <div className="p-4 border-t border-slate-200 bg-slate-50 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="text-xs text-slate-600 font-medium">
-            Hiển thị <span className="font-bold text-slate-800">{filteredRecords.length > 0 ? (currentPage - 1) * pageSize + 1 : 0}</span> đến <span className="font-bold text-slate-800">{Math.min(currentPage * pageSize, filteredRecords.length)}</span> trên tổng số <span className="font-bold text-slate-900">{filteredRecords.length.toLocaleString()}</span> hồ sơ (20 records/trang)
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <div className="text-xs text-slate-600 font-medium">
+              Hiển thị <span className="font-bold text-slate-800">{filteredRecords.length > 0 ? (currentPage - 1) * pageSize + 1 : 0}</span> đến <span className="font-bold text-slate-800">{Math.min(currentPage * pageSize, filteredRecords.length)}</span> trên tổng số <span className="font-bold text-slate-900">{filteredRecords.length.toLocaleString()}</span> hồ sơ (20 records/trang)
+            </div>
+
+            <button
+              type="button"
+              onClick={handleExportDetailExcel}
+              disabled={filteredRecords.length === 0}
+              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 active:scale-95 disabled:opacity-40 text-white font-bold text-[11px] rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap"
+              title={`Xuất ${filteredRecords.length.toLocaleString()} bản ghi chi tiết ra file Excel`}
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-white" />
+              <span>Xuất Excel ({filteredRecords.length.toLocaleString()})</span>
+            </button>
           </div>
 
           <div className="flex items-center gap-1.5">
