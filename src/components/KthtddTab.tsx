@@ -2175,18 +2175,20 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
       ['I. CHỈ SỐ KPI TOÀN BỘ'],
       ['Chỉ số đánh giá', 'Số lượng (Công tơ / KH)', 'Tỷ lệ %'],
       ['Tổng số khách hàng đã kiểm tra', statsData.totalDone, '100%'],
-      ['Kết quả: Bình thường', statsData.totalBinhThuong, statsData.totalDone > 0 ? `${Math.round((statsData.totalBinhThuong / statsData.totalDone) * 100)}%` : '0%'],
-      ['Kết quả: Không bình thường', statsData.totalKhong, statsData.totalDone > 0 ? `${Math.round((statsData.totalKhong / statsData.totalDone) * 100)}%` : '0%'],
-      ['Tình trạng niêm chì: Còn chì', statsData.totalCoChi, statsData.totalDone > 0 ? `${Math.round((statsData.totalCoChi / statsData.totalDone) * 100)}%` : '0%'],
-      ['Tình trạng niêm chì: Không chì / mất chì', statsData.totalMatChi, statsData.totalDone > 0 ? `${Math.round((statsData.totalMatChi / statsData.totalDone) * 100)}%` : '0%'],
-      ['Số lượng có đề xuất xử lý', statsData.totalDeXuat, statsData.totalDone > 0 ? `${Math.round((statsData.totalDeXuat / statsData.totalDone) * 100)}%` : '0%'],
+      ['Kết quả: Bình thường', statsData.totalBinhThuong, statsData.totalDone > 0 ? `${((statsData.totalBinhThuong / statsData.totalDone) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%'],
+      ['Kết quả: Không bình thường', statsData.totalKhong, statsData.totalDone > 0 ? `${((statsData.totalKhong / statsData.totalDone) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%'],
+      ['Tình trạng niêm chì: Còn chì', statsData.totalCoChi, statsData.totalDone > 0 ? `${((statsData.totalCoChi / statsData.totalDone) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%'],
+      ['Tình trạng niêm chì: Không chì / mất chì', statsData.totalMatChi, statsData.totalDone > 0 ? `${((statsData.totalMatChi / statsData.totalDone) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%'],
+      ['Số lượng có đề xuất xử lý', statsData.totalDeXuat, statsData.totalDone > 0 ? `${((statsData.totalDeXuat / statsData.totalDone) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%'],
       [],
       ['II. TIẾN ĐỘ THỰC HIỆN THEO KHU VỰC'],
-      ['STT', 'Khu vực', 'Tổng KH trong khu vực', 'Số KH đã kiểm tra', 'Tỷ lệ hoàn thành %', 'Bình thường', 'Không bình thường', 'Còn chì', 'Không chì'],
+      ['STT', 'Khu vực', 'Tổng KH trong khu vực', 'Số KH đã kiểm tra', 'Tỷ lệ hoàn thành %', 'Bình thường', '% Bình thường', 'Không bình thường', '% Không', 'Còn chì', '% Còn chì', 'Không chì', '% Không chì'],
     ];
 
+    const getPctStr = (val: number, total: number) => total > 0 ? `${((val / total) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%';
+
     statsData.areaList.forEach((area, idx) => {
-      const pct = area.totalInSheet > 0 ? `${Math.round((area.doneCount / area.totalInSheet) * 100)}%` : '0%';
+      const pct = area.totalInSheet > 0 ? `${((area.doneCount / area.totalInSheet) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%';
       summaryAoa.push([
         idx + 1,
         area.khuVuc,
@@ -2194,15 +2196,19 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
         area.doneCount,
         pct,
         area.binhThuong,
+        getPctStr(area.binhThuong, area.doneCount),
         area.khong,
+        getPctStr(area.khong, area.doneCount),
         area.coChi,
-        area.matChi
+        getPctStr(area.coChi, area.doneCount),
+        area.matChi,
+        getPctStr(area.matChi, area.doneCount)
       ]);
     });
 
     summaryAoa.push([]);
     summaryAoa.push(['III. THỐNG KÊ THEO NGƯỜI THỰC HIỆN / ĐỘI CÔNG TÁC']);
-    summaryAoa.push(['STT', 'Người thực hiện / Tổ', 'Số KH đã kiểm tra', 'Bình thường', 'Không bình thường', 'Còn chì', 'Không chì', 'Có đề xuất']);
+    summaryAoa.push(['STT', 'Người thực hiện / Tổ', 'Số KH đã kiểm tra', 'Bình thường', '% Bình thường', 'Không bình thường', '% Không', 'Còn chì', '% Còn chì', 'Không chì', '% Không chì', 'Có đề xuất', '% Có đề xuất']);
 
     statsData.assigneeList.forEach((person, idx) => {
       summaryAoa.push([
@@ -2210,10 +2216,15 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
         person.name,
         person.doneCount,
         person.binhThuong,
+        getPctStr(person.binhThuong, person.doneCount),
         person.khong,
+        getPctStr(person.khong, person.doneCount),
         person.coChi,
+        getPctStr(person.coChi, person.doneCount),
         person.matChi,
-        person.deXuatCount
+        getPctStr(person.matChi, person.doneCount),
+        person.deXuatCount,
+        getPctStr(person.deXuatCount, person.doneCount)
       ]);
     });
 
@@ -2222,12 +2233,17 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
       { wch: 6 },
       { wch: 32 },
       { wch: 22 },
-      { wch: 20 },
       { wch: 18 },
-      { wch: 15 },
       { wch: 18 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 16 },
+      { wch: 14 },
       { wch: 12 },
-      { wch: 12 }
+      { wch: 12 },
+      { wch: 12 },
+      { wch: 12 },
+      { wch: 14 }
     ];
     XLSX.utils.book_append_sheet(wb, wsSummary, 'Báo cáo Tổng hợp');
 
@@ -2387,7 +2403,8 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
           <div className="bg-white/10 backdrop-blur-sm rounded-xl p-2.5 text-center border border-white/10">
             <span className="text-[10px] text-amber-300 uppercase font-bold block">Chưa kiện toàn</span>
             <span className="text-lg md:text-xl font-black text-amber-300">
-              {globalKpi.pending.toLocaleString('vi-VN')}
+              {globalKpi.pending.toLocaleString('vi-VN')}{' '}
+              <span className="text-xs font-normal opacity-90">({globalKpi.total > 0 ? (100 - globalKpi.percent) : 0}%)</span>
             </span>
           </div>
           <div className="bg-white/10 backdrop-blur-sm rounded-xl p-2.5 text-center border border-white/10">
@@ -4746,7 +4763,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                 className="p-3 bg-slate-50 hover:bg-slate-100 rounded-xl text-xs font-semibold text-slate-600 border border-dashed border-slate-300 flex items-center justify-between cursor-pointer transition-colors"
               >
                 <span>
-                  📊 Thống kê đang thu gọn • Khoảng thời gian: <b className="text-slate-800">{statsPeriodInfo.label}</b> • Đã kiểm tra: <b>{statsData.totalDone.toLocaleString('vi-VN')}</b> KH (Bình thường: <b>{statsData.totalBinhThuong}</b>, Không: <b>{statsData.totalKhong}</b>)
+                  📊 Thống kê đang thu gọn • Khoảng thời gian: <b className="text-slate-800">{statsPeriodInfo.label}</b> • Đã kiểm tra: <b>{statsData.totalDone.toLocaleString('vi-VN')}</b> KH (Bình thường: <b>{statsData.totalBinhThuong.toLocaleString('vi-VN')}</b> <span className="text-emerald-700 font-bold">({statsData.totalDone > 0 ? `${((statsData.totalBinhThuong / statsData.totalDone) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%'})</span>, Có chì: <b>{statsData.totalCoChi.toLocaleString('vi-VN')}</b> <span className="text-blue-700 font-bold">({statsData.totalDone > 0 ? `${((statsData.totalCoChi / statsData.totalDone) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%'})</span>, Mất chì: <b>{statsData.totalMatChi.toLocaleString('vi-VN')}</b> <span className="text-amber-700 font-bold">({statsData.totalDone > 0 ? `${((statsData.totalMatChi / statsData.totalDone) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%'})</span>)
                 </span>
                 <span className="text-emerald-600 font-bold text-[11px] underline">Mở rộng ➔</span>
               </div>
@@ -4923,6 +4940,9 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                   <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/80 text-center">
                     <span className="text-[10px] text-slate-500 uppercase font-bold block">Tổng đã thực hiện</span>
                     <span className="text-xl font-black text-[#005a9c]">{statsData.totalDone.toLocaleString('vi-VN')}</span>
+                    <span className="text-[10px] text-slate-500 font-semibold block">
+                      100%
+                    </span>
                   </div>
                   <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200 text-center">
                     <span className="text-[10px] text-emerald-700 uppercase font-bold block">Bình thường</span>
@@ -4930,7 +4950,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                       {statsData.totalBinhThuong.toLocaleString('vi-VN')}
                     </span>
                     <span className="text-[10px] text-emerald-600 font-semibold block">
-                      {statsData.totalDone > 0 ? Math.round((statsData.totalBinhThuong / statsData.totalDone) * 100) : 0}%
+                      {statsData.totalDone > 0 ? `${((statsData.totalBinhThuong / statsData.totalDone) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%'}
                     </span>
                   </div>
                   <div className="bg-rose-50 p-3 rounded-xl border border-rose-200 text-center">
@@ -4939,7 +4959,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                       {statsData.totalKhong.toLocaleString('vi-VN')}
                     </span>
                     <span className="text-[10px] text-rose-600 font-semibold block">
-                      {statsData.totalDone > 0 ? Math.round((statsData.totalKhong / statsData.totalDone) * 100) : 0}%
+                      {statsData.totalDone > 0 ? `${((statsData.totalKhong / statsData.totalDone) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%'}
                     </span>
                   </div>
                   <div className="bg-blue-50 p-3 rounded-xl border border-blue-200 text-center">
@@ -4947,17 +4967,26 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                     <span className="text-xl font-black text-blue-700">
                       {statsData.totalCoChi.toLocaleString('vi-VN')}
                     </span>
+                    <span className="text-[10px] text-blue-600 font-semibold block">
+                      {statsData.totalDone > 0 ? `${((statsData.totalCoChi / statsData.totalDone) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%'}
+                    </span>
                   </div>
                   <div className="bg-amber-50 p-3 rounded-xl border border-amber-200 text-center">
                     <span className="text-[10px] text-amber-700 uppercase font-bold block">Không chì (mất chì)</span>
                     <span className="text-xl font-black text-amber-700">
                       {statsData.totalMatChi.toLocaleString('vi-VN')}
                     </span>
+                    <span className="text-[10px] text-amber-600 font-semibold block">
+                      {statsData.totalDone > 0 ? `${((statsData.totalMatChi / statsData.totalDone) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%'}
+                    </span>
                   </div>
                   <div className="bg-indigo-50 p-3 rounded-xl border border-indigo-200 text-center">
                     <span className="text-[10px] text-indigo-700 uppercase font-bold block">Có đề xuất xử lý</span>
                     <span className="text-xl font-black text-indigo-700">
                       {statsData.totalDeXuat.toLocaleString('vi-VN')}
+                    </span>
+                    <span className="text-[10px] text-indigo-600 font-semibold block">
+                      {statsData.totalDone > 0 ? `${((statsData.totalDeXuat / statsData.totalDone) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%'}
                     </span>
                   </div>
                 </div>
@@ -5006,17 +5035,37 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                               <td className="py-2 px-3 text-right font-mono font-semibold">
                                 <span className="px-1.5 py-0.5 rounded bg-slate-100 text-[11px]">{percent}%</span>
                               </td>
-                              <td className="py-2 px-3 text-right font-mono font-bold text-emerald-600">
-                                {item.binhThuong.toLocaleString('vi-VN')}
+                              <td className="py-2 px-3 text-right font-mono text-emerald-600">
+                                <div className="flex flex-col items-end leading-tight">
+                                  <span className="font-bold">{item.binhThuong.toLocaleString('vi-VN')}</span>
+                                  <span className="text-[10px] text-emerald-600/80 font-normal">
+                                    ({item.doneCount > 0 ? `${((item.binhThuong / item.doneCount) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%'})
+                                  </span>
+                                </div>
                               </td>
-                              <td className="py-2 px-3 text-right font-mono font-bold text-rose-600">
-                                {item.khong.toLocaleString('vi-VN')}
+                              <td className="py-2 px-3 text-right font-mono text-rose-600">
+                                <div className="flex flex-col items-end leading-tight">
+                                  <span className="font-bold">{item.khong.toLocaleString('vi-VN')}</span>
+                                  <span className="text-[10px] text-rose-600/80 font-normal">
+                                    ({item.doneCount > 0 ? `${((item.khong / item.doneCount) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%'})
+                                  </span>
+                                </div>
                               </td>
                               <td className="py-2 px-3 text-right font-mono text-blue-600">
-                                {item.coChi.toLocaleString('vi-VN')}
+                                <div className="flex flex-col items-end leading-tight">
+                                  <span className="font-bold">{item.coChi.toLocaleString('vi-VN')}</span>
+                                  <span className="text-[10px] text-blue-600/80 font-normal">
+                                    ({item.doneCount > 0 ? `${((item.coChi / item.doneCount) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%'})
+                                  </span>
+                                </div>
                               </td>
                               <td className="py-2 px-3 text-right font-mono text-amber-600">
-                                {item.matChi.toLocaleString('vi-VN')}
+                                <div className="flex flex-col items-end leading-tight">
+                                  <span className="font-bold">{item.matChi.toLocaleString('vi-VN')}</span>
+                                  <span className="text-[10px] text-amber-600/80 font-normal">
+                                    ({item.doneCount > 0 ? `${((item.matChi / item.doneCount) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%'})
+                                  </span>
+                                </div>
                               </td>
                             </tr>
                           );
@@ -5032,17 +5081,37 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                           <td className="py-2 px-3 text-right font-mono">
                             {globalKpi.total > 0 ? Math.round((statsData.totalDone / globalKpi.total) * 100) : 0}%
                           </td>
-                          <td className="py-2 px-3 text-right font-mono text-emerald-600">
-                            {statsData.totalBinhThuong.toLocaleString('vi-VN')}
+                          <td className="py-2 px-3 text-right font-mono text-emerald-700">
+                            <div className="flex flex-col items-end leading-tight">
+                              <span>{statsData.totalBinhThuong.toLocaleString('vi-VN')}</span>
+                              <span className="text-[10px] text-emerald-700/80 font-normal">
+                                ({statsData.totalDone > 0 ? `${((statsData.totalBinhThuong / statsData.totalDone) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%'})
+                              </span>
+                            </div>
                           </td>
-                          <td className="py-2 px-3 text-right font-mono text-rose-600">
-                            {statsData.totalKhong.toLocaleString('vi-VN')}
+                          <td className="py-2 px-3 text-right font-mono text-rose-700">
+                            <div className="flex flex-col items-end leading-tight">
+                              <span>{statsData.totalKhong.toLocaleString('vi-VN')}</span>
+                              <span className="text-[10px] text-rose-700/80 font-normal">
+                                ({statsData.totalDone > 0 ? `${((statsData.totalKhong / statsData.totalDone) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%'})
+                              </span>
+                            </div>
                           </td>
-                          <td className="py-2 px-3 text-right font-mono text-blue-600">
-                            {statsData.totalCoChi.toLocaleString('vi-VN')}
+                          <td className="py-2 px-3 text-right font-mono text-blue-700">
+                            <div className="flex flex-col items-end leading-tight">
+                              <span>{statsData.totalCoChi.toLocaleString('vi-VN')}</span>
+                              <span className="text-[10px] text-blue-700/80 font-normal">
+                                ({statsData.totalDone > 0 ? `${((statsData.totalCoChi / statsData.totalDone) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%'})
+                              </span>
+                            </div>
                           </td>
-                          <td className="py-2 px-3 text-right font-mono text-amber-600">
-                            {statsData.totalMatChi.toLocaleString('vi-VN')}
+                          <td className="py-2 px-3 text-right font-mono text-amber-700">
+                            <div className="flex flex-col items-end leading-tight">
+                              <span>{statsData.totalMatChi.toLocaleString('vi-VN')}</span>
+                              <span className="text-[10px] text-amber-700/80 font-normal">
+                                ({statsData.totalDone > 0 ? `${((statsData.totalMatChi / statsData.totalDone) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%'})
+                              </span>
+                            </div>
                           </td>
                         </tr>
                       </tfoot>
@@ -5084,19 +5153,44 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                                 {item.doneCount.toLocaleString('vi-VN')}
                               </td>
                               <td className="py-2 px-3 text-right font-mono text-emerald-600">
-                                {item.binhThuong.toLocaleString('vi-VN')}
+                                <div className="flex flex-col items-end leading-tight">
+                                  <span>{item.binhThuong.toLocaleString('vi-VN')}</span>
+                                  <span className="text-[10px] text-emerald-600/80 font-normal">
+                                    ({item.doneCount > 0 ? `${((item.binhThuong / item.doneCount) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%'})
+                                  </span>
+                                </div>
                               </td>
                               <td className="py-2 px-3 text-right font-mono text-rose-600">
-                                {item.khong.toLocaleString('vi-VN')}
+                                <div className="flex flex-col items-end leading-tight">
+                                  <span>{item.khong.toLocaleString('vi-VN')}</span>
+                                  <span className="text-[10px] text-rose-600/80 font-normal">
+                                    ({item.doneCount > 0 ? `${((item.khong / item.doneCount) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%'})
+                                  </span>
+                                </div>
                               </td>
                               <td className="py-2 px-3 text-right font-mono text-blue-600">
-                                {item.coChi.toLocaleString('vi-VN')}
+                                <div className="flex flex-col items-end leading-tight">
+                                  <span>{item.coChi.toLocaleString('vi-VN')}</span>
+                                  <span className="text-[10px] text-blue-600/80 font-normal">
+                                    ({item.doneCount > 0 ? `${((item.coChi / item.doneCount) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%'})
+                                  </span>
+                                </div>
                               </td>
                               <td className="py-2 px-3 text-right font-mono text-amber-600">
-                                {item.matChi.toLocaleString('vi-VN')}
+                                <div className="flex flex-col items-end leading-tight">
+                                  <span>{item.matChi.toLocaleString('vi-VN')}</span>
+                                  <span className="text-[10px] text-amber-600/80 font-normal">
+                                    ({item.doneCount > 0 ? `${((item.matChi / item.doneCount) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%'})
+                                  </span>
+                                </div>
                               </td>
                               <td className="py-2 px-3 text-right font-mono text-indigo-600">
-                                {item.deXuatCount.toLocaleString('vi-VN')}
+                                <div className="flex flex-col items-end leading-tight">
+                                  <span>{item.deXuatCount.toLocaleString('vi-VN')}</span>
+                                  <span className="text-[10px] text-indigo-600/80 font-normal">
+                                    ({item.doneCount > 0 ? `${((item.deXuatCount / item.doneCount) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%'})
+                                  </span>
+                                </div>
                               </td>
                             </tr>
                           ))
@@ -5109,20 +5203,45 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                             <td className="py-2 px-3 text-right font-mono text-[#005a9c]">
                               {statsData.totalDone.toLocaleString('vi-VN')}
                             </td>
-                            <td className="py-2 px-3 text-right font-mono text-emerald-600">
-                              {statsData.totalBinhThuong.toLocaleString('vi-VN')}
+                            <td className="py-2 px-3 text-right font-mono text-emerald-700">
+                              <div className="flex flex-col items-end leading-tight">
+                                <span>{statsData.totalBinhThuong.toLocaleString('vi-VN')}</span>
+                                <span className="text-[10px] text-emerald-700/80 font-normal">
+                                  ({statsData.totalDone > 0 ? `${((statsData.totalBinhThuong / statsData.totalDone) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%'})
+                                </span>
+                              </div>
                             </td>
-                            <td className="py-2 px-3 text-right font-mono text-rose-600">
-                              {statsData.totalKhong.toLocaleString('vi-VN')}
+                            <td className="py-2 px-3 text-right font-mono text-rose-700">
+                              <div className="flex flex-col items-end leading-tight">
+                                <span>{statsData.totalKhong.toLocaleString('vi-VN')}</span>
+                                <span className="text-[10px] text-rose-700/80 font-normal">
+                                  ({statsData.totalDone > 0 ? `${((statsData.totalKhong / statsData.totalDone) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%'})
+                                </span>
+                              </div>
                             </td>
-                            <td className="py-2 px-3 text-right font-mono text-blue-600">
-                              {statsData.totalCoChi.toLocaleString('vi-VN')}
+                            <td className="py-2 px-3 text-right font-mono text-blue-700">
+                              <div className="flex flex-col items-end leading-tight">
+                                <span>{statsData.totalCoChi.toLocaleString('vi-VN')}</span>
+                                <span className="text-[10px] text-blue-700/80 font-normal">
+                                  ({statsData.totalDone > 0 ? `${((statsData.totalCoChi / statsData.totalDone) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%'})
+                                </span>
+                              </div>
                             </td>
-                            <td className="py-2 px-3 text-right font-mono text-amber-600">
-                              {statsData.totalMatChi.toLocaleString('vi-VN')}
+                            <td className="py-2 px-3 text-right font-mono text-amber-700">
+                              <div className="flex flex-col items-end leading-tight">
+                                <span>{statsData.totalMatChi.toLocaleString('vi-VN')}</span>
+                                <span className="text-[10px] text-amber-700/80 font-normal">
+                                  ({statsData.totalDone > 0 ? `${((statsData.totalMatChi / statsData.totalDone) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%'})
+                                </span>
+                              </div>
                             </td>
-                            <td className="py-2 px-3 text-right font-mono text-indigo-600">
-                              {statsData.totalDeXuat.toLocaleString('vi-VN')}
+                            <td className="py-2 px-3 text-right font-mono text-indigo-700">
+                              <div className="flex flex-col items-end leading-tight">
+                                <span>{statsData.totalDeXuat.toLocaleString('vi-VN')}</span>
+                                <span className="text-[10px] text-indigo-700/80 font-normal">
+                                  ({statsData.totalDone > 0 ? `${((statsData.totalDeXuat / statsData.totalDone) * 100).toFixed(1).replace(/\.0$/, '')}%` : '0%'})
+                                </span>
+                              </div>
                             </td>
                           </tr>
                         </tfoot>
