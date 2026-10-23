@@ -520,11 +520,29 @@ export const initDB = async () => {
         }
       }
     } catch (e) {}
+    try {
+      const mknVal = await get('sheet_matketnoi_v1');
+      if (mknVal) {
+        let parsed = typeof mknVal === 'string' ? JSON.parse(mknVal) : mknVal;
+        if (Array.isArray(parsed)) {
+          memCacheMatKetNoiList = parsed;
+        }
+      }
+    } catch (e) {}
+    try {
+      const ctmknVal = await get('sheet_chitietmkn_v1');
+      if (ctmknVal) {
+        let parsed = typeof ctmknVal === 'string' ? JSON.parse(ctmknVal) : ctmknVal;
+        if (Array.isArray(parsed)) {
+          memCacheChiTietMKNList = parsed;
+        }
+      }
+    } catch (e) {}
     const keys = [
       STORAGE_KEY, SCRIPT_URL_KEY, SPREADSHEET_ID_KEY, TEAMS_KEY, MEMBERS_KEY, STATIONS_KEY,
       DINHMUC_KEY, PROGRESS_KEY, LOCAL_PROGRESS_UPDATES_KEY, TUTI_KEY,
       LOCAL_TUTI_UPDATES_KEY, DVKH_KEY, QUAHAN_KEY, QUAHAN_NAM_KEY, TU_SHEET_KEY, TU_NAM_KEY, TI_SHEET_KEY, TI_NAM_KEY, ALLOW_CUSTOM_NGAY_HOAN_TAT_DVKH_KEY, 'sheet_khuvuc_v1', 'sheet_matketnoi_v1',
-      'sheet_chitietmkn_v1', 'sheet_sangtai_v1', 'sheet_kho_v1', 'sheet_vttb_v1', 'config_exclude_saturday', 'config_exclude_sunday', 'config_exclude_nghi',
+      'sheet_chitietmkn_v1', 'custom_matketnoi_uploaded_v1', 'custom_chitietmkn_uploaded_v1', 'sheet_sangtai_v1', 'sheet_kho_v1', 'sheet_vttb_v1', 'config_exclude_saturday', 'config_exclude_sunday', 'config_exclude_nghi',
       'config_exclude_holidays', 'config_holidays_v1',
       'config_external_report_links_v1', 'config_tuyen_duong_exclusions_v1', 'config_cong_doan_leaders'
     ];
@@ -2579,31 +2597,34 @@ export const DataStore = {
 
             // Fetch MatKetNoi
             try {
-               const mknText = await DataStore.fetchSheetCSV("MatKetNoi", sheetId);
-               if (mknText && !mknText.includes('<html')) {
-                   const { data, meta } = Papa.parse(mknText, { header: true, skipEmptyLines: true });
-                   const keys = meta.fields || [];
-                   
-                   const normalizeCol = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[\s_]+/g, '');
-                   const docKey = keys.find(k => normalizeCol(k).includes('madiemdo') || normalizeCol(k).includes('maddo'));
-                   const actualKey = docKey || keys[0];
-                   
-                   if (actualKey) {
-                       const matKetNoiList = data.map((row: any) => {
-                           const newRow: any = { maDiemDo: String(row[actualKey] || '').trim() };
-                           for (const k of keys) {
-                               const normK = normalizeCol(k);
-                               if (!normK.includes('diachidiemdo') && !normK.includes('soserialcmis') && !normK.includes('tinhtrangketnoi')) {
-                                   newRow[k] = row[k];
+               const isCustomMdis = safeGetItem('custom_matketnoi_uploaded_v1') === 'true';
+               if (!isCustomMdis) {
+                   const mknText = await DataStore.fetchSheetCSV("MatKetNoi", sheetId);
+                   if (mknText && !mknText.includes('<html')) {
+                       const { data, meta } = Papa.parse(mknText, { header: true, skipEmptyLines: true });
+                       const keys = meta.fields || [];
+                       
+                       const normalizeCol = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[\s_]+/g, '');
+                       const docKey = keys.find(k => normalizeCol(k).includes('madiemdo') || normalizeCol(k).includes('maddo'));
+                       const actualKey = docKey || keys[0];
+                       
+                       if (actualKey) {
+                           const matKetNoiList = data.map((row: any) => {
+                               const newRow: any = { maDiemDo: String(row[actualKey] || '').trim() };
+                               for (const k of keys) {
+                                   const normK = normalizeCol(k);
+                                   if (!normK.includes('diachidiemdo') && !normK.includes('soserialcmis') && !normK.includes('tinhtrangketnoi')) {
+                                       newRow[k] = row[k];
+                                   }
                                }
+                               return newRow;
+                           }).filter((r: any) => r.maDiemDo);
+                           memCacheMatKetNoiList = matKetNoiList;
+                           try {
+                               safeSetItem('sheet_matketnoi_v1', JSON.stringify(matKetNoiList));
+                           } catch(e) {
+                               console.warn("localStorage quota exceeded for MatKetNoi");
                            }
-                           return newRow;
-                       }).filter((r: any) => r.maDiemDo);
-                       memCacheMatKetNoiList = matKetNoiList;
-                       try {
-                           safeSetItem('sheet_matketnoi_v1', JSON.stringify(matKetNoiList));
-                       } catch(e) {
-                           console.warn("localStorage quota exceeded for MatKetNoi");
                        }
                    }
                }
@@ -2613,16 +2634,19 @@ export const DataStore = {
 
             // Fetch ChiTietMKN
             try {
-               const chiTietText = await DataStore.fetchSheetCSV("ChiTietMKN", sheetId);
-               if (chiTietText && !chiTietText.includes('<html')) {
-                   const { data } = Papa.parse(chiTietText, { header: true, skipEmptyLines: true });
-                   
-                   if (data && data.length > 0) {
-                       memCacheChiTietMKNList = data;
-                       try {
-                           safeSetItem('sheet_chitietmkn_v1', JSON.stringify(data));
-                       } catch(e) {
-                           console.warn("localStorage quota exceeded for ChiTietMKN");
+               const isCustomHes = safeGetItem('custom_chitietmkn_uploaded_v1') === 'true';
+               if (!isCustomHes) {
+                   const chiTietText = await DataStore.fetchSheetCSV("ChiTietMKN", sheetId);
+                   if (chiTietText && !chiTietText.includes('<html')) {
+                       const { data } = Papa.parse(chiTietText, { header: true, skipEmptyLines: true });
+                       
+                       if (data && data.length > 0) {
+                           memCacheChiTietMKNList = data;
+                           try {
+                               safeSetItem('sheet_chitietmkn_v1', JSON.stringify(data));
+                           } catch(e) {
+                               console.warn("localStorage quota exceeded for ChiTietMKN");
+                           }
                        }
                    }
                }
@@ -3055,19 +3079,101 @@ export const DataStore = {
   },
 
   getMatKetNoi: (): any[] => {
-     if (memCacheMatKetNoiList) return memCacheMatKetNoiList;
+     if (memCacheMatKetNoiList !== null) return memCacheMatKetNoiList;
      try {
        const cached = safeGetItem('sheet_matketnoi_v1');
-       return cached ? JSON.parse(cached) : [];
+       if (cached) {
+         memCacheMatKetNoiList = JSON.parse(cached);
+         return memCacheMatKetNoiList || [];
+       }
+       return [];
      } catch { return []; }
   },
 
+  setMatKetNoi: async (list: any[]): Promise<void> => {
+     // 1. XÓA SẠCH DỮ LIỆU CŨ HOÀN TOÀN
+     memCacheMatKetNoiList = [];
+     safeRemoveItem('sheet_matketnoi_v1');
+     try { await del('sheet_matketnoi_v1'); } catch(e) {}
+
+     // 2. ĐƯA DỮ LIỆU MỚI VÀO
+     memCacheMatKetNoiList = Array.isArray(list) ? [...list] : [];
+     safeSetItem('custom_matketnoi_uploaded_v1', 'true');
+     try {
+       safeSetItem('sheet_matketnoi_v1', JSON.stringify(memCacheMatKetNoiList));
+     } catch(e) {
+       console.warn('localStorage full for MatKetNoi', e);
+     }
+     try {
+       await set('sheet_matketnoi_v1', memCacheMatKetNoiList);
+     } catch(e) {
+       console.warn('IDB save error for MatKetNoi', e);
+     }
+
+     if (typeof window !== 'undefined') {
+       window.dispatchEvent(new CustomEvent('doxa_data_updated', { detail: { type: 'matketnoi', count: memCacheMatKetNoiList.length } }));
+       window.dispatchEvent(new CustomEvent('workload_updated'));
+     }
+  },
+
+  resetMatKetNoiToSheet: async (): Promise<void> => {
+     safeRemoveItem('custom_matketnoi_uploaded_v1');
+     safeRemoveItem('sheet_matketnoi_v1');
+     memCacheMatKetNoiList = null;
+     try { await del('sheet_matketnoi_v1'); } catch(e) {}
+     if (typeof window !== 'undefined') {
+       window.dispatchEvent(new CustomEvent('doxa_data_updated', { detail: { type: 'matketnoi', reset: true } }));
+       window.dispatchEvent(new CustomEvent('workload_updated'));
+     }
+  },
+
   getChiTietMKN: (): any[] => {
-     if (memCacheChiTietMKNList) return memCacheChiTietMKNList;
+     if (memCacheChiTietMKNList !== null) return memCacheChiTietMKNList;
      try {
        const cached = safeGetItem('sheet_chitietmkn_v1');
-       return cached ? JSON.parse(cached) : [];
+       if (cached) {
+         memCacheChiTietMKNList = JSON.parse(cached);
+         return memCacheChiTietMKNList || [];
+       }
+       return [];
      } catch { return []; }
+  },
+
+  setChiTietMKN: async (list: any[]): Promise<void> => {
+     // 1. XÓA SẠCH DỮ LIỆU CŨ HOÀN TOÀN
+     memCacheChiTietMKNList = [];
+     safeRemoveItem('sheet_chitietmkn_v1');
+     try { await del('sheet_chitietmkn_v1'); } catch(e) {}
+
+     // 2. ĐƯA DỮ LIỆU MỚI VÀO
+     memCacheChiTietMKNList = Array.isArray(list) ? [...list] : [];
+     safeSetItem('custom_chitietmkn_uploaded_v1', 'true');
+     try {
+       safeSetItem('sheet_chitietmkn_v1', JSON.stringify(memCacheChiTietMKNList));
+     } catch(e) {
+       console.warn('localStorage full for ChiTietMKN', e);
+     }
+     try {
+       await set('sheet_chitietmkn_v1', memCacheChiTietMKNList);
+     } catch(e) {
+       console.warn('IDB save error for ChiTietMKN', e);
+     }
+
+     if (typeof window !== 'undefined') {
+       window.dispatchEvent(new CustomEvent('doxa_data_updated', { detail: { type: 'chitietmkn', count: memCacheChiTietMKNList.length } }));
+       window.dispatchEvent(new CustomEvent('workload_updated'));
+     }
+  },
+
+  resetChiTietMKNToSheet: async (): Promise<void> => {
+     safeRemoveItem('custom_chitietmkn_uploaded_v1');
+     safeRemoveItem('sheet_chitietmkn_v1');
+     memCacheChiTietMKNList = null;
+     try { await del('sheet_chitietmkn_v1'); } catch(e) {}
+     if (typeof window !== 'undefined') {
+       window.dispatchEvent(new CustomEvent('doxa_data_updated', { detail: { type: 'chitietmkn', reset: true } }));
+       window.dispatchEvent(new CustomEvent('workload_updated'));
+     }
   },
 
   getKhuVuc: (): any[] => {

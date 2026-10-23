@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Papa from 'papaparse';
-import { DataStore, XuLyDoXaEntry } from '../store/DataStore';
-import { RefreshCw, AlertCircle, WifiOff, Users, ChevronRight, Search, Filter, ArrowUp, ArrowDown, ArrowUpDown, Wrench, Cpu, PieChart as PieChartIcon, Building2 } from 'lucide-react';
+import { DataStore, XuLyDoXaEntry, SheetMember } from '../store/DataStore';
+import { PermissionStore } from '../store/PermissionStore';
+import { RefreshCw, AlertCircle, WifiOff, Users, ChevronRight, Search, Filter, ArrowUp, ArrowDown, ArrowUpDown, Wrench, Cpu, PieChart as PieChartIcon, Building2, UploadCloud } from 'lucide-react';
 import XuLyDoXaView from './XuLyDoXaView';
 import DcuTab from './DcuTab';
+import SyncDoxaModal from './SyncDoxaModal';
 import {
   PieChart,
   Pie,
@@ -31,7 +33,13 @@ interface ChiTietMKN {
   [key: string]: string | number | undefined;
 }
 
-export default function DisconnectRateTab({ refreshToggle }: { refreshToggle?: number }) {
+export default function DisconnectRateTab({ 
+  refreshToggle,
+  sessionUser
+}: { 
+  refreshToggle?: number;
+  sessionUser?: SheetMember | null;
+}) {
   const [subTab, setSubTab] = useState<'xuly' | 'overview' | 'details' | 'statistics' | 'dcu'>('xuly');
   const [xuLyList, setXuLyList] = useState<XuLyDoXaEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -51,6 +59,17 @@ export default function DisconnectRateTab({ refreshToggle }: { refreshToggle?: n
   // Selection state for Details tab
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
   const [selectedStatus, setSelectedStatus] = useState<'Online' | 'Offline' | null>(null);
+
+  // Sync Modal State
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+  const [syncInitialSource, setSyncInitialSource] = useState<'mdis' | 'hes'>('mdis');
+
+  const canSyncDoxa = PermissionStore.hasActionAccess('sync_doxa_data', sessionUser?.role || '', sessionUser);
+
+  const handleOpenSync = (targetSource: 'mdis' | 'hes' = 'mdis') => {
+    setSyncInitialSource(targetSource);
+    setIsSyncModalOpen(true);
+  };
 
   const normalizeTargetArea = (area: string) => {
       const a = area.toLowerCase();
@@ -299,8 +318,29 @@ export default function DisconnectRateTab({ refreshToggle }: { refreshToggle?: n
       }
   }, [subTab]);
 
+  useEffect(() => {
+    const handleDoxaUpdated = () => {
+      fetchData(true);
+    };
+    window.addEventListener('doxa_data_updated', handleDoxaUpdated);
+    return () => {
+      window.removeEventListener('doxa_data_updated', handleDoxaUpdated);
+    };
+  }, []);
+
   return (
     <div className="space-y-6">
+      {/* Sync Modal */}
+      <SyncDoxaModal
+        isOpen={isSyncModalOpen}
+        onClose={() => setIsSyncModalOpen(false)}
+        initialSource={syncInitialSource}
+        canSync={canSyncDoxa}
+        onSyncSuccess={() => {
+          fetchData(true);
+        }}
+      />
+
       {/* Sub-tab Navigation */}
       <div className="flex border-b border-[#141414]/20 bg-white shadow-sm overflow-x-auto">
          <button 
@@ -392,7 +432,14 @@ export default function DisconnectRateTab({ refreshToggle }: { refreshToggle?: n
          )}
 
          {!loading && !error && overviewStats && subTab === 'overview' && (
-            <OverviewSubTab stats={overviewStats} statsNhanh={overviewStatsNhanh} fetchData={fetchData} loading={loading} />
+            <OverviewSubTab 
+                stats={overviewStats} 
+                statsNhanh={overviewStatsNhanh} 
+                fetchData={fetchData} 
+                loading={loading}
+                onOpenSync={handleOpenSync}
+                canSync={canSyncDoxa}
+            />
          )}
 
          {!loading && !error && overviewStats && subTab === 'details' && (
@@ -403,18 +450,38 @@ export default function DisconnectRateTab({ refreshToggle }: { refreshToggle?: n
                 setSelectedArea={setSelectedArea}
                 selectedStatus={selectedStatus}
                 setSelectedStatus={setSelectedStatus}
+                onOpenSync={handleOpenSync}
+                canSync={canSyncDoxa}
             />
          )}
 
          {!loading && !error && mknList && subTab === 'statistics' && (
-            <StatisticsSubTab mknList={mknList} />
+            <StatisticsSubTab 
+                mknList={mknList}
+                onOpenSync={handleOpenSync}
+                canSync={canSyncDoxa}
+            />
          )}
       </div>
     </div>
   );
 }
 
-function OverviewSubTab({ stats, statsNhanh, fetchData, loading }: { stats: any, statsNhanh: any, fetchData: any, loading: boolean }) {
+function OverviewSubTab({ 
+  stats, 
+  statsNhanh, 
+  fetchData, 
+  loading,
+  onOpenSync,
+  canSync
+}: { 
+  stats: any; 
+  statsNhanh: any; 
+  fetchData: any; 
+  loading: boolean;
+  onOpenSync: (source?: 'mdis' | 'hes') => void;
+  canSync: boolean;
+}) {
   const [viewMode, setViewMode] = useState<'khachhang' | 'nhanh'>('khachhang');
   const activeStats = viewMode === 'khachhang' ? stats : statsNhanh;
 
@@ -447,19 +514,37 @@ function OverviewSubTab({ stats, statsNhanh, fetchData, loading }: { stats: any,
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
        
-       <div className="flex flex-row md:items-center gap-4 border-b border-[#141414]/10 pb-4">
-           <button 
-                onClick={() => setViewMode('khachhang')}
-                className={`px-4 py-2 text-sm font-bold uppercase tracking-widest transition-colors ${viewMode === 'khachhang' ? 'bg-[#141414] text-white shadow-[2px_2px_0_#A0A0A0]' : 'bg-white border border-[#141414] shadow-[2px_2px_0_#141414] hover:bg-slate-50'}`}
-           >
-                Xem SL MDIS
-           </button>
-           <button 
-                onClick={() => setViewMode('nhanh')}
-                className={`px-4 py-2 text-sm font-bold uppercase tracking-widest transition-colors ${viewMode === 'nhanh' ? 'bg-[#141414] text-white shadow-[2px_2px_0_#A0A0A0]' : 'bg-white border border-[#141414] shadow-[2px_2px_0_#141414] hover:bg-slate-50'}`}
-           >
-                Xem SL cảnh báo
-           </button>
+       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#141414]/10 pb-4">
+           <div className="flex items-center gap-2">
+             <button 
+                  onClick={() => setViewMode('khachhang')}
+                  className={`px-4 py-2 text-sm font-bold uppercase tracking-widest transition-colors cursor-pointer ${viewMode === 'khachhang' ? 'bg-[#141414] text-white shadow-[2px_2px_0_#A0A0A0]' : 'bg-white border border-[#141414] shadow-[2px_2px_0_#141414] hover:bg-slate-50'}`}
+             >
+                  Xem SL MDIS
+             </button>
+             <button 
+                  onClick={() => setViewMode('nhanh')}
+                  className={`px-4 py-2 text-sm font-bold uppercase tracking-widest transition-colors cursor-pointer ${viewMode === 'nhanh' ? 'bg-[#141414] text-white shadow-[2px_2px_0_#A0A0A0]' : 'bg-white border border-[#141414] shadow-[2px_2px_0_#141414] hover:bg-slate-50'}`}
+             >
+                  Xem SL cảnh báo
+             </button>
+           </div>
+
+           <div>
+             <button
+               onClick={() => onOpenSync(viewMode === 'khachhang' ? 'mdis' : 'hes')}
+               disabled={!canSync}
+               title={!canSync ? "Chỉ Đội trưởng hoặc người được phân quyền mới có thể đồng bộ dữ liệu" : "Đồng bộ cập nhật dữ liệu từ MDIS / HES"}
+               className={`px-4 py-2 text-sm font-bold uppercase tracking-widest transition-all flex items-center gap-2 ${
+                 canSync
+                   ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-[2px_2px_0_#141414] cursor-pointer'
+                   : 'bg-slate-200 text-slate-400 border border-slate-300 cursor-not-allowed'
+               }`}
+             >
+               <UploadCloud size={16} />
+               <span>Đồng bộ dữ liệu (MDIS / HES)</span>
+             </button>
+           </div>
        </div>
 
        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -563,14 +648,17 @@ function OverviewSubTab({ stats, statsNhanh, fetchData, loading }: { stats: any,
 function DetailsSubTab({ 
     chiTietList, stationMap, 
     selectedArea, setSelectedArea, 
-    selectedStatus, setSelectedStatus 
+    selectedStatus, setSelectedStatus,
+    onOpenSync, canSync
 }: { 
     chiTietList: ChiTietMKN[], 
     stationMap: Record<string, string>,
     selectedArea: string | null,
     setSelectedArea: (a: string | null) => void,
     selectedStatus: 'Online' | 'Offline' | null,
-    setSelectedStatus: (s: 'Online' | 'Offline' | null) => void
+    setSelectedStatus: (s: 'Online' | 'Offline' | null) => void,
+    onOpenSync: (source?: 'mdis' | 'hes') => void,
+    canSync: boolean
 }) {
    const [columnFilters, setColumnFilters] = useState({
        IMEI: '',
@@ -825,23 +913,61 @@ function DetailsSubTab({
                 <p className="text-slate-500 max-w-md text-center mb-6 text-sm leading-relaxed">
                     Dữ liệu chi tiết chứa danh sách toàn bộ các điểm đo và trạng thái kết nối. Vui lòng tải dữ liệu để phân tích chi tiết và xem biểu đồ tổng quát.
                 </p>
-                <button 
-                    onClick={() => {
-                        setIsDetailPrepared(true);
-                        setSelectedArea('Công ty');
-                        setSelectedStatus('Offline');
-                    }}
-                    className="bg-[#141414] text-white px-8 py-3.5 text-sm font-bold shadow-[4px_4px_0_#A0A0A0] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[2px_2px_0_#A0A0A0] transition-all uppercase tracking-widest flex items-center gap-2"
-                >
-                    <RefreshCw className="w-4 h-4" />
-                    Tải dữ liệu
-                </button>
+                <div className="flex flex-wrap items-center gap-3">
+                    <button 
+                        onClick={() => {
+                            setIsDetailPrepared(true);
+                            setSelectedArea('Công ty');
+                            setSelectedStatus('Offline');
+                        }}
+                        className="bg-[#141414] text-white px-8 py-3.5 text-sm font-bold shadow-[4px_4px_0_#A0A0A0] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[2px_2px_0_#A0A0A0] transition-all uppercase tracking-widest flex items-center gap-2 cursor-pointer"
+                    >
+                        <RefreshCw className="w-4 h-4" />
+                        Tải dữ liệu
+                    </button>
+                    <button
+                        onClick={() => onOpenSync('hes')}
+                        disabled={!canSync}
+                        title={!canSync ? "Chỉ Đội trưởng hoặc người được phân quyền mới có thể đồng bộ dữ liệu" : "Đồng bộ dữ liệu từ MDIS / HES"}
+                        className={`px-6 py-3.5 text-sm font-bold shadow-[4px_4px_0_#141414] transition-all uppercase tracking-widest flex items-center gap-2 ${
+                            canSync 
+                                ? 'bg-amber-600 hover:bg-amber-700 text-white cursor-pointer' 
+                                : 'bg-slate-200 text-slate-400 border border-slate-300 cursor-not-allowed'
+                        }`}
+                    >
+                        <UploadCloud className="w-4 h-4" />
+                        Đồng bộ dữ liệu (MDIS / HES)
+                    </button>
+                </div>
             </div>
         );
     }
 
     return (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            {/* Action Bar */}
+            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#141414]/10 pb-4">
+                <div className="flex items-center gap-2 text-sm text-slate-700 font-bold">
+                    <Building2 size={18} className="text-amber-600" />
+                    <span>Dữ liệu thống kê DCU & Trạm theo khu vực (HES - ChiTietMKN)</span>
+                </div>
+                <div>
+                    <button
+                        onClick={() => onOpenSync('hes')}
+                        disabled={!canSync}
+                        title={!canSync ? "Chỉ Đội trưởng hoặc người được phân quyền mới có thể đồng bộ dữ liệu" : "Đồng bộ cập nhật dữ liệu từ MDIS / HES"}
+                        className={`px-4 py-2 text-sm font-bold uppercase tracking-widest transition-all flex items-center gap-2 ${
+                            canSync
+                                ? 'bg-amber-600 hover:bg-amber-700 text-white shadow-[2px_2px_0_#141414] cursor-pointer'
+                                : 'bg-slate-200 text-slate-400 border border-slate-300 cursor-not-allowed'
+                        }`}
+                    >
+                        <UploadCloud size={16} />
+                        <span>Đồng bộ dữ liệu (MDIS / HES)</span>
+                    </button>
+                </div>
+            </div>
+
             {/* Navigation Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-4">
                {['Công ty', 'Vũng Tàu', 'Bà Rịa', 'Phú Mỹ', 'Côn Đảo', 'Khác'].map(area => {
@@ -955,7 +1081,15 @@ function DetailsSubTab({
 }
 
 
-function StatisticsSubTab({ mknList }: { mknList: any[] }) {
+function StatisticsSubTab({ 
+    mknList,
+    onOpenSync,
+    canSync
+}: { 
+    mknList: any[],
+    onOpenSync: (source?: 'mdis' | 'hes') => void,
+    canSync: boolean
+}) {
     const [filterPeriod, setFilterPeriod] = useState<'1day'|'2days'|'3days'|'day'|'week'|'month'|'inactive'>('day');
     const [colFilters, setColFilters] = useState<Record<string, string>>({});
     const [openFilter, setOpenFilter] = useState<string | null>(null);
@@ -1122,9 +1256,22 @@ function StatisticsSubTab({ mknList }: { mknList: any[] }) {
               </select>
               <button 
                   onClick={exportExcel}
-                  className="px-4 py-2 text-sm font-bold bg-[#141414] text-white uppercase tracking-widest hover:bg-black shadow-[2px_2px_0_#A0A0A0] transition-colors"
+                  className="px-4 py-2 text-sm font-bold bg-[#141414] text-white uppercase tracking-widest hover:bg-black shadow-[2px_2px_0_#A0A0A0] transition-colors cursor-pointer"
               >
                  Xuất Excel
+              </button>
+              <button
+                  onClick={() => onOpenSync('mdis')}
+                  disabled={!canSync}
+                  title={!canSync ? "Chỉ Đội trưởng hoặc người được phân quyền mới có thể đồng bộ dữ liệu" : "Đồng bộ cập nhật dữ liệu từ MDIS / HES"}
+                  className={`px-4 py-2 text-sm font-bold uppercase tracking-widest transition-all flex items-center gap-2 ${
+                      canSync
+                          ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-[2px_2px_0_#141414] cursor-pointer'
+                          : 'bg-slate-200 text-slate-400 border border-slate-300 cursor-not-allowed'
+                  }`}
+              >
+                  <UploadCloud size={16} />
+                  <span>Đồng bộ dữ liệu (MDIS / HES)</span>
               </button>
               <div className="ml-auto font-bold text-sm bg-white px-3 py-1 border border-[#141414] shadow-[2px_2px_0_#141414]">
                  Tổng số điểm đo: <span className="text-red-600">{filteredList.length.toLocaleString('vi-VN')}</span>

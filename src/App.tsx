@@ -849,7 +849,7 @@ export default function App() {
                   <TutiTab refreshToggle={refreshToggle} sessionUser={sessionUser} />
                 )}
                 {activeTab === "disconnect" && (
-                  <DisconnectRateTab refreshToggle={refreshToggle} />
+                  <DisconnectRateTab refreshToggle={refreshToggle} sessionUser={sessionUser} />
                 )}
                 {activeTab === "sangtai" && (
                   <SangTaiTab />

@@ -98,7 +98,8 @@ const ACTIONS_INFO = [
     { id: 'bao_cao_ho', label: 'Cập nhật báo cáo hộ' },
     { id: 'view_online_users', label: 'Xem danh sách người dùng Online' },
     { id: 'kthtdd_all_areas', label: 'Kiện toàn tất cả khu vực (Phát sinh KT)' },
-    { id: 'import_htdd_data', label: 'Import dữ liệu Quá hạn / Cuối năm (HTDD)' }
+    { id: 'import_htdd_data', label: 'Import dữ liệu Quá hạn / Cuối năm (HTDD)' },
+    { id: 'sync_doxa_data', label: 'Đồng bộ dữ liệu Đo xa (MDIS / HES)' }
 ];
 
 const ICON_PRESETS = [
