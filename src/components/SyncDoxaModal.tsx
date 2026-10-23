@@ -12,14 +12,15 @@ import {
   Users, 
   Database,
   RotateCcw,
-  ShieldAlert
+  ShieldAlert,
+  MapPin
 } from 'lucide-react';
 import { DataStore } from '../store/DataStore';
 
 interface SyncDoxaModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialSource?: 'mdis' | 'hes';
+  initialSource?: 'mdis' | 'hes' | 'khuvuc';
   canSync: boolean;
   onSyncSuccess: () => void;
 }
@@ -31,13 +32,14 @@ export default function SyncDoxaModal({
   canSync,
   onSyncSuccess
 }: SyncDoxaModalProps) {
-  const [source, setSource] = useState<'mdis' | 'hes'>(initialSource);
+  const [source, setSource] = useState<'mdis' | 'hes' | 'khuvuc'>(initialSource);
   const [file, setFile] = useState<File | null>(null);
   const [isParsing, setIsParsing] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
   const [detectedColumns, setDetectedColumns] = useState<string[]>([]);
   const [parsedData, setParsedData] = useState<any[] | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [syncStepMsg, setSyncStepMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [isReverting, setIsReverting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -55,10 +57,11 @@ export default function SyncDoxaModal({
     setDetectedColumns([]);
     setParsedData(null);
     setSuccessMsg(null);
+    setSyncStepMsg(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleSourceChange = (newSource: 'mdis' | 'hes') => {
+  const handleSourceChange = (newSource: 'mdis' | 'hes' | 'khuvuc') => {
     if (newSource === source) return;
     setSource(newSource);
     resetState();
@@ -66,7 +69,9 @@ export default function SyncDoxaModal({
 
   const currentCount = source === 'mdis' 
     ? DataStore.getMatKetNoi().length 
-    : DataStore.getChiTietMKN().length;
+    : source === 'hes'
+      ? DataStore.getChiTietMKN().length
+      : DataStore.getKhuVuc().length;
 
   const normalizeCol = (s: string) => 
     String(s || '')
@@ -110,9 +115,10 @@ export default function SyncDoxaModal({
       // Prioritize target sheet name if present, otherwise sheet 0
       const sheetName = wb.SheetNames.find(s => {
         const n = normalizeCol(s);
-        return source === 'mdis' 
-          ? (n.includes('matketnoi') || n.includes('mdis')) 
-          : (n.includes('chitietmkn') || n.includes('hes') || n.includes('chitiet'));
+        if (source === 'mdis') return n.includes('matketnoi') || n.includes('mdis');
+        if (source === 'hes') return n.includes('chitietmkn') || n.includes('hes') || n.includes('chitiet');
+        if (source === 'khuvuc') return n.includes('khuvuc') || n.includes('khu');
+        return false;
       }) || wb.SheetNames[0];
 
       const ws = wb.Sheets[sheetName];
@@ -153,7 +159,7 @@ export default function SyncDoxaModal({
         }
 
         setParsedData(validRows);
-      } else {
+      } else if (source === 'hes') {
         // HES validation: must match structure of sheet ChiTietMKN
         // Expected columns: IMEI, DCUTYPE, DCUDESC, IDSTATION, STATUS_DCU, SL_DANAP, SL_TT, etc.
         const normalizedHeaders = fileHeaders.map(h => normalizeCol(h));
@@ -212,6 +218,47 @@ export default function SyncDoxaModal({
         }
 
         setParsedData(validRows);
+      } else {
+        // KhuVuc validation: must match structure of sheet KhuVuc (Mã điểm đo & Tổ quản lý / Khu vực)
+        const normalizedHeaders = fileHeaders.map(h => normalizeCol(h));
+
+        const docKey = fileHeaders.find(k => {
+          const n = normalizeCol(k);
+          return n.includes('maddo') || n.includes('madiemdo') || n.includes('diemdo');
+        });
+
+        const tqlKey = fileHeaders.find(k => {
+          const n = normalizeCol(k);
+          return n.includes('toql') || n.includes('khuvuc') || n.includes('toquanly') || n.includes('to') || n.includes('khu');
+        });
+
+        const actualMaDdo = docKey || fileHeaders[0];
+        const actualTql = tqlKey || fileHeaders[1];
+
+        const hasMaDdo = !!docKey || normalizedHeaders.some(h => h.includes('maddo') || h.includes('madiemdo') || h.includes('diemdo'));
+        const hasKhuVuc = !!tqlKey || normalizedHeaders.some(h => h.includes('khuvuc') || h.includes('toql') || h.includes('to'));
+
+        if (!hasMaDdo && !hasKhuVuc) {
+          throw new Error(
+            "Cấu trúc file Khu vực không hợp lệ: Không tìm thấy cột 'MÃ ĐIỂM ĐO' (hoặc 'MA_DDO') và 'TỔ QUẢN LÝ' / 'KHU VỰC' (hoặc 'TO_QL') tương tự cấu trúc sheet KhuVuc."
+          );
+        }
+
+        const validRows = rawJson.map(row => {
+          const maDdo = String(row[actualMaDdo] || '').trim();
+          const toQl = String(row[actualTql] || '').trim() || 'Khác';
+          return {
+            ...row,
+            MA_DDO: maDdo,
+            TO_QL: toQl
+          };
+        }).filter(r => r.MA_DDO);
+
+        if (validRows.length === 0) {
+          throw new Error("File có cột nhưng không có dòng dữ liệu hợp lệ nào chứa Mã điểm đo (MA_DDO).");
+        }
+
+        setParsedData(validRows);
       }
     } catch (err: any) {
       console.error("Error reading sync file:", err);
@@ -258,7 +305,7 @@ export default function SyncDoxaModal({
       const ws = XLSX.utils.json_to_sheet(templateData);
       XLSX.utils.book_append_sheet(wb, ws, 'MatKetNoi');
       XLSX.writeFile(wb, 'Mau_DongBo_MDIS_MatKetNoi.xlsx');
-    } else {
+    } else if (source === 'hes') {
       const templateData = [
         {
           'ORGID': 'PB01',
@@ -292,6 +339,48 @@ export default function SyncDoxaModal({
       const ws = XLSX.utils.json_to_sheet(templateData);
       XLSX.utils.book_append_sheet(wb, ws, 'ChiTietMKN');
       XLSX.writeFile(wb, 'Mau_DongBo_HES_ChiTietMKN.xlsx');
+    } else {
+      const templateData = [
+        {
+          'STT': 1,
+          'MÃ ĐIỂM ĐO': 'PD01000123456001',
+          'TÊN KHÁCH HÀNG': 'Nguyễn Văn A',
+          'TỔ QUẢN LÝ': 'Vũng Tàu',
+          'MÃ TRẠM': '471BD1',
+          'TÊN TRẠM': 'TBA BẾN ĐÁ 1',
+          'ĐỊA CHỈ': '123 Đường 30/4, P. Thắng Nhất, TP. Vũng Tàu'
+        },
+        {
+          'STT': 2,
+          'MÃ ĐIỂM ĐO': 'PD01000123456002',
+          'TÊN KHÁCH HÀNG': 'Công ty TNHH Hải Đăng',
+          'TỔ QUẢN LÝ': 'Bà Rịa',
+          'MÃ TRẠM': '471HL2',
+          'TÊN TRẠM': 'TBA HẠ LONG 2',
+          'ĐỊA CHỈ': '45 Lê Lợi, TP. Bà Rịa'
+        },
+        {
+          'STT': 3,
+          'MÃ ĐIỂM ĐO': 'PD01000123456003',
+          'TÊN KHÁCH HÀNG': 'Trần Thị B',
+          'TỔ QUẢN LÝ': 'Phú Mỹ',
+          'MÃ TRẠM': '472PM1',
+          'TÊN TRẠM': 'TBA PHÚ MỸ 1',
+          'ĐỊA CHỈ': 'Khu phố 1, P. Phú Mỹ, TX. Phú Mỹ'
+        },
+        {
+          'STT': 4,
+          'MÃ ĐIỂM ĐO': 'PD01000123456004',
+          'TÊN KHÁCH HÀNG': 'UBND Huyện Côn Đảo',
+          'TỔ QUẢN LÝ': 'Côn Đảo',
+          'MÃ TRẠM': '473CD1',
+          'TÊN TRẠM': 'TBA CÔN ĐẢO 1',
+          'ĐỊA CHỈ': 'Đường Lê Hồng Phong, Huyện Côn Đảo'
+        }
+      ];
+      const ws = XLSX.utils.json_to_sheet(templateData);
+      XLSX.utils.book_append_sheet(wb, ws, 'KhuVuc');
+      XLSX.writeFile(wb, 'Mau_DongBo_KhuVuc.xlsx');
     }
   };
 
@@ -303,22 +392,52 @@ export default function SyncDoxaModal({
     }
 
     setIsSubmitting(true);
+    setParseError(null);
+    setSuccessMsg(null);
+    setSyncStepMsg('Đang chuẩn bị đồng bộ dữ liệu...');
+
     try {
+      const targetSheet = source === 'mdis' ? 'MatKetNoi' : source === 'hes' ? 'ChiTietMKN' : 'KhuVuc';
+      const columnsToSync = detectedColumns.length > 0 ? detectedColumns : Object.keys(parsedData[0]);
+
+      // 1. Ghi đè trực tiếp lên Google Sheet qua Apps Script
+      setSyncStepMsg(`Đang ghi đè dữ liệu trực tiếp vào Google Sheet "${targetSheet}"...`);
+      const syncResult = await DataStore.syncSheetToGoogleSheet(
+        targetSheet,
+        columnsToSync,
+        parsedData,
+        (current, total, percent) => {
+          setSyncStepMsg(`Đang ghi đè Google Sheet "${targetSheet}": gói ${current}/${total} (${percent || Math.round((current / total) * 100)}%)...`);
+        }
+      );
+
+      if (!syncResult.success) {
+        throw new Error(syncResult.error || `Không thể ghi đè dữ liệu lên Google Sheet "${targetSheet}".`);
+      }
+
+      // 2. Cập nhật dữ liệu vào bộ nhớ & IndexedDB của ứng dụng
+      setSyncStepMsg('Đang cập nhật bộ nhớ ứng dụng...');
       if (source === 'mdis') {
         await DataStore.setMatKetNoi(parsedData);
-        setSuccessMsg(`Đã xóa sạch dữ liệu cũ và nạp thành công ${parsedData.length.toLocaleString('vi-VN')} bản ghi MDIS (MatKetNoi)!`);
-      } else {
+      } else if (source === 'hes') {
         await DataStore.setChiTietMKN(parsedData);
-        setSuccessMsg(`Đã xóa sạch dữ liệu cũ và nạp thành công ${parsedData.length.toLocaleString('vi-VN')} bản ghi HES (ChiTietMKN)!`);
+      } else {
+        await DataStore.setKhuVuc(parsedData);
       }
+
+      setSyncStepMsg(null);
+      setSuccessMsg(
+        `Đã xóa sạch dữ liệu cũ và ghi đè thành công ${parsedData.length.toLocaleString('vi-VN')} bản ghi mới trực tiếp vào Google Sheet "${targetSheet}" & ứng dụng!`
+      );
 
       onSyncSuccess();
       setTimeout(() => {
         onClose();
-      }, 1500);
+      }, 1800);
     } catch (e: any) {
-      console.error('Error saving synced data:', e);
-      setParseError('Lỗi lưu trữ dữ liệu: ' + (e.message || 'Không xác định'));
+      console.error('Error saving synced data to Google Sheet:', e);
+      setParseError('Lỗi cập nhật Google Sheet: ' + (e.message || 'Không xác định'));
+      setSyncStepMsg(null);
     } finally {
       setIsSubmitting(false);
     }
@@ -335,8 +454,10 @@ export default function SyncDoxaModal({
     try {
       if (source === 'mdis') {
         await DataStore.resetMatKetNoiToSheet();
-      } else {
+      } else if (source === 'hes') {
         await DataStore.resetChiTietMKNToSheet();
+      } else {
+        await DataStore.resetKhuVucToSheet();
       }
       await DataStore.syncMasterData();
       onSyncSuccess();
@@ -366,7 +487,7 @@ export default function SyncDoxaModal({
             <Database className="w-5 h-5 text-amber-400" />
             <div>
               <h2 className="text-base font-black uppercase tracking-wider">
-                Đồng bộ dữ liệu Đo xa (MDIS / HES)
+                Đồng bộ dữ liệu Đo xa (MDIS / HES / Khu vực)
               </h2>
               <p className="text-xs text-white/70">
                 Cập nhật dữ liệu từ file Excel/CSV, thay thế toàn bộ dữ liệu cũ
@@ -409,7 +530,7 @@ export default function SyncDoxaModal({
             <label className="block text-xs font-black uppercase tracking-wider text-slate-700 mb-2">
               1. Chọn nguồn dữ liệu cần đồng bộ
             </label>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* MDIS Card */}
               <div 
                 onClick={() => handleSourceChange('mdis')}
@@ -422,19 +543,19 @@ export default function SyncDoxaModal({
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
                     <Users className={`w-5 h-5 ${source === 'mdis' ? 'text-blue-600' : 'text-slate-500'}`} />
-                    <span className="font-black text-sm uppercase tracking-wide">Hệ thống MDIS</span>
+                    <span className="font-black text-sm uppercase tracking-wide">MDIS</span>
                   </div>
                   <span className={`text-[11px] px-2 py-0.5 font-bold uppercase rounded ${
                     source === 'mdis' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-700'
                   }`}>
-                    Sheet MatKetNoi
+                    MatKetNoi
                   </span>
                 </div>
                 <p className="text-xs text-slate-600 mb-3">
                   Dữ liệu điểm đo, khách hàng mất kết nối phục vụ thống kê theo khu vực và danh sách khách hàng.
                 </p>
                 <div className="flex items-center justify-between text-xs font-bold pt-2 border-t border-slate-200">
-                  <span className="text-slate-500">Số bản ghi hiện hữu:</span>
+                  <span className="text-slate-500">Hiện hữu:</span>
                   <span className="text-blue-700 font-black">
                     {DataStore.getMatKetNoi().length.toLocaleString('vi-VN')} dòng
                   </span>
@@ -453,21 +574,52 @@ export default function SyncDoxaModal({
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
                     <Building2 className={`w-5 h-5 ${source === 'hes' ? 'text-amber-600' : 'text-slate-500'}`} />
-                    <span className="font-black text-sm uppercase tracking-wide">Hệ thống HES</span>
+                    <span className="font-black text-sm uppercase tracking-wide">HES</span>
                   </div>
                   <span className={`text-[11px] px-2 py-0.5 font-bold uppercase rounded ${
                     source === 'hes' ? 'bg-amber-600 text-white' : 'bg-slate-200 text-slate-700'
                   }`}>
-                    Sheet ChiTietMKN
+                    ChiTietMKN
                   </span>
                 </div>
                 <p className="text-xs text-slate-600 mb-3">
                   Dữ liệu trạm, DCU, số lượng nạp, số lượng thu thập thực tế và tỷ lệ kết nối từ hệ thống HES.
                 </p>
                 <div className="flex items-center justify-between text-xs font-bold pt-2 border-t border-slate-200">
-                  <span className="text-slate-500">Số bản ghi hiện hữu:</span>
+                  <span className="text-slate-500">Hiện hữu:</span>
                   <span className="text-amber-700 font-black">
                     {DataStore.getChiTietMKN().length.toLocaleString('vi-VN')} dòng
+                  </span>
+                </div>
+              </div>
+
+              {/* Khu Vuc Card */}
+              <div 
+                onClick={() => handleSourceChange('khuvuc')}
+                className={`p-4 border-2 cursor-pointer transition-all ${
+                  source === 'khuvuc'
+                    ? 'border-purple-600 bg-purple-50/70 shadow-[4px_4px_0_#9333EA]'
+                    : 'border-[#141414]/20 hover:border-[#141414] bg-white'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <MapPin className={`w-5 h-5 ${source === 'khuvuc' ? 'text-purple-600' : 'text-slate-500'}`} />
+                    <span className="font-black text-sm uppercase tracking-wide">Khu vực</span>
+                  </div>
+                  <span className={`text-[11px] px-2 py-0.5 font-bold uppercase rounded ${
+                    source === 'khuvuc' ? 'bg-purple-600 text-white' : 'bg-slate-200 text-slate-700'
+                  }`}>
+                    KhuVuc
+                  </span>
+                </div>
+                <p className="text-xs text-slate-600 mb-3">
+                  Dữ liệu phân bổ điểm đo theo Tổ quản lý / Khu vực (Vũng Tàu, Bà Rịa, Phú Mỹ, Côn Đảo...).
+                </p>
+                <div className="flex items-center justify-between text-xs font-bold pt-2 border-t border-slate-200">
+                  <span className="text-slate-500">Hiện hữu:</span>
+                  <span className="text-purple-700 font-black">
+                    {DataStore.getKhuVuc().length.toLocaleString('vi-VN')} dòng
                   </span>
                 </div>
               </div>
@@ -479,7 +631,7 @@ export default function SyncDoxaModal({
             <div className="flex items-center gap-2 text-xs text-slate-600">
               <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
               <span>
-                Cấu trúc file tải lên phải tương tự như sheet <strong>{source === 'mdis' ? 'MatKetNoi' : 'ChiTietMKN'}</strong>.
+                Cấu trúc file tải lên phải tương tự như sheet <strong>{source === 'mdis' ? 'MatKetNoi' : source === 'hes' ? 'ChiTietMKN' : 'KhuVuc'}</strong>.
               </span>
             </div>
             <div className="flex items-center gap-2 mt-2 sm:mt-0">
@@ -489,7 +641,7 @@ export default function SyncDoxaModal({
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-[#141414] text-xs font-bold shadow-[2px_2px_0_#141414] hover:bg-slate-100 transition-all cursor-pointer"
               >
                 <Download size={14} className="text-emerald-600" />
-                <span>Tải file mẫu {source.toUpperCase()} (.xlsx)</span>
+                <span>Tải file mẫu {source === 'mdis' ? 'MDIS' : source === 'hes' ? 'HES' : 'Khu Vực'} (.xlsx)</span>
               </button>
             </div>
           </div>
@@ -497,7 +649,7 @@ export default function SyncDoxaModal({
           {/* File Upload Zone */}
           <div>
             <label className="block text-xs font-black uppercase tracking-wider text-slate-700 mb-2">
-              2. Chọn file dữ liệu ({source === 'mdis' ? 'MDIS / MatKetNoi' : 'HES / ChiTietMKN'})
+              2. Chọn file dữ liệu ({source === 'mdis' ? 'MDIS / MatKetNoi' : source === 'hes' ? 'HES / ChiTietMKN' : 'Khu vực / KhuVuc'})
             </label>
             <input 
               ref={fileInputRef}
@@ -534,7 +686,7 @@ export default function SyncDoxaModal({
                     Kéo thả file Excel (.xlsx, .xls) hoặc CSV vào đây, hoặc click để duyệt file
                   </p>
                   <p className="text-xs text-slate-500 mt-1">
-                    Hỗ trợ file xuất trực tiếp từ phần mềm {source.toUpperCase()}
+                    Hỗ trợ file xuất trực tiếp từ phần mềm hoặc bảng tính theo định dạng {source === 'mdis' ? 'MatKetNoi' : source === 'hes' ? 'ChiTietMKN' : 'KhuVuc'}
                   </p>
                 </div>
               )}
@@ -575,10 +727,10 @@ export default function SyncDoxaModal({
                   <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                   <div>
                     <h4 className="font-bold text-sm text-amber-900 uppercase tracking-wide">
-                      Xác nhận xóa dữ liệu cũ và ghi đè
+                      Xác nhận xóa dữ liệu cũ và ghi đè Google Sheet
                     </h4>
                     <p className="text-xs text-amber-800 mt-1 leading-relaxed">
-                      Khi bấm đồng bộ: <strong>Toàn bộ {currentCount.toLocaleString('vi-VN')} bản ghi cũ</strong> của nguồn {source.toUpperCase()} sẽ bị xóa hoàn toàn khỏi hệ thống, và thay thế bằng <strong>{parsedData.length.toLocaleString('vi-VN')} bản ghi mới</strong> từ file này.
+                      Khi bấm đồng bộ: <strong>Toàn bộ {currentCount.toLocaleString('vi-VN')} bản ghi cũ</strong> trên Google Sheet <strong>"{source === 'mdis' ? 'MatKetNoi' : source === 'hes' ? 'ChiTietMKN' : 'KhuVuc'}"</strong> và trong hệ thống sẽ bị xóa hoàn toàn, sau đó được thay mới trực tiếp bằng <strong>{parsedData.length.toLocaleString('vi-VN')} bản ghi mới</strong> từ file này.
                     </p>
                   </div>
                 </div>
@@ -677,12 +829,12 @@ export default function SyncDoxaModal({
               {isSubmitting ? (
                 <>
                   <RefreshCw size={14} className="animate-spin" />
-                  <span>Đang xử lý & lưu...</span>
+                  <span>{syncStepMsg || 'Đang ghi đè Google Sheet & lưu...'}</span>
                 </>
               ) : (
                 <>
                   <UploadCloud size={14} />
-                  <span>Xác nhận xóa cũ & nạp mới</span>
+                  <span>Xác nhận xóa cũ & ghi đè Google Sheet</span>
                 </>
               )}
             </button>

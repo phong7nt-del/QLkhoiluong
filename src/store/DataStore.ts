@@ -538,11 +538,20 @@ export const initDB = async () => {
         }
       }
     } catch (e) {}
+    try {
+      const kvVal = await get('sheet_khuvuc_v1');
+      if (kvVal) {
+        let parsed = typeof kvVal === 'string' ? JSON.parse(kvVal) : kvVal;
+        if (Array.isArray(parsed)) {
+          memCacheKhuVucList = parsed;
+        }
+      }
+    } catch (e) {}
     const keys = [
       STORAGE_KEY, SCRIPT_URL_KEY, SPREADSHEET_ID_KEY, TEAMS_KEY, MEMBERS_KEY, STATIONS_KEY,
       DINHMUC_KEY, PROGRESS_KEY, LOCAL_PROGRESS_UPDATES_KEY, TUTI_KEY,
       LOCAL_TUTI_UPDATES_KEY, DVKH_KEY, QUAHAN_KEY, QUAHAN_NAM_KEY, TU_SHEET_KEY, TU_NAM_KEY, TI_SHEET_KEY, TI_NAM_KEY, ALLOW_CUSTOM_NGAY_HOAN_TAT_DVKH_KEY, 'sheet_khuvuc_v1', 'sheet_matketnoi_v1',
-      'sheet_chitietmkn_v1', 'custom_matketnoi_uploaded_v1', 'custom_chitietmkn_uploaded_v1', 'sheet_sangtai_v1', 'sheet_kho_v1', 'sheet_vttb_v1', 'config_exclude_saturday', 'config_exclude_sunday', 'config_exclude_nghi',
+      'sheet_chitietmkn_v1', 'custom_matketnoi_uploaded_v1', 'custom_chitietmkn_uploaded_v1', 'custom_khuvuc_uploaded_v1', 'sheet_sangtai_v1', 'sheet_kho_v1', 'sheet_vttb_v1', 'config_exclude_saturday', 'config_exclude_sunday', 'config_exclude_nghi',
       'config_exclude_holidays', 'config_holidays_v1',
       'config_external_report_links_v1', 'config_tuyen_duong_exclusions_v1', 'config_cong_doan_leaders'
     ];
@@ -2595,103 +2604,15 @@ export const DataStore = {
                }
             }
 
-            // Fetch MatKetNoi
+            // Fetch MatKetNoi, ChiTietMKN, KhuVuc in parallel
             try {
-               const isCustomMdis = safeGetItem('custom_matketnoi_uploaded_v1') === 'true';
-               if (!isCustomMdis) {
-                   const mknText = await DataStore.fetchSheetCSV("MatKetNoi", sheetId);
-                   if (mknText && !mknText.includes('<html')) {
-                       const { data, meta } = Papa.parse(mknText, { header: true, skipEmptyLines: true });
-                       const keys = meta.fields || [];
-                       
-                       const normalizeCol = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[\s_]+/g, '');
-                       const docKey = keys.find(k => normalizeCol(k).includes('madiemdo') || normalizeCol(k).includes('maddo'));
-                       const actualKey = docKey || keys[0];
-                       
-                       if (actualKey) {
-                           const matKetNoiList = data.map((row: any) => {
-                               const newRow: any = { maDiemDo: String(row[actualKey] || '').trim() };
-                               for (const k of keys) {
-                                   const normK = normalizeCol(k);
-                                   if (!normK.includes('diachidiemdo') && !normK.includes('soserialcmis') && !normK.includes('tinhtrangketnoi')) {
-                                       newRow[k] = row[k];
-                                   }
-                               }
-                               return newRow;
-                           }).filter((r: any) => r.maDiemDo);
-                           memCacheMatKetNoiList = matKetNoiList;
-                           try {
-                               safeSetItem('sheet_matketnoi_v1', JSON.stringify(matKetNoiList));
-                           } catch(e) {
-                               console.warn("localStorage quota exceeded for MatKetNoi");
-                           }
-                       }
-                   }
-               }
+               await Promise.all([
+                 DataStore.fetchMatKetNoiFromSheet(sheetId),
+                 DataStore.fetchChiTietMKNFromSheet(sheetId),
+                 DataStore.fetchKhuVucFromSheet(sheetId)
+               ]);
             } catch (e) {
-               console.warn('Could not fetch MatKetNoi:', e);
-            }
-
-            // Fetch ChiTietMKN
-            try {
-               const isCustomHes = safeGetItem('custom_chitietmkn_uploaded_v1') === 'true';
-               if (!isCustomHes) {
-                   const chiTietText = await DataStore.fetchSheetCSV("ChiTietMKN", sheetId);
-                   if (chiTietText && !chiTietText.includes('<html')) {
-                       const { data } = Papa.parse(chiTietText, { header: true, skipEmptyLines: true });
-                       
-                       if (data && data.length > 0) {
-                           memCacheChiTietMKNList = data;
-                           try {
-                               safeSetItem('sheet_chitietmkn_v1', JSON.stringify(data));
-                           } catch(e) {
-                               console.warn("localStorage quota exceeded for ChiTietMKN");
-                           }
-                       }
-                   }
-               }
-            } catch (e) {
-               console.warn('Could not fetch ChiTietMKN:', e);
-            }
-
-            // Fetch KhuVuc
-            try {
-               const kvText = await DataStore.fetchSheetCSV("KhuVuc", sheetId);
-               if (kvText && !kvText.includes('<html')) {
-                   const { data, meta } = Papa.parse(kvText, { header: true, skipEmptyLines: true });
-                   const keys = meta.fields || [];
-                   
-                   const normalizeCol = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[\s_]+/g, '');
-                   
-                   const kMaDdo = keys.find(k => {
-                       const nk = normalizeCol(k);
-                       return nk.includes('maddo') || nk.includes('madiemdo');
-                   });
-                   
-                   const kTql = keys.find(k => {
-                        const nk = normalizeCol(k);
-                        return nk.includes('khuvuc') || nk.includes('toql') || nk.includes('to') || nk.includes('to');
-                   });
-
-                   const actualMaDdo = kMaDdo || keys[0];
-                   const actualTql = kTql || keys[1];
-                   
-                   if (actualMaDdo) {
-                       const khuVucList = data.map((row: any) => ({
-                           ...row,
-                           MA_DDO: String(row[actualMaDdo] || '').trim(),
-                           TO_QL: String(row[actualTql] || '').trim() || 'Khác',
-                       })).filter(r => r.MA_DDO);
-                       memCacheKhuVucList = khuVucList;
-                       try {
-                           safeSetItem('sheet_khuvuc_v1', JSON.stringify(khuVucList));
-                       } catch(e) {
-                           console.warn("localStorage quota exceeded for KhuVuc");
-                       }
-                   }
-               }
-            } catch(e) {
-               console.warn('Could not fetch KhuVuc:', e);
+               console.warn('Could not fetch doxa sheets in parallel:', e);
             }
 
             // Fetch SangTai
@@ -3177,11 +3098,178 @@ export const DataStore = {
   },
 
   getKhuVuc: (): any[] => {
-     if (memCacheKhuVucList) return memCacheKhuVucList;
+     if (memCacheKhuVucList !== null) return memCacheKhuVucList;
      try {
        const cached = safeGetItem('sheet_khuvuc_v1');
-       return cached ? JSON.parse(cached) : [];
+       if (cached) {
+         memCacheKhuVucList = JSON.parse(cached);
+         return memCacheKhuVucList || [];
+       }
+       return [];
      } catch { return []; }
+  },
+
+  setKhuVuc: async (list: any[]): Promise<void> => {
+     // 1. XÓA SẠCH DỮ LIỆU CŨ HOÀN TOÀN
+     memCacheKhuVucList = [];
+     safeRemoveItem('sheet_khuvuc_v1');
+     try { await del('sheet_khuvuc_v1'); } catch(e) {}
+
+     // 2. ĐƯA DỮ LIỆU MỚI VÀO
+     memCacheKhuVucList = Array.isArray(list) ? [...list] : [];
+     safeSetItem('custom_khuvuc_uploaded_v1', 'true');
+     try {
+       safeSetItem('sheet_khuvuc_v1', JSON.stringify(memCacheKhuVucList));
+     } catch(e) {
+       console.warn('localStorage full for KhuVuc', e);
+     }
+     try {
+       await set('sheet_khuvuc_v1', memCacheKhuVucList);
+     } catch(e) {
+       console.warn('IDB save error for KhuVuc', e);
+     }
+
+     if (typeof window !== 'undefined') {
+       window.dispatchEvent(new CustomEvent('doxa_data_updated', { detail: { type: 'khuvuc', count: memCacheKhuVucList.length } }));
+       window.dispatchEvent(new CustomEvent('workload_updated'));
+     }
+  },
+
+  resetKhuVucToSheet: async (): Promise<void> => {
+     safeRemoveItem('custom_khuvuc_uploaded_v1');
+     safeRemoveItem('sheet_khuvuc_v1');
+     memCacheKhuVucList = null;
+     try { await del('sheet_khuvuc_v1'); } catch(e) {}
+     if (typeof window !== 'undefined') {
+       window.dispatchEvent(new CustomEvent('doxa_data_updated', { detail: { type: 'khuvuc', reset: true } }));
+       window.dispatchEvent(new CustomEvent('workload_updated'));
+     }
+  },
+
+  fetchMatKetNoiFromSheet: async (sheetId?: string, force?: boolean): Promise<any[]> => {
+    const isCustomMdis = safeGetItem('custom_matketnoi_uploaded_v1') === 'true';
+    if (!force && isCustomMdis && memCacheMatKetNoiList && memCacheMatKetNoiList.length > 0) {
+      return memCacheMatKetNoiList;
+    }
+    const sId = sheetId || DataStore.getSpreadsheetId() || DEFAULT_SPREADSHEET_ID;
+    try {
+      const mknText = await DataStore.fetchSheetCSV("MatKetNoi", sId);
+      if (mknText && !mknText.includes('<html') && mknText.length > 50) {
+        const { data, meta } = Papa.parse(mknText, { header: true, skipEmptyLines: true });
+        const keys = meta.fields || [];
+        const normalizeCol = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[\s_]+/g, '');
+        const docKey = keys.find(k => normalizeCol(k).includes('madiemdo') || normalizeCol(k).includes('maddo'));
+        const actualKey = docKey || keys[0];
+        if (actualKey) {
+          const matKetNoiList = (data as any[]).map((row: any) => {
+            const newRow: any = { maDiemDo: String(row[actualKey] || '').trim() };
+            for (const k of keys) {
+              const normK = normalizeCol(k);
+              if (!normK.includes('diachidiemdo') && !normK.includes('soserialcmis') && !normK.includes('tinhtrangketnoi')) {
+                newRow[k] = row[k];
+              }
+            }
+            return newRow;
+          }).filter((r: any) => r.maDiemDo);
+          memCacheMatKetNoiList = matKetNoiList;
+          try { safeSetItem('sheet_matketnoi_v1', JSON.stringify(matKetNoiList)); } catch(e) {}
+          try { await set('sheet_matketnoi_v1', matKetNoiList); } catch(e) {}
+          return matKetNoiList;
+        }
+      }
+    } catch (e) {
+      console.warn('Could not fetch MatKetNoi:', e);
+    }
+    return DataStore.getMatKetNoi();
+  },
+
+  fetchChiTietMKNFromSheet: async (sheetId?: string, force?: boolean): Promise<any[]> => {
+    const isCustomHes = safeGetItem('custom_chitietmkn_uploaded_v1') === 'true';
+    if (!force && isCustomHes && memCacheChiTietMKNList && memCacheChiTietMKNList.length > 0) {
+      return memCacheChiTietMKNList;
+    }
+    const sId = sheetId || DataStore.getSpreadsheetId() || DEFAULT_SPREADSHEET_ID;
+    try {
+      const chiTietText = await DataStore.fetchSheetCSV("ChiTietMKN", sId);
+      if (chiTietText && !chiTietText.includes('<html') && chiTietText.length > 50) {
+        const { data } = Papa.parse(chiTietText, { header: true, skipEmptyLines: true });
+        if (data && data.length > 0) {
+          memCacheChiTietMKNList = data as any[];
+          try { safeSetItem('sheet_chitietmkn_v1', JSON.stringify(data)); } catch(e) {}
+          try { await set('sheet_chitietmkn_v1', data); } catch(e) {}
+          return data as any[];
+        }
+      }
+    } catch (e) {
+      console.warn('Could not fetch ChiTietMKN:', e);
+    }
+    return DataStore.getChiTietMKN();
+  },
+
+  fetchKhuVucFromSheet: async (sheetId?: string, force?: boolean): Promise<any[]> => {
+    const isCustomKhuVuc = safeGetItem('custom_khuvuc_uploaded_v1') === 'true';
+    if (!force && isCustomKhuVuc && memCacheKhuVucList && memCacheKhuVucList.length > 0) {
+      return memCacheKhuVucList;
+    }
+    const sId = sheetId || DataStore.getSpreadsheetId() || DEFAULT_SPREADSHEET_ID;
+    try {
+      const kvText = await DataStore.fetchSheetCSV("KhuVuc", sId);
+      if (kvText && !kvText.includes('<html') && kvText.length > 50) {
+        const { data, meta } = Papa.parse(kvText, { header: true, skipEmptyLines: true });
+        const keys = meta.fields || [];
+        const normalizeCol = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[\s_]+/g, '');
+        const kMaDdo = keys.find(k => {
+          const nk = normalizeCol(k);
+          return nk.includes('maddo') || nk.includes('madiemdo');
+        });
+        const kTql = keys.find(k => {
+          const nk = normalizeCol(k);
+          return nk.includes('khuvuc') || nk.includes('toql') || nk.includes('to') || nk.includes('to');
+        });
+        const actualMaDdo = kMaDdo || keys[0];
+        const actualTql = kTql || keys[1];
+        if (actualMaDdo) {
+          const khuVucList = (data as any[]).map((row: any) => ({
+            ...row,
+            MA_DDO: String(row[actualMaDdo] || '').trim(),
+            TO_QL: String(row[actualTql] || '').trim() || 'Khác',
+          })).filter(r => r.MA_DDO);
+          memCacheKhuVucList = khuVucList;
+          try { safeSetItem('sheet_khuvuc_v1', JSON.stringify(khuVucList)); } catch(e) {}
+          try { await set('sheet_khuvuc_v1', khuVucList); } catch(e) {}
+          return khuVucList;
+        }
+      }
+    } catch(e) {
+      console.warn('Could not fetch KhuVuc:', e);
+    }
+    return DataStore.getKhuVuc();
+  },
+
+  syncDoxaData: async (force?: boolean): Promise<{ success: boolean; fromCache: boolean }> => {
+    // 1. Kiểm tra cache nếu không ép buộc tải lại
+    if (!force) {
+      const kv = DataStore.getKhuVuc();
+      const mkn = DataStore.getMatKetNoi();
+      const ctmkn = DataStore.getChiTietMKN();
+      if (kv.length > 0 && (mkn.length > 0 || ctmkn.length > 0)) {
+        return { success: true, fromCache: true };
+      }
+    }
+
+    // 2. Tải SONG SONG 3 sheet chỉ phục vụ cho Đo xa (thay vì tải tuần tự toàn bộ 17 sheet)
+    const sId = DataStore.getSpreadsheetId() || DEFAULT_SPREADSHEET_ID;
+    try {
+      await Promise.all([
+        DataStore.fetchMatKetNoiFromSheet(sId, force),
+        DataStore.fetchChiTietMKNFromSheet(sId, force),
+        DataStore.fetchKhuVucFromSheet(sId, force)
+      ]);
+      return { success: true, fromCache: false };
+    } catch (e) {
+      console.warn('Error in syncDoxaData:', e);
+      return { success: false, fromCache: false };
+    }
   },
 
   getSangTai: (): any[] => {
@@ -4247,6 +4335,86 @@ export const DataStore = {
       console.warn('Could not sync HTDD sheet to Google Sheet:', e);
       return false;
     }
+  },
+
+  syncSheetToGoogleSheet: async (
+    sheetName: string, 
+    headers: string[], 
+    data: any[],
+    onProgress?: (current: number, total: number, percent?: number) => void
+  ): Promise<{ success: boolean; error?: string; message?: string }> => {
+    try {
+      const url = DataStore.getAppScriptUrl();
+      if (!url) {
+        return { success: false, error: 'Chưa cấu hình URL Google Apps Script trong Cài đặt / Hệ thống.' };
+      }
+
+      // Format data rows matching headers
+      const rows2D = data.map(item => 
+        headers.map(h => (item[h] !== undefined && item[h] !== null) ? String(item[h]) : '')
+      );
+
+      // Tối ưu kích thước gói 2.500 dòng/gói để giảm số lượt gọi mạng tới 70% mà vẫn an toàn
+      const CHUNK_SIZE = 2500;
+      const totalChunks = Math.max(1, Math.ceil(rows2D.length / CHUNK_SIZE));
+
+      for (let i = 0; i < totalChunks; i++) {
+        const chunkRows = rows2D.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+        const percent = Math.round(((i + 1) / totalChunks) * 100);
+        if (onProgress) {
+          onProgress(i + 1, totalChunks, percent);
+        }
+
+        const payload = {
+          action: 'overwrite_sheet',
+          sheetName,
+          chunkIndex: i,
+          totalChunks,
+          headers,
+          rows: chunkRows
+        };
+
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+          throw new Error(`Lỗi kết nối máy chủ Google (${res.status} ${res.statusText})`);
+        }
+
+        const rawText = await res.text();
+        let resJson: any = null;
+        try {
+          resJson = JSON.parse(rawText);
+        } catch {
+          if (rawText.includes('Unknown action')) {
+            return { 
+              success: false, 
+              error: 'Apps Script chưa có lệnh overwrite_sheet. Vui lòng sao chép lại mã Apps Script mới nhất từ tab Hệ thống.' 
+            };
+          }
+        }
+
+        if (resJson && resJson.status === 'error') {
+          return { success: false, error: resJson.message || 'Lỗi xử lý từ Apps Script' };
+        }
+      }
+
+      return { success: true, message: `Đã ghi đè thành công ${data.length} dòng vào sheet ${sheetName}` };
+    } catch (e: any) {
+      console.warn(`Error syncing sheet ${sheetName} to Google Sheet:`, e);
+      return { success: false, error: e.message || 'Lỗi mạng hoặc kết nối tới Google Apps Script' };
+    }
+  },
+
+  syncKhuVucToGoogleSheet: async (
+    headers: string[], 
+    data: any[],
+    onProgress?: (current: number, total: number) => void
+  ) => {
+    return DataStore.syncSheetToGoogleSheet('KhuVuc', headers, data, onProgress);
   },
 
   updateTutiProgress: (id: string, updates: Partial<TutiEntry>, user: SheetMember | null) => {

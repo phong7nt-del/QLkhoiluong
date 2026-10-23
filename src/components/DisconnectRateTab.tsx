@@ -62,11 +62,11 @@ export default function DisconnectRateTab({
 
   // Sync Modal State
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
-  const [syncInitialSource, setSyncInitialSource] = useState<'mdis' | 'hes'>('mdis');
+  const [syncInitialSource, setSyncInitialSource] = useState<'mdis' | 'hes' | 'khuvuc'>('mdis');
 
   const canSyncDoxa = PermissionStore.hasActionAccess('sync_doxa_data', sessionUser?.role || '', sessionUser);
 
-  const handleOpenSync = (targetSource: 'mdis' | 'hes' = 'mdis') => {
+  const handleOpenSync = (targetSource: 'mdis' | 'hes' | 'khuvuc' = 'mdis') => {
     setSyncInitialSource(targetSource);
     setIsSyncModalOpen(true);
   };
@@ -90,217 +90,243 @@ export default function DisconnectRateTab({
       }
   };
 
-  const fetchData = async (force = false) => {
-    if (overviewStats && !force) return;
-    setLoading(true);
-    setError('');
-    
-    try {
-      await DataStore.syncMasterData(); 
-      const khuVucList = DataStore.getKhuVuc();
-      const mknData = DataStore.getMatKetNoi();
-      const chiTietData = DataStore.getChiTietMKN();
-      const stations = DataStore.getStations();
-  
-      
-      // -- OVERVIEW STATS (Legacy computation for Thống kê khu vực) --
-      const maKhangToKhuVuc: Record<string, string> = {};
-      const totalCustomersByArea: Record<string, number> = {};
-      let totalCustomers = 0;
-      
-      khuVucList.forEach((kv) => {
-         const maDdo = String(kv.MA_DDO || '').trim();
-         const khuVuc = normalizeTargetArea(String(kv.TO_QL || 'Khác').trim());
-         if (maDdo) {
-             maKhangToKhuVuc[maDdo.replace(/\s+/g, '')] = khuVuc;
-             totalCustomersByArea[khuVuc] = (totalCustomersByArea[khuVuc] || 0) + 1;
-             totalCustomers++;
-         }
-      });
+  const computeAllData = (khuVucList: any[], mknData: any[], chiTietData: any[], stations: any[]) => {
+    // 1. TỐI ƯU HÓA TRA CỨU KHÁCH HÀNG -> KHU VỰC VỚI MAP (O(1))
+    const maKhangToKhuVuc = new Map<string, string>();
+    const totalCustomersByArea: Record<string, number> = {};
+    let totalCustomers = 0;
 
-      const missingCountByArea: Record<string, number> = {};
-      let totalMissing = 0;
+    for (let i = 0; i < khuVucList.length; i++) {
+      const kv = khuVucList[i];
+      const rawDdo = kv.MA_DDO;
+      if (!rawDdo) continue;
+      const maDdo = String(rawDdo).trim();
+      if (!maDdo) continue;
+      const khuVuc = normalizeTargetArea(String(kv.TO_QL || 'Khác').trim());
+      maKhangToKhuVuc.set(maDdo, khuVuc);
+      if (maDdo.indexOf(' ') !== -1) {
+        maKhangToKhuVuc.set(maDdo.replace(/\s+/g, ''), khuVuc);
+      }
+      totalCustomersByArea[khuVuc] = (totalCustomersByArea[khuVuc] || 0) + 1;
+      totalCustomers++;
+    }
 
-      mknData.forEach((m: any) => {
-          // If maDiemDo exists in the new schema or we fallback to IDSTATION or just some ID field
-          const raw = String(m.maDiemDo || m['mã điểm đo'] || m['ma diem do'] || m.IDSTATION || '').trim();
-          const cleaned = raw.replace(/\s+/g, '');
-          if (cleaned) {
-             let khuVuc = maKhangToKhuVuc[cleaned];
-             
-             if (!khuVuc && cleaned.length > 3) {
-                 khuVuc = maKhangToKhuVuc[cleaned.slice(0, -3)];
-             }
-             
-             khuVuc = khuVuc || 'Khác';
+    // 2. TỐI ƯU HÓA ĐẾM MẤT KẾT NỐI (MDIS) VỚI MAP (O(1))
+    const missingCountByArea: Record<string, number> = {};
+    let totalMissing = 0;
 
-             missingCountByArea[khuVuc] = (missingCountByArea[khuVuc] || 0) + 1;
-             totalMissing++;
-          }
-      });
+    for (let i = 0; i < mknData.length; i++) {
+      const m = mknData[i];
+      const raw = m.maDiemDo || m['mã điểm đo'] || m['ma diem do'] || m.IDSTATION;
+      if (!raw) continue;
+      const cleaned = String(raw).trim();
+      if (!cleaned) continue;
 
-      setOverviewStats({
-          totalCustomersByArea,
-          missingCountByArea,
-          totalCustomers,
-          totalMissing
-      });
+      let khuVuc = maKhangToKhuVuc.get(cleaned);
+      if (!khuVuc && cleaned.indexOf(' ') !== -1) {
+        khuVuc = maKhangToKhuVuc.get(cleaned.replace(/\s+/g, ''));
+      }
+      if (!khuVuc && cleaned.length > 3) {
+        khuVuc = maKhangToKhuVuc.get(cleaned.slice(0, -3));
+      }
+      khuVuc = khuVuc || 'Khác';
 
-      // -- DETAILS STATS (new subtab Chi tiết MKN) --
-      const sMap: Record<string, string> = {};
-      stations.forEach(s => {
-          const area = normalizeTargetArea(String(s.area || '').trim());
-          if (area) {
-             sMap[String(s.name).toLowerCase().trim()] = area;
-             
-             // Look for `Tên TBA đặt lại`
-             if (s.details) {
-                 const normalizeForMatch = (str: string) => str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[^a-z0-9]/g, '');
-                 const keys = Object.keys(s.details);
-                 const tbaKey = keys.find(k => normalizeForMatch(k).includes('tbadatlai'));
-                 if (tbaKey && s.details[tbaKey]) {
-                     sMap[String(s.details[tbaKey]).toLowerCase().trim()] = area;
-                 }
-                 const idStationKey = keys.find(k => normalizeForMatch(k).includes('matbdien') || normalizeForMatch(k).includes('idstation'));
-                 if (idStationKey && s.details[idStationKey]) {
-                     sMap[String(s.details[idStationKey]).toLowerCase().trim()] = area;
-                 }
-             }
-          }
-      });
-      setStationMap(sMap);
-      
-      let keyMapping: Record<string, string> = {};
-      if (chiTietData.length > 0) {
-          const sampleKeys = Object.keys(chiTietData[0]);
-          const findKey = (keysToTry: string[]) => {
-              for (const k of keysToTry) {
-                  const actualKey = sampleKeys.find(dk => dk.toLowerCase().trim() === k.toLowerCase().trim());
-                  if (actualKey) return actualKey;
-              }
-              return null;
-          };
-          keyMapping = {
-              SL_DANAP: findKey(['SL_DANAP', 'số lượng đã nạp', 'SL ĐÃ NẠP']) || '',
-              SL_TT: findKey(['SL_TT', 'số lượng thực tế', 'SL THỰC TẾ']) || '',
-              SL_TT_1PHA: findKey(['SL_TT_1PHA']) || '',
-              SL_TT_3PHA: findKey(['SL_TT_3PHA']) || '',
-              IMEI: findKey(['IMEI']) || '',
-              DCUTYPE: findKey(['DCUTYPE', 'DCU TYPE']) || '',
-              DCUDESC: findKey(['DCUDESC', 'DCU DESC']) || '',
-              DCUID_ORG: findKey(['DCUID_ORG']) || '',
-              IDSTATION: findKey(['IDSTATION', 'ID STATION']) || '',
-              TILE: findKey(['TILE', 'TỈ LỆ', 'TY LE']) || '',
-              STATUS_DCU: findKey(['STATUS_DCU', 'STATUS DCU', 'status dcu', 'trạng thái']) || ''
-          };
+      missingCountByArea[khuVuc] = (missingCountByArea[khuVuc] || 0) + 1;
+      totalMissing++;
+    }
+
+    setOverviewStats({
+      totalCustomersByArea,
+      missingCountByArea,
+      totalCustomers,
+      totalMissing
+    });
+
+    // 3. TỐI ƯU HÓA BẢN ĐỒ TRẠM VỚI TOKEN INDEX (TRÁNH QUÉT O(N*M))
+    const sMap: Record<string, string> = {};
+    const exactStationMap = new Map<string, string>();
+    const removeAcc = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[^a-z0-9]/g, '');
+
+    for (let sIdx = 0; sIdx < stations.length; sIdx++) {
+      const s = stations[sIdx];
+      const area = normalizeTargetArea(String(s.area || '').trim());
+      if (!area) continue;
+
+      const rawName = String(s.name || '').toLowerCase().trim();
+      if (rawName) {
+        sMap[rawName] = area;
+        exactStationMap.set(rawName, area);
+        const norm = removeAcc(rawName).replace(/^(tram|tba)/, '');
+        if (norm.length > 2) exactStationMap.set(norm, area);
       }
 
-      const detailsList: ChiTietMKN[] = chiTietData.map((d: any) => {
-         const getV = (keyName: keyof typeof keyMapping) => {
-            const actualKey = keyMapping[keyName];
-            if (actualKey && d[actualKey] != null) return String(d[actualKey]);
-            return '';
-         };
-         
-         const sl_danap = parseFloat(getV('SL_DANAP').replace(/,/g, '')) || 0;
-         const sl_tt = parseFloat(getV('SL_TT').replace(/,/g, '')) || 0;
-         const kh = sl_danap - sl_tt;
-         const t1 = parseFloat(getV('SL_TT_1PHA').replace(/,/g, '')) || 0;
-         const t3 = parseFloat(getV('SL_TT_3PHA').replace(/,/g, '')) || 0;
-         
-         return {
-            ...d,
-            IMEI: getV('IMEI'),
-            DCUTYPE: getV('DCUTYPE'),
-            DCUDESC: getV('DCUDESC'),
-            DCUID_ORG: getV('DCUID_ORG'),
-            IDSTATION: getV('IDSTATION'),
-            TILE: getV('TILE'),
-            SL_DANAP: String(sl_danap),
-            SL_TT: String(sl_tt),
-            SL_TT_1PHA: String(t1),
-            SL_TT_3PHA: String(t3),
-            STATUS_DCU: getV('STATUS_DCU'),
-            _calculatedKH: kh,
-            _calculated1P: t1,
-            _calculated3P: t3
-         };
-      });
-      
-      const fastTotalCustomersByArea: Record<string, number> = {};
-      const fastMissingCountByArea: Record<string, number> = {};
-      let fastTotalCustomers = 0;
-      let fastTotalMissing = 0;
-
-      const removeAcc = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[^a-z0-9]/g, '');
-      const stationMapKeysNorm = Object.keys(sMap)
-          .filter(k => k.length > 3)
-          .map(k => ({
-              original: k,
-              norm: removeAcc(k).replace(/^(tram|tba)/, ''),
-              area: sMap[k]
-          }))
-          .filter(k => k.norm.length > 2);
-
-      const areaCache: Record<string, string> = {};
-      const sMapKeysArray = Object.keys(sMap);
-
-      detailsList.forEach(m => {
-          const khCount = parseFloat(m.SL_DANAP) || 0;
-          const missingCount = Math.max(0, khCount - (parseFloat(m.SL_TT) || 0));
-
-          fastTotalCustomers += khCount;
-          fastTotalMissing += missingCount;
-
-          let area = 'Khác';
-          if (m.DCUDESC) {
-              const descL = m.DCUDESC.toLowerCase().trim();
-              if (areaCache[descL]) {
-                  area = areaCache[descL];
-              } else if (sMap[descL]) {
-                  area = sMap[descL];
-                  areaCache[descL] = area;
-              } else {
-                  const foundKey = sMapKeysArray.find(k => descL.includes(k) || k.includes(descL));
-                  if (foundKey) {
-                      area = sMap[foundKey];
-                      areaCache[descL] = area;
-                  } else {
-                      let descNorm = removeAcc(descL);
-                      descNorm = descNorm.replace(/^(tram|tba)/, '');
-                      const deepMatch = stationMapKeysNorm.find(s => descNorm.includes(s.norm) || s.norm.includes(descNorm));
-                      if (deepMatch) {
-                          area = deepMatch.area;
-                      }
-                      areaCache[descL] = area;
-                  }
-              }
-          } else if (m.IDSTATION) {
-              const idL = m.IDSTATION.toLowerCase().trim();
-              if (sMap[idL]) area = sMap[idL];
+      if (s.details) {
+        const keys = Object.keys(s.details);
+        for (let kIdx = 0; kIdx < keys.length; kIdx++) {
+          const k = keys[kIdx];
+          const kNorm = removeAcc(k);
+          if (kNorm.includes('tbadatlai') || kNorm.includes('matbdien') || kNorm.includes('idstation')) {
+            const v = String(s.details[k] || '').toLowerCase().trim();
+            if (v) {
+              sMap[v] = area;
+              exactStationMap.set(v, area);
+              const vNorm = removeAcc(v).replace(/^(tram|tba)/, '');
+              if (vNorm.length > 2) exactStationMap.set(vNorm, area);
+            }
           }
+        }
+      }
+    }
+    setStationMap(sMap);
 
-          m._area = area; // Save it so DetailsSubTab doesn't need to do it again
+    // 4. MAP DỮ LIỆU HES (CHITIETMKN)
+    let keyMapping: Record<string, string> = {};
+    if (chiTietData.length > 0) {
+      const sampleKeys = Object.keys(chiTietData[0]);
+      const findKey = (keysToTry: string[]) => {
+        for (const k of keysToTry) {
+          const actualKey = sampleKeys.find(dk => dk.toLowerCase().trim() === k.toLowerCase().trim());
+          if (actualKey) return actualKey;
+        }
+        return null;
+      };
+      keyMapping = {
+        SL_DANAP: findKey(['SL_DANAP', 'số lượng đã nạp', 'SL ĐÃ NẠP']) || '',
+        SL_TT: findKey(['SL_TT', 'số lượng thực tế', 'SL THỰC TẾ']) || '',
+        SL_TT_1PHA: findKey(['SL_TT_1PHA']) || '',
+        SL_TT_3PHA: findKey(['SL_TT_3PHA']) || '',
+        IMEI: findKey(['IMEI']) || '',
+        DCUTYPE: findKey(['DCUTYPE', 'DCU TYPE']) || '',
+        DCUDESC: findKey(['DCUDESC', 'DCU DESC']) || '',
+        DCUID_ORG: findKey(['DCUID_ORG']) || '',
+        IDSTATION: findKey(['IDSTATION', 'ID STATION']) || '',
+        TILE: findKey(['TILE', 'TỈ LỆ', 'TY LE']) || '',
+        STATUS_DCU: findKey(['STATUS_DCU', 'STATUS DCU', 'status dcu', 'trạng thái']) || ''
+      };
+    }
 
-          fastTotalCustomersByArea[area] = (fastTotalCustomersByArea[area] || 0) + khCount;
-          fastMissingCountByArea[area] = (fastMissingCountByArea[area] || 0) + missingCount;
-      });
+    const detailsList: ChiTietMKN[] = chiTietData.map((d: any) => {
+      const getV = (keyName: keyof typeof keyMapping) => {
+        const actualKey = keyMapping[keyName];
+        if (actualKey && d[actualKey] != null) return String(d[actualKey]);
+        return '';
+      };
+      const sl_danap = parseFloat(getV('SL_DANAP').replace(/,/g, '')) || 0;
+      const sl_tt = parseFloat(getV('SL_TT').replace(/,/g, '')) || 0;
+      const kh = sl_danap - sl_tt;
+      const t1 = parseFloat(getV('SL_TT_1PHA').replace(/,/g, '')) || 0;
+      const t3 = parseFloat(getV('SL_TT_3PHA').replace(/,/g, '')) || 0;
+      return {
+        ...d,
+        IMEI: getV('IMEI'),
+        DCUTYPE: getV('DCUTYPE'),
+        DCUDESC: getV('DCUDESC'),
+        DCUID_ORG: getV('DCUID_ORG'),
+        IDSTATION: getV('IDSTATION'),
+        TILE: getV('TILE'),
+        SL_DANAP: String(sl_danap),
+        SL_TT: String(sl_tt),
+        SL_TT_1PHA: String(t1),
+        SL_TT_3PHA: String(t3),
+        STATUS_DCU: getV('STATUS_DCU'),
+        _calculatedKH: kh,
+        _calculated1P: t1,
+        _calculated3P: t3
+      };
+    });
 
-      setOverviewStatsNhanh({
-          totalCustomersByArea: fastTotalCustomersByArea,
-          missingCountByArea: fastMissingCountByArea,
-          totalCustomers: fastTotalCustomers,
-          totalMissing: fastTotalMissing
-      });
+    // 5. PHÂN BỔ NHANH KHU VỰC CHO CHI TIẾT DCU (O(1) VỚI CACHE & EXACT MAP)
+    const fastTotalCustomersByArea: Record<string, number> = {};
+    const fastMissingCountByArea: Record<string, number> = {};
+    let fastTotalCustomers = 0;
+    let fastTotalMissing = 0;
+    const areaCache: Record<string, string> = {};
 
-      setChiTietList(detailsList);
-      setMknList(mknData);
+    for (let dIdx = 0; dIdx < detailsList.length; dIdx++) {
+      const m = detailsList[dIdx];
+      const khCount = parseFloat(m.SL_DANAP) || 0;
+      const missingCount = Math.max(0, khCount - (parseFloat(m.SL_TT) || 0));
 
-    } catch (e: any) {
-       console.error("Error fetching data for missing conn:", e);
-       setError('Không thể tải dữ liệu. Vui lòng kiểm tra lại cấu trúc Google Sheet.');
-    } finally {
-       setLoading(false);
+      fastTotalCustomers += khCount;
+      fastTotalMissing += missingCount;
+
+      let area = 'Khác';
+      if (m.DCUDESC) {
+        const descL = m.DCUDESC.toLowerCase().trim();
+        if (areaCache[descL]) {
+          area = areaCache[descL];
+        } else if (exactStationMap.has(descL)) {
+          area = exactStationMap.get(descL)!;
+          areaCache[descL] = area;
+        } else {
+          const descNorm = removeAcc(descL).replace(/^(tram|tba)/, '');
+          if (exactStationMap.has(descNorm)) {
+            area = exactStationMap.get(descNorm)!;
+          } else {
+            for (const [sKey, sArea] of exactStationMap.entries()) {
+              if (sKey.length > 3 && (descNorm.includes(sKey) || sKey.includes(descNorm))) {
+                area = sArea;
+                break;
+              }
+            }
+          }
+          areaCache[descL] = area;
+        }
+      } else if (m.IDSTATION) {
+        const idL = m.IDSTATION.toLowerCase().trim();
+        if (exactStationMap.has(idL)) {
+          area = exactStationMap.get(idL)!;
+        }
+      }
+
+      m._area = area;
+      fastTotalCustomersByArea[area] = (fastTotalCustomersByArea[area] || 0) + khCount;
+      fastMissingCountByArea[area] = (fastMissingCountByArea[area] || 0) + missingCount;
+    }
+
+    setOverviewStatsNhanh({
+      totalCustomersByArea: fastTotalCustomersByArea,
+      missingCountByArea: fastMissingCountByArea,
+      totalCustomers: fastTotalCustomers,
+      totalMissing: fastTotalMissing
+    });
+
+    setChiTietList(detailsList);
+    setMknList(mknData);
+  };
+
+  const fetchData = async (force = false) => {
+    // 1. NGAY LẬP TỨC TÍNH TOÁN & HIỂN THỊ TỪ CACHE (CACHE-FIRST: 0 GIÂY CHỜ ĐỢI)
+    const cachedKv = DataStore.getKhuVuc();
+    const cachedMkn = DataStore.getMatKetNoi();
+    const cachedCt = DataStore.getChiTietMKN();
+    const stations = DataStore.getStations();
+
+    const hasCache = cachedKv.length > 0 || cachedMkn.length > 0 || cachedCt.length > 0;
+    if (hasCache && (!overviewStats || force)) {
+      computeAllData(cachedKv, cachedMkn, cachedCt, stations);
+    }
+
+    if (overviewStats && !force) return;
+
+    // 2. NẾU CHƯA CÓ CACHE HOẶC NGƯỜI DÙNG BẤM LÀM MỚI (force)
+    // Tải SONG SONG 3 SHEET ĐO XA (1.5s thay vì tải tuần tự 17 sheet mất 25s)
+    if (!hasCache || force) {
+      if (!hasCache) setLoading(true);
+      setError('');
+      try {
+        await DataStore.syncDoxaData(force);
+        const freshKv = DataStore.getKhuVuc();
+        const freshMkn = DataStore.getMatKetNoi();
+        const freshCt = DataStore.getChiTietMKN();
+        const freshStations = DataStore.getStations();
+        computeAllData(freshKv, freshMkn, freshCt, freshStations);
+      } catch (e: any) {
+        console.error("Error fetching data for missing conn:", e);
+        setError('Không thể tải dữ liệu. Vui lòng kiểm tra lại cấu trúc Google Sheet.');
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
@@ -479,7 +505,7 @@ function OverviewSubTab({
   statsNhanh: any; 
   fetchData: any; 
   loading: boolean;
-  onOpenSync: (source?: 'mdis' | 'hes') => void;
+  onOpenSync: (source?: 'mdis' | 'hes' | 'khuvuc') => void;
   canSync: boolean;
 }) {
   const [viewMode, setViewMode] = useState<'khachhang' | 'nhanh'>('khachhang');
@@ -532,9 +558,9 @@ function OverviewSubTab({
 
            <div>
              <button
-               onClick={() => onOpenSync(viewMode === 'khachhang' ? 'mdis' : 'hes')}
+               onClick={() => onOpenSync('khuvuc')}
                disabled={!canSync}
-               title={!canSync ? "Chỉ Đội trưởng hoặc người được phân quyền mới có thể đồng bộ dữ liệu" : "Đồng bộ cập nhật dữ liệu từ MDIS / HES"}
+               title={!canSync ? "Chỉ Đội trưởng hoặc người được phân quyền mới có thể đồng bộ dữ liệu" : "Đồng bộ cập nhật dữ liệu từ MDIS / HES / Khu vực"}
                className={`px-4 py-2 text-sm font-bold uppercase tracking-widest transition-all flex items-center gap-2 ${
                  canSync
                    ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-[2px_2px_0_#141414] cursor-pointer'
@@ -542,7 +568,7 @@ function OverviewSubTab({
                }`}
              >
                <UploadCloud size={16} />
-               <span>Đồng bộ dữ liệu (MDIS / HES)</span>
+               <span>Đồng bộ dữ liệu (MDIS / HES / Khu vực)</span>
              </button>
            </div>
        </div>
@@ -657,7 +683,7 @@ function DetailsSubTab({
     setSelectedArea: (a: string | null) => void,
     selectedStatus: 'Online' | 'Offline' | null,
     setSelectedStatus: (s: 'Online' | 'Offline' | null) => void,
-    onOpenSync: (source?: 'mdis' | 'hes') => void,
+    onOpenSync: (source?: 'mdis' | 'hes' | 'khuvuc') => void,
     canSync: boolean
 }) {
    const [columnFilters, setColumnFilters] = useState({
@@ -674,8 +700,16 @@ function DetailsSubTab({
        SL3P: ''
    });
    const [openFilter, setOpenFilter] = useState<string | null>(null);
-   const [isDetailPrepared, setIsDetailPrepared] = useState(false);
+   const [isDetailPrepared, setIsDetailPrepared] = useState(chiTietList.length > 0);
    const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>({ key: '_calculatedKH', direction: 'desc' });
+
+   useEffect(() => {
+     if (chiTietList.length > 0) {
+       setIsDetailPrepared(true);
+       if (!selectedArea) setSelectedArea('Công ty');
+       if (!selectedStatus) setSelectedStatus('Offline');
+     }
+   }, [chiTietList]);
    
    const structuredData = useMemo(() => {
        if (!isDetailPrepared) return { areas: [], stats: {} as Record<string, { online: ChiTietMKN[], offline: ChiTietMKN[], other: ChiTietMKN[] }> };
@@ -955,7 +989,7 @@ function DetailsSubTab({
                     <button
                         onClick={() => onOpenSync('hes')}
                         disabled={!canSync}
-                        title={!canSync ? "Chỉ Đội trưởng hoặc người được phân quyền mới có thể đồng bộ dữ liệu" : "Đồng bộ cập nhật dữ liệu từ MDIS / HES"}
+                        title={!canSync ? "Chỉ Đội trưởng hoặc người được phân quyền mới có thể đồng bộ dữ liệu" : "Đồng bộ cập nhật dữ liệu từ MDIS / HES / Khu vực"}
                         className={`px-4 py-2 text-sm font-bold uppercase tracking-widest transition-all flex items-center gap-2 ${
                             canSync
                                 ? 'bg-amber-600 hover:bg-amber-700 text-white shadow-[2px_2px_0_#141414] cursor-pointer'
@@ -963,7 +997,7 @@ function DetailsSubTab({
                         }`}
                     >
                         <UploadCloud size={16} />
-                        <span>Đồng bộ dữ liệu (MDIS / HES)</span>
+                        <span>Đồng bộ dữ liệu (MDIS / HES / Khu vực)</span>
                     </button>
                 </div>
             </div>
@@ -1087,7 +1121,7 @@ function StatisticsSubTab({
     canSync
 }: { 
     mknList: any[],
-    onOpenSync: (source?: 'mdis' | 'hes') => void,
+    onOpenSync: (source?: 'mdis' | 'hes' | 'khuvuc') => void,
     canSync: boolean
 }) {
     const [filterPeriod, setFilterPeriod] = useState<'1day'|'2days'|'3days'|'day'|'week'|'month'|'inactive'>('day');
@@ -1263,7 +1297,7 @@ function StatisticsSubTab({
               <button
                   onClick={() => onOpenSync('mdis')}
                   disabled={!canSync}
-                  title={!canSync ? "Chỉ Đội trưởng hoặc người được phân quyền mới có thể đồng bộ dữ liệu" : "Đồng bộ cập nhật dữ liệu từ MDIS / HES"}
+                  title={!canSync ? "Chỉ Đội trưởng hoặc người được phân quyền mới có thể đồng bộ dữ liệu" : "Đồng bộ cập nhật dữ liệu từ MDIS / HES / Khu vực"}
                   className={`px-4 py-2 text-sm font-bold uppercase tracking-widest transition-all flex items-center gap-2 ${
                       canSync
                           ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-[2px_2px_0_#141414] cursor-pointer'
@@ -1271,7 +1305,7 @@ function StatisticsSubTab({
                   }`}
               >
                   <UploadCloud size={16} />
-                  <span>Đồng bộ dữ liệu (MDIS / HES)</span>
+                  <span>Đồng bộ dữ liệu (MDIS / HES / Khu vực)</span>
               </button>
               <div className="ml-auto font-bold text-sm bg-white px-3 py-1 border border-[#141414] shadow-[2px_2px_0_#141414]">
                  Tổng số điểm đo: <span className="text-red-600">{filteredList.length.toLocaleString('vi-VN')}</span>

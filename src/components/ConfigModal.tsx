@@ -721,6 +721,73 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
+    // ======== XỬ LÝ ĐỒNG BỘ GHI ĐÈ SHEET DỮ LIỆU (KHUVUC / MATKETNOI / CHITIETMKN / HTDD) ========
+    if (action === 'overwrite_sheet' || action === 'update_khuvuc' || action === 'overwrite_khuvuc' || action === 'overwrite_htdd_sheet') {
+      var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
+      var targetSheetName = payload.sheetName || "KhuVuc";
+      var possibleNames = [targetSheetName];
+      var lowerName = String(targetSheetName).toLowerCase().trim();
+      
+      if (lowerName === 'khuvuc' || lowerName === 'khu vuc') {
+        possibleNames = ['KhuVuc', 'Khu Vực', 'khuvuc', 'KHUVUC'];
+      } else if (lowerName === 'matketnoi' || lowerName === 'mat ket noi') {
+        possibleNames = ['MatKetNoi', 'Mat Ket Noi', 'Mất Kết Nối', 'matketnoi'];
+      } else if (lowerName === 'chitietmkn' || lowerName === 'chi tiet mkn') {
+        possibleNames = ['ChiTietMKN', 'Chi Tiet MKN', 'Chi Tiết MKN', 'chitietmkn'];
+      }
+      
+      var sheet = getSheetFlexibly(ss, possibleNames);
+      if (!sheet) {
+        sheet = ss.insertSheet(targetSheetName);
+      }
+      
+      var chunkIndex = payload.chunkIndex || 0;
+      var totalChunks = payload.totalChunks || 1;
+      var headers = payload.headers || [];
+      var rows = payload.rows || []; // Array of arrays [[val1, val2, ...], ...]
+      
+      // Nếu là payload dạng data objects ({ data: [...] })
+      if ((!rows || rows.length === 0) && payload.data && Array.isArray(payload.data) && payload.data.length > 0) {
+        if (!headers || headers.length === 0) {
+          headers = Object.keys(payload.data[0]);
+        }
+        rows = [];
+        for (var d = 0; d < payload.data.length; d++) {
+          var itemObj = payload.data[d];
+          var rowArr = [];
+          for (var h = 0; h < headers.length; h++) {
+            var val = itemObj[headers[h]];
+            rowArr.push(val !== undefined && val !== null ? String(val) : '');
+          }
+          rows.push(rowArr);
+        }
+      }
+      
+      // Nếu là chunk đầu tiên (hoặc không chia chunk), xóa sạch dữ liệu cũ và ghi headers
+      if (chunkIndex === 0) {
+        sheet.clearContents();
+        if (headers && headers.length > 0) {
+          sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+          sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
+        }
+      }
+      
+      // Ghi các dòng dữ liệu mới
+      if (rows && rows.length > 0) {
+        var startRow = sheet.getLastRow() + 1;
+        var numCols = rows[0].length;
+        sheet.getRange(startRow, 1, rows.length, numCols).setValues(rows);
+      }
+      
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "success", 
+        sheetName: sheet.getName(),
+        chunkIndex: chunkIndex,
+        totalChunks: totalChunks,
+        totalRows: sheet.getLastRow()
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     // ======== XỬ LÝ LƯU & HIỆU CHỈNH DANH MỤC CÔNG VIỆC VÀ ĐỊNH MỨC (CỘT A, B, C, Đ, E) ========
     if (action === 'save_dinhmuc' || action === 'update_dinhmuc') {
       var data = payload.items || payload.data;
