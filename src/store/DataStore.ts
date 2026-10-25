@@ -98,6 +98,25 @@ export interface DvkhEntry {
   isLocal?: boolean;
 }
 
+export interface LocalDvkhUpdate {
+  maKh: string;
+  updates: Partial<DvkhEntry>;
+  timestamp: number;
+  synced: boolean;
+}
+
+export const getDvkhStatusWeight = (status?: string): number => {
+  if (!status) return -1;
+  const s = status.trim().toLowerCase();
+  if (s.includes('xong')) return 5;
+  if (s.includes('tro ngai') || s.includes('trở ngại')) return 4;
+  if (s.includes('giao thi cong') || s.includes('giao thi công') || s.includes('da giao')) return 3;
+  if (s.includes('da nhan') || s.includes('đã nhận') || s.includes('da tiep nhan') || s.includes('đã tiếp nhận') || s.includes('tiep nhan') || s.includes('tiếp nhận')) return 2;
+  if (s.includes('cho nhan') || s.includes('chờ nhận') || s.includes('cho tiep nhan') || s.includes('chờ tiếp nhận')) return 1;
+  if (s.includes('chua giao') || s.includes('chưa giao')) return 0;
+  return 0;
+};
+
 export interface OnlineStats {
   status: string;
   totalLogins: number;
@@ -361,6 +380,7 @@ const LOCAL_PROGRESS_UPDATES_KEY = 'local_progress_updates_v1';
 const TUTI_KEY = 'sheet_tuti_v1';
 const LOCAL_TUTI_UPDATES_KEY = 'local_tuti_updates_v1';
 const DVKH_KEY = 'sheet_dvkh_v1';
+const LOCAL_DVKH_UPDATES_KEY = 'local_dvkh_updates_v1';
 const QUAHAN_KEY = 'sheet_quahan_v1';
 const QUAHAN_NAM_KEY = 'sheet_quahan_nam_v1';
 const TU_SHEET_KEY = 'sheet_tu_entries_v1';
@@ -376,6 +396,7 @@ let memCacheTuNamList: TuSheetEntry[] | null = null;
 let memCacheTiSheetList: TiSheetEntry[] | null = null;
 let memCacheTiNamList: TiSheetEntry[] | null = null;
 let memCacheDvkhList: DvkhEntry[] | null = null;
+let memCacheDvkhUpdatesMap: Record<string, LocalDvkhUpdate> | null = null;
 let memCacheKhuVucList: any[] | null = null;
 let memCacheMatKetNoiList: any[] | null = null;
 let memCacheChiTietMKNList: any[] | null = null;
@@ -443,10 +464,20 @@ export const initDB = async () => {
       console.warn('Could not preload kthtdd from IDB', e);
     }
     try {
+      const localUpdatesVal = await get(LOCAL_DVKH_UPDATES_KEY);
+      if (localUpdatesVal) {
+        const parsedUpdates = typeof localUpdatesVal === 'string' ? JSON.parse(localUpdatesVal) : localUpdatesVal;
+        if (parsedUpdates && typeof parsedUpdates === 'object') {
+          memCacheDvkhUpdatesMap = parsedUpdates;
+        }
+      }
+    } catch (e) {}
+    try {
       const dvkhVal = await get(DVKH_KEY);
       if (dvkhVal) {
         let parsed = typeof dvkhVal === 'string' ? JSON.parse(dvkhVal) : dvkhVal;
         if (Array.isArray(parsed)) {
+          parsed = DataStore.applyLocalDvkhUpdates(parsed);
           memCacheDvkhList = parsed;
           safeSetItem(DVKH_KEY, JSON.stringify(parsed));
         }
@@ -2683,9 +2714,13 @@ export const DataStore = {
                if (dvkhText) {
                    const parsed = DataStore.parseDvkhCSVData(dvkhText);
                    if (parsed && parsed.length > 0) {
-                       memCacheDvkhList = parsed;
-                       safeSetItem(DVKH_KEY, JSON.stringify(parsed));
-                       try { await set(DVKH_KEY, parsed); } catch(err) {}
+                       const localEntries = DataStore.getDvkhEntries();
+                       const merged = DataStore.mergeDvkhList(parsed, localEntries);
+                       memCacheDvkhList = merged;
+                       safeSetItem(DVKH_KEY, JSON.stringify(merged));
+                       try { await set(DVKH_KEY, merged); } catch(err) {}
+                       window.dispatchEvent(new CustomEvent('dvkh_updated'));
+                       DataStore.syncPendingDvkhUpdates().catch(() => {});
                    }
                }
             } catch(e) {
@@ -5231,9 +5266,9 @@ export const DataStore = {
         trangThai = 'Trở ngại';
       } else if (normTrangThai.includes('giaothicong') || normTrangThai.includes('da giao') || (ngayGiao && nguoiThucHien)) {
         trangThai = 'Đã Giao thi công';
-      } else if (normTrangThai.includes('danhan') || normTrangThai.includes('da nhan') || (ngayNhan && nguoiNhan)) {
+      } else if (normTrangThai.includes('danhan') || normTrangThai.includes('da nhan') || normTrangThai.includes('datiepnhan') || normTrangThai.includes('da tiep nhan') || (ngayNhan && nguoiNhan)) {
         trangThai = 'Đã Nhận';
-      } else if (normTrangThai.includes('chonhan') || normTrangThai.includes('cho nhan')) {
+      } else if (normTrangThai.includes('chonhan') || normTrangThai.includes('cho nhan') || normTrangThai.includes('chotiepnhan') || normTrangThai.includes('cho tiep nhan')) {
         trangThai = 'Chờ nhận';
       } else if (normTrangThai.includes('chuagiao') || normTrangThai.includes('chua giao')) {
         trangThai = 'Chưa giao';
@@ -5272,6 +5307,147 @@ export const DataStore = {
     }).filter(e => e.maKh);
   },
 
+  getLocalDvkhUpdatesMap: (): Record<string, LocalDvkhUpdate> => {
+    if (memCacheDvkhUpdatesMap) return memCacheDvkhUpdatesMap;
+    try {
+      const cached = safeGetItem(LOCAL_DVKH_UPDATES_KEY);
+      if (cached) {
+        memCacheDvkhUpdatesMap = JSON.parse(cached);
+        return memCacheDvkhUpdatesMap || {};
+      }
+    } catch {}
+    memCacheDvkhUpdatesMap = {};
+    return {};
+  },
+
+  recordLocalDvkhUpdate: (maKh: string, updates: Partial<DvkhEntry>, synced = false) => {
+    const key = String(maKh || '').trim().toLowerCase();
+    if (!key) return;
+    const map = { ...DataStore.getLocalDvkhUpdatesMap() };
+    const existing = map[key];
+    map[key] = {
+      maKh,
+      updates: existing ? { ...existing.updates, ...updates } : updates,
+      timestamp: Date.now(),
+      synced
+    };
+    memCacheDvkhUpdatesMap = map;
+    try {
+      safeSetItem(LOCAL_DVKH_UPDATES_KEY, JSON.stringify(map));
+      set(LOCAL_DVKH_UPDATES_KEY, map).catch(() => {});
+    } catch {}
+  },
+
+  markDvkhUpdateSynced: (maKhs: string[]) => {
+    const map = { ...DataStore.getLocalDvkhUpdatesMap() };
+    let changed = false;
+    for (const m of maKhs) {
+      const key = String(m || '').trim().toLowerCase();
+      if (map[key]) {
+        map[key] = { ...map[key], synced: true };
+        changed = true;
+      }
+    }
+    if (changed) {
+      memCacheDvkhUpdatesMap = map;
+      try {
+        safeSetItem(LOCAL_DVKH_UPDATES_KEY, JSON.stringify(map));
+        set(LOCAL_DVKH_UPDATES_KEY, map).catch(() => {});
+      } catch {}
+    }
+  },
+
+  applyLocalDvkhUpdates: (entries: DvkhEntry[]): DvkhEntry[] => {
+    if (!entries || !Array.isArray(entries)) return [];
+    const map = DataStore.getLocalDvkhUpdatesMap();
+    if (!map || Object.keys(map).length === 0) return entries;
+    return entries.map(item => {
+      const key = String(item.maKh || '').trim().toLowerCase();
+      const upd = map[key];
+      if (upd && upd.updates) {
+        return { ...item, ...upd.updates };
+      }
+      return item;
+    });
+  },
+
+  mergeDvkhEntry: (remoteItem: DvkhEntry, localItem?: DvkhEntry, localUpdate?: LocalDvkhUpdate): DvkhEntry => {
+    if (!localItem && !localUpdate) return remoteItem;
+    let res: DvkhEntry = { ...remoteItem };
+
+    if (localItem) {
+      const remoteWeight = getDvkhStatusWeight(remoteItem.trangThai);
+      const localWeight = getDvkhStatusWeight(localItem.trangThai);
+
+      if (localWeight > remoteWeight) {
+        // Local has advanced further (e.g. đã nhận, đã giao thi công, xong, trở ngại)
+        // Never allow a stale Google Sheet row to revert local progression!
+        res.trangThai = localItem.trangThai;
+        res.ngayNhan = localItem.ngayNhan || res.ngayNhan;
+        res.nguoiNhan = localItem.nguoiNhan || res.nguoiNhan;
+        res.ngayGiao = localItem.ngayGiao || res.ngayGiao;
+        res.nguoiGiao = localItem.nguoiGiao || res.nguoiGiao;
+        res.nguoiThucHien = localItem.nguoiThucHien || res.nguoiThucHien;
+        res.ngayHoanTat = localItem.ngayHoanTat || res.ngayHoanTat;
+        res.ketQua = localItem.ketQua || res.ketQua;
+        res.pic = localItem.pic || res.pic;
+        if (localItem.ghiChu) {
+          res.ghiChu = localItem.ghiChu;
+        }
+      } else if (localWeight === remoteWeight) {
+        // Equal stages: preserve any details that local has populated
+        res.ngayNhan = res.ngayNhan || localItem.ngayNhan;
+        res.nguoiNhan = res.nguoiNhan || localItem.nguoiNhan;
+        res.ngayGiao = res.ngayGiao || localItem.ngayGiao;
+        res.nguoiGiao = res.nguoiGiao || localItem.nguoiGiao;
+        res.nguoiThucHien = res.nguoiThucHien || localItem.nguoiThucHien;
+        res.ngayHoanTat = res.ngayHoanTat || localItem.ngayHoanTat;
+        res.ketQua = res.ketQua || localItem.ketQua;
+        res.pic = res.pic || localItem.pic;
+        if (localItem.ghiChu && localItem.ghiChu.length > (res.ghiChu || '').length) {
+          res.ghiChu = localItem.ghiChu;
+        }
+      } else {
+        // Remote has advanced further: adopt remote status but preserve local assets if remote lacks them
+        res.pic = res.pic || localItem.pic;
+        res.sdt = res.sdt || localItem.sdt;
+      }
+    }
+
+    if (localUpdate && localUpdate.updates) {
+      res = { ...res, ...localUpdate.updates };
+    }
+
+    return res;
+  },
+
+  mergeDvkhList: (remoteList: DvkhEntry[], localList: DvkhEntry[]): DvkhEntry[] => {
+    const localMap = new Map<string, DvkhEntry>();
+    for (const item of (localList || [])) {
+      if (item.maKh) {
+        localMap.set(String(item.maKh).trim().toLowerCase(), item);
+      }
+    }
+    const updateMap = DataStore.getLocalDvkhUpdatesMap();
+    const result: DvkhEntry[] = [];
+
+    for (const remote of (remoteList || [])) {
+      const key = String(remote.maKh || '').trim().toLowerCase();
+      const local = localMap.get(key);
+      const upd = updateMap[key];
+      result.push(DataStore.mergeDvkhEntry(remote, local, upd));
+      localMap.delete(key);
+    }
+
+    // Preserve local-only records that haven't appeared in Google Sheets yet
+    for (const [key, localRemaining] of localMap.entries()) {
+      const upd = updateMap[key];
+      result.push(upd && upd.updates ? { ...localRemaining, ...upd.updates } : localRemaining);
+    }
+
+    return result;
+  },
+
   getDvkhEntries: (): DvkhEntry[] => {
     if (memCacheDvkhList && Array.isArray(memCacheDvkhList)) {
       return memCacheDvkhList;
@@ -5281,8 +5457,9 @@ export const DataStore = {
       if (cached) {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed)) {
-          memCacheDvkhList = parsed;
-          return parsed;
+          const applied = DataStore.applyLocalDvkhUpdates(parsed);
+          memCacheDvkhList = applied;
+          return applied;
         }
       }
     } catch (e) {}
@@ -5293,6 +5470,9 @@ export const DataStore = {
   saveDvkhEntries: (entries: DvkhEntry[]) => {
     memCacheDvkhList = entries;
     safeSetItem(DVKH_KEY, JSON.stringify(entries));
+    try {
+      set(DVKH_KEY, entries).catch(err => console.warn('Error saving DVKH to IDB:', err));
+    } catch (e) {}
     window.dispatchEvent(new CustomEvent('dvkh_updated'));
   },
 
@@ -5308,7 +5488,10 @@ export const DataStore = {
 
     list.unshift(entry);
     DataStore.saveDvkhEntries(list);
-    DataStore.syncDvkhToSheet(entry);
+    DataStore.recordLocalDvkhUpdate(entry.maKh, entry, false);
+    DataStore.syncDvkhToSheet(entry).then(ok => {
+      if (ok) DataStore.markDvkhUpdateSynced([entry.maKh]);
+    }).catch(() => {});
     return entry;
   },
 
@@ -5336,7 +5519,10 @@ export const DataStore = {
     });
     const updatedList = [...prepared, ...list];
     DataStore.saveDvkhEntries(updatedList);
-    DataStore.syncDvkhToSheet(prepared);
+    prepared.forEach(item => DataStore.recordLocalDvkhUpdate(item.maKh, item, false));
+    DataStore.syncDvkhToSheet(prepared).then(ok => {
+      if (ok) DataStore.markDvkhUpdateSynced(prepared.map(p => p.maKh));
+    }).catch(() => {});
     return prepared;
   },
 
@@ -5347,7 +5533,10 @@ export const DataStore = {
     if (idx !== -1) {
       list[idx] = { ...list[idx], ...updates };
       DataStore.saveDvkhEntries(list);
-      DataStore.syncDvkhToSheet(list[idx]);
+      DataStore.recordLocalDvkhUpdate(maKh, updates, false);
+      DataStore.syncDvkhToSheet(list[idx]).then(ok => {
+        if (ok) DataStore.markDvkhUpdateSynced([maKh]);
+      }).catch(() => {});
       return list[idx];
     }
     return null;
@@ -5366,8 +5555,45 @@ export const DataStore = {
       return item;
     });
     DataStore.saveDvkhEntries(updatedList);
+    maKhs.forEach(k => DataStore.recordLocalDvkhUpdate(k, updates, false));
     if (updatedItems.length > 0) {
-      DataStore.syncDvkhToSheet(updatedItems);
+      DataStore.syncDvkhToSheet(updatedItems).then(ok => {
+        if (ok) DataStore.markDvkhUpdateSynced(maKhs);
+      }).catch(() => {});
+    }
+  },
+
+  syncPendingDvkhUpdates: async (): Promise<void> => {
+    try {
+      const map = DataStore.getLocalDvkhUpdatesMap();
+      const pendingKeys = Object.keys(map).filter(k => !map[k].synced);
+      if (pendingKeys.length === 0) return;
+
+      const currentList = DataStore.getDvkhEntries();
+      const currentMap = new Map<string, DvkhEntry>();
+      for (const item of currentList) {
+        if (item.maKh) currentMap.set(String(item.maKh).trim().toLowerCase(), item);
+      }
+
+      const itemsToSync: DvkhEntry[] = [];
+      const syncedKeys: string[] = [];
+
+      for (const k of pendingKeys) {
+        const entry = currentMap.get(k);
+        if (entry) {
+          itemsToSync.push(entry);
+          syncedKeys.push(entry.maKh);
+        }
+      }
+
+      if (itemsToSync.length > 0) {
+        const ok = await DataStore.syncDvkhToSheet(itemsToSync);
+        if (ok) {
+          DataStore.markDvkhUpdateSynced(syncedKeys);
+        }
+      }
+    } catch (e) {
+      console.warn('Error in syncPendingDvkhUpdates:', e);
     }
   },
 

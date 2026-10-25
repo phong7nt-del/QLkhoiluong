@@ -6,10 +6,100 @@ import {
   Clock, AlertTriangle, CheckCircle2, Mic, MicOff, Filter, 
   Search, RefreshCw, X, Calendar, User, ChevronDown, ChevronUp,
   Download, Sparkles, Shield, AlertCircle, Eye, EyeOff, Layers, Headphones,
-  Upload, FileSpreadsheet, HelpCircle, Camera, Image as ImageIcon, ExternalLink, Maximize2
+  Upload, FileSpreadsheet, HelpCircle, Camera, Image as ImageIcon, ExternalLink, Maximize2,
+  MapPin, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight
 } from 'lucide-react';
 import { DataStore, SheetMember, DvkhEntry } from '../store/DataStore';
 import { normalizeRoleStr } from '../store/PermissionStore';
+
+// Cấu trúc khu vực & phường xã theo phân cấp DVKH:
+// Vũng Tàu: Phường Vũng Tàu, Phường Tam Thắng, Phường Rạch Dừa, Phường Phước Thắng, Xã Long Sơn
+// Bà Rịa: Phường Bà Rịa, Phường Long Hương, Phường Tam Long
+// Phú Mỹ: Phường Phú Mỹ, Phường Tân Thành, Phường Tân Phước, Phường Tân Hải, Xã Châu Pha
+// Côn Đảo: Đặc khu Côn Đảo
+export interface DvkhArea {
+  id: string;
+  name: string;
+  wards: { id: string; name: string; keywords: string[] }[];
+}
+
+export const DVKH_AREAS: DvkhArea[] = [
+  {
+    id: 'vung-tau',
+    name: 'Vũng Tàu',
+    wards: [
+      { id: 'phuong-vung-tau', name: 'Phường Vũng Tàu', keywords: ['phuong vung tau', 'p. vung tau', 'p.vung tau', 'vung tau'] },
+      { id: 'phuong-tam-thang', name: 'Phường Tam Thắng', keywords: ['tam thang'] },
+      { id: 'phuong-rach-dua', name: 'Phường Rạch Dừa', keywords: ['rach dua'] },
+      { id: 'phuong-phuoc-thang', name: 'Phường Phước Thắng', keywords: ['phuoc thang'] },
+      { id: 'xa-long-son', name: 'Xã Long Sơn', keywords: ['long son'] },
+    ]
+  },
+  {
+    id: 'ba-ria',
+    name: 'Bà Rịa',
+    wards: [
+      { id: 'phuong-ba-ria', name: 'Phường Bà Rịa', keywords: ['phuong ba ria', 'p. ba ria', 'p.ba ria', 'ba ria'] },
+      { id: 'phuong-long-huong', name: 'Phường Long Hương', keywords: ['long huong'] },
+      { id: 'phuong-tam-long', name: 'Phường Tam Long', keywords: ['tam long'] },
+    ]
+  },
+  {
+    id: 'phu-my',
+    name: 'Phú Mỹ',
+    wards: [
+      { id: 'phuong-phu-my', name: 'Phường Phú Mỹ', keywords: ['phuong phu my', 'p. phu my', 'p.phu my', 'phu my'] },
+      { id: 'phuong-tan-thanh', name: 'Phường Tân Thành', keywords: ['tan thanh'] },
+      { id: 'phuong-tan-phuoc', name: 'Phường Tân Phước', keywords: ['tan phuoc'] },
+      { id: 'phuong-tan-hai', name: 'Phường Tân Hải', keywords: ['tan hai'] },
+      { id: 'xa-chau-pha', name: 'Xã Châu Pha', keywords: ['chau pha'] },
+    ]
+  },
+  {
+    id: 'con-dao',
+    name: 'Côn Đảo',
+    wards: [
+      { id: 'dac-khu-con-dao', name: 'Đặc khu Côn Đảo', keywords: ['con dao', 'dac khu con dao'] },
+    ]
+  }
+];
+
+export const normalizeAddressText = (text: string): string => {
+  return (text || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'd')
+    .toLowerCase()
+    .trim();
+};
+
+export const filterRecordByAreaAndWard = (
+  address: string,
+  selectedAreaId: string,
+  selectedWardId: string = 'ALL'
+): boolean => {
+  if (!selectedAreaId || selectedAreaId === 'ALL') return true;
+
+  const area = DVKH_AREAS.find(a => a.id === selectedAreaId);
+  if (!area) return true;
+
+  const normAddr = normalizeAddressText(address);
+
+  // Khi chọn 1 phường/xã cụ thể
+  if (selectedWardId && selectedWardId !== 'ALL') {
+    const ward = area.wards.find(w => w.id === selectedWardId);
+    if (!ward) return true;
+    return ward.keywords.some(kw => normAddr.includes(normalizeAddressText(kw)));
+  }
+
+  // Khi chọn toàn bộ khu vực (Tất cả phường/xã)
+  const areaKeywords = [
+    normalizeAddressText(area.name),
+    ...area.wards.flatMap(w => w.keywords.map(kw => normalizeAddressText(kw)))
+  ];
+  return areaKeywords.some(kw => normAddr.includes(kw));
+};
 
 // Helper nén ảnh siêu nhẹ (~30-50KB) cực nhanh, tối ưu dung lượng nhỏ nhất và lưu nhanh nhất lên Google Drive
 export const compressImageFile = (
@@ -230,6 +320,20 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     }, 280);
   };
 
+  // Collapse / Expand states cho các phần trong DVKH
+  const [isSectionNewFormOpen, setIsSectionNewFormOpen] = useState(true);
+  const [isSectionPendingOpen, setIsSectionPendingOpen] = useState(true);
+  const [isSectionReceiptOpen, setIsSectionReceiptOpen] = useState(true);
+  const [isSectionTab2Open, setIsSectionTab2Open] = useState(true);
+  const [isSectionTab3Open, setIsSectionTab3Open] = useState(true);
+  const [isSectionBottomListOpen, setIsSectionBottomListOpen] = useState(true);
+
+  // Bộ lọc khu vực & phường xã cho Danh sách Chưa giao & Danh sách Tiếp nhận ở Tab 1
+  const [tab1PendingAreaFilter, setTab1PendingAreaFilter] = useState('ALL');
+  const [tab1PendingWardFilter, setTab1PendingWardFilter] = useState('ALL');
+  const [tab1ReceiptAreaFilter, setTab1ReceiptAreaFilter] = useState('ALL');
+  const [tab1ReceiptWardFilter, setTab1ReceiptWardFilter] = useState('ALL');
+
   // STT tự động tăng cho hồ sơ nhập mới theo số lượng record
   const nextStt = useMemo(() => {
     const maxStt = dvkhList.reduce((max, item) => Math.max(max, typeof item.stt === 'number' ? item.stt : parseInt(String(item.stt || 0), 10) || 0), 0);
@@ -243,6 +347,13 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
       return st === 'chưa giao' || st === 'chua giao' || (!st && !e.nguoiNhan && !e.ngayGiao && !e.nguoiThucHien && e.ketQua !== 'Xong');
     });
   }, [dvkhList]);
+
+  // Tab 1 records waiting to be delivered lọc theo Khu vực & Phường/xã
+  const filteredTab1PendingRecords = useMemo(() => {
+    return tab1PendingRecords.filter(item => 
+      filterRecordByAreaAndWard(item.diaChi, tab1PendingAreaFilter, tab1PendingWardFilter)
+    );
+  }, [tab1PendingRecords, tab1PendingAreaFilter, tab1PendingWardFilter]);
 
   // Sub-tab 1 badge count: số hồ sơ đã nhập chuẩn bị giao (trạng thái 'Chưa giao')
   const countTab1Pending = useMemo(() => {
@@ -277,6 +388,13 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
       return st === 'chờ nhận' || st === 'cho nhan';
     });
   }, [dvkhList]);
+
+  // Tab 1 danh sách tiếp nhận được lọc theo Khu vực & Phường/xã
+  const filteredTab1DeliveredWaitingConfirm = useMemo(() => {
+    return tab1DeliveredWaitingConfirm.filter(item => 
+      filterRecordByAreaAndWard(item.diaChi, tab1ReceiptAreaFilter, tab1ReceiptWardFilter)
+    );
+  }, [tab1DeliveredWaitingConfirm, tab1ReceiptAreaFilter, tab1ReceiptWardFilter]);
 
   const handleAddNewRecord = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -559,7 +677,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
       return;
     }
 
-    const pendingKeys = tab1DeliveredWaitingConfirm.map(e => e.maKh);
+    const pendingKeys = filteredTab1DeliveredWaitingConfirm.map(e => e.maKh);
     if (pendingKeys.length === 0) return;
 
     const nowStr = getCurrentDateTimeStr();
@@ -572,7 +690,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     });
 
     setDvkhList(DataStore.getDvkhEntries());
-    showToast('success', `Đã tiếp nhận toàn bộ ${pendingKeys.length} hồ sơ vào Đội QLHTĐĐ!`);
+    showToast('success', `Đã tiếp nhận ${pendingKeys.length} hồ sơ vào Đội QLHTĐĐ!`);
   };
 
   // ==============================================================
@@ -867,6 +985,12 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
   const [filterFromDate, setFilterFromDate] = useState('');
   const [filterToDate, setFilterToDate] = useState('');
   const [filterAssignee, setFilterAssignee] = useState('ALL');
+  const [filterArea, setFilterArea] = useState('ALL');
+  const [filterWard, setFilterWard] = useState('ALL');
+
+  // Phân trang danh sách toàn bộ hồ sơ: 20 hồ sơ trên trang theo yêu cầu
+  const BOTTOM_PAGE_SIZE = 20;
+  const [bottomPage, setBottomPage] = useState(1);
 
   const bottomFilteredList = useMemo(() => {
     return dvkhList.filter(item => {
@@ -894,6 +1018,13 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
         if (assigned !== filterAssignee) return false;
       }
 
+      // Area & Ward filter (Vũng Tàu, Bà Rịa, Phú Mỹ, Côn Đảo)
+      if (filterArea !== 'ALL') {
+        if (!filterRecordByAreaAndWard(item.diaChi, filterArea, filterWard)) {
+          return false;
+        }
+      }
+
       // Date range filter based on ngayNhan (dd/mm/yyyy ...)
       if (filterFromDate || filterToDate) {
         const parseDate = (dStr?: string) => {
@@ -919,7 +1050,19 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
 
       return true;
     });
-  }, [dvkhList, filterSearch, filterTrangThai, filterAssignee, filterFromDate, filterToDate]);
+  }, [dvkhList, filterSearch, filterTrangThai, filterAssignee, filterArea, filterWard, filterFromDate, filterToDate]);
+
+  // Tự động chuyển về trang 1 khi thay đổi điều kiện lọc
+  useEffect(() => {
+    setBottomPage(1);
+  }, [filterSearch, filterTrangThai, filterAssignee, filterArea, filterWard, filterFromDate, filterToDate]);
+
+  const totalBottomPages = Math.max(1, Math.ceil(bottomFilteredList.length / BOTTOM_PAGE_SIZE));
+  const currentBottomPage = Math.min(bottomPage, totalBottomPages);
+  const paginatedBottomList = useMemo(() => {
+    const start = (currentBottomPage - 1) * BOTTOM_PAGE_SIZE;
+    return bottomFilteredList.slice(start, start + BOTTOM_PAGE_SIZE);
+  }, [bottomFilteredList, currentBottomPage]);
 
   // Toast feedback helper
   const showToast = (type: 'success' | 'error' | 'info', text: string) => {
@@ -1334,9 +1477,21 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                     </div>
                   )}
                 </div>
+
+                {/* COLLAPSE / EXPAND TOGGLE NÚT CO LẠI / MỞ RA */}
+                <button
+                  type="button"
+                  onClick={() => setIsSectionNewFormOpen(!isSectionNewFormOpen)}
+                  className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all border border-slate-300 shadow-2xs active:scale-95 cursor-pointer"
+                  title={isSectionNewFormOpen ? "Thu gọn form nhập mới" : "Mở rộng form nhập mới"}
+                >
+                  <span className="hidden sm:inline">{isSectionNewFormOpen ? 'Thu gọn' : 'Mở rộng'}</span>
+                  {isSectionNewFormOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                </button>
               </div>
             </div>
 
+            {isSectionNewFormOpen && (
             <form onSubmit={handleAddNewRecord} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-12 gap-3.5">
               {/* STT */}
               <div className="lg:col-span-2">
@@ -1452,29 +1607,30 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
               </div>
 
               {/* Nút Thêm hồ sơ */}
-              <div className="lg:col-span-2 sm:col-span-2 flex items-end">
-                <button
-                  type="submit"
-                  disabled={(!isDvkhUser && !isDoiLeader && !isToLeader) || isAddingNew}
-                  className="w-full h-[37px] flex items-center justify-center gap-1.5 px-4 bg-gradient-to-r from-purple-700 to-indigo-700 hover:from-purple-800 hover:to-indigo-800 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  <Plus className="w-4 h-4 shrink-0" />
-                  <span>Thêm hồ sơ</span>
-                </button>
-              </div>
-            </form>
+                <div className="lg:col-span-2 sm:col-span-2 flex items-end">
+                  <button
+                    type="submit"
+                    disabled={(!isDvkhUser && !isDoiLeader && !isToLeader) || isAddingNew}
+                    className="w-full h-[37px] flex items-center justify-center gap-1.5 px-4 bg-gradient-to-r from-purple-700 to-indigo-700 hover:from-purple-800 hover:to-indigo-800 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4 shrink-0" />
+                    <span>Thêm hồ sơ</span>
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
 
           {/* Table: Danh sách hồ sơ ở trạng thái chưa giao */}
           <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <span className="p-1.5 rounded-lg bg-amber-100 text-amber-700 font-bold">
                   <Send className="w-4 h-4" />
                 </span>
                 <div>
                   <h3 className="text-sm font-bold text-slate-800 uppercase">
-                    Hồ Sơ Chưa Giao Sang QLHTĐĐ ({tab1PendingRecords.length})
+                    Hồ Sơ Chưa Giao Sang QLHTĐĐ ({filteredTab1PendingRecords.length}{tab1PendingRecords.length !== filteredTab1PendingRecords.length ? ` / ${tab1PendingRecords.length}` : ''})
                   </h3>
                   <p className="text-[11px] text-slate-500">
                     Chọn các hồ sơ bên dưới để giao sang Đội QLHTĐĐ (chuyển trạng thái sang "Chờ nhận").
@@ -1482,133 +1638,183 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Bộ lọc Khu vực cho HS chưa giao */}
+                <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 rounded-xl border border-slate-300 text-xs">
+                  <MapPin className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <select
+                    value={tab1PendingAreaFilter}
+                    onChange={(e) => {
+                      setTab1PendingAreaFilter(e.target.value);
+                      setTab1PendingWardFilter('ALL');
+                    }}
+                    className="bg-transparent font-bold text-slate-700 outline-none text-xs cursor-pointer"
+                  >
+                    <option value="ALL">Tất cả khu vực</option>
+                    {DVKH_AREAS.map(a => (
+                      <option key={a.id} value={a.id}>{a.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Phường/Xã phụ thuộc khu vực đã chọn */}
+                {tab1PendingAreaFilter !== 'ALL' && (
+                  <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 rounded-xl border border-slate-300 text-xs">
+                    <select
+                      value={tab1PendingWardFilter}
+                      onChange={(e) => setTab1PendingWardFilter(e.target.value)}
+                      className="bg-transparent font-bold text-slate-700 outline-none text-xs cursor-pointer"
+                    >
+                      <option value="ALL">Tất cả phường/xã</option>
+                      {DVKH_AREAS.find(a => a.id === tab1PendingAreaFilter)?.wards.map(w => (
+                        <option key={w.id} value={w.id}>{w.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 <button
                   type="button"
                   onClick={() => {
-                    if (tab1SelectedMaKhs.length === tab1PendingRecords.length) {
+                    if (tab1SelectedMaKhs.length === filteredTab1PendingRecords.length && filteredTab1PendingRecords.length > 0) {
                       setTab1SelectedMaKhs([]);
                     } else {
-                      setTab1SelectedMaKhs(tab1PendingRecords.map(r => r.maKh));
+                      setTab1SelectedMaKhs(filteredTab1PendingRecords.map(r => r.maKh));
                     }
                   }}
                   className="px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs font-semibold cursor-pointer"
                 >
-                  {tab1SelectedMaKhs.length === tab1PendingRecords.length && tab1PendingRecords.length > 0 ? 'Bỏ chọn tất cả' : 'Chọn tất cả'}
+                  {tab1SelectedMaKhs.length === filteredTab1PendingRecords.length && filteredTab1PendingRecords.length > 0 ? 'Bỏ chọn' : 'Chọn tất cả'}
                 </button>
+
                 <button
                   type="button"
                   onClick={handleDeliverToQlhtdd}
                   disabled={tab1SelectedMaKhs.length === 0 || (!isDvkhUser && !isDoiLeader)}
-                  className="flex items-center gap-1.5 px-4 py-1.5 bg-purple-700 hover:bg-purple-800 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 bg-purple-700 hover:bg-purple-800 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  <span>Giao {tab1SelectedMaKhs.length > 0 ? `(${tab1SelectedMaKhs.length})` : ''} sang QLHTĐĐ</span>
+                  <span>Giao {tab1SelectedMaKhs.length > 0 ? `(${tab1SelectedMaKhs.length})` : ''}</span>
+                </button>
+
+                {/* Nút Thu gọn / Mở rộng */}
+                <button
+                  type="button"
+                  onClick={() => setIsSectionPendingOpen(!isSectionPendingOpen)}
+                  className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all border border-slate-300 shadow-2xs active:scale-95 cursor-pointer ml-1"
+                  title={isSectionPendingOpen ? "Thu gọn danh sách" : "Mở rộng danh sách"}
+                >
+                  <span className="hidden sm:inline">{isSectionPendingOpen ? 'Thu gọn' : 'Mở rộng'}</span>
+                  {isSectionPendingOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                 </button>
               </div>
             </div>
 
-            {tab1PendingRecords.length === 0 ? (
-              <div className="py-12 text-center text-slate-400 text-xs italic">
-                Chưa có hồ sơ nào ở trạng thái chưa giao. Bạn có thể bấm "Thêm" hoặc "Import File" ở trên để đưa hồ sơ mới vào hệ thống.
-              </div>
-            ) : (
-              <div className="overflow-x-auto rounded-xl border border-slate-200">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px]">
-                    <tr>
-                      <th className="px-3 py-2.5 border-b border-slate-200 w-10 text-center">
-                        <input
-                          type="checkbox"
-                          checked={tab1SelectedMaKhs.length === tab1PendingRecords.length && tab1PendingRecords.length > 0}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setTab1SelectedMaKhs(tab1PendingRecords.map(r => r.maKh));
-                            } else {
-                              setTab1SelectedMaKhs([]);
-                            }
-                          }}
-                          className="rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
-                        />
-                      </th>
-                      <th className="px-3 py-2.5 border-b border-slate-200 w-12 text-center">STT</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200">Mã KH</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200">Tên Khách Hàng</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200">Địa Chỉ</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200">SĐT</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200">Loại</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200">Ngày Nhận</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200">Ghi Chú</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200 text-center">Trạng Thái</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {tab1PendingRecords.map((item, idx) => {
-                      const isSelected = tab1SelectedMaKhs.includes(item.maKh);
-                      return (
-                        <tr key={item.maKh} className={isSelected ? 'bg-purple-50/50' : 'hover:bg-slate-50'}>
-                          <td className="px-3 py-2 text-center">
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setTab1SelectedMaKhs(prev => [...prev, item.maKh]);
-                                } else {
-                                  setTab1SelectedMaKhs(prev => prev.filter(k => k !== item.maKh));
-                                }
-                              }}
-                              className="rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
-                            />
-                          </td>
-                          <td className="px-3 py-2 text-center text-slate-500 font-mono font-bold">
-                            {item.stt || (idx + 1)}
-                          </td>
-                          <td className="px-3 py-2 font-mono font-bold text-purple-900">
-                            {item.maKh}
-                          </td>
-                          <td className="px-3 py-2 font-semibold text-slate-800">
-                            {item.tenKh}
-                          </td>
-                          <td className="px-3 py-2 text-slate-600 max-w-xs truncate" title={item.diaChi}>
-                            {item.diaChi || '-'}
-                          </td>
-                          <td className="px-3 py-2 text-slate-600 font-mono text-[11px]">
-                            {item.sdt || '-'}
-                          </td>
-                          <td className="px-3 py-2 text-slate-700">
-                            <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-semibold border border-slate-200">
-                              {item.loaiYeuCau || 'Gắn mới'}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2 text-slate-500 text-[11px] font-mono">
-                            {item.ngayNhan || item.ngayTao || '-'}
-                          </td>
-                          <td className="px-3 py-2 text-slate-600 max-w-xs truncate italic" title={item.ghiChu}>
-                            {item.ghiChu || '-'}
-                          </td>
-                          <td className="px-3 py-2 text-center">
-                            {renderStatusBadge(item.trangThai || 'Chưa giao')}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+            {isSectionPendingOpen && (
+              filteredTab1PendingRecords.length === 0 ? (
+                <div className="py-10 text-center text-slate-400 text-xs italic">
+                  {tab1PendingRecords.length > 0 
+                    ? 'Không tìm thấy hồ sơ chưa giao phù hợp với khu vực / phường xã đã chọn.'
+                    : 'Chưa có hồ sơ nào ở trạng thái chưa giao. Bạn có thể bấm "Thêm" hoặc "Import File" ở trên để đưa hồ sơ mới vào hệ thống.'}
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-slate-200 animate-in fade-in duration-200">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px]">
+                      <tr>
+                        <th className="px-3 py-2.5 border-b border-slate-200 w-10 text-center">
+                          <input
+                            type="checkbox"
+                            checked={tab1SelectedMaKhs.length === filteredTab1PendingRecords.length && filteredTab1PendingRecords.length > 0}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setTab1SelectedMaKhs(filteredTab1PendingRecords.map(r => r.maKh));
+                              } else {
+                                setTab1SelectedMaKhs([]);
+                              }
+                            }}
+                            className="rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
+                          />
+                        </th>
+                        <th className="px-3 py-2.5 border-b border-slate-200 w-12 text-center">STT</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200">Mã KH</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200">Tên Khách Hàng</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200">Địa Chỉ</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200">SĐT</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200">Loại</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200">Ngày Nhận</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200">Ghi Chú</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200 text-center">Trạng Thái</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredTab1PendingRecords.map((item, idx) => {
+                        const isSelected = tab1SelectedMaKhs.includes(item.maKh);
+                        return (
+                          <tr key={item.maKh} className={isSelected ? 'bg-purple-50/50' : 'hover:bg-slate-50'}>
+                            <td className="px-3 py-2 text-center">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setTab1SelectedMaKhs(prev => [...prev, item.maKh]);
+                                  } else {
+                                    setTab1SelectedMaKhs(prev => prev.filter(k => k !== item.maKh));
+                                  }
+                                }}
+                                className="rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
+                              />
+                            </td>
+                            <td className="px-3 py-2 text-center text-slate-500 font-mono font-bold">
+                              {item.stt || (idx + 1)}
+                            </td>
+                            <td className="px-3 py-2 font-mono font-bold text-purple-900">
+                              {item.maKh}
+                            </td>
+                            <td className="px-3 py-2 font-semibold text-slate-800">
+                              {item.tenKh}
+                            </td>
+                            <td className="px-3 py-2 text-slate-600 max-w-xs truncate" title={item.diaChi}>
+                              {item.diaChi || '-'}
+                            </td>
+                            <td className="px-3 py-2 text-slate-600 font-mono text-[11px]">
+                              {item.sdt || '-'}
+                            </td>
+                            <td className="px-3 py-2 text-slate-700">
+                              <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-semibold border border-slate-200">
+                                {item.loaiYeuCau || 'Gắn mới'}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-slate-500 text-[11px] font-mono">
+                              {item.ngayNhan || item.ngayTao || '-'}
+                            </td>
+                            <td className="px-3 py-2 text-slate-600 max-w-xs truncate italic" title={item.ghiChu}>
+                              {item.ghiChu || '-'}
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              {renderStatusBadge(item.trangThai || 'Chưa giao')}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )
             )}
           </div>
 
-          {/* Section: Xác Nhận Tiếp Nhận Hồ Sơ Đã Giao Vào QLHTĐĐ */}
+          {/* Section: Xác Nhận Tiếp Nhận Hồ Sơ Đã Giao Vào QLHTĐĐ (Danh sách tiếp nhận) */}
           <div className="bg-gradient-to-br from-sky-50/70 via-white to-slate-50 rounded-2xl border border-sky-200 p-5 shadow-sm space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-sky-100">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-sky-100">
               <div className="flex items-center gap-2">
                 <span className="p-1.5 rounded-lg bg-sky-600 text-white font-bold">
                   <UserCheck className="w-4 h-4" />
                 </span>
                 <div>
                   <h3 className="text-sm font-bold text-slate-800 uppercase">
-                    Tiếp Nhận Hồ Sơ Đã Giao Sang QLHTĐĐ ({tab1DeliveredWaitingConfirm.length})
+                    Tiếp Nhận Hồ Sơ Đã Giao Sang QLHTĐĐ ({filteredTab1DeliveredWaitingConfirm.length}{tab1DeliveredWaitingConfirm.length !== filteredTab1DeliveredWaitingConfirm.length ? ` / ${tab1DeliveredWaitingConfirm.length}` : ''})
                   </h3>
                   <p className="text-[11px] text-slate-500">
                     {isDvkhUser 
@@ -1618,77 +1824,130 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                 </div>
               </div>
 
-              {canConfirmReceipt && tab1DeliveredWaitingConfirm.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Bộ lọc Khu vực cho danh sách tiếp nhận theo yêu cầu */}
+                <div className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-xl border border-sky-300 text-xs shadow-2xs">
+                  <MapPin className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+                  <span className="font-semibold text-slate-600 text-[11px]">Khu vực:</span>
+                  <select
+                    value={tab1ReceiptAreaFilter}
+                    onChange={(e) => {
+                      setTab1ReceiptAreaFilter(e.target.value);
+                      setTab1ReceiptWardFilter('ALL');
+                    }}
+                    className="bg-transparent font-bold text-sky-900 outline-none text-xs cursor-pointer"
+                  >
+                    <option value="ALL">Tất cả khu vực</option>
+                    {DVKH_AREAS.map(a => (
+                      <option key={a.id} value={a.id}>{a.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Lọc Phường/Xã cho danh sách tiếp nhận */}
+                {tab1ReceiptAreaFilter !== 'ALL' && (
+                  <div className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-xl border border-sky-300 text-xs shadow-2xs">
+                    <span className="font-semibold text-slate-600 text-[11px]">Phường/Xã:</span>
+                    <select
+                      value={tab1ReceiptWardFilter}
+                      onChange={(e) => setTab1ReceiptWardFilter(e.target.value)}
+                      className="bg-transparent font-bold text-sky-900 outline-none text-xs cursor-pointer"
+                    >
+                      <option value="ALL">Tất cả phường/xã</option>
+                      {DVKH_AREAS.find(a => a.id === tab1ReceiptAreaFilter)?.wards.map(w => (
+                        <option key={w.id} value={w.id}>{w.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {canConfirmReceipt && filteredTab1DeliveredWaitingConfirm.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleConfirmAllReceipts}
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 bg-sky-700 hover:bg-sky-800 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Tiếp nhận toàn bộ ({filteredTab1DeliveredWaitingConfirm.length})</span>
+                  </button>
+                )}
+
+                {/* Nút Thu gọn / Mở rộng */}
                 <button
                   type="button"
-                  onClick={handleConfirmAllReceipts}
-                  className="flex items-center gap-1.5 px-4 py-1.5 bg-sky-700 hover:bg-sky-800 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer"
+                  onClick={() => setIsSectionReceiptOpen(!isSectionReceiptOpen)}
+                  className="flex items-center gap-1 px-2.5 py-1.5 bg-white hover:bg-sky-50 text-sky-800 rounded-xl text-xs font-bold transition-all border border-sky-300 shadow-2xs active:scale-95 cursor-pointer ml-1"
+                  title={isSectionReceiptOpen ? "Thu gọn danh sách tiếp nhận" : "Mở rộng danh sách tiếp nhận"}
                 >
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>Tiếp nhận toàn bộ ({tab1DeliveredWaitingConfirm.length})</span>
+                  <span className="hidden sm:inline">{isSectionReceiptOpen ? 'Thu gọn' : 'Mở rộng'}</span>
+                  {isSectionReceiptOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                 </button>
-              )}
+              </div>
             </div>
 
-            {tab1DeliveredWaitingConfirm.length === 0 ? (
-              <div className="py-8 text-center text-slate-400 text-xs italic">
-                Hiện không có hồ sơ nào đang chờ xác nhận tiếp nhận vào QLHTĐĐ.
-              </div>
-            ) : (
-              <div className="overflow-x-auto rounded-xl border border-sky-200">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-sky-100/70 text-slate-700 font-bold uppercase text-[10px]">
-                    <tr>
-                      <th className="px-3 py-2.5 border-b border-sky-200 w-12 text-center">STT</th>
-                      <th className="px-3 py-2.5 border-b border-sky-200">Mã KH</th>
-                      <th className="px-3 py-2.5 border-b border-sky-200">Tên Khách Hàng</th>
-                      <th className="px-3 py-2.5 border-b border-sky-200">Địa Chỉ</th>
-                      <th className="px-3 py-2.5 border-b border-sky-200">Ngày Giao Từ DVKH</th>
-                      <th className="px-3 py-2.5 border-b border-sky-200 text-center">Trạng Thái</th>
-                      <th className="px-3 py-2.5 border-b border-sky-200 text-center w-32">Thao Tác</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-sky-100">
-                    {tab1DeliveredWaitingConfirm.map((item, idx) => (
-                      <tr key={item.maKh} className="hover:bg-sky-50/50">
-                        <td className="px-3 py-2 text-center text-slate-500 font-mono">
-                          {item.stt || (idx + 1)}
-                        </td>
-                        <td className="px-3 py-2 font-mono font-bold text-sky-900">
-                          {item.maKh}
-                        </td>
-                        <td className="px-3 py-2 font-semibold text-slate-800">
-                          {item.tenKh}
-                        </td>
-                        <td className="px-3 py-2 text-slate-600 max-w-xs truncate" title={item.diaChi}>
-                          {item.diaChi}
-                        </td>
-                        <td className="px-3 py-2 text-slate-600 font-mono text-[11px]">
-                          {item.ngayNhan || '-'}
-                        </td>
-                        <td className="px-3 py-2 text-center">
-                          {renderStatusBadge(item.trangThai)}
-                        </td>
-                        <td className="px-3 py-2 text-center">
-                          {canConfirmReceipt ? (
-                            <button
-                              type="button"
-                              onClick={() => handleConfirmReceipt(item.maKh)}
-                              className="px-3 py-1 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer"
-                            >
-                              Xác nhận nhận
-                            </button>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-semibold">
-                              Chờ QLHTĐĐ nhận
-                            </span>
-                          )}
-                        </td>
+            {isSectionReceiptOpen && (
+              filteredTab1DeliveredWaitingConfirm.length === 0 ? (
+                <div className="py-8 text-center text-slate-400 text-xs italic">
+                  {tab1DeliveredWaitingConfirm.length > 0
+                    ? 'Không có hồ sơ chờ tiếp nhận nào thuộc khu vực / phường xã đã chọn.'
+                    : 'Hiện không có hồ sơ nào đang chờ xác nhận tiếp nhận vào QLHTĐĐ.'}
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-sky-200 animate-in fade-in duration-200">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-sky-100/70 text-slate-700 font-bold uppercase text-[10px]">
+                      <tr>
+                        <th className="px-3 py-2.5 border-b border-sky-200 w-12 text-center">STT</th>
+                        <th className="px-3 py-2.5 border-b border-sky-200">Mã KH</th>
+                        <th className="px-3 py-2.5 border-b border-sky-200">Tên Khách Hàng</th>
+                        <th className="px-3 py-2.5 border-b border-sky-200">Địa Chỉ</th>
+                        <th className="px-3 py-2.5 border-b border-sky-200">Ngày Giao Từ DVKH</th>
+                        <th className="px-3 py-2.5 border-b border-sky-200 text-center">Trạng Thái</th>
+                        <th className="px-3 py-2.5 border-b border-sky-200 text-center w-32">Thao Tác</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y divide-sky-100">
+                      {filteredTab1DeliveredWaitingConfirm.map((item, idx) => (
+                        <tr key={item.maKh} className="hover:bg-sky-50/50">
+                          <td className="px-3 py-2 text-center text-slate-500 font-mono">
+                            {item.stt || (idx + 1)}
+                          </td>
+                          <td className="px-3 py-2 font-mono font-bold text-sky-900">
+                            {item.maKh}
+                          </td>
+                          <td className="px-3 py-2 font-semibold text-slate-800">
+                            {item.tenKh}
+                          </td>
+                          <td className="px-3 py-2 text-slate-600 max-w-xs truncate" title={item.diaChi}>
+                            {item.diaChi}
+                          </td>
+                          <td className="px-3 py-2 text-slate-600 font-mono text-[11px]">
+                            {item.ngayNhan || '-'}
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            {renderStatusBadge(item.trangThai)}
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            {canConfirmReceipt ? (
+                              <button
+                                type="button"
+                                onClick={() => handleConfirmReceipt(item.maKh)}
+                                className="px-3 py-1 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer"
+                              >
+                                Xác nhận nhận
+                              </button>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-semibold">
+                                Chờ QLHTĐĐ nhận
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
             )}
           </div>
         </div>
@@ -1748,93 +2007,106 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                   <Send className="w-3.5 h-3.5" />
                   <span>Giao thi công {tab2SelectedMaKhs.length > 0 ? `(${tab2SelectedMaKhs.length})` : ''}</span>
                 </button>
+
+                {/* Nút Thu gọn / Mở rộng */}
+                <button
+                  type="button"
+                  onClick={() => setIsSectionTab2Open(!isSectionTab2Open)}
+                  className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all border border-slate-300 shadow-2xs active:scale-95 cursor-pointer ml-1"
+                  title={isSectionTab2Open ? "Thu gọn danh sách" : "Mở rộng danh sách"}
+                >
+                  <span className="hidden sm:inline">{isSectionTab2Open ? 'Thu gọn' : 'Mở rộng'}</span>
+                  {isSectionTab2Open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                </button>
               </div>
             </div>
 
-            {tab2Records.length === 0 ? (
-              <div className="py-12 text-center text-slate-400 text-xs italic">
-                Không có hồ sơ tồn chưa giao thi công. Tất cả hồ sơ đã được phân công hoặc chưa tiếp nhận.
-              </div>
-            ) : (
-              <div className="overflow-x-auto rounded-xl border border-slate-200">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px]">
-                    <tr>
-                      <th className="px-3 py-2.5 border-b border-slate-200 w-10 text-center">
-                        <input
-                          type="checkbox"
-                          checked={tab2SelectedMaKhs.length === tab2Records.length && tab2Records.length > 0}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setTab2SelectedMaKhs(tab2Records.map(r => r.maKh));
-                            } else {
-                              setTab2SelectedMaKhs([]);
-                            }
-                          }}
-                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                        />
-                      </th>
-                      <th className="px-3 py-2.5 border-b border-slate-200 w-12 text-center">STT</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200">Mã KH</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200">Tên Khách Hàng</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200">Địa Chỉ</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200">Loại Yêu Cầu</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200">Ngày Tiếp Nhận</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200">Người Tiếp Nhận</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200 text-center">Trạng Thái</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {tab2Records.map((item, idx) => {
-                      const isSelected = tab2SelectedMaKhs.includes(item.maKh);
-                      return (
-                        <tr key={item.maKh} className={isSelected ? 'bg-blue-50/50' : 'hover:bg-slate-50'}>
-                          <td className="px-3 py-2 text-center">
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setTab2SelectedMaKhs(prev => [...prev, item.maKh]);
-                                } else {
-                                  setTab2SelectedMaKhs(prev => prev.filter(k => k !== item.maKh));
-                                }
-                              }}
-                              className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                            />
-                          </td>
-                          <td className="px-3 py-2 text-center text-slate-500 font-mono">
-                            {item.stt || (idx + 1)}
-                          </td>
-                          <td className="px-3 py-2 font-mono font-bold text-blue-900">
-                            {item.maKh}
-                          </td>
-                          <td className="px-3 py-2 font-semibold text-slate-800">
-                            {item.tenKh}
-                          </td>
-                          <td className="px-3 py-2 text-slate-600 max-w-xs truncate" title={item.diaChi}>
-                            {item.diaChi}
-                          </td>
-                          <td className="px-3 py-2 text-slate-700">
-                            <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-semibold border border-slate-200">
-                              {item.loaiYeuCau || 'Gắn mới'}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2 text-slate-600 font-mono text-[11px]">
-                            {item.ngayNhan || '-'}
-                          </td>
-                          <td className="px-3 py-2 font-semibold text-slate-700">
-                            {item.nguoiNhan || '-'}
-                          </td>
-                          <td className="px-3 py-2 text-center">
-                            {renderStatusBadge(item.trangThai)}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+            {isSectionTab2Open && (
+              tab2Records.length === 0 ? (
+                <div className="py-12 text-center text-slate-400 text-xs italic">
+                  Không có hồ sơ tồn chưa giao thi công. Tất cả hồ sơ đã được phân công hoặc chưa tiếp nhận.
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-slate-200 animate-in fade-in duration-200">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px]">
+                      <tr>
+                        <th className="px-3 py-2.5 border-b border-slate-200 w-10 text-center">
+                          <input
+                            type="checkbox"
+                            checked={tab2SelectedMaKhs.length === tab2Records.length && tab2Records.length > 0}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setTab2SelectedMaKhs(tab2Records.map(r => r.maKh));
+                              } else {
+                                setTab2SelectedMaKhs([]);
+                              }
+                            }}
+                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                          />
+                        </th>
+                        <th className="px-3 py-2.5 border-b border-slate-200 w-12 text-center">STT</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200">Mã KH</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200">Tên Khách Hàng</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200">Địa Chỉ</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200">Loại Yêu Cầu</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200">Ngày Tiếp Nhận</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200">Người Tiếp Nhận</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200 text-center">Trạng Thái</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {tab2Records.map((item, idx) => {
+                        const isSelected = tab2SelectedMaKhs.includes(item.maKh);
+                        return (
+                          <tr key={item.maKh} className={isSelected ? 'bg-blue-50/50' : 'hover:bg-slate-50'}>
+                            <td className="px-3 py-2 text-center">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setTab2SelectedMaKhs(prev => [...prev, item.maKh]);
+                                  } else {
+                                    setTab2SelectedMaKhs(prev => prev.filter(k => k !== item.maKh));
+                                  }
+                                }}
+                                className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                              />
+                            </td>
+                            <td className="px-3 py-2 text-center text-slate-500 font-mono">
+                              {item.stt || (idx + 1)}
+                            </td>
+                            <td className="px-3 py-2 font-mono font-bold text-blue-900">
+                              {item.maKh}
+                            </td>
+                            <td className="px-3 py-2 font-semibold text-slate-800">
+                              {item.tenKh}
+                            </td>
+                            <td className="px-3 py-2 text-slate-600 max-w-xs truncate" title={item.diaChi}>
+                              {item.diaChi}
+                            </td>
+                            <td className="px-3 py-2 text-slate-700">
+                              <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-semibold border border-slate-200">
+                                {item.loaiYeuCau || 'Gắn mới'}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-slate-600 font-mono text-[11px]">
+                              {item.ngayNhan || '-'}
+                            </td>
+                            <td className="px-3 py-2 font-semibold text-slate-700">
+                              {item.nguoiNhan || '-'}
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              {renderStatusBadge(item.trangThai)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )
             )}
           </div>
         </div>
@@ -1886,92 +2158,107 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                 </p>
               </div>
 
-              <div className="text-[11px] text-slate-500">
-                Chính sách ngày hoàn tất:{' '}
-                <b>{allowCustomNgayHoanTat ? 'Cho phép chọn ngày' : 'Cố định ngày hiện tại'}</b>
+              <div className="flex items-center gap-2">
+                <div className="text-[11px] text-slate-500 hidden sm:block">
+                  Chính sách ngày hoàn tất:{' '}
+                  <b>{allowCustomNgayHoanTat ? 'Cho phép chọn ngày' : 'Cố định ngày hiện tại'}</b>
+                </div>
+
+                {/* Nút Thu gọn / Mở rộng */}
+                <button
+                  type="button"
+                  onClick={() => setIsSectionTab3Open(!isSectionTab3Open)}
+                  className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all border border-slate-300 shadow-2xs active:scale-95 cursor-pointer ml-1"
+                  title={isSectionTab3Open ? "Thu gọn danh sách" : "Mở rộng danh sách"}
+                >
+                  <span className="hidden sm:inline">{isSectionTab3Open ? 'Thu gọn' : 'Mở rộng'}</span>
+                  {isSectionTab3Open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                </button>
               </div>
             </div>
 
-            {tab3Records.length === 0 ? (
-              <div className="py-12 text-center text-slate-400 text-xs italic">
-                {isDvkhUser && !isDoiLeader
-                  ? 'Hiện không có hồ sơ nào đang trong trạng thái thi công hoặc trở ngại.'
-                  : 'Bạn không có hồ sơ nào được phân công chưa hoàn tất. Chúc mừng bạn đã hoàn thành công việc!'}
-              </div>
-            ) : (
-              <div className="overflow-x-auto rounded-xl border border-slate-200">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px]">
-                    <tr>
-                      <th className="px-3 py-2.5 border-b border-slate-200 w-12 text-center">STT</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200">Mã KH</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200">Tên Khách Hàng</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200">Địa Chỉ</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200">Người Thực Hiện</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200">Ngày Giao</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200 text-center">Trạng Thái</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200">Ghi Chú</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200 text-center w-24">Ảnh</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200 text-center w-32">Thao Tác</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {tab3Records.map((item, idx) => (
-                      <tr key={item.maKh} className="hover:bg-slate-50">
-                        <td className="px-3 py-2 text-center text-slate-500 font-mono">
-                          {item.stt || (idx + 1)}
-                        </td>
-                        <td className="px-3 py-2 font-mono font-bold text-slate-800">
-                          {item.maKh}
-                        </td>
-                        <td className="px-3 py-2 font-semibold text-slate-800">
-                          {item.tenKh}
-                        </td>
-                        <td className="px-3 py-2 text-slate-600 max-w-xs truncate" title={item.diaChi}>
-                          {item.diaChi}
-                        </td>
-                        <td className="px-3 py-2 font-semibold text-purple-900">
-                          {item.nguoiThucHien || item.nguoiNhan || '-'}
-                        </td>
-                        <td className="px-3 py-2 text-slate-500 font-mono text-[11px]">
-                          {item.ngayGiao || '-'}
-                        </td>
-                        <td className="px-3 py-2 text-center">
-                          {renderStatusBadge(item.trangThai)}
-                        </td>
-                        <td className="px-3 py-2 text-slate-600 max-w-xs truncate italic" title={item.ghiChu}>
-                          {item.ghiChu || '-'}
-                        </td>
-                        <td className="px-3 py-2 text-center">
-                          {item.pic ? (
+            {isSectionTab3Open && (
+              tab3Records.length === 0 ? (
+                <div className="py-12 text-center text-slate-400 text-xs italic">
+                  {isDvkhUser && !isDoiLeader
+                    ? 'Hiện không có hồ sơ nào đang trong trạng thái thi công hoặc trở ngại.'
+                    : 'Bạn không có hồ sơ nào được phân công chưa hoàn tất. Chúc mừng bạn đã hoàn thành công việc!'}
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-slate-200 animate-in fade-in duration-200">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px]">
+                      <tr>
+                        <th className="px-3 py-2.5 border-b border-slate-200 w-12 text-center">STT</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200">Mã KH</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200">Tên Khách Hàng</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200">Địa Chỉ</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200">Người Thực Hiện</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200">Ngày Giao</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200 text-center">Trạng Thái</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200">Ghi Chú</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200 text-center w-24">Ảnh</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200 text-center w-32">Thao Tác</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {tab3Records.map((item, idx) => (
+                        <tr key={item.maKh} className="hover:bg-slate-50">
+                          <td className="px-3 py-2 text-center text-slate-500 font-mono">
+                            {item.stt || (idx + 1)}
+                          </td>
+                          <td className="px-3 py-2 font-mono font-bold text-slate-800">
+                            {item.maKh}
+                          </td>
+                          <td className="px-3 py-2 font-semibold text-slate-800">
+                            {item.tenKh}
+                          </td>
+                          <td className="px-3 py-2 text-slate-600 max-w-xs truncate" title={item.diaChi}>
+                            {item.diaChi}
+                          </td>
+                          <td className="px-3 py-2 font-semibold text-purple-900">
+                            {item.nguoiThucHien || item.nguoiNhan || '-'}
+                          </td>
+                          <td className="px-3 py-2 text-slate-500 font-mono text-[11px]">
+                            {item.ngayGiao || '-'}
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            {renderStatusBadge(item.trangThai)}
+                          </td>
+                          <td className="px-3 py-2 text-slate-600 max-w-xs truncate italic" title={item.ghiChu}>
+                            {item.ghiChu || '-'}
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            {item.pic ? (
+                              <button
+                                type="button"
+                                onClick={() => setViewingImageModal({ url: item.pic!, title: `Ảnh chứng minh - KH ${item.tenKh} (${item.maKh})` })}
+                                className="inline-flex items-center gap-1 px-2 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg text-[11px] font-bold border border-purple-200 cursor-pointer transition-all shadow-2xs hover:scale-105"
+                                title="Bấm để xem ảnh chứng minh trở ngại"
+                              >
+                                <Camera className="w-3.5 h-3.5 text-purple-600" />
+                                <span>Xem</span>
+                              </button>
+                            ) : (
+                              <span className="text-slate-300 text-[10px] italic">-</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-center">
                             <button
                               type="button"
-                              onClick={() => setViewingImageModal({ url: item.pic!, title: `Ảnh chứng minh - KH ${item.tenKh} (${item.maKh})` })}
-                              className="inline-flex items-center gap-1 px-2 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg text-[11px] font-bold border border-purple-200 cursor-pointer transition-all shadow-2xs hover:scale-105"
-                              title="Bấm để xem ảnh chứng minh trở ngại"
+                              onClick={() => openUpdateModal(item)}
+                              disabled={isDvkhUser && !isDoiLeader}
+                              className="px-3 py-1 bg-purple-700 hover:bg-purple-800 text-white rounded-lg text-xs font-bold transition-all shadow-xs active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                             >
-                              <Camera className="w-3.5 h-3.5 text-purple-600" />
-                              <span>Xem</span>
+                              Báo cáo kết quả
                             </button>
-                          ) : (
-                            <span className="text-slate-300 text-[10px] italic">-</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2 text-center">
-                          <button
-                            type="button"
-                            onClick={() => openUpdateModal(item)}
-                            disabled={isDvkhUser && !isDoiLeader}
-                            className="px-3 py-1 bg-purple-700 hover:bg-purple-800 text-white rounded-lg text-xs font-bold transition-all shadow-xs active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                          >
-                            Báo cáo kết quả
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
             )}
           </div>
         </div>
@@ -2279,7 +2566,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
       {/* ========================================================= */}
       <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
         {/* Header of bottom list */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-slate-100">
           <div className="flex items-center gap-2">
             <span className="p-2 rounded-xl bg-purple-100 text-purple-700 font-bold">
               <Layers className="w-5 h-5" />
@@ -2289,12 +2576,46 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                 Danh Sách Toàn Bộ Hồ Sơ DVKH ({bottomFilteredList.length} / {dvkhList.length})
               </h3>
               <p className="text-[11px] text-slate-500">
-                Hiển thị Tên KH, Địa chỉ, Ngày nhận, Ngày hoàn tất, Ghi chú và Trạng thái HS.
+                Hiển thị tối đa 20 hồ sơ trên mỗi trang. Hỗ trợ lọc theo từng khu vực và phường/xã.
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Bộ lọc nhanh Khu vực */}
+            <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 rounded-xl border border-slate-300 text-xs">
+              <MapPin className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+              <select
+                value={filterArea}
+                onChange={(e) => {
+                  setFilterArea(e.target.value);
+                  setFilterWard('ALL');
+                }}
+                className="bg-transparent font-bold text-slate-700 outline-none text-xs cursor-pointer"
+              >
+                <option value="ALL">Tất cả khu vực</option>
+                {DVKH_AREAS.map(a => (
+                  <option key={a.id} value={a.id}>{a.name}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Phường/Xã nếu đã chọn khu vực cụ thể */}
+            {filterArea !== 'ALL' && (
+              <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 rounded-xl border border-slate-300 text-xs">
+                <select
+                  value={filterWard}
+                  onChange={(e) => setFilterWard(e.target.value)}
+                  className="bg-transparent font-bold text-slate-700 outline-none text-xs cursor-pointer"
+                >
+                  <option value="ALL">Tất cả phường/xã</option>
+                  {DVKH_AREAS.find(a => a.id === filterArea)?.wards.map(w => (
+                    <option key={w.id} value={w.id}>{w.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             {/* Quick search */}
             <div className="relative">
               <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -2303,7 +2624,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                 value={filterSearch}
                 onChange={(e) => setFilterSearch(e.target.value)}
                 placeholder="Tìm tên, mã, địa chỉ..."
-                className="pl-8 pr-3 py-1.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none w-44 sm:w-56"
+                className="pl-8 pr-3 py-1.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none w-36 sm:w-48"
               />
               {filterSearch && (
                 <button onClick={() => setFilterSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
@@ -2324,7 +2645,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
               title="Mở bộ lọc tìm kiếm nâng cao"
             >
               <Filter className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Bộ lọc (Phễu)</span>
+              <span className="hidden sm:inline">Bộ lọc</span>
             </button>
 
             {/* Export CSV */}
@@ -2336,172 +2657,335 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
             >
               <Download className="w-4 h-4" />
             </button>
+
+            {/* Nút Thu gọn / Mở rộng */}
+            <button
+              type="button"
+              onClick={() => setIsSectionBottomListOpen(!isSectionBottomListOpen)}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs font-bold transition-all shadow-2xs active:scale-95 cursor-pointer ml-1"
+              title={isSectionBottomListOpen ? "Thu gọn toàn bộ danh sách" : "Mở rộng toàn bộ danh sách"}
+            >
+              <span className="hidden sm:inline">{isSectionBottomListOpen ? 'Thu gọn' : 'Mở rộng'}</span>
+              {isSectionBottomListOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </button>
           </div>
         </div>
 
-        {/* Expandable Funnel Filter Panel */}
-        {showFilterDrawer && (
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3 animate-in fade-in slide-in-from-top-1 text-xs">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-200">
-              <span className="font-bold text-slate-700 flex items-center gap-1.5">
-                <Filter className="w-4 h-4 text-purple-600" />
-                <span>Tiêu Chí Lọc Nâng Cao</span>
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  setFilterTrangThai('ALL');
-                  setFilterAssignee('ALL');
-                  setFilterFromDate('');
-                  setFilterToDate('');
-                  setFilterSearch('');
-                }}
-                className="text-purple-700 hover:text-purple-900 font-semibold cursor-pointer text-[11px]"
-              >
-                Đặt lại bộ lọc
-              </button>
-            </div>
+        {isSectionBottomListOpen && (
+          <div className="space-y-4 animate-in fade-in duration-200">
+            {/* Expandable Funnel Filter Panel */}
+            {showFilterDrawer && (
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3 animate-in fade-in slide-in-from-top-1 text-xs">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                  <span className="font-bold text-slate-700 flex items-center gap-1.5">
+                    <Filter className="w-4 h-4 text-purple-600" />
+                    <span>Tiêu Chí Lọc Nâng Cao</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFilterTrangThai('ALL');
+                      setFilterAssignee('ALL');
+                      setFilterArea('ALL');
+                      setFilterWard('ALL');
+                      setFilterFromDate('');
+                      setFilterToDate('');
+                      setFilterSearch('');
+                    }}
+                    className="text-purple-700 hover:text-purple-900 font-semibold cursor-pointer text-[11px]"
+                  >
+                    Đặt lại bộ lọc
+                  </button>
+                </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                  Trạng thái hồ sơ
-                </label>
-                <select
-                  value={filterTrangThai}
-                  onChange={(e) => setFilterTrangThai(e.target.value)}
-                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg outline-none bg-white"
-                >
-                  <option value="ALL">-- Tất cả trạng thái --</option>
-                  <option value="Chưa giao">Chưa giao</option>
-                  <option value="Chờ nhận">Chờ nhận</option>
-                  <option value="Đã Nhận">Đã Nhận</option>
-                  <option value="Đã Giao thi công">Đã Giao thi công</option>
-                  <option value="Trở ngại">Trở ngại</option>
-                  <option value="Xong">Xong</option>
-                </select>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                  {/* Lọc Khu vực trong drawer */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                      Khu vực
+                    </label>
+                    <select
+                      value={filterArea}
+                      onChange={(e) => {
+                        setFilterArea(e.target.value);
+                        setFilterWard('ALL');
+                      }}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg outline-none bg-white font-semibold"
+                    >
+                      <option value="ALL">-- Tất cả khu vực --</option>
+                      {DVKH_AREAS.map(a => (
+                        <option key={a.id} value={a.id}>{a.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Lọc Phường/Xã trong drawer */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                      Phường / Xã
+                    </label>
+                    <select
+                      value={filterWard}
+                      onChange={(e) => setFilterWard(e.target.value)}
+                      disabled={filterArea === 'ALL'}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg outline-none bg-white font-semibold disabled:bg-slate-100 disabled:text-slate-400"
+                    >
+                      <option value="ALL">-- Tất cả phường/xã --</option>
+                      {filterArea !== 'ALL' && DVKH_AREAS.find(a => a.id === filterArea)?.wards.map(w => (
+                        <option key={w.id} value={w.id}>{w.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                      Trạng thái hồ sơ
+                    </label>
+                    <select
+                      value={filterTrangThai}
+                      onChange={(e) => setFilterTrangThai(e.target.value)}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg outline-none bg-white"
+                    >
+                      <option value="ALL">-- Tất cả trạng thái --</option>
+                      <option value="Chưa giao">Chưa giao</option>
+                      <option value="Chờ nhận">Chờ nhận</option>
+                      <option value="Đã Nhận">Đã Nhận</option>
+                      <option value="Đã Giao thi công">Đã Giao thi công</option>
+                      <option value="Trở ngại">Trở ngại</option>
+                      <option value="Xong">Xong</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                      Người thực hiện / Nhận
+                    </label>
+                    <select
+                      value={filterAssignee}
+                      onChange={(e) => setFilterAssignee(e.target.value)}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg outline-none bg-white"
+                    >
+                      <option value="ALL">-- Tất cả nhân viên --</option>
+                      {Array.from(new Set(dvkhList.map(e => e.nguoiThucHien || e.nguoiNhan).filter(Boolean))).map(name => (
+                        <option key={name} value={name}>{name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                      Từ ngày (Nhận / Tạo)
+                    </label>
+                    <input
+                      type="date"
+                      value={filterFromDate}
+                      onChange={(e) => setFilterFromDate(e.target.value)}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg outline-none bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                      Đến ngày
+                    </label>
+                    <input
+                      type="date"
+                      value={filterToDate}
+                      onChange={(e) => setFilterToDate(e.target.value)}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg outline-none bg-white"
+                    />
+                  </div>
+                </div>
               </div>
+            )}
 
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                  Người thực hiện / Nhận
-                </label>
-                <select
-                  value={filterAssignee}
-                  onChange={(e) => setFilterAssignee(e.target.value)}
-                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg outline-none bg-white"
-                >
-                  <option value="ALL">-- Tất cả nhân viên --</option>
-                  {Array.from(new Set(dvkhList.map(e => e.nguoiThucHien || e.nguoiNhan).filter(Boolean))).map(name => (
-                    <option key={name} value={name}>{name}</option>
-                  ))}
-                </select>
+            {/* The Main Data Table */}
+            {bottomFilteredList.length === 0 ? (
+              <div className="py-12 text-center text-slate-400 text-xs italic">
+                {dvkhList.length > 0
+                  ? 'Không tìm thấy hồ sơ nào phù hợp với bộ lọc hiện tại. Hãy thử chọn lại khu vực hoặc từ khóa tìm kiếm.'
+                  : 'Chưa có hồ sơ nào trong danh sách. Dữ liệu sẽ xuất hiện khi bạn thêm mới, import file hoặc khi đồng bộ từ Google Sheets.'}
               </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                  Từ ngày (Ngày nhận / Tạo)
-                </label>
-                <input
-                  type="date"
-                  value={filterFromDate}
-                  onChange={(e) => setFilterFromDate(e.target.value)}
-                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg outline-none bg-white"
-                />
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-slate-200">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px]">
+                    <tr>
+                      <th className="px-3 py-2.5 border-b border-slate-200 w-12 text-center">STT</th>
+                      <th className="px-3 py-2.5 border-b border-slate-200">Mã KH</th>
+                      <th className="px-3 py-2.5 border-b border-slate-200">Tên Khách Hàng</th>
+                      <th className="px-3 py-2.5 border-b border-slate-200">Địa Chỉ</th>
+                      <th className="px-3 py-2.5 border-b border-slate-200">Loại</th>
+                      <th className="px-3 py-2.5 border-b border-slate-200">Ngày Nhận</th>
+                      <th className="px-3 py-2.5 border-b border-slate-200">Ngày Hoàn Tất</th>
+                      <th className="px-3 py-2.5 border-b border-slate-200">Ghi Chú</th>
+                      <th className="px-3 py-2.5 border-b border-slate-200 text-center">Ảnh</th>
+                      <th className="px-3 py-2.5 border-b border-slate-200 text-center">Trạng Thái HS</th>
+                      <th className="px-3 py-2.5 border-b border-slate-200">Người Thực Hiện</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {paginatedBottomList.map((item, idx) => (
+                      <tr key={item.maKh} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-3 py-2.5 text-center text-slate-500 font-mono font-bold">
+                          {item.stt || ((currentBottomPage - 1) * BOTTOM_PAGE_SIZE + idx + 1)}
+                        </td>
+                        <td className="px-3 py-2.5 font-mono font-bold text-purple-900">
+                          {item.maKh}
+                        </td>
+                        <td className="px-3 py-2.5 font-bold text-slate-800">
+                          {item.tenKh}
+                        </td>
+                        <td className="px-3 py-2.5 text-slate-600 max-w-xs truncate" title={item.diaChi}>
+                          {item.diaChi || '-'}
+                        </td>
+                        <td className="px-3 py-2.5 text-slate-700">
+                          <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-semibold border border-slate-200">
+                            {item.loaiYeuCau || 'Gắn mới'}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-slate-600 font-mono text-[11px]">
+                          {item.ngayNhan || item.ngayTao || '-'}
+                        </td>
+                        <td className="px-3 py-2.5 text-slate-600 font-mono text-[11px]">
+                          {item.ngayHoanTat || '-'}
+                        </td>
+                        <td className="px-3 py-2.5 text-slate-600 max-w-xs truncate italic" title={item.ghiChu}>
+                          {item.ghiChu || '-'}
+                        </td>
+                        <td className="px-3 py-2.5 text-center">
+                          {item.pic ? (
+                            <button
+                              type="button"
+                              onClick={() => setViewingImageModal({ url: item.pic!, title: `Ảnh chứng minh - KH ${item.tenKh} (${item.maKh})` })}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg text-[10px] font-bold border border-purple-200 cursor-pointer transition-all hover:scale-105"
+                              title="Bấm để xem ảnh chứng minh"
+                            >
+                              <Camera className="w-3 h-3 text-purple-600" />
+                              <span>Xem</span>
+                            </button>
+                          ) : (
+                            <span className="text-slate-300 text-[10px]">-</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2.5 text-center">
+                          {renderStatusBadge(item.trangThai)}
+                        </td>
+                        <td className="px-3 py-2.5 font-semibold text-slate-700">
+                          {item.nguoiThucHien || item.nguoiNhan || '-'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
+            )}
 
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                  Đến ngày
-                </label>
-                <input
-                  type="date"
-                  value={filterToDate}
-                  onChange={(e) => setFilterToDate(e.target.value)}
-                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg outline-none bg-white"
-                />
+            {/* Phân trang: 20 hồ sơ trên trang theo yêu cầu */}
+            {bottomFilteredList.length > 0 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-200 text-xs text-slate-600">
+                <div className="flex items-center gap-2">
+                  <span>
+                    Hiển thị <b className="text-purple-900 font-bold">{(currentBottomPage - 1) * BOTTOM_PAGE_SIZE + 1}</b> -{' '}
+                    <b className="text-purple-900 font-bold">{Math.min(currentBottomPage * BOTTOM_PAGE_SIZE, bottomFilteredList.length)}</b>{' '}
+                    trên tổng số <b className="text-purple-900 font-bold">{bottomFilteredList.length}</b> hồ sơ
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 font-semibold border border-purple-200 text-[11px]">
+                    20 hồ sơ/trang
+                  </span>
+                </div>
+
+                {totalBottomPages > 1 && (
+                  <div className="flex items-center gap-1">
+                    {/* Trang đầu */}
+                    <button
+                      type="button"
+                      onClick={() => setBottomPage(1)}
+                      disabled={currentBottomPage === 1}
+                      className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                      title="Trang đầu"
+                    >
+                      <ChevronsLeft className="w-4 h-4" />
+                    </button>
+
+                    {/* Trang trước */}
+                    <button
+                      type="button"
+                      onClick={() => setBottomPage(p => Math.max(1, p - 1))}
+                      disabled={currentBottomPage === 1}
+                      className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                      title="Trang trước"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+
+                    {/* Danh sách các số trang */}
+                    <div className="flex items-center gap-1 px-1">
+                      {Array.from({ length: totalBottomPages }, (_, i) => i + 1)
+                        .filter(pageNum => {
+                          if (totalBottomPages <= 7) return true;
+                          if (pageNum === 1 || pageNum === totalBottomPages) return true;
+                          return Math.abs(pageNum - currentBottomPage) <= 1;
+                        })
+                        .reduce((acc: (number | string)[], pageNum, idx, arr) => {
+                          if (idx > 0 && pageNum - (arr[idx - 1] as number) > 1) {
+                            acc.push('...');
+                          }
+                          acc.push(pageNum);
+                          return acc;
+                        }, [])
+                        .map((item, idx) => {
+                          if (item === '...') {
+                            return (
+                              <span key={`ellipsis-${idx}`} className="px-1 text-slate-400">
+                                ...
+                              </span>
+                            );
+                          }
+                          const p = item as number;
+                          const isActive = p === currentBottomPage;
+                          return (
+                            <button
+                              key={p}
+                              type="button"
+                              onClick={() => setBottomPage(p)}
+                              className={`w-7 h-7 flex items-center justify-center rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                isActive
+                                  ? 'bg-purple-700 text-white shadow-xs'
+                                  : 'border border-slate-200 hover:bg-slate-100 text-slate-700'
+                              }`}
+                            >
+                              {p}
+                            </button>
+                          );
+                        })}
+                    </div>
+
+                    {/* Trang sau */}
+                    <button
+                      type="button"
+                      onClick={() => setBottomPage(p => Math.min(totalBottomPages, p + 1))}
+                      disabled={currentBottomPage === totalBottomPages}
+                      className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                      title="Trang sau"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+
+                    {/* Trang cuối */}
+                    <button
+                      type="button"
+                      onClick={() => setBottomPage(totalBottomPages)}
+                      disabled={currentBottomPage === totalBottomPages}
+                      className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                      title="Trang cuối"
+                    >
+                      <ChevronsRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* The Main Data Table */}
-        {bottomFilteredList.length === 0 ? (
-          <div className="py-12 text-center text-slate-400 text-xs italic">
-            Chưa có hồ sơ nào trong danh sách. Dữ liệu sẽ xuất hiện khi bạn thêm mới, import file hoặc khi đồng bộ từ Google Sheets.
-          </div>
-        ) : (
-          <div className="overflow-x-auto rounded-xl border border-slate-200">
-            <table className="w-full text-xs text-left">
-              <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px]">
-                <tr>
-                  <th className="px-3 py-2.5 border-b border-slate-200 w-12 text-center">STT</th>
-                  <th className="px-3 py-2.5 border-b border-slate-200">Mã KH</th>
-                  <th className="px-3 py-2.5 border-b border-slate-200">Tên Khách Hàng</th>
-                  <th className="px-3 py-2.5 border-b border-slate-200">Địa Chỉ</th>
-                  <th className="px-3 py-2.5 border-b border-slate-200">Loại</th>
-                  <th className="px-3 py-2.5 border-b border-slate-200">Ngày Nhận</th>
-                  <th className="px-3 py-2.5 border-b border-slate-200">Ngày Hoàn Tất</th>
-                  <th className="px-3 py-2.5 border-b border-slate-200">Ghi Chú</th>
-                  <th className="px-3 py-2.5 border-b border-slate-200 text-center">Ảnh</th>
-                  <th className="px-3 py-2.5 border-b border-slate-200 text-center">Trạng Thái HS</th>
-                  <th className="px-3 py-2.5 border-b border-slate-200">Người Thực Hiện</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {bottomFilteredList.map((item, idx) => (
-                  <tr key={item.maKh} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-3 py-2.5 text-center text-slate-500 font-mono font-bold">
-                      {item.stt || (idx + 1)}
-                    </td>
-                    <td className="px-3 py-2.5 font-mono font-bold text-purple-900">
-                      {item.maKh}
-                    </td>
-                    <td className="px-3 py-2.5 font-bold text-slate-800">
-                      {item.tenKh}
-                    </td>
-                    <td className="px-3 py-2.5 text-slate-600 max-w-xs truncate" title={item.diaChi}>
-                      {item.diaChi || '-'}
-                    </td>
-                    <td className="px-3 py-2.5 text-slate-700">
-                      <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-semibold border border-slate-200">
-                        {item.loaiYeuCau || 'Gắn mới'}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2.5 text-slate-600 font-mono text-[11px]">
-                      {item.ngayNhan || item.ngayTao || '-'}
-                    </td>
-                    <td className="px-3 py-2.5 text-slate-600 font-mono text-[11px]">
-                      {item.ngayHoanTat || '-'}
-                    </td>
-                    <td className="px-3 py-2.5 text-slate-600 max-w-xs truncate italic" title={item.ghiChu}>
-                      {item.ghiChu || '-'}
-                    </td>
-                    <td className="px-3 py-2.5 text-center">
-                      {item.pic ? (
-                        <button
-                          type="button"
-                          onClick={() => setViewingImageModal({ url: item.pic!, title: `Ảnh chứng minh - KH ${item.tenKh} (${item.maKh})` })}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg text-[10px] font-bold border border-purple-200 cursor-pointer transition-all hover:scale-105"
-                          title="Bấm để xem ảnh chứng minh"
-                        >
-                          <Camera className="w-3 h-3 text-purple-600" />
-                          <span>Xem</span>
-                        </button>
-                      ) : (
-                        <span className="text-slate-300 text-[10px]">-</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2.5 text-center">
-                      {renderStatusBadge(item.trangThai)}
-                    </td>
-                    <td className="px-3 py-2.5 font-semibold text-slate-700">
-                      {item.nguoiThucHien || item.nguoiNhan || '-'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            )}
           </div>
         )}
       </div>
