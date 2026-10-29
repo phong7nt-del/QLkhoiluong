@@ -151,6 +151,152 @@ export const compressImageFile = (
   });
 };
 
+interface DvkhPaginationProps {
+  currentPage: number;
+  totalPages: number;
+  totalItems: number;
+  pageSize: number;
+  onPageChange: (page: number | ((prev: number) => number)) => void;
+  accentColor?: 'purple' | 'sky' | 'blue' | 'rose';
+  itemLabel?: string;
+}
+
+function DvkhPagination({
+  currentPage,
+  totalPages,
+  totalItems,
+  pageSize,
+  onPageChange,
+  accentColor = 'purple',
+  itemLabel = 'khách hàng'
+}: DvkhPaginationProps) {
+  if (totalItems === 0) return null;
+
+  const startIdx = (currentPage - 1) * pageSize + 1;
+  const endIdx = Math.min(currentPage * pageSize, totalItems);
+
+  const colorStyles = {
+    purple: {
+      textBold: 'text-purple-900',
+      badge: 'bg-purple-50 text-purple-700 border-purple-200',
+      btnActive: 'bg-purple-700 text-white'
+    },
+    sky: {
+      textBold: 'text-sky-900',
+      badge: 'bg-sky-50 text-sky-700 border-sky-200',
+      btnActive: 'bg-sky-700 text-white'
+    },
+    blue: {
+      textBold: 'text-blue-900',
+      badge: 'bg-blue-50 text-blue-700 border-blue-200',
+      btnActive: 'bg-blue-700 text-white'
+    },
+    rose: {
+      textBold: 'text-rose-900',
+      badge: 'bg-rose-50 text-rose-700 border-rose-200',
+      btnActive: 'bg-rose-700 text-white'
+    }
+  }[accentColor];
+
+  return (
+    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-200 text-xs text-slate-600">
+      <div className="flex items-center gap-2">
+        <span>
+          Hiển thị <b className={`${colorStyles.textBold} font-bold`}>{startIdx}</b> -{' '}
+          <b className={`${colorStyles.textBold} font-bold`}>{endIdx}</b>{' '}
+          trên tổng số <b className={`${colorStyles.textBold} font-bold`}>{totalItems}</b> {itemLabel}
+        </span>
+        <span className={`px-2 py-0.5 rounded-md ${colorStyles.badge} font-semibold border text-[11px]`}>
+          {pageSize} {itemLabel}/trang
+        </span>
+      </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => onPageChange(1)}
+            disabled={currentPage === 1}
+            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            title="Trang đầu"
+          >
+            <ChevronsLeft className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => onPageChange(p => Math.max(1, p - 1))}
+            disabled={currentPage === 1}
+            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            title="Trang trước"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+
+          <div className="flex items-center gap-1 px-1">
+            {Array.from({ length: totalPages }, (_, i) => i + 1)
+              .filter(p => {
+                if (totalPages <= 7) return true;
+                if (p === 1 || p === totalPages) return true;
+                return Math.abs(p - currentPage) <= 1;
+              })
+              .reduce((acc: (number | string)[], p, idx, arr) => {
+                if (idx > 0 && p - (arr[idx - 1] as number) > 1) {
+                  acc.push('...');
+                }
+                acc.push(p);
+                return acc;
+              }, [])
+              .map((item, idx) => {
+                if (item === '...') {
+                  return (
+                    <span key={`ellipsis-${idx}`} className="px-1 text-slate-400">
+                      ...
+                    </span>
+                  );
+                }
+                const p = item as number;
+                const isActive = p === currentPage;
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => onPageChange(p)}
+                    className={`w-7 h-7 flex items-center justify-center rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      isActive
+                        ? `${colorStyles.btnActive} shadow-xs`
+                        : 'border border-slate-200 hover:bg-slate-100 text-slate-700'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                );
+              })}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => onPageChange(p => Math.min(totalPages, p + 1))}
+            disabled={currentPage === totalPages}
+            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            title="Trang sau"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => onPageChange(totalPages)}
+            disabled={currentPage === totalPages}
+            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            title="Trang cuối"
+          >
+            <ChevronsRight className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface DvkhTabProps {
   sessionUser: SheetMember | null;
   refreshToggle?: number;
@@ -395,6 +541,33 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
       filterRecordByAreaAndWard(item.diaChi, tab1ReceiptAreaFilter, tab1ReceiptWardFilter)
     );
   }, [tab1DeliveredWaitingConfirm, tab1ReceiptAreaFilter, tab1ReceiptWardFilter]);
+
+  // Phân trang Tab 1: 10 khách hàng trên trang theo yêu cầu
+  const TAB1_PENDING_PAGE_SIZE = 10;
+  const [tab1PendingPage, setTab1PendingPage] = useState(1);
+  const totalTab1PendingPages = Math.max(1, Math.ceil(filteredTab1PendingRecords.length / TAB1_PENDING_PAGE_SIZE));
+  const currentTab1PendingPage = Math.min(tab1PendingPage, totalTab1PendingPages);
+  const paginatedTab1PendingRecords = useMemo(() => {
+    const start = (currentTab1PendingPage - 1) * TAB1_PENDING_PAGE_SIZE;
+    return filteredTab1PendingRecords.slice(start, start + TAB1_PENDING_PAGE_SIZE);
+  }, [filteredTab1PendingRecords, currentTab1PendingPage]);
+
+  const TAB1_RECEIPT_PAGE_SIZE = 10;
+  const [tab1ReceiptPage, setTab1ReceiptPage] = useState(1);
+  const totalTab1ReceiptPages = Math.max(1, Math.ceil(filteredTab1DeliveredWaitingConfirm.length / TAB1_RECEIPT_PAGE_SIZE));
+  const currentTab1ReceiptPage = Math.min(tab1ReceiptPage, totalTab1ReceiptPages);
+  const paginatedTab1DeliveredWaitingConfirm = useMemo(() => {
+    const start = (currentTab1ReceiptPage - 1) * TAB1_RECEIPT_PAGE_SIZE;
+    return filteredTab1DeliveredWaitingConfirm.slice(start, start + TAB1_RECEIPT_PAGE_SIZE);
+  }, [filteredTab1DeliveredWaitingConfirm, currentTab1ReceiptPage]);
+
+  useEffect(() => {
+    setTab1PendingPage(1);
+  }, [tab1PendingAreaFilter, tab1PendingWardFilter]);
+
+  useEffect(() => {
+    setTab1ReceiptPage(1);
+  }, [tab1ReceiptAreaFilter, tab1ReceiptWardFilter]);
 
   const handleAddNewRecord = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -721,6 +894,16 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     return dvkhList.filter(e => e.trangThai === 'Đã Nhận');
   }, [dvkhList]);
 
+  // Phân trang Tab 2: 10 khách hàng trên trang theo yêu cầu
+  const TAB2_PAGE_SIZE = 10;
+  const [tab2Page, setTab2Page] = useState(1);
+  const totalTab2Pages = Math.max(1, Math.ceil(tab2Records.length / TAB2_PAGE_SIZE));
+  const currentTab2Page = Math.min(tab2Page, totalTab2Pages);
+  const paginatedTab2Records = useMemo(() => {
+    const start = (currentTab2Page - 1) * TAB2_PAGE_SIZE;
+    return tab2Records.slice(start, start + TAB2_PAGE_SIZE);
+  }, [tab2Records, currentTab2Page]);
+
   const handleAssignToTechnician = async () => {
     if (tab2SelectedMaKhs.length === 0) {
       alert('Vui lòng chọn ít nhất một hồ sơ để giao thi công!');
@@ -797,6 +980,16 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
       return assigned === myName;
     });
   }, [dvkhList, isDvkhUser, isDoiLeader, isToLeader, managerViewAllTab3, sessionUser?.name]);
+
+  // Phân trang Tab 3: 10 khách hàng trên trang theo yêu cầu
+  const TAB3_PAGE_SIZE = 10;
+  const [tab3Page, setTab3Page] = useState(1);
+  const totalTab3Pages = Math.max(1, Math.ceil(tab3Records.length / TAB3_PAGE_SIZE));
+  const currentTab3Page = Math.min(tab3Page, totalTab3Pages);
+  const paginatedTab3Records = useMemo(() => {
+    const start = (currentTab3Page - 1) * TAB3_PAGE_SIZE;
+    return tab3Records.slice(start, start + TAB3_PAGE_SIZE);
+  }, [tab3Records, currentTab3Page]);
 
   const openUpdateModal = (record: DvkhEntry) => {
     if (isDvkhUser && !isDoiLeader) {
@@ -988,8 +1181,8 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
   const [filterArea, setFilterArea] = useState('ALL');
   const [filterWard, setFilterWard] = useState('ALL');
 
-  // Phân trang danh sách toàn bộ hồ sơ: 20 hồ sơ trên trang theo yêu cầu
-  const BOTTOM_PAGE_SIZE = 20;
+  // Phân trang danh sách toàn bộ hồ sơ: 10 khách hàng trên trang theo yêu cầu
+  const BOTTOM_PAGE_SIZE = 10;
   const [bottomPage, setBottomPage] = useState(1);
 
   const bottomFilteredList = useMemo(() => {
@@ -1482,11 +1675,11 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                 <button
                   type="button"
                   onClick={() => setIsSectionNewFormOpen(!isSectionNewFormOpen)}
-                  className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all border border-slate-300 shadow-2xs active:scale-95 cursor-pointer"
+                  className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all border border-slate-300 shadow-2xs active:scale-95 cursor-pointer flex items-center justify-center"
                   title={isSectionNewFormOpen ? "Thu gọn form nhập mới" : "Mở rộng form nhập mới"}
+                  aria-label={isSectionNewFormOpen ? "Thu gọn form nhập mới" : "Mở rộng form nhập mới"}
                 >
-                  <span className="hidden sm:inline">{isSectionNewFormOpen ? 'Thu gọn' : 'Mở rộng'}</span>
-                  {isSectionNewFormOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  {isSectionNewFormOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                 </button>
               </div>
             </div>
@@ -1701,11 +1894,11 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                 <button
                   type="button"
                   onClick={() => setIsSectionPendingOpen(!isSectionPendingOpen)}
-                  className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all border border-slate-300 shadow-2xs active:scale-95 cursor-pointer ml-1"
+                  className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all border border-slate-300 shadow-2xs active:scale-95 cursor-pointer ml-1 flex items-center justify-center"
                   title={isSectionPendingOpen ? "Thu gọn danh sách" : "Mở rộng danh sách"}
+                  aria-label={isSectionPendingOpen ? "Thu gọn" : "Mở rộng"}
                 >
-                  <span className="hidden sm:inline">{isSectionPendingOpen ? 'Thu gọn' : 'Mở rộng'}</span>
-                  {isSectionPendingOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  {isSectionPendingOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                 </button>
               </div>
             </div>
@@ -1718,88 +1911,100 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                     : 'Chưa có hồ sơ nào ở trạng thái chưa giao. Bạn có thể bấm "Thêm" hoặc "Import File" ở trên để đưa hồ sơ mới vào hệ thống.'}
                 </div>
               ) : (
-                <div className="overflow-x-auto rounded-xl border border-slate-200 animate-in fade-in duration-200">
-                  <table className="w-full text-xs text-left">
-                    <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px]">
-                      <tr>
-                        <th className="px-3 py-2.5 border-b border-slate-200 w-10 text-center">
-                          <input
-                            type="checkbox"
-                            checked={tab1SelectedMaKhs.length === filteredTab1PendingRecords.length && filteredTab1PendingRecords.length > 0}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setTab1SelectedMaKhs(filteredTab1PendingRecords.map(r => r.maKh));
-                              } else {
-                                setTab1SelectedMaKhs([]);
-                              }
-                            }}
-                            className="rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
-                          />
-                        </th>
-                        <th className="px-3 py-2.5 border-b border-slate-200 w-12 text-center">STT</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200">Mã KH</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200">Tên Khách Hàng</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200">Địa Chỉ</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200">SĐT</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200">Loại</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200">Ngày Nhận</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200">Ghi Chú</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200 text-center">Trạng Thái</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {filteredTab1PendingRecords.map((item, idx) => {
-                        const isSelected = tab1SelectedMaKhs.includes(item.maKh);
-                        return (
-                          <tr key={item.maKh} className={isSelected ? 'bg-purple-50/50' : 'hover:bg-slate-50'}>
-                            <td className="px-3 py-2 text-center">
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    setTab1SelectedMaKhs(prev => [...prev, item.maKh]);
-                                  } else {
-                                    setTab1SelectedMaKhs(prev => prev.filter(k => k !== item.maKh));
-                                  }
-                                }}
-                                className="rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
-                              />
-                            </td>
-                            <td className="px-3 py-2 text-center text-slate-500 font-mono font-bold">
-                              {item.stt || (idx + 1)}
-                            </td>
-                            <td className="px-3 py-2 font-mono font-bold text-purple-900">
-                              {item.maKh}
-                            </td>
-                            <td className="px-3 py-2 font-semibold text-slate-800">
-                              {item.tenKh}
-                            </td>
-                            <td className="px-3 py-2 text-slate-600 max-w-xs truncate" title={item.diaChi}>
-                              {item.diaChi || '-'}
-                            </td>
-                            <td className="px-3 py-2 text-slate-600 font-mono text-[11px]">
-                              {item.sdt || '-'}
-                            </td>
-                            <td className="px-3 py-2 text-slate-700">
-                              <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-semibold border border-slate-200">
-                                {item.loaiYeuCau || 'Gắn mới'}
-                              </span>
-                            </td>
-                            <td className="px-3 py-2 text-slate-500 text-[11px] font-mono">
-                              {item.ngayNhan || item.ngayTao || '-'}
-                            </td>
-                            <td className="px-3 py-2 text-slate-600 max-w-xs truncate italic" title={item.ghiChu}>
-                              {item.ghiChu || '-'}
-                            </td>
-                            <td className="px-3 py-2 text-center">
-                              {renderStatusBadge(item.trangThai || 'Chưa giao')}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                <div className="space-y-3">
+                  <div className="overflow-x-auto rounded-xl border border-slate-200 animate-in fade-in duration-200">
+                    <table className="w-full text-xs text-left">
+                      <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px]">
+                        <tr>
+                          <th className="px-3 py-2.5 border-b border-slate-200 w-10 text-center">
+                            <input
+                              type="checkbox"
+                              checked={tab1SelectedMaKhs.length === filteredTab1PendingRecords.length && filteredTab1PendingRecords.length > 0}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setTab1SelectedMaKhs(filteredTab1PendingRecords.map(r => r.maKh));
+                                } else {
+                                  setTab1SelectedMaKhs([]);
+                                }
+                              }}
+                              className="rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
+                            />
+                          </th>
+                          <th className="px-3 py-2.5 border-b border-slate-200 w-12 text-center">STT</th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">Mã KH</th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">Tên Khách Hàng</th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">Địa Chỉ</th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">SĐT</th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">Loại</th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">Ngày Nhận</th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">Ghi Chú</th>
+                          <th className="px-3 py-2.5 border-b border-slate-200 text-center">Trạng Thái</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {paginatedTab1PendingRecords.map((item, idx) => {
+                          const isSelected = tab1SelectedMaKhs.includes(item.maKh);
+                          return (
+                            <tr key={item.maKh} className={isSelected ? 'bg-purple-50/50' : 'hover:bg-slate-50'}>
+                              <td className="px-3 py-2 text-center">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setTab1SelectedMaKhs(prev => [...prev, item.maKh]);
+                                    } else {
+                                      setTab1SelectedMaKhs(prev => prev.filter(k => k !== item.maKh));
+                                    }
+                                  }}
+                                  className="rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
+                                />
+                              </td>
+                              <td className="px-3 py-2 text-center text-slate-500 font-mono font-bold">
+                                {item.stt || ((currentTab1PendingPage - 1) * TAB1_PENDING_PAGE_SIZE + idx + 1)}
+                              </td>
+                              <td className="px-3 py-2 font-mono font-bold text-purple-900">
+                                {item.maKh}
+                              </td>
+                              <td className="px-3 py-2 font-semibold text-slate-800">
+                                {item.tenKh}
+                              </td>
+                              <td className="px-3 py-2 text-slate-600 max-w-xs truncate" title={item.diaChi}>
+                                {item.diaChi || '-'}
+                              </td>
+                              <td className="px-3 py-2 text-slate-600 font-mono text-[11px]">
+                                {item.sdt || '-'}
+                              </td>
+                              <td className="px-3 py-2 text-slate-700">
+                                <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-semibold border border-slate-200">
+                                  {item.loaiYeuCau || 'Gắn mới'}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-slate-500 text-[11px] font-mono">
+                                {item.ngayNhan || item.ngayTao || '-'}
+                              </td>
+                              <td className="px-3 py-2 text-slate-600 max-w-xs truncate italic" title={item.ghiChu}>
+                                {item.ghiChu || '-'}
+                              </td>
+                              <td className="px-3 py-2 text-center">
+                                {renderStatusBadge(item.trangThai || 'Chưa giao')}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <DvkhPagination
+                    currentPage={currentTab1PendingPage}
+                    totalPages={totalTab1PendingPages}
+                    totalItems={filteredTab1PendingRecords.length}
+                    pageSize={TAB1_PENDING_PAGE_SIZE}
+                    onPageChange={setTab1PendingPage}
+                    accentColor="purple"
+                    itemLabel="khách hàng"
+                  />
                 </div>
               )
             )}
@@ -1876,11 +2081,11 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                 <button
                   type="button"
                   onClick={() => setIsSectionReceiptOpen(!isSectionReceiptOpen)}
-                  className="flex items-center gap-1 px-2.5 py-1.5 bg-white hover:bg-sky-50 text-sky-800 rounded-xl text-xs font-bold transition-all border border-sky-300 shadow-2xs active:scale-95 cursor-pointer ml-1"
+                  className="p-1.5 bg-white hover:bg-sky-50 text-sky-800 rounded-xl transition-all border border-sky-300 shadow-2xs active:scale-95 cursor-pointer ml-1 flex items-center justify-center"
                   title={isSectionReceiptOpen ? "Thu gọn danh sách tiếp nhận" : "Mở rộng danh sách tiếp nhận"}
+                  aria-label={isSectionReceiptOpen ? "Thu gọn" : "Mở rộng"}
                 >
-                  <span className="hidden sm:inline">{isSectionReceiptOpen ? 'Thu gọn' : 'Mở rộng'}</span>
-                  {isSectionReceiptOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  {isSectionReceiptOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                 </button>
               </div>
             </div>
@@ -1893,59 +2098,71 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                     : 'Hiện không có hồ sơ nào đang chờ xác nhận tiếp nhận vào QLHTĐĐ.'}
                 </div>
               ) : (
-                <div className="overflow-x-auto rounded-xl border border-sky-200 animate-in fade-in duration-200">
-                  <table className="w-full text-xs text-left">
-                    <thead className="bg-sky-100/70 text-slate-700 font-bold uppercase text-[10px]">
-                      <tr>
-                        <th className="px-3 py-2.5 border-b border-sky-200 w-12 text-center">STT</th>
-                        <th className="px-3 py-2.5 border-b border-sky-200">Mã KH</th>
-                        <th className="px-3 py-2.5 border-b border-sky-200">Tên Khách Hàng</th>
-                        <th className="px-3 py-2.5 border-b border-sky-200">Địa Chỉ</th>
-                        <th className="px-3 py-2.5 border-b border-sky-200">Ngày Giao Từ DVKH</th>
-                        <th className="px-3 py-2.5 border-b border-sky-200 text-center">Trạng Thái</th>
-                        <th className="px-3 py-2.5 border-b border-sky-200 text-center w-32">Thao Tác</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-sky-100">
-                      {filteredTab1DeliveredWaitingConfirm.map((item, idx) => (
-                        <tr key={item.maKh} className="hover:bg-sky-50/50">
-                          <td className="px-3 py-2 text-center text-slate-500 font-mono">
-                            {item.stt || (idx + 1)}
-                          </td>
-                          <td className="px-3 py-2 font-mono font-bold text-sky-900">
-                            {item.maKh}
-                          </td>
-                          <td className="px-3 py-2 font-semibold text-slate-800">
-                            {item.tenKh}
-                          </td>
-                          <td className="px-3 py-2 text-slate-600 max-w-xs truncate" title={item.diaChi}>
-                            {item.diaChi}
-                          </td>
-                          <td className="px-3 py-2 text-slate-600 font-mono text-[11px]">
-                            {item.ngayNhan || '-'}
-                          </td>
-                          <td className="px-3 py-2 text-center">
-                            {renderStatusBadge(item.trangThai)}
-                          </td>
-                          <td className="px-3 py-2 text-center">
-                            {canConfirmReceipt ? (
-                              <button
-                                type="button"
-                                onClick={() => handleConfirmReceipt(item.maKh)}
-                                className="px-3 py-1 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer"
-                              >
-                                Xác nhận nhận
-                              </button>
-                            ) : (
-                              <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-semibold">
-                                Chờ QLHTĐĐ nhận
-                              </span>
-                            )}
-                          </td>
+                <div className="space-y-3">
+                  <div className="overflow-x-auto rounded-xl border border-sky-200 animate-in fade-in duration-200">
+                    <table className="w-full text-xs text-left">
+                      <thead className="bg-sky-100/70 text-slate-700 font-bold uppercase text-[10px]">
+                        <tr>
+                          <th className="px-3 py-2.5 border-b border-sky-200 w-12 text-center">STT</th>
+                          <th className="px-3 py-2.5 border-b border-sky-200">Mã KH</th>
+                          <th className="px-3 py-2.5 border-b border-sky-200">Tên Khách Hàng</th>
+                          <th className="px-3 py-2.5 border-b border-sky-200">Địa Chỉ</th>
+                          <th className="px-3 py-2.5 border-b border-sky-200">Ngày Giao Từ DVKH</th>
+                          <th className="px-3 py-2.5 border-b border-sky-200 text-center">Trạng Thái</th>
+                          <th className="px-3 py-2.5 border-b border-sky-200 text-center w-32">Thao Tác</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-sky-100">
+                        {paginatedTab1DeliveredWaitingConfirm.map((item, idx) => (
+                          <tr key={item.maKh} className="hover:bg-sky-50/50">
+                            <td className="px-3 py-2 text-center text-slate-500 font-mono">
+                              {item.stt || ((currentTab1ReceiptPage - 1) * TAB1_RECEIPT_PAGE_SIZE + idx + 1)}
+                            </td>
+                            <td className="px-3 py-2 font-mono font-bold text-sky-900">
+                              {item.maKh}
+                            </td>
+                            <td className="px-3 py-2 font-semibold text-slate-800">
+                              {item.tenKh}
+                            </td>
+                            <td className="px-3 py-2 text-slate-600 max-w-xs truncate" title={item.diaChi}>
+                              {item.diaChi}
+                            </td>
+                            <td className="px-3 py-2 text-slate-600 font-mono text-[11px]">
+                              {item.ngayNhan || '-'}
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              {renderStatusBadge(item.trangThai)}
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              {canConfirmReceipt ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleConfirmReceipt(item.maKh)}
+                                  className="px-3 py-1 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer"
+                                >
+                                  Xác nhận nhận
+                                </button>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-semibold">
+                                  Chờ QLHTĐĐ nhận
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <DvkhPagination
+                    currentPage={currentTab1ReceiptPage}
+                    totalPages={totalTab1ReceiptPages}
+                    totalItems={filteredTab1DeliveredWaitingConfirm.length}
+                    pageSize={TAB1_RECEIPT_PAGE_SIZE}
+                    onPageChange={setTab1ReceiptPage}
+                    accentColor="sky"
+                    itemLabel="khách hàng"
+                  />
                 </div>
               )
             )}
@@ -2012,11 +2229,11 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                 <button
                   type="button"
                   onClick={() => setIsSectionTab2Open(!isSectionTab2Open)}
-                  className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all border border-slate-300 shadow-2xs active:scale-95 cursor-pointer ml-1"
+                  className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all border border-slate-300 shadow-2xs active:scale-95 cursor-pointer ml-1 flex items-center justify-center"
                   title={isSectionTab2Open ? "Thu gọn danh sách" : "Mở rộng danh sách"}
+                  aria-label={isSectionTab2Open ? "Thu gọn" : "Mở rộng"}
                 >
-                  <span className="hidden sm:inline">{isSectionTab2Open ? 'Thu gọn' : 'Mở rộng'}</span>
-                  {isSectionTab2Open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  {isSectionTab2Open ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                 </button>
               </div>
             </div>
@@ -2027,84 +2244,96 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                   Không có hồ sơ tồn chưa giao thi công. Tất cả hồ sơ đã được phân công hoặc chưa tiếp nhận.
                 </div>
               ) : (
-                <div className="overflow-x-auto rounded-xl border border-slate-200 animate-in fade-in duration-200">
-                  <table className="w-full text-xs text-left">
-                    <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px]">
-                      <tr>
-                        <th className="px-3 py-2.5 border-b border-slate-200 w-10 text-center">
-                          <input
-                            type="checkbox"
-                            checked={tab2SelectedMaKhs.length === tab2Records.length && tab2Records.length > 0}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setTab2SelectedMaKhs(tab2Records.map(r => r.maKh));
-                              } else {
-                                setTab2SelectedMaKhs([]);
-                              }
-                            }}
-                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                          />
-                        </th>
-                        <th className="px-3 py-2.5 border-b border-slate-200 w-12 text-center">STT</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200">Mã KH</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200">Tên Khách Hàng</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200">Địa Chỉ</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200">Loại Yêu Cầu</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200">Ngày Tiếp Nhận</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200">Người Tiếp Nhận</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200 text-center">Trạng Thái</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {tab2Records.map((item, idx) => {
-                        const isSelected = tab2SelectedMaKhs.includes(item.maKh);
-                        return (
-                          <tr key={item.maKh} className={isSelected ? 'bg-blue-50/50' : 'hover:bg-slate-50'}>
-                            <td className="px-3 py-2 text-center">
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    setTab2SelectedMaKhs(prev => [...prev, item.maKh]);
-                                  } else {
-                                    setTab2SelectedMaKhs(prev => prev.filter(k => k !== item.maKh));
-                                  }
-                                }}
-                                className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                              />
-                            </td>
-                            <td className="px-3 py-2 text-center text-slate-500 font-mono">
-                              {item.stt || (idx + 1)}
-                            </td>
-                            <td className="px-3 py-2 font-mono font-bold text-blue-900">
-                              {item.maKh}
-                            </td>
-                            <td className="px-3 py-2 font-semibold text-slate-800">
-                              {item.tenKh}
-                            </td>
-                            <td className="px-3 py-2 text-slate-600 max-w-xs truncate" title={item.diaChi}>
-                              {item.diaChi}
-                            </td>
-                            <td className="px-3 py-2 text-slate-700">
-                              <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-semibold border border-slate-200">
-                                {item.loaiYeuCau || 'Gắn mới'}
-                              </span>
-                            </td>
-                            <td className="px-3 py-2 text-slate-600 font-mono text-[11px]">
-                              {item.ngayNhan || '-'}
-                            </td>
-                            <td className="px-3 py-2 font-semibold text-slate-700">
-                              {item.nguoiNhan || '-'}
-                            </td>
-                            <td className="px-3 py-2 text-center">
-                              {renderStatusBadge(item.trangThai)}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                <div className="space-y-3">
+                  <div className="overflow-x-auto rounded-xl border border-slate-200 animate-in fade-in duration-200">
+                    <table className="w-full text-xs text-left">
+                      <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px]">
+                        <tr>
+                          <th className="px-3 py-2.5 border-b border-slate-200 w-10 text-center">
+                            <input
+                              type="checkbox"
+                              checked={tab2SelectedMaKhs.length === tab2Records.length && tab2Records.length > 0}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setTab2SelectedMaKhs(tab2Records.map(r => r.maKh));
+                                } else {
+                                  setTab2SelectedMaKhs([]);
+                                }
+                              }}
+                              className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                            />
+                          </th>
+                          <th className="px-3 py-2.5 border-b border-slate-200 w-12 text-center">STT</th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">Mã KH</th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">Tên Khách Hàng</th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">Địa Chỉ</th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">Loại Yêu Cầu</th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">Ngày Tiếp Nhận</th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">Người Tiếp Nhận</th>
+                          <th className="px-3 py-2.5 border-b border-slate-200 text-center">Trạng Thái</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {paginatedTab2Records.map((item, idx) => {
+                          const isSelected = tab2SelectedMaKhs.includes(item.maKh);
+                          return (
+                            <tr key={item.maKh} className={isSelected ? 'bg-blue-50/50' : 'hover:bg-slate-50'}>
+                              <td className="px-3 py-2 text-center">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setTab2SelectedMaKhs(prev => [...prev, item.maKh]);
+                                    } else {
+                                      setTab2SelectedMaKhs(prev => prev.filter(k => k !== item.maKh));
+                                    }
+                                  }}
+                                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                />
+                              </td>
+                              <td className="px-3 py-2 text-center text-slate-500 font-mono">
+                                {item.stt || ((currentTab2Page - 1) * TAB2_PAGE_SIZE + idx + 1)}
+                              </td>
+                              <td className="px-3 py-2 font-mono font-bold text-blue-900">
+                                {item.maKh}
+                              </td>
+                              <td className="px-3 py-2 font-semibold text-slate-800">
+                                {item.tenKh}
+                              </td>
+                              <td className="px-3 py-2 text-slate-600 max-w-xs truncate" title={item.diaChi}>
+                                {item.diaChi}
+                              </td>
+                              <td className="px-3 py-2 text-slate-700">
+                                <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-semibold border border-slate-200">
+                                  {item.loaiYeuCau || 'Gắn mới'}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-slate-600 font-mono text-[11px]">
+                                {item.ngayNhan || '-'}
+                              </td>
+                              <td className="px-3 py-2 font-semibold text-slate-700">
+                                {item.nguoiNhan || '-'}
+                              </td>
+                              <td className="px-3 py-2 text-center">
+                                {renderStatusBadge(item.trangThai)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <DvkhPagination
+                    currentPage={currentTab2Page}
+                    totalPages={totalTab2Pages}
+                    totalItems={tab2Records.length}
+                    pageSize={TAB2_PAGE_SIZE}
+                    onPageChange={setTab2Page}
+                    accentColor="blue"
+                    itemLabel="khách hàng"
+                  />
                 </div>
               )
             )}
@@ -2168,11 +2397,11 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                 <button
                   type="button"
                   onClick={() => setIsSectionTab3Open(!isSectionTab3Open)}
-                  className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all border border-slate-300 shadow-2xs active:scale-95 cursor-pointer ml-1"
+                  className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all border border-slate-300 shadow-2xs active:scale-95 cursor-pointer ml-1 flex items-center justify-center"
                   title={isSectionTab3Open ? "Thu gọn danh sách" : "Mở rộng danh sách"}
+                  aria-label={isSectionTab3Open ? "Thu gọn" : "Mở rộng"}
                 >
-                  <span className="hidden sm:inline">{isSectionTab3Open ? 'Thu gọn' : 'Mở rộng'}</span>
-                  {isSectionTab3Open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  {isSectionTab3Open ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                 </button>
               </div>
             </div>
@@ -2185,78 +2414,90 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                     : 'Bạn không có hồ sơ nào được phân công chưa hoàn tất. Chúc mừng bạn đã hoàn thành công việc!'}
                 </div>
               ) : (
-                <div className="overflow-x-auto rounded-xl border border-slate-200 animate-in fade-in duration-200">
-                  <table className="w-full text-xs text-left">
-                    <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px]">
-                      <tr>
-                        <th className="px-3 py-2.5 border-b border-slate-200 w-12 text-center">STT</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200">Mã KH</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200">Tên Khách Hàng</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200">Địa Chỉ</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200">Người Thực Hiện</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200">Ngày Giao</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200 text-center">Trạng Thái</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200">Ghi Chú</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200 text-center w-24">Ảnh</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200 text-center w-32">Thao Tác</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {tab3Records.map((item, idx) => (
-                        <tr key={item.maKh} className="hover:bg-slate-50">
-                          <td className="px-3 py-2 text-center text-slate-500 font-mono">
-                            {item.stt || (idx + 1)}
-                          </td>
-                          <td className="px-3 py-2 font-mono font-bold text-slate-800">
-                            {item.maKh}
-                          </td>
-                          <td className="px-3 py-2 font-semibold text-slate-800">
-                            {item.tenKh}
-                          </td>
-                          <td className="px-3 py-2 text-slate-600 max-w-xs truncate" title={item.diaChi}>
-                            {item.diaChi}
-                          </td>
-                          <td className="px-3 py-2 font-semibold text-purple-900">
-                            {item.nguoiThucHien || item.nguoiNhan || '-'}
-                          </td>
-                          <td className="px-3 py-2 text-slate-500 font-mono text-[11px]">
-                            {item.ngayGiao || '-'}
-                          </td>
-                          <td className="px-3 py-2 text-center">
-                            {renderStatusBadge(item.trangThai)}
-                          </td>
-                          <td className="px-3 py-2 text-slate-600 max-w-xs truncate italic" title={item.ghiChu}>
-                            {item.ghiChu || '-'}
-                          </td>
-                          <td className="px-3 py-2 text-center">
-                            {item.pic ? (
+                <div className="space-y-3">
+                  <div className="overflow-x-auto rounded-xl border border-slate-200 animate-in fade-in duration-200">
+                    <table className="w-full text-xs text-left">
+                      <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px]">
+                        <tr>
+                          <th className="px-3 py-2.5 border-b border-slate-200 w-12 text-center">STT</th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">Mã KH</th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">Tên Khách Hàng</th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">Địa Chỉ</th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">Người Thực Hiện</th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">Ngày Giao</th>
+                          <th className="px-3 py-2.5 border-b border-slate-200 text-center">Trạng Thái</th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">Ghi Chú</th>
+                          <th className="px-3 py-2.5 border-b border-slate-200 text-center w-24">Ảnh</th>
+                          <th className="px-3 py-2.5 border-b border-slate-200 text-center w-32">Thao Tác</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {paginatedTab3Records.map((item, idx) => (
+                          <tr key={item.maKh} className="hover:bg-slate-50">
+                            <td className="px-3 py-2 text-center text-slate-500 font-mono">
+                              {item.stt || ((currentTab3Page - 1) * TAB3_PAGE_SIZE + idx + 1)}
+                            </td>
+                            <td className="px-3 py-2 font-mono font-bold text-slate-800">
+                              {item.maKh}
+                            </td>
+                            <td className="px-3 py-2 font-semibold text-slate-800">
+                              {item.tenKh}
+                            </td>
+                            <td className="px-3 py-2 text-slate-600 max-w-xs truncate" title={item.diaChi}>
+                              {item.diaChi}
+                            </td>
+                            <td className="px-3 py-2 font-semibold text-purple-900">
+                              {item.nguoiThucHien || item.nguoiNhan || '-'}
+                            </td>
+                            <td className="px-3 py-2 text-slate-500 font-mono text-[11px]">
+                              {item.ngayGiao || '-'}
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              {renderStatusBadge(item.trangThai)}
+                            </td>
+                            <td className="px-3 py-2 text-slate-600 max-w-xs truncate italic" title={item.ghiChu}>
+                              {item.ghiChu || '-'}
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              {item.pic ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setViewingImageModal({ url: item.pic!, title: `Ảnh chứng minh - KH ${item.tenKh} (${item.maKh})` })}
+                                  className="inline-flex items-center gap-1 px-2 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg text-[11px] font-bold border border-purple-200 cursor-pointer transition-all shadow-2xs hover:scale-105"
+                                  title="Bấm để xem ảnh chứng minh trở ngại"
+                                >
+                                  <Camera className="w-3.5 h-3.5 text-purple-600" />
+                                  <span>Xem</span>
+                                </button>
+                              ) : (
+                                <span className="text-slate-300 text-[10px] italic">-</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-center">
                               <button
                                 type="button"
-                                onClick={() => setViewingImageModal({ url: item.pic!, title: `Ảnh chứng minh - KH ${item.tenKh} (${item.maKh})` })}
-                                className="inline-flex items-center gap-1 px-2 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg text-[11px] font-bold border border-purple-200 cursor-pointer transition-all shadow-2xs hover:scale-105"
-                                title="Bấm để xem ảnh chứng minh trở ngại"
+                                onClick={() => openUpdateModal(item)}
+                                disabled={isDvkhUser && !isDoiLeader}
+                                className="px-3 py-1 bg-purple-700 hover:bg-purple-800 text-white rounded-lg text-xs font-bold transition-all shadow-xs active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                               >
-                                <Camera className="w-3.5 h-3.5 text-purple-600" />
-                                <span>Xem</span>
+                                Báo cáo kết quả
                               </button>
-                            ) : (
-                              <span className="text-slate-300 text-[10px] italic">-</span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2 text-center">
-                            <button
-                              type="button"
-                              onClick={() => openUpdateModal(item)}
-                              disabled={isDvkhUser && !isDoiLeader}
-                              className="px-3 py-1 bg-purple-700 hover:bg-purple-800 text-white rounded-lg text-xs font-bold transition-all shadow-xs active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                            >
-                              Báo cáo kết quả
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <DvkhPagination
+                    currentPage={currentTab3Page}
+                    totalPages={totalTab3Pages}
+                    totalItems={tab3Records.length}
+                    pageSize={TAB3_PAGE_SIZE}
+                    onPageChange={setTab3Page}
+                    accentColor="rose"
+                    itemLabel="khách hàng"
+                  />
                 </div>
               )
             )}
@@ -2662,11 +2903,11 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
             <button
               type="button"
               onClick={() => setIsSectionBottomListOpen(!isSectionBottomListOpen)}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs font-bold transition-all shadow-2xs active:scale-95 cursor-pointer ml-1"
+              className="p-1.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 transition-all shadow-2xs active:scale-95 cursor-pointer ml-1 flex items-center justify-center"
               title={isSectionBottomListOpen ? "Thu gọn toàn bộ danh sách" : "Mở rộng toàn bộ danh sách"}
+              aria-label={isSectionBottomListOpen ? "Thu gọn" : "Mở rộng"}
             >
-              <span className="hidden sm:inline">{isSectionBottomListOpen ? 'Thu gọn' : 'Mở rộng'}</span>
-              {isSectionBottomListOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              {isSectionBottomListOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
             </button>
           </div>
         </div>
@@ -2881,111 +3122,16 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
               </div>
             )}
 
-            {/* Phân trang: 20 hồ sơ trên trang theo yêu cầu */}
-            {bottomFilteredList.length > 0 && (
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-200 text-xs text-slate-600">
-                <div className="flex items-center gap-2">
-                  <span>
-                    Hiển thị <b className="text-purple-900 font-bold">{(currentBottomPage - 1) * BOTTOM_PAGE_SIZE + 1}</b> -{' '}
-                    <b className="text-purple-900 font-bold">{Math.min(currentBottomPage * BOTTOM_PAGE_SIZE, bottomFilteredList.length)}</b>{' '}
-                    trên tổng số <b className="text-purple-900 font-bold">{bottomFilteredList.length}</b> hồ sơ
-                  </span>
-                  <span className="px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 font-semibold border border-purple-200 text-[11px]">
-                    20 hồ sơ/trang
-                  </span>
-                </div>
-
-                {totalBottomPages > 1 && (
-                  <div className="flex items-center gap-1">
-                    {/* Trang đầu */}
-                    <button
-                      type="button"
-                      onClick={() => setBottomPage(1)}
-                      disabled={currentBottomPage === 1}
-                      className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                      title="Trang đầu"
-                    >
-                      <ChevronsLeft className="w-4 h-4" />
-                    </button>
-
-                    {/* Trang trước */}
-                    <button
-                      type="button"
-                      onClick={() => setBottomPage(p => Math.max(1, p - 1))}
-                      disabled={currentBottomPage === 1}
-                      className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                      title="Trang trước"
-                    >
-                      <ChevronLeft className="w-4 h-4" />
-                    </button>
-
-                    {/* Danh sách các số trang */}
-                    <div className="flex items-center gap-1 px-1">
-                      {Array.from({ length: totalBottomPages }, (_, i) => i + 1)
-                        .filter(pageNum => {
-                          if (totalBottomPages <= 7) return true;
-                          if (pageNum === 1 || pageNum === totalBottomPages) return true;
-                          return Math.abs(pageNum - currentBottomPage) <= 1;
-                        })
-                        .reduce((acc: (number | string)[], pageNum, idx, arr) => {
-                          if (idx > 0 && pageNum - (arr[idx - 1] as number) > 1) {
-                            acc.push('...');
-                          }
-                          acc.push(pageNum);
-                          return acc;
-                        }, [])
-                        .map((item, idx) => {
-                          if (item === '...') {
-                            return (
-                              <span key={`ellipsis-${idx}`} className="px-1 text-slate-400">
-                                ...
-                              </span>
-                            );
-                          }
-                          const p = item as number;
-                          const isActive = p === currentBottomPage;
-                          return (
-                            <button
-                              key={p}
-                              type="button"
-                              onClick={() => setBottomPage(p)}
-                              className={`w-7 h-7 flex items-center justify-center rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                isActive
-                                  ? 'bg-purple-700 text-white shadow-xs'
-                                  : 'border border-slate-200 hover:bg-slate-100 text-slate-700'
-                              }`}
-                            >
-                              {p}
-                            </button>
-                          );
-                        })}
-                    </div>
-
-                    {/* Trang sau */}
-                    <button
-                      type="button"
-                      onClick={() => setBottomPage(p => Math.min(totalBottomPages, p + 1))}
-                      disabled={currentBottomPage === totalBottomPages}
-                      className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                      title="Trang sau"
-                    >
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
-
-                    {/* Trang cuối */}
-                    <button
-                      type="button"
-                      onClick={() => setBottomPage(totalBottomPages)}
-                      disabled={currentBottomPage === totalBottomPages}
-                      className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                      title="Trang cuối"
-                    >
-                      <ChevronsRight className="w-4 h-4" />
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
+            {/* Phân trang: 10 khách hàng trên trang theo yêu cầu */}
+            <DvkhPagination
+              currentPage={currentBottomPage}
+              totalPages={totalBottomPages}
+              totalItems={bottomFilteredList.length}
+              pageSize={BOTTOM_PAGE_SIZE}
+              onPageChange={setBottomPage}
+              accentColor="purple"
+              itemLabel="khách hàng"
+            />
           </div>
         )}
       </div>
