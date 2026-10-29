@@ -2470,7 +2470,11 @@ export const DataStore = {
                                  if (val.includes('stt') || (r === 0 && c === 0 && val.includes('stt'))) sttCol = c;
                                  if (val.includes('noi dung') || val.includes('ten') || val.includes('danh muc')) nameCol = c;
                                  if (val.includes('dinh muc') || val.includes('quota') || val.includes('diem') || val.includes('khoi luong') || val.includes('chi tieu')) quotaCol = c;
-                                 if (val.includes('chung nhom') || val.includes('nhom')) groupCol = c;
+                                 if (val.includes('chung nhom')) {
+                                     groupCol = c;
+                                 } else if (groupCol === -1 && (val === 'nhom' || val.includes('chung'))) {
+                                     groupCol = c;
+                                 }
                                  if (val.includes('quan he')) relationCol = c;
                                  if (val.includes('thang') || /\d+\/\d{4}/.test(val)) historyCols[String(rowData[c]).trim()] = c;
                              }
@@ -2495,7 +2499,7 @@ export const DataStore = {
                                  if (isNaN(val2)) val2 = 0;
                                  
                                  let isGroupStr = groupCol !== -1 ? String(row[groupCol] || '').toLowerCase().trim() : '';
-                                 let isGroup = isGroupStr === 'x' || isGroupStr === 'true';
+                                 let isGroup = isGroupStr === 'x';
                                  
                                  let relation = relationCol !== -1 ? String(row[relationCol] || '').trim() : '';
                                  
@@ -3415,7 +3419,11 @@ export const DataStore = {
                  if (val.includes('stt') || (r === 0 && c === 0 && val.includes('stt'))) sttCol = c;
                  if (val.includes('noi dung') || val.includes('ten') || val.includes('danh muc')) nameCol = c;
                  if (val.includes('dinh muc') || val.includes('quota') || val.includes('diem') || val.includes('khoi luong') || val.includes('chi tieu')) quotaCol = c;
-                 if (val.includes('chung nhom') || val.includes('nhom')) groupCol = c;
+                 if (val.includes('chung nhom')) {
+                     groupCol = c;
+                 } else if (groupCol === -1 && (val === 'nhom' || val.includes('chung'))) {
+                     groupCol = c;
+                 }
                  if (val.includes('quan he')) relationCol = c;
                  if (val.includes('thang') || /\d+\/\d{4}/.test(val)) historyCols[String(rowData[c]).trim()] = c;
                }
@@ -3440,7 +3448,7 @@ export const DataStore = {
                  if (isNaN(val2)) val2 = 0;
                  
                  let isGroupStr = groupCol !== -1 ? String(row[groupCol] || '').toLowerCase().trim() : '';
-                 let isGroup = isGroupStr === 'x' || isGroupStr === 'true';
+                 let isGroup = isGroupStr === 'x';
                  let relation = relationCol !== -1 ? String(row[relationCol] || '').trim() : '';
                  
                  let history: Record<string, number> = {};

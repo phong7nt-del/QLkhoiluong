@@ -53,11 +53,17 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
         catData['Khác'] = { categoryName: 'Khác', teams: {}, total: 0, quota: 0 };
      }
      
+     const processedGroupTasks = new Set<string>();
+     
      entries.forEach(e => {
         const teamName = e.team || 'Khác';
+        const linesAll = (e.content || '').split(/\n/);
+        const lastLine = linesAll[linesAll.length - 1].trim();
+        const isGroupReport = /^\d+$/.test(lastLine) && parseInt(lastLine, 10) > 0;
+        const groupId = isGroupReport ? parseInt(lastLine, 10) : 0;
         
         // Tách các dòng báo cáo
-        const lines = (e.content || '').split(/\n/).map(l => {
+        const lines = linesAll.map(l => {
            let clean = l.trim();
            if (clean.startsWith('-')) clean = clean.substring(1).trim();
            return clean;
@@ -114,6 +120,15 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
                }
            }
            
+           // Tránh tính trùng nếu có nhiều bản ghi thuộc cùng một nhóm công tác và cùng ngày
+           if (groupId > 0) {
+               const groupTaskKey = `${e.date}_g${groupId}_${matchedName}_${qty}`;
+               if (processedGroupTasks.has(groupTaskKey)) {
+                   return;
+               }
+               processedGroupTasks.add(groupTaskKey);
+           }
+
            if (!catData[matchedName]) {
                catData[matchedName] = { categoryName: matchedName, teams: {}, total: 0, quota: 0 };
            }
@@ -121,23 +136,9 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
                catData[matchedName].teams[teamName] = 0;
            }
            
-           const membersCount = e.members?.length || 1;
-           const date = e.date || '';
-           
-           let finalQty = qty;
-           if (date >= '2026-08-01') {
-               if (isGroupTask) {
-                   finalQty = qty;
-               } else {
-                   finalQty = qty * membersCount;
-               }
-           } else {
-               if (isGroupTask) {
-                   finalQty = (qty * membersCount) / 2;
-               } else {
-                   finalQty = qty * membersCount;
-               }
-           }
+           // Chuẩn hóa: Khối lượng hoàn thành thực tế của công tác là khối lượng ghi nhận (qty),
+           // không nhân số lượng thành viên trong nhóm.
+           const finalQty = qty;
            
            catData[matchedName].teams[teamName] += finalQty;
            catData[matchedName].total += finalQty;
@@ -153,7 +154,7 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
                  newTotal += cat.teams[team];
              }
          });
-         cat.total = newTotal;
+         cat.total = Math.round(newTotal * 100) / 100;
      });
      
      // Loại bỏ các nhóm không có dữ liệu
@@ -383,8 +384,14 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
            //    - Nhóm 1 hoặc 2 người: giữ nguyên khối lượng
            //    - Nhóm >= 3 người: khối lượng * 2 / số người
            let qtyPerMember = qty;
-           if (isGroupReport && trueMembersCount >= 3) {
-               qtyPerMember = (qty * 2) / trueMembersCount;
+           if (isGroup) {
+               if (trueMembersCount >= 3) {
+                   qtyPerMember = (qty * 2) / trueMembersCount;
+               }
+           } else {
+               if (trueMembersCount >= 2) {
+                   qtyPerMember = (qty * 1) / trueMembersCount;
+               }
            }
            
            members.forEach(m => {
@@ -539,8 +546,14 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
            // - Nếu đi riêng (ID = 0): Không chia
            // - Nếu làm nhóm >= 3 người: khối lượng * 2 / số người
            let qtyPerMember = qty;
-           if (isGroupReport && trueMembersCount >= 3) {
-               qtyPerMember = (qty * 2) / trueMembersCount;
+           if (isGroup) {
+               if (trueMembersCount >= 3) {
+                   qtyPerMember = (qty * 2) / trueMembersCount;
+               }
+           } else {
+               if (trueMembersCount >= 2) {
+                   qtyPerMember = (qty * 1) / trueMembersCount;
+               }
            }
            
            members.forEach(m => {

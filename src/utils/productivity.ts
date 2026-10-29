@@ -178,9 +178,17 @@ export function calculateMemberProductivity(
         ? groupSizes[e.date][groupId].size
         : members.length;
 
+      const isGroup = dm ? !!dm.isGroup : false;
+
       let qtyPerMember = qty;
-      if (isGroupReport && trueMembersCount >= 3) {
-        qtyPerMember = (qty * 2) / trueMembersCount;
+      if (isGroup) {
+        if (trueMembersCount >= 3) {
+          qtyPerMember = (qty * 2) / trueMembersCount;
+        }
+      } else {
+        if (trueMembersCount >= 2) {
+          qtyPerMember = (qty * 1) / trueMembersCount;
+        }
       }
 
       members.forEach(m => {

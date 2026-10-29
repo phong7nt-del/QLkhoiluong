@@ -255,11 +255,16 @@ export default function Analytics({ refreshToggle, sessionUser }: { refreshToggl
   // Compute total tasks summary
   const summaryStats = useMemo(() => {
     const finalStats: Record<string, { total: number; isGroup: boolean }> = {};
+    const processedGroupTasks = new Set<string>();
     
     filteredEntries.forEach(e => {
         if (!e.content) return;
-        const membersCount = e.members?.length || 1;
-        const lines = e.content.split('\n');
+        const linesAll = e.content.split('\n');
+        const lastLine = linesAll[linesAll.length - 1].trim();
+        const isGroupReport = /^\d+$/.test(lastLine) && parseInt(lastLine, 10) > 0;
+        const groupId = isGroupReport ? parseInt(lastLine, 10) : 0;
+
+        const lines = linesAll.filter(l => !/^\d+$/.test(l.trim()));
         lines.forEach(line => {
            let cleanLine = line.trim();
            if (cleanLine.startsWith('-')) cleanLine = cleanLine.substring(1).trim();
@@ -289,27 +294,22 @@ export default function Analytics({ refreshToggle, sessionUser }: { refreshToggl
               }
               const qty = parseFloat(match[2].replace(',', '.'));
               if (!isNaN(qty)) {
+                  // Tránh tính trùng nếu có nhiều bản ghi thuộc cùng một nhóm công tác và cùng ngày
+                  if (groupId > 0) {
+                      const groupTaskKey = `${e.date}_g${groupId}_${mappedTo}_${qty}`;
+                      if (processedGroupTasks.has(groupTaskKey)) {
+                          return;
+                      }
+                      processedGroupTasks.add(groupTaskKey);
+                  }
+
                   if (!finalStats[mappedTo]) {
                       finalStats[mappedTo] = { total: 0, isGroup };
                   }
                   
-                  if (selectedMember === "all") {
-                      if (e.date >= '2026-08-01') {
-                          if (isGroup) {
-                              finalStats[mappedTo].total += qty;
-                          } else {
-                              finalStats[mappedTo].total += (qty * membersCount);
-                          }
-                      } else {
-                          if (isGroup) {
-                              finalStats[mappedTo].total += (qty * membersCount) / 2;
-                          } else {
-                              finalStats[mappedTo].total += (qty * membersCount);
-                          }
-                      }
-                  } else {
-                      finalStats[mappedTo].total += qty;
-                  }
+                  // Chuẩn hóa: Khối lượng hoàn thành thực tế của công tác là khối lượng ghi nhận (qty),
+                  // không nhân số lượng thành viên trong nhóm.
+                  finalStats[mappedTo].total += qty;
               }
            }
         });
@@ -318,11 +318,11 @@ export default function Analytics({ refreshToggle, sessionUser }: { refreshToggl
     const result: [string, number][] = [];
     Object.entries(finalStats).forEach(([name, data]) => {
         let finalQty = data.total;
-        result.push([name, Math.ceil(finalQty)]);
+        result.push([name, Math.round(finalQty * 100) / 100]);
     });
 
     return result.sort((a, b) => b[1] - a[1]);
-  }, [filteredEntries, selectedMember, dinhMucList]);
+  }, [filteredEntries, dinhMucList]);
 
   const renderContentWithQuota = (content: string, membersCount: number, date: string) => {
     if (!content) return null;
@@ -354,10 +354,10 @@ export default function Analytics({ refreshToggle, sessionUser }: { refreshToggl
           const cleanMatchedName = normalize(matchedName);
 
           const dm = dinhMucList.find(d => normalize(d.name || '') === cleanMatchedName);
+          const isGroup = dm ? !!dm.isGroup : false;
 
           const quotaStr = dm ? String(dm.quota).replace(/,/g, '.') : "0";
           const quota = parseFloat(quotaStr) || 0;
-          
           
           let nsPercent = 0;
           let quotaDisplay = "";
@@ -371,8 +371,25 @@ export default function Analytics({ refreshToggle, sessionUser }: { refreshToggl
                                    : membersCount;
 
           let qtyPerMember = qty;
-          if (isGroupReport && trueMembersCount >= 3) {
-              qtyPerMember = (qty * 2) / trueMembersCount;
+          let isConverted = false;
+          let conversionFactorText = '';
+
+          if (isGroup) {
+              // Công việc quy định chung nhóm (định mức nhóm 2 người chuẩn):
+              // Nhóm >= 3 người áp dụng quy đổi: khối lượng * 2 / số người
+              if (trueMembersCount >= 3) {
+                  qtyPerMember = (qty * 2) / trueMembersCount;
+                  isConverted = true;
+                  conversionFactorText = `x2/${trueMembersCount}`;
+              }
+          } else {
+              // Công việc quy định không chung nhóm (định mức 1 người):
+              // Nếu báo cáo nhiều người (>= 2 người) áp dụng quy đổi: khối lượng * 1 / số người
+              if (trueMembersCount >= 2) {
+                  qtyPerMember = (qty * 1) / trueMembersCount;
+                  isConverted = true;
+                  conversionFactorText = `x1/${trueMembersCount}`;
+              }
           }
 
           if (cleanMatchedName === 'khác') {
@@ -386,17 +403,15 @@ export default function Analytics({ refreshToggle, sessionUser }: { refreshToggl
               quotaDisplay = "(Không có định mức)";
           }
 
-          const isGroupConverted = isGroupReport && trueMembersCount >= 3;
-
           return (
              <div key={i} className="flex justify-between items-center bg-white p-1.5 border border-dashed border-[#141414]/20 mb-1">
                 <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                    <span className="font-bold mr-1">{taskName}:</span>
                    <span className="font-extrabold text-[#141414]">{qty}</span>
-                   {isGroupConverted && (
+                   {isConverted && (
                      <span 
                        className="text-[10px] text-blue-700 bg-blue-50 px-1 py-0.5 rounded border border-blue-200 font-semibold whitespace-nowrap"
-                       title={`Nhóm ${trueMembersCount} người: quy đổi (x2 / ${trueMembersCount}) = ${Number(qtyPerMember.toFixed(1))}/người để tính năng suất`}
+                       title={`Nhóm ${trueMembersCount} người: quy đổi (${conversionFactorText}) = ${Number(qtyPerMember.toFixed(1))}/người để tính năng suất`}
                      >
                        (Quy đổi {trueMembersCount} ng: {Number(qtyPerMember.toFixed(1))}/ng)
                      </span>
@@ -475,9 +490,25 @@ export default function Analytics({ refreshToggle, sessionUser }: { refreshToggl
                                          ? groupSizes[date][groupId].size 
                                          : membersCount;
 
+                const dm = dinhMucList.find(d => normalize(d.name || '') === cleanTaskName) ||
+                           dinhMucList.find(d => {
+                               const cleanDName = normalize(d.name || '');
+                               return cleanDName.includes(cleanTaskName) || cleanTaskName.includes(cleanDName);
+                           });
+                const isGroup = dm ? !!dm.isGroup : false;
+
                 let qtyPerMember = totalQty;
-                if (isGroupReport && trueMembersCount >= 3) {
-                    qtyPerMember = (totalQty * 2) / trueMembersCount;
+                let isConverted = false;
+                if (isGroup) {
+                    if (trueMembersCount >= 3) {
+                        qtyPerMember = (totalQty * 2) / trueMembersCount;
+                        isConverted = true;
+                    }
+                } else {
+                    if (trueMembersCount >= 2) {
+                        qtyPerMember = (totalQty * 1) / trueMembersCount;
+                        isConverted = true;
+                    }
                 }
                 
                 return { 
@@ -488,6 +519,7 @@ export default function Analytics({ refreshToggle, sessionUser }: { refreshToggl
                     rawQty: totalQty, 
                     isGroupReport, 
                     trueMembersCount, 
+                    isConverted,
                     rawLine: cleanLine 
                 };
             }
@@ -534,7 +566,7 @@ export default function Analytics({ refreshToggle, sessionUser }: { refreshToggl
                 if (item.isTask) {
                     const quotaDisplay = getQuotaDisplay(item.cleanTaskName);
                     const formattedQty = Math.round(item.qty * 100) / 100;
-                    const groupConversionNote = (item.isGroupReport && item.trueMembersCount >= 3)
+                    const groupConversionNote = item.isConverted
                         ? ` (Quy đổi: ${formattedQty}/người)`
                         : '';
                     memberObj.dailyContent[dateColDef.colName].push(`- ${item.taskName}: ${item.rawQty}${groupConversionNote} ${quotaDisplay}`);
