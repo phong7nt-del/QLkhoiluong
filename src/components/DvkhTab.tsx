@@ -749,12 +749,14 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
         const loaiYeuCau = getVal(['loai', 'loại', 'loaiyeucau', 'loại yêu cầu', 'loai hs', 'yêu cầu', 'yeu cau', 'loaiyeucauhs']) || 'Gắn mới';
         const ghiChu = getVal(['ghichu', 'ghi chú', 'note', 'nội dung', 'ghi chú ban đầu', 'nội dung ghi chú', 'ghichubandau']);
 
-        if (!maKh || !tenKh) {
+        const cleanMaKh = String(maKh || '').trim();
+        const cleanTenKh = String(tenKh || '').trim();
+        if (!cleanMaKh || !cleanTenKh) {
           skippedMissingInfo++;
           continue;
         }
 
-        const lowerMaKh = maKh.toLowerCase();
+        const lowerMaKh = cleanMaKh.toLowerCase();
         if (existingMaKhSet.has(lowerMaKh)) {
           skippedDuplicates++;
           continue;
@@ -777,8 +779,8 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
 
         importedEntries.push({
           stt: entryStt,
-          maKh,
-          tenKh,
+          maKh: cleanMaKh,
+          tenKh: cleanTenKh,
           diaChi,
           sdt,
           loaiYeuCau, // Đưa vào cột Loại (trường Loai)

@@ -5305,7 +5305,7 @@ export const DataStore = {
 
       return {
         stt: sttRaw ? (parseInt(String(sttRaw).trim(), 10) || (idx + 1)) : (idx + 1),
-        maKh: maKh || `KH${String(idx + 1).padStart(4, '0')}`,
+        maKh: (maKh && maKh.trim()) ? maKh.trim() : '',
         tenKh: tenKh || 'Khách hàng',
         diaChi: diaChi || '',
         sdt,
@@ -5569,10 +5569,20 @@ export const DataStore = {
   },
 
   saveDvkhEntries: (entries: DvkhEntry[]) => {
-    memCacheDvkhList = entries;
-    safeSetItem(DVKH_KEY, JSON.stringify(entries));
+    const deletedKeys = DataStore.getDeletedDvkhKeys();
+    const seen = new Set<string>();
+    const deduplicated: DvkhEntry[] = [];
+    for (const item of (entries || [])) {
+      const k = String(item.maKh || '').trim().toLowerCase();
+      if (k && !deletedKeys.has(k) && !seen.has(k)) {
+        seen.add(k);
+        deduplicated.push(item);
+      }
+    }
+    memCacheDvkhList = deduplicated;
+    safeSetItem(DVKH_KEY, JSON.stringify(deduplicated));
     try {
-      set(DVKH_KEY, entries).catch(err => console.warn('Error saving DVKH to IDB:', err));
+      set(DVKH_KEY, deduplicated).catch(err => console.warn('Error saving DVKH to IDB:', err));
     } catch (e) {}
     window.dispatchEvent(new CustomEvent('dvkh_updated'));
   },
@@ -5593,7 +5603,14 @@ export const DataStore = {
     // Xóa khỏi danh sách đã xóa nếu tạo mới lại hồ sơ có cùng mã
     DataStore.unmarkDeletedDvkhKeys([entry.maKh]);
 
-    list.unshift(entry);
+    const normKey = String(entry.maKh || '').trim().toLowerCase();
+    const existingIdx = list.findIndex(e => String(e.maKh || '').trim().toLowerCase() === normKey);
+    if (existingIdx !== -1) {
+      list[existingIdx] = { ...list[existingIdx], ...entry };
+    } else {
+      list.unshift(entry);
+    }
+
     DataStore.saveDvkhEntries(list);
     DataStore.recordLocalDvkhUpdate(entry.maKh, entry, false);
     DataStore.syncDvkhToSheet(entry).then(ok => {
@@ -5610,17 +5627,30 @@ export const DataStore = {
 
     DataStore.unmarkDeletedDvkhKeys(entries.map(e => e.maKh));
 
-    const prepared = entries.map(e => {
+    const existingKeyMap = new Map<string, number>();
+    list.forEach((item, idx) => {
+      const k = String(item.maKh || '').trim().toLowerCase();
+      if (k) existingKeyMap.set(k, idx);
+    });
+
+    const preparedNewItems: DvkhEntry[] = [];
+    const allSyncedItems: DvkhEntry[] = [];
+
+    entries.forEach(e => {
+      const k = String(e.maKh || '').trim().toLowerCase();
+      if (!k) return;
+
       let parsedStt = typeof e.stt === 'number' ? e.stt : parseInt(String(e.stt || 0), 10);
       let stt = 0;
-      if (parsedStt && !isNaN(parsedStt) && parsedStt > maxStt) {
+      if (parsedStt && !isNaN(parsedStt) && parsedStt > 0) {
         stt = parsedStt;
-        maxStt = stt;
+        if (stt > maxStt) maxStt = stt;
       } else {
         maxStt++;
         stt = maxStt;
       }
-      return {
+
+      const itemPrepared: DvkhEntry = {
         ...e,
         stt,
         loaiYeuCau: e.loaiYeuCau || (e as any).loai || 'Gắn mới',
@@ -5628,15 +5658,26 @@ export const DataStore = {
         nguoiGiao: '', // Không cần thiết lưu người giao vì luôn là DVKH
         trangThai: e.trangThai || 'Chưa giao',
         ghiChu: e.ghiChu || ''
-      } as DvkhEntry;
+      };
+
+      allSyncedItems.push(itemPrepared);
+
+      if (existingKeyMap.has(k)) {
+        const idx = existingKeyMap.get(k)!;
+        list[idx] = { ...list[idx], ...itemPrepared };
+      } else {
+        preparedNewItems.push(itemPrepared);
+        existingKeyMap.set(k, -1);
+      }
     });
-    const updatedList = [...prepared, ...list];
+
+    const updatedList = [...preparedNewItems, ...list];
     DataStore.saveDvkhEntries(updatedList);
-    prepared.forEach(item => DataStore.recordLocalDvkhUpdate(item.maKh, item, false));
-    DataStore.syncDvkhToSheet(prepared).then(ok => {
-      if (ok) DataStore.markDvkhUpdateSynced(prepared.map(p => p.maKh));
+    allSyncedItems.forEach(item => DataStore.recordLocalDvkhUpdate(item.maKh, item, false));
+    DataStore.syncDvkhToSheet(allSyncedItems).then(ok => {
+      if (ok) DataStore.markDvkhUpdateSynced(allSyncedItems.map(p => p.maKh));
     }).catch(() => {});
-    return prepared;
+    return allSyncedItems;
   },
 
   updateDvkhEntry: async (maKh: string, updates: Partial<DvkhEntry>): Promise<DvkhEntry | null> => {
