@@ -7,10 +7,10 @@ import {
   Search, RefreshCw, X, Calendar, User, ChevronDown, ChevronUp,
   Download, Sparkles, Shield, AlertCircle, Eye, EyeOff, Layers, Headphones,
   Upload, FileSpreadsheet, HelpCircle, Camera, Image as ImageIcon, ExternalLink, Maximize2,
-  MapPin, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight
+  MapPin, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Trash2
 } from 'lucide-react';
 import { DataStore, SheetMember, DvkhEntry } from '../store/DataStore';
-import { normalizeRoleStr } from '../store/PermissionStore';
+import { PermissionStore, normalizeRoleStr } from '../store/PermissionStore';
 
 // Cấu trúc khu vực & phường xã theo phân cấp DVKH:
 // Vũng Tàu: Phường Vũng Tàu, Phường Tam Thắng, Phường Rạch Dừa, Phường Phước Thắng, Xã Long Sơn
@@ -426,6 +426,21 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     return false;
   }, [isDvkhUser, isDoiLeader, isToLeader]);
 
+  // Quyền xóa hồ sơ Chưa giao sang QLHTĐĐ:
+  // "người dùng bên bộ phận DVKH và Đội trưởng QLHTĐĐ/Quản trị có thể sử dụng chức năng này"
+  const canDeletePendingRecord = useMemo(() => {
+    if (isDvkhUser) return true;
+    if (isDoiLeader) return true;
+    const roles = PermissionStore.getUserRoles(sessionUser?.role || '', sessionUser);
+    if (roles.includes('đội trưởng') || roles.includes('giám đốc')) return true;
+    return false;
+  }, [isDvkhUser, isDoiLeader, sessionUser]);
+
+  // State phục vụ xác nhận xóa hồ sơ chưa giao
+  const [deletingRecord, setDeletingRecord] = useState<DvkhEntry | null>(null);
+  const [isDeletingBatch, setIsDeletingBatch] = useState(false);
+  const [isProcessingDelete, setIsProcessingDelete] = useState(false);
+
   // Helper date format: dd/mm/yyyy hh:mm:ss
   const getCurrentDateTimeStr = () => {
     const d = new Date();
@@ -822,6 +837,81 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     setDvkhList(DataStore.getDvkhEntries());
     setTab1SelectedMaKhs([]);
     showToast('success', `Đã giao thành công ${tab1SelectedMaKhs.length} hồ sơ sang Đội QLHTĐĐ!`);
+  };
+
+  // Tab 1: Xóa đơn lẻ hồ sơ chưa giao sang QLHTĐĐ
+  const handleDeleteSinglePending = (item: DvkhEntry) => {
+    if (!canDeletePendingRecord) {
+      alert('Chỉ nhân sự thuộc Bộ phận DVKH, Đội trưởng hoặc Quản trị mới có quyền xóa hồ sơ chưa giao!');
+      return;
+    }
+    const st = String(item.trangThai || '').trim().toLowerCase();
+    if (st !== 'chưa giao' && st !== 'chua giao') {
+      alert('Chỉ có thể xóa các hồ sơ ở trạng thái "Chưa giao" sang QLHTĐĐ!');
+      return;
+    }
+    setDeletingRecord(item);
+  };
+
+  const confirmDeleteSingle = async () => {
+    if (!deletingRecord) return;
+    try {
+      setIsProcessingDelete(true);
+      const targetMaKh = deletingRecord.maKh;
+      const targetTenKh = deletingRecord.tenKh;
+
+      const ok = await DataStore.deleteDvkhEntry(targetMaKh);
+      setDvkhList(DataStore.getDvkhEntries());
+      setTab1SelectedMaKhs(prev => prev.filter(k => k !== targetMaKh));
+      setDeletingRecord(null);
+
+      if (ok) {
+        showToast('success', `Đã xóa thành công hồ sơ KH "${targetTenKh}" (${targetMaKh}) khỏi hệ thống và Google Sheet!`);
+      } else {
+        showToast('info', `Đã xóa hồ sơ KH "${targetTenKh}" (${targetMaKh}) trên hệ thống. Dữ liệu đang được đồng bộ tới Google Sheet.`);
+      }
+    } catch (err: any) {
+      alert('Lỗi xóa hồ sơ: ' + (err.message || 'Không thể xóa'));
+    } finally {
+      setIsProcessingDelete(false);
+    }
+  };
+
+  // Tab 1: Xóa hàng loạt hồ sơ chưa giao sang QLHTĐĐ
+  const handleBatchDeletePending = () => {
+    if (!canDeletePendingRecord) {
+      alert('Chỉ nhân sự thuộc Bộ phận DVKH, Đội trưởng hoặc Quản trị mới có quyền xóa hồ sơ chưa giao!');
+      return;
+    }
+    if (tab1SelectedMaKhs.length === 0) {
+      alert('Vui lòng chọn ít nhất một hồ sơ chưa giao để xóa!');
+      return;
+    }
+    setIsDeletingBatch(true);
+  };
+
+  const confirmBatchDelete = async () => {
+    if (tab1SelectedMaKhs.length === 0) return;
+    try {
+      setIsProcessingDelete(true);
+      const count = tab1SelectedMaKhs.length;
+      const keysToDelete = [...tab1SelectedMaKhs];
+
+      const ok = await DataStore.batchDeleteDvkh(keysToDelete);
+      setDvkhList(DataStore.getDvkhEntries());
+      setTab1SelectedMaKhs([]);
+      setIsDeletingBatch(false);
+
+      if (ok) {
+        showToast('success', `Đã xóa thành công ${count} hồ sơ chưa giao khỏi hệ thống và Google Sheet!`);
+      } else {
+        showToast('info', `Đã xóa ${count} hồ sơ trên hệ thống. Dữ liệu đang được đồng bộ tới Google Sheet.`);
+      }
+    } catch (err: any) {
+      alert('Lỗi xóa danh sách hồ sơ: ' + (err.message || 'Không thể xóa'));
+    } finally {
+      setIsProcessingDelete(false);
+    }
   };
 
   // Tab 1: Xác nhận tiếp nhận hồ sơ đã giao
@@ -1890,6 +1980,19 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                   <span>Giao {tab1SelectedMaKhs.length > 0 ? `(${tab1SelectedMaKhs.length})` : ''}</span>
                 </button>
 
+                {canDeletePendingRecord && (
+                  <button
+                    type="button"
+                    onClick={handleBatchDeletePending}
+                    disabled={tab1SelectedMaKhs.length === 0}
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                    title="Xóa các hồ sơ chưa giao đã chọn (xóa cả trong dữ liệu Google Sheet)"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Xóa {tab1SelectedMaKhs.length > 0 ? `(${tab1SelectedMaKhs.length})` : ''}</span>
+                  </button>
+                )}
+
                 {/* Nút Thu gọn / Mở rộng */}
                 <button
                   type="button"
@@ -1939,6 +2042,9 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                           <th className="px-3 py-2.5 border-b border-slate-200">Ngày Nhận</th>
                           <th className="px-3 py-2.5 border-b border-slate-200">Ghi Chú</th>
                           <th className="px-3 py-2.5 border-b border-slate-200 text-center">Trạng Thái</th>
+                          {canDeletePendingRecord && (
+                            <th className="px-3 py-2.5 border-b border-slate-200 text-center w-14">Xóa</th>
+                          )}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -1989,6 +2095,18 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                               <td className="px-3 py-2 text-center">
                                 {renderStatusBadge(item.trangThai || 'Chưa giao')}
                               </td>
+                              {canDeletePendingRecord && (
+                                <td className="px-3 py-2 text-center">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteSinglePending(item)}
+                                    className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all cursor-pointer inline-flex items-center justify-center active:scale-95"
+                                    title={`Xóa hồ sơ "${item.tenKh}" (${item.maKh}) khỏi hệ thống và Google Sheet`}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </td>
+                              )}
                             </tr>
                           );
                         })}
@@ -3063,6 +3181,9 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                       <th className="px-3 py-2.5 border-b border-slate-200 text-center">Ảnh</th>
                       <th className="px-3 py-2.5 border-b border-slate-200 text-center">Trạng Thái HS</th>
                       <th className="px-3 py-2.5 border-b border-slate-200">Người Thực Hiện</th>
+                      {canDeletePendingRecord && (
+                        <th className="px-3 py-2.5 border-b border-slate-200 text-center w-14">Xóa</th>
+                      )}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -3115,6 +3236,22 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                         <td className="px-3 py-2.5 font-semibold text-slate-700">
                           {item.nguoiThucHien || item.nguoiNhan || '-'}
                         </td>
+                        {canDeletePendingRecord && (
+                          <td className="px-3 py-2.5 text-center">
+                            {(item.trangThai === 'Chưa giao' || item.trangThai === 'Chờ giao') ? (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteSinglePending(item)}
+                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all cursor-pointer inline-flex items-center justify-center active:scale-95"
+                                title={`Xóa hồ sơ chưa giao "${item.tenKh}" (${item.maKh})`}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            ) : (
+                              <span className="text-slate-300 text-[10px]">-</span>
+                            )}
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -3177,6 +3314,80 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
               >
                 Đóng
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL XÁC NHẬN XÓA HỒ SƠ CHƯA GIAO (ĐƠN LẺ HOẶC HÀNG LOẠT) */}
+      {(deletingRecord || isDeletingBatch) && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl border border-rose-200 w-full max-w-md overflow-hidden animate-in zoom-in-95">
+            <div className="bg-gradient-to-r from-rose-700 to-red-800 text-white p-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-rose-200" />
+                <h3 className="font-bold text-sm uppercase">Xác Nhận Xóa Hồ Sơ Chưa Giao</h3>
+              </div>
+              <button
+                type="button"
+                disabled={isProcessingDelete}
+                onClick={() => { setDeletingRecord(null); setIsDeletingBatch(false); }}
+                className="text-white/80 hover:text-white p-1 rounded-lg hover:bg-white/10 cursor-pointer disabled:opacity-50"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-xs text-slate-600">
+              <div>
+                {deletingRecord ? (
+                  <div>
+                    <p className="text-slate-700">Bạn có chắc chắn muốn xóa hồ sơ khách hàng sau khỏi hệ thống?</p>
+                    <div className="mt-2.5 p-3 bg-rose-50 border border-rose-200 rounded-xl space-y-1.5 text-xs">
+                      <div>Mã KH: <b className="font-mono text-rose-900">{deletingRecord.maKh}</b></div>
+                      <div>Tên KH: <b className="text-slate-900">{deletingRecord.tenKh}</b></div>
+                      {deletingRecord.diaChi && <div>Địa chỉ: <span className="text-slate-700">{deletingRecord.diaChi}</span></div>}
+                      {deletingRecord.loaiYeuCau && <div>Loại: <span className="text-slate-700">{deletingRecord.loaiYeuCau}</span></div>}
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-slate-700">
+                      Bạn có chắc chắn muốn xóa đồng loạt <b className="text-rose-700 font-bold">{tab1SelectedMaKhs.length}</b> hồ sơ chưa giao đã chọn?
+                    </p>
+                    <div className="mt-2.5 p-2.5 bg-rose-50 border border-rose-200 rounded-xl max-h-32 overflow-y-auto font-mono text-[11px] text-rose-800 leading-relaxed">
+                      {tab1SelectedMaKhs.join(', ')}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-[11px] flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <span>
+                  <b>Cảnh báo:</b> Thao tác này sẽ xóa hồ sơ trên hệ thống ứng dụng và <b>xóa cả dòng dữ liệu tương ứng trong sheet DVKH trên Google Sheets</b>.
+                </span>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  disabled={isProcessingDelete}
+                  onClick={() => { setDeletingRecord(null); setIsDeletingBatch(false); }}
+                  className="px-4 py-2 rounded-xl border border-slate-300 hover:bg-slate-50 font-bold text-slate-700 cursor-pointer disabled:opacity-50"
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  type="button"
+                  disabled={isProcessingDelete}
+                  onClick={deletingRecord ? confirmDeleteSingle : confirmBatchDelete}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold shadow-md cursor-pointer disabled:opacity-50 active:scale-95"
+                >
+                  {isProcessingDelete && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                  <span>{isProcessingDelete ? 'Đang xóa...' : 'Xác nhận xóa'}</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

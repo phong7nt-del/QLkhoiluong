@@ -986,6 +986,75 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
+    // ======== XỬ LÝ XÓA HỒ SƠ DVKH (XÓA CẢ TRONG DỮ LIỆU SHEET) ========
+    if (action === 'delete_dvkh') {
+      var maKhs = payload.maKhs || (payload.maKh ? [payload.maKh] : []);
+      if (!Array.isArray(maKhs)) maKhs = [maKhs];
+      maKhs = maKhs.map(function(m) { return String(m || '').trim().toLowerCase(); }).filter(function(m) { return m.length > 0; });
+      
+      var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
+      var sheet = getSheetFlexibly(ss, ['DVKH', 'dvkh', 'Dịch vụ khách hàng', 'DV_KH']);
+      if (!sheet) {
+        return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "Không tìm thấy sheet DVKH" }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      
+      var lastCol = sheet.getLastColumn();
+      var lastRow = sheet.getLastRow();
+      if (lastRow < 2 || lastCol < 1) {
+        return ContentService.createTextOutput(JSON.stringify({ status: "success", message: "Sheet DVKH rỗng", deleted: 0 }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      
+      var headerRowIdx = 1;
+      var actualHeaders = [];
+      for (var rScan = 1; rScan <= Math.min(5, lastRow); rScan++) {
+        var rVals = sheet.getRange(rScan, 1, 1, lastCol).getValues()[0];
+        var matchCount = 0;
+        for (var cs = 0; cs < rVals.length; cs++) {
+          var nVal = String(rVals[cs] || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/[\s_]+/g, '');
+          if (nVal.includes('makh') || nVal.includes('tenkh') || nVal.includes('diachi')) matchCount++;
+        }
+        if (matchCount >= 2) {
+          headerRowIdx = rScan;
+          actualHeaders = rVals;
+          break;
+        }
+      }
+      if (actualHeaders.length === 0) {
+        actualHeaders = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+      }
+      
+      var colMaKh = 1;
+      for (var c = 0; c < actualHeaders.length; c++) {
+        var nh = String(actualHeaders[c] || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/[\s_]+/g, '');
+        if (nh === 'makh' || nh === 'makhachhang' || nh === 'ma_kh' || nh === 'ma') {
+          colMaKh = c;
+          break;
+        }
+      }
+      
+      var dataStartRow = headerRowIdx + 1;
+      var numRows = lastRow - headerRowIdx;
+      if (numRows <= 0) {
+        return ContentService.createTextOutput(JSON.stringify({ status: "success", deleted: 0 })).setMimeType(ContentService.MimeType.JSON);
+      }
+      
+      var colVals = sheet.getRange(dataStartRow, colMaKh + 1, numRows, 1).getValues();
+      var deletedCount = 0;
+      // Duyệt từ dưới lên để chỉ số dòng không bị thay đổi khi xóa dòng
+      for (var r = colVals.length - 1; r >= 0; r--) {
+        var rowMkh = String(colVals[r][0] || '').trim().toLowerCase();
+        if (maKhs.indexOf(rowMkh) !== -1) {
+          sheet.deleteRow(dataStartRow + r);
+          deletedCount++;
+        }
+      }
+      
+      return ContentService.createTextOutput(JSON.stringify({ status: "success", message: "Đã xóa " + deletedCount + " hồ sơ trong sheet DVKH", deleted: deletedCount }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     // ======== CẬP NHẬT KẾT QUẢ KIỂM TRA KIỆN TOÀN HTDD (TỐI ƯU SIÊU TỐC CHO 200K DÒNG) ========
     if (action === 'update_kthtdd') {
       var data = payload.data || payload;

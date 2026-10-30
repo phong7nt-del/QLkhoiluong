@@ -381,6 +381,7 @@ const TUTI_KEY = 'sheet_tuti_v1';
 const LOCAL_TUTI_UPDATES_KEY = 'local_tuti_updates_v1';
 const DVKH_KEY = 'sheet_dvkh_v1';
 const LOCAL_DVKH_UPDATES_KEY = 'local_dvkh_updates_v1';
+const DELETED_DVKH_KEYS = 'deleted_dvkh_keys_v1';
 const QUAHAN_KEY = 'sheet_quahan_v1';
 const QUAHAN_NAM_KEY = 'sheet_quahan_nam_v1';
 const TU_SHEET_KEY = 'sheet_tu_entries_v1';
@@ -397,6 +398,7 @@ let memCacheTiSheetList: TiSheetEntry[] | null = null;
 let memCacheTiNamList: TiSheetEntry[] | null = null;
 let memCacheDvkhList: DvkhEntry[] | null = null;
 let memCacheDvkhUpdatesMap: Record<string, LocalDvkhUpdate> | null = null;
+let memCacheDeletedDvkhKeys: Set<string> | null = null;
 let memCacheKhuVucList: any[] | null = null;
 let memCacheMatKetNoiList: any[] | null = null;
 let memCacheChiTietMKNList: any[] | null = null;
@@ -485,6 +487,15 @@ export const initDB = async () => {
     } catch (e) {
       console.warn('Could not preload dvkh from IDB', e);
     }
+    try {
+      const deletedDvkhVal = await get(DELETED_DVKH_KEYS);
+      if (deletedDvkhVal) {
+        const arr = typeof deletedDvkhVal === 'string' ? JSON.parse(deletedDvkhVal) : deletedDvkhVal;
+        if (Array.isArray(arr)) {
+          memCacheDeletedDvkhKeys = new Set(arr.map(k => String(k).trim().toLowerCase()));
+        }
+      }
+    } catch (e) {}
     try {
       const qhVal = await get(QUAHAN_KEY);
       if (qhVal) {
@@ -5429,11 +5440,65 @@ export const DataStore = {
     return res;
   },
 
+  getDeletedDvkhKeys: (): Set<string> => {
+    if (memCacheDeletedDvkhKeys) return memCacheDeletedDvkhKeys;
+    try {
+      const cached = safeGetItem(DELETED_DVKH_KEYS);
+      if (cached) {
+        const arr = JSON.parse(cached);
+        if (Array.isArray(arr)) {
+          memCacheDeletedDvkhKeys = new Set(arr.map(k => String(k).trim().toLowerCase()));
+          return memCacheDeletedDvkhKeys;
+        }
+      }
+    } catch {}
+    memCacheDeletedDvkhKeys = new Set();
+    return memCacheDeletedDvkhKeys;
+  },
+
+  recordDeletedDvkhKeys: (keys: string[]) => {
+    const setKeys = DataStore.getDeletedDvkhKeys();
+    keys.forEach(k => {
+      const norm = String(k || '').trim().toLowerCase();
+      if (norm) setKeys.add(norm);
+    });
+    memCacheDeletedDvkhKeys = setKeys;
+    try {
+      const arr = Array.from(setKeys);
+      safeSetItem(DELETED_DVKH_KEYS, JSON.stringify(arr));
+      set(DELETED_DVKH_KEYS, arr).catch(() => {});
+    } catch {}
+  },
+
+  unmarkDeletedDvkhKeys: (keys: string[]) => {
+    const setKeys = DataStore.getDeletedDvkhKeys();
+    let changed = false;
+    keys.forEach(k => {
+      const norm = String(k || '').trim().toLowerCase();
+      if (norm && setKeys.has(norm)) {
+        setKeys.delete(norm);
+        changed = true;
+      }
+    });
+    if (changed) {
+      memCacheDeletedDvkhKeys = setKeys;
+      try {
+        const arr = Array.from(setKeys);
+        safeSetItem(DELETED_DVKH_KEYS, JSON.stringify(arr));
+        set(DELETED_DVKH_KEYS, arr).catch(() => {});
+      } catch {}
+    }
+  },
+
   mergeDvkhList: (remoteList: DvkhEntry[], localList: DvkhEntry[]): DvkhEntry[] => {
+    const deletedKeys = DataStore.getDeletedDvkhKeys();
     const localMap = new Map<string, DvkhEntry>();
     for (const item of (localList || [])) {
       if (item.maKh) {
-        localMap.set(String(item.maKh).trim().toLowerCase(), item);
+        const key = String(item.maKh).trim().toLowerCase();
+        if (!deletedKeys.has(key)) {
+          localMap.set(key, item);
+        }
       }
     }
     const updateMap = DataStore.getLocalDvkhUpdatesMap();
@@ -5441,6 +5506,7 @@ export const DataStore = {
 
     for (const remote of (remoteList || [])) {
       const key = String(remote.maKh || '').trim().toLowerCase();
+      if (deletedKeys.has(key)) continue; // Không nạp các hồ sơ đã bị xóa
       const local = localMap.get(key);
       const upd = updateMap[key];
       result.push(DataStore.mergeDvkhEntry(remote, local, upd));
@@ -5449,6 +5515,7 @@ export const DataStore = {
 
     // Preserve local-only records that haven't appeared in Google Sheets yet
     for (const [key, localRemaining] of localMap.entries()) {
+      if (deletedKeys.has(key)) continue;
       const upd = updateMap[key];
       result.push(upd && upd.updates ? { ...localRemaining, ...upd.updates } : localRemaining);
     }
@@ -5457,8 +5524,9 @@ export const DataStore = {
   },
 
   getDvkhEntries: (): DvkhEntry[] => {
+    const deletedKeys = DataStore.getDeletedDvkhKeys();
     if (memCacheDvkhList && Array.isArray(memCacheDvkhList)) {
-      return memCacheDvkhList;
+      return memCacheDvkhList.filter(e => !deletedKeys.has(String(e.maKh || '').trim().toLowerCase()));
     }
     try {
       const cached = safeGetItem(DVKH_KEY);
@@ -5466,8 +5534,9 @@ export const DataStore = {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed)) {
           const applied = DataStore.applyLocalDvkhUpdates(parsed);
-          memCacheDvkhList = applied;
-          return applied;
+          const filtered = applied.filter(e => !deletedKeys.has(String(e.maKh || '').trim().toLowerCase()));
+          memCacheDvkhList = filtered;
+          return filtered;
         }
       }
     } catch (e) {}
@@ -5494,6 +5563,9 @@ export const DataStore = {
     entry.nguoiGiao = ''; // Người giao luôn là DVKH nên không cần thiết phải lưu
     if (!entry.trangThai) entry.trangThai = 'Chưa giao';
 
+    // Xóa khỏi danh sách đã xóa nếu tạo mới lại hồ sơ có cùng mã
+    DataStore.unmarkDeletedDvkhKeys([entry.maKh]);
+
     list.unshift(entry);
     DataStore.saveDvkhEntries(list);
     DataStore.recordLocalDvkhUpdate(entry.maKh, entry, false);
@@ -5508,6 +5580,8 @@ export const DataStore = {
     let maxStt = list.reduce((max, item) => Math.max(max, typeof item.stt === 'number' ? item.stt : parseInt(String(item.stt || 0), 10) || 0), 0);
     if (maxStt === 0) maxStt = list.length;
     const nowStr = new Date().toLocaleString('vi-VN');
+
+    DataStore.unmarkDeletedDvkhKeys(entries.map(e => e.maKh));
 
     const prepared = entries.map(e => {
       let stt = e.stt;
@@ -5644,6 +5718,67 @@ export const DataStore = {
       return response.ok;
     } catch (e) {
       console.warn('Could not sync DVKH to sheet:', e);
+      return false;
+    }
+  },
+
+  deleteDvkhEntry: async (maKh: string): Promise<boolean> => {
+    return DataStore.batchDeleteDvkh([maKh]);
+  },
+
+  batchDeleteDvkh: async (maKhs: string[]): Promise<boolean> => {
+    if (!maKhs || maKhs.length === 0) return true;
+    const targetSet = new Set(maKhs.map(k => String(k || '').trim().toLowerCase()));
+
+    // 1. Ghi nhận vào danh sách các khóa đã xóa
+    DataStore.recordDeletedDvkhKeys(maKhs);
+
+    // 2. Cập nhật danh sách local và in-memory
+    const currentList = DataStore.getDvkhEntries();
+    const updatedList = currentList.filter(e => !targetSet.has(String(e.maKh || '').trim().toLowerCase()));
+    DataStore.saveDvkhEntries(updatedList);
+
+    // 3. Xóa các cập nhật tồn của những mã KH này khỏi LOCAL_DVKH_UPDATES_KEY
+    const updateMap = { ...DataStore.getLocalDvkhUpdatesMap() };
+    let updateMapChanged = false;
+    for (const k of targetSet) {
+      if (updateMap[k]) {
+        delete updateMap[k];
+        updateMapChanged = true;
+      }
+    }
+    if (updateMapChanged) {
+      memCacheDvkhUpdatesMap = updateMap;
+      try {
+        safeSetItem(LOCAL_DVKH_UPDATES_KEY, JSON.stringify(updateMap));
+        set(LOCAL_DVKH_UPDATES_KEY, updateMap).catch(() => {});
+      } catch {}
+    }
+
+    // 4. Đồng bộ xóa dòng trực tiếp trong sheet DVKH trên Google Sheets
+    const syncSuccess = await DataStore.syncDeleteDvkhToSheet(maKhs);
+
+    // 5. Bắn sự kiện cập nhật giao diện
+    window.dispatchEvent(new CustomEvent('dvkh_updated'));
+    return syncSuccess;
+  },
+
+  syncDeleteDvkhToSheet: async (maKhs: string[]): Promise<boolean> => {
+    try {
+      const url = DataStore.getAppScriptUrl();
+      if (!url) return false;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'delete_dvkh',
+          sheetName: 'DVKH',
+          maKhs: maKhs
+        })
+      });
+      return response.ok;
+    } catch (e) {
+      console.warn('Could not sync delete DVKH to sheet:', e);
       return false;
     }
   },
