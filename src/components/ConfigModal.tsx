@@ -2739,12 +2739,11 @@ function doPost(e) {
                break;
            }
        }
-
        var headers = sheetData[headerRowIdx] || [];
        var colMap = {};
        for (var c = 0; c < headers.length; c++) {
            var h = normDvkhH(headers[c]);
-           if (h === 'stt' || h === 'sott') colMap.stt = c;
+           if (h === 'stt' || h === 'sott' || h === 'sothutu' || h === 'tt' || h === 'stths' || h === 'sttkh' || h.indexOf('thutu') !== -1 || h.indexOf('stt') !== -1) colMap.stt = c;
            else if (h === 'makh' || h === 'makhachhang' || h === 'ma') colMap.maKh = c;
            else if (h === 'tenkh' || h === 'tenkhachhang' || h === 'ten' || h === 'hovaten') colMap.tenKh = c;
            else if (h === 'diachi' || h === 'diachikhachhang') colMap.diaChi = c;
@@ -2764,14 +2763,24 @@ function doPost(e) {
            else if (h === 'nguoitao') colMap.nguoiTao = c;
        }
 
-       if (colMap.maKh === undefined) colMap.maKh = 1;
+       if (colMap.stt === undefined) colMap.stt = 0;
+       if (colMap.maKh === undefined) colMap.maKh = (colMap.stt === 0 ? 1 : 0);
 
        var existingRowIndexByMaKh = {};
+       var maxSttInSheet = 0;
        for (var r = headerRowIdx + 1; r < sheetData.length; r++) {
            var rowMaKh = String(sheetData[r][colMap.maKh] || '').trim().toLowerCase();
            if (rowMaKh) {
                existingRowIndexByMaKh[rowMaKh] = r + 1;
            }
+           var cellStt = sheetData[r][colMap.stt];
+           var parsedSttVal = parseInt(cellStt, 10);
+           if (!isNaN(parsedSttVal) && parsedSttVal > maxSttInSheet) {
+               maxSttInSheet = parsedSttVal;
+           }
+       }
+       if (maxSttInSheet === 0) {
+           maxSttInSheet = Math.max(0, sheetData.length - 1 - headerRowIdx);
        }
 
        var updatedCount = 0;
@@ -2782,9 +2791,31 @@ function doPost(e) {
            var maKhKey = String(item.maKh || '').trim().toLowerCase();
            if (!maKhKey) continue;
 
+           var targetStt = 0;
+           if (item.stt) {
+               var sNum = parseInt(item.stt, 10);
+               if (!isNaN(sNum) && sNum > 0) {
+                   targetStt = sNum;
+               }
+           }
+           if (!targetStt) {
+               maxSttInSheet++;
+               targetStt = maxSttInSheet;
+           } else if (targetStt > maxSttInSheet) {
+               maxSttInSheet = targetStt;
+           }
+
            var rowIndex = existingRowIndexByMaKh[maKhKey];
            if (rowIndex) {
-               if (colMap.stt !== undefined && item.stt !== undefined) sheet.getRange(rowIndex, colMap.stt + 1).setValue(item.stt);
+               if (colMap.stt !== undefined) {
+                   var curCellVal = sheet.getRange(rowIndex, colMap.stt + 1).getValue();
+                   var curValParsed = parseInt(curCellVal, 10);
+                   if (item.stt && !isNaN(parseInt(item.stt, 10)) && parseInt(item.stt, 10) > 0) {
+                       sheet.getRange(rowIndex, colMap.stt + 1).setValue(parseInt(item.stt, 10));
+                   } else if (isNaN(curValParsed) || !curValParsed) {
+                       sheet.getRange(rowIndex, colMap.stt + 1).setValue(targetStt);
+                   }
+               }
                if (colMap.tenKh !== undefined && item.tenKh !== undefined) sheet.getRange(rowIndex, colMap.tenKh + 1).setValue(item.tenKh);
                if (colMap.diaChi !== undefined && item.diaChi !== undefined) sheet.getRange(rowIndex, colMap.diaChi + 1).setValue(item.diaChi);
                if (colMap.sdt !== undefined && item.sdt !== undefined) sheet.getRange(rowIndex, colMap.sdt + 1).setValue(item.sdt);
@@ -2805,7 +2836,7 @@ function doPost(e) {
            } else {
                var lastRow = sheet.getLastRow();
                var newRow = new Array(headers.length).fill('');
-               if (colMap.stt !== undefined) newRow[colMap.stt] = item.stt || (lastRow - headerRowIdx + 1);
+               if (colMap.stt !== undefined) newRow[colMap.stt] = targetStt;
                if (colMap.maKh !== undefined) newRow[colMap.maKh] = item.maKh;
                if (colMap.tenKh !== undefined) newRow[colMap.tenKh] = item.tenKh || '';
                if (colMap.diaChi !== undefined) newRow[colMap.diaChi] = item.diaChi || '';
@@ -2819,8 +2850,8 @@ function doPost(e) {
                if (colMap.ngayHoanTat !== undefined) newRow[colMap.ngayHoanTat] = item.ngayHoanTat || '';
                if (colMap.ketQua !== undefined) newRow[colMap.ketQua] = item.ketQua || '';
                if (colMap.trangThai !== undefined) newRow[colMap.trangThai] = item.trangThai || 'Chưa giao';
-               if (colMap.ghiChu !== undefined) newRow[colMap.ghiChu] = item.ghiChu || '';
-               if (colMap.pic !== undefined) newRow[colMap.pic] = item.pic || '';
+               if (colMap.ghiChu !== undefined && item.ghiChu !== undefined) newRow[colMap.ghiChu] = item.ghiChu || '';
+               if (colMap.pic !== undefined && item.pic !== undefined) newRow[colMap.pic] = item.pic || '';
                if (colMap.ngayTao !== undefined) newRow[colMap.ngayTao] = item.ngayTao || item.ngayNhan || '';
                if (colMap.nguoiTao !== undefined) newRow[colMap.nguoiTao] = item.nguoiTao || '';
 
@@ -2830,10 +2861,80 @@ function doPost(e) {
            }
        }
 
+       var curLastRow = sheet.getLastRow();
+       if (curLastRow > headerRowIdx + 1 && colMap.stt !== undefined) {
+           var sttColIdx = colMap.stt + 1;
+           var numDataRows = curLastRow - (headerRowIdx + 1);
+           var sttRange = sheet.getRange(headerRowIdx + 2, sttColIdx, numDataRows, 1);
+           var sttValues = sttRange.getValues();
+           var hasMissingStt = false;
+           for (var r = 0; r < sttValues.length; r++) {
+               var val = sttValues[r][0];
+               var pVal = parseInt(val, 10);
+               if (isNaN(pVal) || !pVal) {
+                   maxSttInSheet++;
+                   sttValues[r][0] = maxSttInSheet;
+                   hasMissingStt = true;
+               }
+           }
+           if (hasMissingStt) {
+               sttRange.setValues(sttValues);
+           }
+       }
+
        return ContentService.createTextOutput(JSON.stringify({ 
            status: 'success', 
            updatedCount: updatedCount, 
            appendedCount: appendedCount 
+       })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (action === 'delete_dvkh') {
+       var sheet = ss.getSheetByName(sheetName || 'DVKH');
+       if (!sheet) {
+           return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Sheet ' + (sheetName || 'DVKH') + ' not found' })).setMimeType(ContentService.MimeType.JSON);
+       }
+       var maKhsToDelete = eData.maKhs || (eData.maKh ? [eData.maKh] : []);
+       if (!Array.isArray(maKhsToDelete) || maKhsToDelete.length === 0) {
+           return ContentService.createTextOutput(JSON.stringify({ status: 'success', deletedCount: 0 })).setMimeType(ContentService.MimeType.JSON);
+       }
+       var targetSet = {};
+       for (var d = 0; d < maKhsToDelete.length; d++) {
+           var k = String(maKhsToDelete[d] || '').trim().toLowerCase();
+           if (k) targetSet[k] = true;
+       }
+
+       var sheetData = sheet.getDataRange().getValues();
+       var headerRowIdx = 0;
+       for (var rIdx = 0; rIdx < Math.min(10, sheetData.length); rIdx++) {
+           var rowText = sheetData[rIdx].map(function(c) { return normDvkhH(c); }).join(' ');
+           if (rowText.indexOf('makh') !== -1 || (rowText.indexOf('ma') !== -1 && rowText.indexOf('ten') !== -1)) {
+               headerRowIdx = rIdx;
+               break;
+           }
+       }
+       var headers = sheetData[headerRowIdx] || [];
+       var maKhCol = 1;
+       for (var c = 0; c < headers.length; c++) {
+           var h = normDvkhH(headers[c]);
+           if (h === 'makh' || h === 'makhachhang' || h === 'ma') {
+               maKhCol = c;
+               break;
+           }
+       }
+
+       var deletedCount = 0;
+       for (var r = sheetData.length - 1; r > headerRowIdx; r--) {
+           var cellMaKh = String(sheetData[r][maKhCol] || '').trim().toLowerCase();
+           if (cellMaKh && targetSet[cellMaKh]) {
+               sheet.deleteRow(r + 1);
+               deletedCount++;
+           }
+       }
+
+       return ContentService.createTextOutput(JSON.stringify({
+           status: 'success',
+           deletedCount: deletedCount
        })).setMimeType(ContentService.MimeType.JSON);
     }
 

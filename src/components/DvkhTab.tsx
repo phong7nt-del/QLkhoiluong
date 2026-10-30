@@ -741,7 +741,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
           return '';
         };
 
-        const sttRaw = getVal(['stt', 'số thứ tự', 'so thu tu', 'so_thu_tu', 'stt_hs']);
+        const sttRaw = getVal(['stt', 'số thứ tự', 'so thu tu', 'so_thu_tu', 'stt_hs', 'sott', 'sothutu', 'tt', 'sttkh', 'thutu']);
         const maKh = getVal(['makh', 'mã kh', 'ma khach hang', 'mã khách hàng', 'ma_kh', 'mã', 'makhachhang']);
         const tenKh = getVal(['tenkh', 'tên kh', 'ten khach hang', 'tên khách hàng', 'họ tên', 'họ và tên', 'tên', 'khach hang']);
         const diaChi = getVal(['diachi', 'địa chỉ', 'dia chi', 'địa chỉ khách hàng']);
@@ -763,9 +763,9 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
         let entryStt = 0;
         if (sttRaw) {
           const parsed = parseInt(sttRaw, 10);
-          if (!isNaN(parsed) && parsed > 0) {
+          if (!isNaN(parsed) && parsed > currentMaxStt) {
             entryStt = parsed;
-            if (entryStt > currentMaxStt) currentMaxStt = entryStt;
+            currentMaxStt = entryStt;
           }
         }
         if (!entryStt) {
@@ -2051,7 +2051,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                         {paginatedTab1PendingRecords.map((item, idx) => {
                           const isSelected = tab1SelectedMaKhs.includes(item.maKh);
                           return (
-                            <tr key={item.maKh} className={isSelected ? 'bg-purple-50/50' : 'hover:bg-slate-50'}>
+                            <tr key={`${item.maKh}_${item.stt || idx}`} className={isSelected ? 'bg-purple-50/50' : 'hover:bg-slate-50'}>
                               <td className="px-3 py-2 text-center">
                                 <input
                                   type="checkbox"
@@ -2232,7 +2232,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                       </thead>
                       <tbody className="divide-y divide-sky-100">
                         {paginatedTab1DeliveredWaitingConfirm.map((item, idx) => (
-                          <tr key={item.maKh} className="hover:bg-sky-50/50">
+                          <tr key={`${item.maKh}_${item.stt || idx}`} className="hover:bg-sky-50/50">
                             <td className="px-3 py-2 text-center text-slate-500 font-mono">
                               {item.stt || ((currentTab1ReceiptPage - 1) * TAB1_RECEIPT_PAGE_SIZE + idx + 1)}
                             </td>
@@ -2395,7 +2395,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                         {paginatedTab2Records.map((item, idx) => {
                           const isSelected = tab2SelectedMaKhs.includes(item.maKh);
                           return (
-                            <tr key={item.maKh} className={isSelected ? 'bg-blue-50/50' : 'hover:bg-slate-50'}>
+                            <tr key={`${item.maKh}_${item.stt || idx}`} className={isSelected ? 'bg-blue-50/50' : 'hover:bg-slate-50'}>
                               <td className="px-3 py-2 text-center">
                                 <input
                                   type="checkbox"
@@ -2551,7 +2551,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {paginatedTab3Records.map((item, idx) => (
-                          <tr key={item.maKh} className="hover:bg-slate-50">
+                          <tr key={`${item.maKh}_${item.stt || idx}`} className="hover:bg-slate-50">
                             <td className="px-3 py-2 text-center text-slate-500 font-mono">
                               {item.stt || ((currentTab3Page - 1) * TAB3_PAGE_SIZE + idx + 1)}
                             </td>
@@ -3188,7 +3188,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {paginatedBottomList.map((item, idx) => (
-                      <tr key={item.maKh} className="hover:bg-slate-50 transition-colors">
+                      <tr key={`${item.maKh}_${item.stt || idx}`} className="hover:bg-slate-50 transition-colors">
                         <td className="px-3 py-2.5 text-center text-slate-500 font-mono font-bold">
                           {item.stt || ((currentBottomPage - 1) * BOTTOM_PAGE_SIZE + idx + 1)}
                         </td>

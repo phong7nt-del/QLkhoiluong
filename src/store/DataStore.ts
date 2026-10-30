@@ -5252,7 +5252,7 @@ export const DataStore = {
         return '';
       };
 
-      const sttRaw = getVal(['stt', 'so thu tu', 'so_thu_tu', 'stt_hs']);
+      const sttRaw = getVal(['stt', 'so thu tu', 'so_thu_tu', 'sothutu', 'sott', 'tt', 'stt_hs', 'sttkh', 'thu tu']);
       const maKh = getVal(['makh', 'ma khach hang', 'ma kh', 'ma_kh', 'ma']);
       const tenKh = getVal(['tenkh', 'ten khach hang', 'ten kh', 'ho va ten', 'ho ten', 'ten']);
       const diaChi = getVal(['diachi', 'dia chi khach hang', 'dia chi']);
@@ -5304,7 +5304,7 @@ export const DataStore = {
       }
 
       return {
-        stt: sttRaw ? (parseInt(sttRaw, 10) || sttRaw) : (idx + 1),
+        stt: sttRaw ? (parseInt(String(sttRaw).trim(), 10) || (idx + 1)) : (idx + 1),
         maKh: maKh || `KH${String(idx + 1).padStart(4, '0')}`,
         tenKh: tenKh || 'Khách hàng',
         diaChi: diaChi || '',
@@ -5503,10 +5503,20 @@ export const DataStore = {
     }
     const updateMap = DataStore.getLocalDvkhUpdatesMap();
     const result: DvkhEntry[] = [];
+    const seenKeys = new Set<string>();
 
     for (const remote of (remoteList || [])) {
       const key = String(remote.maKh || '').trim().toLowerCase();
-      if (deletedKeys.has(key)) continue; // Không nạp các hồ sơ đã bị xóa
+      if (!key || deletedKeys.has(key)) continue; // Không nạp các hồ sơ đã bị xóa
+      if (seenKeys.has(key)) {
+        // Nếu trùng mã trong remote sheet, merge vào bản ghi đã có thay vì nhân bản dòng
+        const existingIdx = result.findIndex(r => String(r.maKh || '').trim().toLowerCase() === key);
+        if (existingIdx !== -1) {
+          result[existingIdx] = DataStore.mergeDvkhEntry(remote, result[existingIdx]);
+        }
+        continue;
+      }
+      seenKeys.add(key);
       const local = localMap.get(key);
       const upd = updateMap[key];
       result.push(DataStore.mergeDvkhEntry(remote, local, upd));
@@ -5515,7 +5525,8 @@ export const DataStore = {
 
     // Preserve local-only records that haven't appeared in Google Sheets yet
     for (const [key, localRemaining] of localMap.entries()) {
-      if (deletedKeys.has(key)) continue;
+      if (deletedKeys.has(key) || seenKeys.has(key)) continue;
+      seenKeys.add(key);
       const upd = updateMap[key];
       result.push(upd && upd.updates ? { ...localRemaining, ...upd.updates } : localRemaining);
     }
@@ -5525,8 +5536,21 @@ export const DataStore = {
 
   getDvkhEntries: (): DvkhEntry[] => {
     const deletedKeys = DataStore.getDeletedDvkhKeys();
+    const deduplicate = (list: DvkhEntry[]): DvkhEntry[] => {
+      const seen = new Set<string>();
+      const res: DvkhEntry[] = [];
+      for (const item of list) {
+        const k = String(item.maKh || '').trim().toLowerCase();
+        if (k && !deletedKeys.has(k) && !seen.has(k)) {
+          seen.add(k);
+          res.push(item);
+        }
+      }
+      return res;
+    };
+
     if (memCacheDvkhList && Array.isArray(memCacheDvkhList)) {
-      return memCacheDvkhList.filter(e => !deletedKeys.has(String(e.maKh || '').trim().toLowerCase()));
+      return deduplicate(memCacheDvkhList);
     }
     try {
       const cached = safeGetItem(DVKH_KEY);
@@ -5534,7 +5558,7 @@ export const DataStore = {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed)) {
           const applied = DataStore.applyLocalDvkhUpdates(parsed);
-          const filtered = applied.filter(e => !deletedKeys.has(String(e.maKh || '').trim().toLowerCase()));
+          const filtered = deduplicate(applied);
           memCacheDvkhList = filtered;
           return filtered;
         }
@@ -5555,9 +5579,12 @@ export const DataStore = {
 
   addDvkhEntry: async (entry: DvkhEntry): Promise<DvkhEntry> => {
     const list = [...DataStore.getDvkhEntries()];
-    if (!entry.stt) {
-      const maxStt = list.reduce((max, item) => Math.max(max, typeof item.stt === 'number' ? item.stt : parseInt(String(item.stt || 0), 10) || 0), 0);
+    const maxStt = list.reduce((max, item) => Math.max(max, typeof item.stt === 'number' ? item.stt : parseInt(String(item.stt || 0), 10) || 0), 0);
+    const parsedStt = typeof entry.stt === 'number' ? entry.stt : parseInt(String(entry.stt || 0), 10);
+    if (!parsedStt || isNaN(parsedStt) || parsedStt <= 0) {
       entry.stt = Math.max(maxStt + 1, list.length + 1);
+    } else {
+      entry.stt = parsedStt;
     }
     if (!entry.ngayNhan) entry.ngayNhan = entry.ngayTao || new Date().toLocaleString('vi-VN');
     entry.nguoiGiao = ''; // Người giao luôn là DVKH nên không cần thiết phải lưu
@@ -5584,8 +5611,12 @@ export const DataStore = {
     DataStore.unmarkDeletedDvkhKeys(entries.map(e => e.maKh));
 
     const prepared = entries.map(e => {
-      let stt = e.stt;
-      if (!stt) {
+      let parsedStt = typeof e.stt === 'number' ? e.stt : parseInt(String(e.stt || 0), 10);
+      let stt = 0;
+      if (parsedStt && !isNaN(parsedStt) && parsedStt > maxStt) {
+        stt = parsedStt;
+        maxStt = stt;
+      } else {
         maxStt++;
         stt = maxStt;
       }
@@ -5684,8 +5715,10 @@ export const DataStore = {
       const url = DataStore.getAppScriptUrl();
       if (!url) return false;
       const rawItems = Array.isArray(data) ? data : [data];
-      const items = rawItems.map(item => ({
-        stt: item.stt,
+      const items = rawItems.map(item => {
+        const parsedStt = typeof item.stt === 'number' ? item.stt : parseInt(String(item.stt || 0), 10);
+        return {
+        stt: (!isNaN(parsedStt) && parsedStt > 0) ? parsedStt : '',
         maKh: item.maKh,
         tenKh: item.tenKh,
         diaChi: item.diaChi || '',
@@ -5704,7 +5737,7 @@ export const DataStore = {
         pic: item.pic || '',
         ngayTao: item.ngayTao || item.ngayNhan || '',
         nguoiTao: item.nguoiTao || ''
-      }));
+      };});
 
       const response = await fetch(url, {
         method: 'POST',

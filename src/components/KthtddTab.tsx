@@ -2915,13 +2915,13 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                                 {/* Level 3: Danh số -> Số No -> Mã KH */}
                                 {isStOpen && (
                                   <div className="pl-5 pr-1 py-1 space-y-1 bg-slate-50/60 border-l border-slate-200 mb-1 rounded-r-lg">
-                                    {station.customers.map(customer => {
+                                    {station.customers.map((customer, cIdx) => {
                                       const isDone = Boolean(customer.ketQua && customer.ketQua.trim().length > 0);
                                       const isSelected = selectedMaKh === customer.maKh;
 
                                       return (
                                         <div
-                                          key={customer.maKh}
+                                          key={`${customer.maKh}_${customer.soNo || customer.danhSo || ''}_${cIdx}`}
                                           onClick={() => {
                                             setSelectedMaKh(customer.maKh);
                                             setMobileTab('inspect');
@@ -4486,7 +4486,7 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
 
                           return (
                             <tr
-                              key={item.maKh}
+                              key={`${item.maKh}_${item.soNo || ''}_${idx}`}
                               onClick={() => {
                                 setSelectedMaKh(item.maKh);
                                 setMobileTab('inspect');
