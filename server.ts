@@ -7,6 +7,9 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  app.use(express.json({ limit: "50mb" }));
+  app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+
   // API route for version info (always no-cache to ensure clients detect new releases immediately)
   const getVersionData = () => {
     const candidatePaths = [
@@ -29,6 +32,81 @@ async function startServer() {
     res.setHeader("Pragma", "no-cache");
     res.setHeader("Expires", "0");
     res.json(getVersionData());
+  });
+
+  // Shared server configuration (synchronizes Apps Script URL and Spreadsheet ID across all devices)
+  const sharedConfigPath = path.join(process.cwd(), 'shared_config.json');
+
+  const getSharedConfig = () => {
+    try {
+      if (fs.existsSync(sharedConfigPath)) {
+        return JSON.parse(fs.readFileSync(sharedConfigPath, 'utf8'));
+      }
+    } catch (e) {}
+    return {
+      spreadsheetId: "1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ",
+      appScriptUrl: ""
+    };
+  };
+
+  const saveSharedConfig = (data: Partial<{ spreadsheetId: string; appScriptUrl: string }>) => {
+    try {
+      const cur = getSharedConfig();
+      const updated = {
+        ...cur,
+        ...(data.spreadsheetId ? { spreadsheetId: data.spreadsheetId } : {}),
+        ...(data.appScriptUrl ? { appScriptUrl: data.appScriptUrl } : {}),
+        updatedAt: new Date().toISOString()
+      };
+      fs.writeFileSync(sharedConfigPath, JSON.stringify(updated, null, 2), 'utf8');
+      return updated;
+    } catch (e) {
+      console.warn('Could not save shared config:', e);
+      return null;
+    }
+  };
+
+  app.get("/api/config", (req, res) => {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    res.json(getSharedConfig());
+  });
+
+  app.post("/api/config", (req, res) => {
+    const { spreadsheetId, appScriptUrl } = req.body || {};
+    const updated = saveSharedConfig({ spreadsheetId, appScriptUrl });
+    res.json({ success: !!updated, config: updated });
+  });
+
+  // Centralized proxy for Google Apps Script to eliminate client CORS and multi-device connection issues
+  app.post("/api/proxy/apps-script", async (req, res) => {
+    try {
+      const cfg = getSharedConfig();
+      const targetUrl = (req.body && req.body._targetUrl) || cfg.appScriptUrl;
+      if (!targetUrl || !targetUrl.startsWith('http')) {
+        res.status(400).json({ success: false, error: 'Chưa cấu hình URL Google Apps Script trên hệ thống' });
+        return;
+      }
+
+      const payload = { ...req.body };
+      delete payload._targetUrl;
+
+      const gRes = await fetch(targetUrl, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(payload)
+      });
+
+      const text = await gRes.text();
+      try {
+        const json = JSON.parse(text);
+        res.json(json);
+      } catch {
+        res.send(text);
+      }
+    } catch (err: any) {
+      console.warn("Apps Script proxy error:", err);
+      res.status(500).json({ success: false, error: err.message || 'Lỗi kết nối tới Google Apps Script' });
+    }
   });
 
   // Cache for sheet name -> gid mapping to prevent gviz active-filter truncation
@@ -57,7 +135,8 @@ async function startServer() {
     'sangtai': '2131392389',
     'kho': '230876420',
     'vttb': '1481390126',
-    'cbcnv': '1318742136'
+    'cbcnv': '1318742136',
+    '963': '1690879549'
   };
 
   async function getGidForSheet(sheetId: string, sheetName: string): Promise<string | null> {

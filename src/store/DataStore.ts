@@ -105,6 +105,61 @@ export interface LocalDvkhUpdate {
   synced: boolean;
 }
 
+export interface Entry963 {
+  maKh: string; // MA_KHANG
+  kv: string; // KV (BR, PM, v.v.)
+  tenKh: string; // TEN_KHANG
+  diaChi: string; // DIA_CHI
+  maCloai?: string; // MA_CLOAI
+  maNn?: string; // MA_NN
+  maNhomnn?: string; // MA_NHOMNN
+  tySoTu?: string; // ty so_TU
+  tySoTi?: string; // ty0so0_TI
+  soPha?: string; // SO_PHA
+  congNghe?: string; // CONG NGHE
+  doXa?: string; // DoXa
+  sl2025?: string; // SL2025
+  nlmt?: string; // NLMT
+  phien?: string; // PHIEN
+  loaiCto?: string; // LOAICTO_TTIEP_GTIEP
+  dot: string; // Dot (1, 2, v.v.)
+  kSuDung?: string; // KSuDung ("Thu hồi" hoặc rỗng)
+  nv?: string; // NV (Người thực hiện / Nhân viên đăng nhập)
+  ngayGio?: string; // NgayGio (dd/mm/yyyy hh:mm)
+  ketQua?: string; // KetQua ("Xong" hoặc rỗng)
+  gioVuot?: number; // GioVuot (quy ra giờ vượt từ 9h30 đến 11h30)
+  slKyTruoc?: string; // SLKyTruoc
+  slVuot?: string; // SLVuot
+  raw?: Record<string, string>;
+  isLocal?: boolean;
+}
+
+export interface Local963Update {
+  maKh: string;
+  updates: Partial<Entry963>;
+  timestamp: number;
+  synced: boolean;
+}
+
+export const calculateGioVuot = (ngayGioStr: string): number => {
+  if (!ngayGioStr) return 0;
+  const timeMatch = String(ngayGioStr).match(/(\d{1,2}):(\d{2})/);
+  if (!timeMatch) return 0;
+  const h = parseInt(timeMatch[1], 10);
+  const m = parseInt(timeMatch[2], 10);
+  if (isNaN(h) || isNaN(m) || h < 0 || h > 23 || m < 0 || m > 59) return 0;
+
+  const totalMinutes = h * 60 + m;
+  const startMinutes = 9 * 60 + 30; // 570 (09:30)
+  const endMinutes = 11 * 60 + 30;  // 690 (11:30)
+
+  if (totalMinutes >= startMinutes && totalMinutes <= endMinutes) {
+    const diffMinutes = totalMinutes - startMinutes;
+    return Math.round((diffMinutes / 60) * 100) / 100;
+  }
+  return 0;
+};
+
 export const getDvkhStatusWeight = (status?: string): number => {
   if (!status) return -1;
   const s = status.trim().toLowerCase();
@@ -389,6 +444,8 @@ const TU_NAM_KEY = 'sheet_tu_nam_v1';
 const TI_SHEET_KEY = 'sheet_ti_entries_v1';
 const TI_NAM_KEY = 'sheet_ti_nam_v1';
 const ALLOW_CUSTOM_NGAY_HOAN_TAT_DVKH_KEY = 'config_allow_custom_ngay_hoan_tat_dvkh_v1';
+const SHEET_963_KEY = 'sheet_963_v1';
+const LOCAL_963_UPDATES_KEY = 'local_963_updates_v1';
 
 let memCacheQuaHanList: QuaHanEntry[] | null = null;
 let memCacheQuaHanNamList: QuaHanEntry[] | null = null;
@@ -399,6 +456,8 @@ let memCacheTiNamList: TiSheetEntry[] | null = null;
 let memCacheDvkhList: DvkhEntry[] | null = null;
 let memCacheDvkhUpdatesMap: Record<string, LocalDvkhUpdate> | null = null;
 let memCacheDeletedDvkhKeys: Set<string> | null = null;
+let memCache963List: Entry963[] | null = null;
+let memCache963UpdatesMap: Record<string, Local963Update> | null = null;
 let memCacheKhuVucList: any[] | null = null;
 let memCacheMatKetNoiList: any[] | null = null;
 let memCacheChiTietMKNList: any[] | null = null;
@@ -563,6 +622,28 @@ export const initDB = async () => {
       }
     } catch (e) {}
     try {
+      const u963Val = await get(LOCAL_963_UPDATES_KEY);
+      if (u963Val) {
+        const parsed = typeof u963Val === 'string' ? JSON.parse(u963Val) : u963Val;
+        if (parsed && typeof parsed === 'object') {
+          memCache963UpdatesMap = parsed;
+        }
+      }
+    } catch (e) {}
+    try {
+      const s963Val = await get(SHEET_963_KEY);
+      if (s963Val) {
+        let parsed = typeof s963Val === 'string' ? JSON.parse(s963Val) : s963Val;
+        if (Array.isArray(parsed)) {
+          parsed = DataStore.applyLocal963Updates(parsed);
+          memCache963List = parsed;
+          safeSetItem(SHEET_963_KEY, JSON.stringify(parsed));
+        }
+      }
+    } catch (e) {
+      console.warn('Could not preload 963 from IDB', e);
+    }
+    try {
       const mknVal = await get('sheet_matketnoi_v1');
       if (mknVal) {
         let parsed = typeof mknVal === 'string' ? JSON.parse(mknVal) : mknVal;
@@ -608,6 +689,32 @@ export const initDB = async () => {
       }
       memoryCache[key] = val || null;
     }
+
+    // Automatically synchronize centralized server configuration across all devices
+    try {
+      const cfgRes = await fetch('/api/config');
+      if (cfgRes.ok) {
+        const sCfg = await cfgRes.json();
+        if (sCfg.appScriptUrl && sCfg.appScriptUrl.startsWith('http') && !sCfg.appScriptUrl.includes('AKfycbzpw3SlqJxXYC29qjPRqH8ehfJp764bNvQFUzqIgMW_rMrpitMKvvRvWbbGrP505Sdi')) {
+          memoryCache[SCRIPT_URL_KEY] = sCfg.appScriptUrl;
+          try { localStorage.setItem(SCRIPT_URL_KEY, sCfg.appScriptUrl); } catch (e) {}
+        } else {
+          // If server config is empty but this device has a custom URL, broadcast it to server so other machines get it
+          const curLocalUrl = memoryCache[SCRIPT_URL_KEY] || localStorage.getItem(SCRIPT_URL_KEY);
+          if (curLocalUrl && curLocalUrl.startsWith('http') && !curLocalUrl.includes('AKfycbzpw3SlqJxXYC29qjPRqH8ehfJp764bNvQFUzqIgMW_rMrpitMKvvRvWbbGrP505Sdi')) {
+            fetch('/api/config', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ appScriptUrl: curLocalUrl })
+            }).catch(() => {});
+          }
+        }
+        if (sCfg.spreadsheetId && sCfg.spreadsheetId.trim()) {
+          memoryCache[SPREADSHEET_ID_KEY] = sCfg.spreadsheetId.trim();
+          try { localStorage.setItem(SPREADSHEET_ID_KEY, sCfg.spreadsheetId.trim()); } catch (e) {}
+        }
+      }
+    } catch (e) {}
 };
 
 const safeSetItem = (key: string, value: string) => {
@@ -675,7 +782,18 @@ export const DataStore = {
       const url = safeGetItem(SCRIPT_URL_KEY);
       return url ? url.trim() : DEFAULT_APP_SCRIPT_URL;
   },
-  setAppScriptUrl: (url: string) => safeSetItem(SCRIPT_URL_KEY, url),
+  setAppScriptUrl: (url: string) => {
+      safeSetItem(SCRIPT_URL_KEY, url);
+      try {
+        if (url && url.startsWith('http') && !url.includes('AKfycbzpw3SlqJxXYC29qjPRqH8ehfJp764bNvQFUzqIgMW_rMrpitMKvvRvWbbGrP505Sdi')) {
+          fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ appScriptUrl: url })
+          }).catch(() => {});
+        }
+      } catch (e) {}
+  },
 
   getSpreadsheetId: (): string => {
       const id = safeGetItem(SPREADSHEET_ID_KEY);
@@ -688,6 +806,15 @@ export const DataStore = {
           clean = match[1];
       }
       safeSetItem(SPREADSHEET_ID_KEY, clean);
+      try {
+        if (clean) {
+          fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ spreadsheetId: clean })
+          }).catch(() => {});
+        }
+      } catch (e) {}
   },
   getSpreadsheetUrl: (): string => {
       const id = DataStore.getSpreadsheetId();
@@ -2740,6 +2867,13 @@ export const DataStore = {
                }
             } catch(e) {
                console.warn('Could not fetch DVKH sheet:', e);
+            }
+
+            // Fetch 963 (Thay công tơ theo QĐ 963)
+            try {
+               DataStore.fetch963Data().catch(() => {});
+            } catch(e) {
+               console.warn('Could not fetch 963 sheet:', e);
             }
 
             // Fetch QuaHan
@@ -5253,21 +5387,22 @@ export const DataStore = {
       };
 
       const sttRaw = getVal(['stt', 'so thu tu', 'so_thu_tu', 'sothutu', 'sott', 'tt', 'stt_hs', 'sttkh', 'thu tu']);
-      const maKh = getVal(['makh', 'ma khach hang', 'ma kh', 'ma_kh', 'ma']);
+      const maKh = getVal(['makh', 'ma khach hang', 'ma kh', 'ma_kh', 'ma', 'shs', 'so ho so']);
       const tenKh = getVal(['tenkh', 'ten khach hang', 'ten kh', 'ho va ten', 'ho ten', 'ten']);
       const diaChi = getVal(['diachi', 'dia chi khach hang', 'dia chi']);
       const loaiYeuCau = getVal(['loai', 'loại', 'loaiyeucau', 'loai yeu cau', 'yeu cau', 'loai hs', 'loaiyeucauhs']);
-      const ngayNhan = getVal(['ngaynhan', 'ngay nhan', 'ngay tao', 'ngaytao']);
-      const nguoiNhan = getVal(['nguoinhan', 'nguoi nhan']);
-      const ngayGiao = getVal(['ngaygiao', 'ngay giao']);
-      const nguoiGiao = getVal(['nguoigiao', 'nguoi giao']);
-      const nguoiThucHien = getVal(['nguoithuchien', 'nguoi thuc hien', 'nhan vien']);
-      const ngayHoanTat = getVal(['ngayhoantat', 'ngay hoan tat', 'ngay xong']);
+      const ngayNhan = getVal(['ngaynhan', 'ngay nhan', 'ngay tiep nhan', 'ngaytiepnhan', 'ngay tao', 'ngaytao']);
+      const nguoiNhan = getVal(['nguoinhan', 'nguoi nhan', 'nguoi tiep nhan', 'nguoitiepnhan', 'lanh dao nhan', 'lanhdaonhan']);
+      const ngayGiao = getVal(['ngaygiao', 'ngay giao', 'ngay phan cong', 'ngayphancong']);
+      const nguoiGiao = getVal(['nguoigiao', 'nguoi giao', 'nguoi phan cong', 'nguoiphancong']);
+      const nguoiThucHien = getVal(['nguoithuchien', 'nguoi thuc hien', 'nhan vien thuc hien', 'nhanvienthuchien', 'nhan vien', 'nhanvien', 'nguoi thi cong', 'nguoithicong', 'nhan vien thi cong', 'nhanvienthicong', 'ky thuat vien', 'kythuatvien', 'nguoith', 'nvth']);
+      const ngayHoanTat = getVal(['ngayhoantat', 'ngay hoan tat', 'ngay xong', 'ngay hoan thanh']);
       const ketQuaRaw = getVal(['ketqua', 'ket qua']);
-      let ghiChu = getVal(['ghichu', 'ghi chu', 'noi dung ghi chu', 'tro ngai', 'noidungghichu']);
-      const trangThaiRaw = getVal(['trangthai', 'trang thai']);
+      let ghiChu = getVal(['ghichu', 'ghi chu', 'noi dung ghi chu', 'tro ngai', 'noidungghichu', 'ghi chu tro ngai']);
+      const trangThaiRaw = getVal(['trangthai', 'trang thai', 'tinh trang', 'tinhtrang', 'trang thai ho so', 'trangthaihoso']);
       const sdt = getVal(['sdt', 'so dien thoai', 'dien thoai', 'phone', 'tel']);
       const pic = getVal(['pic', 'hinhanh', 'hinh anh', 'anh', 'anh chung minh', 'anh tro ngai', 'anhtrongai']);
+      const khuVuc = getVal(['khuvuc', 'khu vuc', 'phuong xa', 'phuongxa', 'dia ban', 'diaban']);
       const ngayTao = getVal(['ngaytao', 'ngay tao']) || ngayNhan;
       const nguoiTao = getVal(['nguoitao', 'nguoi tao']);
 
@@ -5310,6 +5445,7 @@ export const DataStore = {
         diaChi: diaChi || '',
         sdt,
         pic,
+        khuVuc: khuVuc || '',
         ngayNhan,
         nguoiNhan,
         ngayGiao,
@@ -5383,7 +5519,8 @@ export const DataStore = {
     return entries.map(item => {
       const key = String(item.maKh || '').trim().toLowerCase();
       const upd = map[key];
-      if (upd && upd.updates) {
+      // Only apply pending unsynced updates
+      if (upd && upd.updates && !upd.synced) {
         return { ...item, ...upd.updates };
       }
       return item;
@@ -5400,7 +5537,7 @@ export const DataStore = {
 
       if (localWeight > remoteWeight) {
         // Local has advanced further (e.g. đã nhận, đã giao thi công, xong, trở ngại)
-        // Never allow a stale Google Sheet row to revert local progression!
+        // Keep local progression only if remote hasn't progressed
         res.trangThai = localItem.trangThai;
         res.ngayNhan = localItem.ngayNhan || res.ngayNhan;
         res.nguoiNhan = localItem.nguoiNhan || res.nguoiNhan;
@@ -5433,8 +5570,21 @@ export const DataStore = {
       }
     }
 
-    if (localUpdate && localUpdate.updates) {
+    // CRITICAL: Only apply unsynced local pending updates so that stale browser caches
+    // on one computer never revert fresh receive/dispatch updates performed on other computers!
+    if (localUpdate && localUpdate.updates && !localUpdate.synced) {
       res = { ...res, ...localUpdate.updates };
+    } else if (localUpdate && localUpdate.synced) {
+      // Remote already contains the synchronized change, safely remove it from the local update map
+      const map = DataStore.getLocalDvkhUpdatesMap();
+      const uKey = String(remoteItem.maKh || '').trim().toLowerCase();
+      if (map[uKey]) {
+        delete map[uKey];
+        try {
+          safeSetItem(LOCAL_DVKH_UPDATES_KEY, JSON.stringify(map));
+          set(LOCAL_DVKH_UPDATES_KEY, map).catch(() => {});
+        } catch {}
+      }
     }
 
     return res;
@@ -5680,7 +5830,7 @@ export const DataStore = {
     return allSyncedItems;
   },
 
-  updateDvkhEntry: async (maKh: string, updates: Partial<DvkhEntry>): Promise<DvkhEntry | null> => {
+  updateDvkhEntry: async (maKh: string, updates: Partial<DvkhEntry>): Promise<{ success: boolean; entry: DvkhEntry | null }> => {
     const list = [...DataStore.getDvkhEntries()];
     const normTarget = String(maKh || '').trim().toLowerCase();
     const idx = list.findIndex(e => String(e.maKh || '').trim().toLowerCase() === normTarget);
@@ -5688,15 +5838,16 @@ export const DataStore = {
       list[idx] = { ...list[idx], ...updates };
       DataStore.saveDvkhEntries(list);
       DataStore.recordLocalDvkhUpdate(maKh, updates, false);
-      DataStore.syncDvkhToSheet(list[idx]).then(ok => {
-        if (ok) DataStore.markDvkhUpdateSynced([maKh]);
-      }).catch(() => {});
-      return list[idx];
+      const syncOk = await DataStore.syncDvkhToSheet(list[idx]);
+      if (syncOk) {
+        DataStore.markDvkhUpdateSynced([maKh]);
+      }
+      return { success: syncOk, entry: list[idx] };
     }
-    return null;
+    return { success: false, entry: null };
   },
 
-  batchUpdateDvkh: async (maKhs: string[], updates: Partial<DvkhEntry>): Promise<void> => {
+  batchUpdateDvkh: async (maKhs: string[], updates: Partial<DvkhEntry>): Promise<boolean> => {
     const list = [...DataStore.getDvkhEntries()];
     const setKeys = new Set(maKhs.map(k => String(k || '').trim().toLowerCase()));
     const updatedItems: DvkhEntry[] = [];
@@ -5711,10 +5862,13 @@ export const DataStore = {
     DataStore.saveDvkhEntries(updatedList);
     maKhs.forEach(k => DataStore.recordLocalDvkhUpdate(k, updates, false));
     if (updatedItems.length > 0) {
-      DataStore.syncDvkhToSheet(updatedItems).then(ok => {
-        if (ok) DataStore.markDvkhUpdateSynced(maKhs);
-      }).catch(() => {});
+      const syncOk = await DataStore.syncDvkhToSheet(updatedItems);
+      if (syncOk) {
+        DataStore.markDvkhUpdateSynced(maKhs);
+      }
+      return syncOk;
     }
+    return true;
   },
 
   syncPendingDvkhUpdates: async (): Promise<void> => {
@@ -5753,41 +5907,67 @@ export const DataStore = {
 
   syncDvkhToSheet: async (data: DvkhEntry | DvkhEntry[]): Promise<boolean> => {
     try {
-      const url = DataStore.getAppScriptUrl();
-      if (!url) return false;
       const rawItems = Array.isArray(data) ? data : [data];
+      if (rawItems.length === 0) return true;
       const items = rawItems.map(item => {
         const parsedStt = typeof item.stt === 'number' ? item.stt : parseInt(String(item.stt || 0), 10);
         return {
-        stt: (!isNaN(parsedStt) && parsedStt > 0) ? parsedStt : '',
-        maKh: item.maKh,
-        tenKh: item.tenKh,
-        diaChi: item.diaChi || '',
-        sdt: item.sdt || '',
-        loai: item.loaiYeuCau || (item as any).loai || 'Gắn mới',
-        loaiYeuCau: item.loaiYeuCau || (item as any).loai || 'Gắn mới',
-        ngayNhan: item.ngayNhan || item.ngayTao || '',
-        nguoiNhan: item.nguoiNhan || '',
-        ngayGiao: item.ngayGiao || '',
-        nguoiGiao: '', // Luôn để trống vì người giao luôn là DVKH
-        nguoiThucHien: item.nguoiThucHien || '',
-        ngayHoanTat: item.ngayHoanTat || '',
-        ketQua: item.ketQua || '',
-        trangThai: item.trangThai || 'Chưa giao',
-        ghiChu: item.ghiChu || '',
-        pic: item.pic || '',
-        ngayTao: item.ngayTao || item.ngayNhan || '',
-        nguoiTao: item.nguoiTao || ''
-      };});
+          stt: (!isNaN(parsedStt) && parsedStt > 0) ? parsedStt : '',
+          maKh: item.maKh,
+          tenKh: item.tenKh,
+          diaChi: item.diaChi || '',
+          sdt: item.sdt || '',
+          loai: item.loaiYeuCau || (item as any).loai || 'Gắn mới',
+          loaiYeuCau: item.loaiYeuCau || (item as any).loai || 'Gắn mới',
+          ngayNhan: item.ngayNhan || item.ngayTao || '',
+          nguoiNhan: item.nguoiNhan || '',
+          ngayGiao: item.ngayGiao || '',
+          nguoiGiao: '', // Luôn để trống vì người giao luôn là DVKH
+          nguoiThucHien: item.nguoiThucHien || '',
+          ngayHoanTat: item.ngayHoanTat || '',
+          ketQua: item.ketQua || '',
+          trangThai: item.trangThai || 'Chưa giao',
+          ghiChu: item.ghiChu || '',
+          pic: item.pic || '',
+          ngayTao: item.ngayTao || item.ngayNhan || '',
+          nguoiTao: item.nguoiTao || ''
+        };
+      });
+
+      const payload = {
+        action: 'save_dvkh',
+        sheetName: 'DVKH',
+        items: items
+      };
+
+      // Priority 1: Proxy through local backend server to bypass CORS and share URL across devices
+      try {
+        const proxyRes = await fetch('/api/proxy/apps-script', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...payload,
+            _targetUrl: DataStore.getAppScriptUrl()
+          })
+        });
+        if (proxyRes.ok) {
+          const resJson = await proxyRes.json().catch(() => null);
+          if (resJson && (resJson.status === 'success' || resJson.success !== false)) {
+            return true;
+          }
+        }
+      } catch (proxyErr) {}
+
+      // Priority 2: Direct browser fetch to Google Apps Script
+      const url = DataStore.getAppScriptUrl();
+      if (!url || !url.startsWith('http') || url.includes('AKfycbzpw3SlqJxXYC29qjPRqH8ehfJp764bNvQFUzqIgMW_rMrpitMKvvRvWbbGrP505Sdi')) {
+        return false;
+      }
 
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          action: 'save_dvkh',
-          sheetName: 'DVKH',
-          items: items
-        })
+        body: JSON.stringify(payload)
       });
       return response.ok;
     } catch (e) {
@@ -5839,16 +6019,35 @@ export const DataStore = {
 
   syncDeleteDvkhToSheet: async (maKhs: string[]): Promise<boolean> => {
     try {
+      if (!maKhs || maKhs.length === 0) return true;
+      const payload = {
+        action: 'delete_dvkh',
+        sheetName: 'DVKH',
+        maKhs: maKhs
+      };
+
+      // Priority 1: Backend proxy
+      try {
+        const proxyRes = await fetch('/api/proxy/apps-script', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...payload,
+            _targetUrl: DataStore.getAppScriptUrl()
+          })
+        });
+        if (proxyRes.ok) {
+          return true;
+        }
+      } catch (proxyErr) {}
+
+      // Priority 2: Direct browser fetch
       const url = DataStore.getAppScriptUrl();
-      if (!url) return false;
+      if (!url || !url.startsWith('http') || url.includes('AKfycbzpw3SlqJxXYC29qjPRqH8ehfJp764bNvQFUzqIgMW_rMrpitMKvvRvWbbGrP505Sdi')) return false;
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          action: 'delete_dvkh',
-          sheetName: 'DVKH',
-          maKhs: maKhs
-        })
+        body: JSON.stringify(payload)
       });
       return response.ok;
     } catch (e) {
@@ -5869,6 +6068,431 @@ export const DataStore = {
   setAllowCustomNgayHoanTatDvkh: (val: boolean) => {
     safeSetItem(ALLOW_CUSTOM_NGAY_HOAN_TAT_DVKH_KEY, String(val));
     window.dispatchEvent(new CustomEvent('dvkh_config_updated'));
+  },
+
+  // ======== ĐỒNG BỘ CỨU HỘ TOÀN BỘ CÔNG VIỆC DVKH ĐÃ LÀM TỪ MÁY NÀY LÊN CLOUD ========
+  syncAllLocalDvkhWorkToCloud: async (): Promise<{ total: number; success: boolean; message: string }> => {
+    try {
+      const allEntries = DataStore.getDvkhEntries();
+      const updateMap = DataStore.getLocalDvkhUpdatesMap();
+      const targetKeys = new Set<string>();
+
+      // 1. Thêm tất cả các mã KH có trong bảng local updates của máy này
+      Object.keys(updateMap).forEach(k => {
+        if (k && k.trim()) targetKeys.add(k.trim().toLowerCase());
+      });
+
+      // 2. Thêm tất cả các hồ sơ đã có thao tác (không phải 'Chưa giao' hoặc đã có người nhận/người thực hiện/ngày hoàn tất/kết quả)
+      allEntries.forEach(e => {
+        const isWorkedOn = (e.trangThai && e.trangThai !== 'Chưa giao') ||
+          Boolean(e.nguoiNhan && e.nguoiNhan.trim()) ||
+          Boolean(e.nguoiThucHien && e.nguoiThucHien.trim()) ||
+          Boolean(e.ngayNhan && e.ngayNhan.trim()) ||
+          Boolean(e.ngayGiao && e.ngayGiao.trim()) ||
+          Boolean(e.ketQua && e.ketQua.trim()) ||
+          Boolean(e.ghiChu && e.ghiChu.trim()) ||
+          Boolean(e.pic && e.pic.trim());
+        if (isWorkedOn && e.maKh) {
+          targetKeys.add(String(e.maKh).trim().toLowerCase());
+        }
+      });
+
+      if (targetKeys.size === 0) {
+        return {
+          total: 0,
+          success: true,
+          message: 'Không có dữ liệu thay đổi nào trên máy này cần đồng bộ.'
+        };
+      }
+
+      const itemsToSync: DvkhEntry[] = [];
+      allEntries.forEach(e => {
+        if (e.maKh && targetKeys.has(String(e.maKh).trim().toLowerCase())) {
+          itemsToSync.push(e);
+        }
+      });
+
+      if (itemsToSync.length === 0) {
+        return {
+          total: 0,
+          success: true,
+          message: 'Không tìm thấy hồ sơ tương ứng trong bộ nhớ máy này.'
+        };
+      }
+
+      const ok = await DataStore.syncDvkhToSheet(itemsToSync);
+      if (ok) {
+        const syncedMaKhs = itemsToSync.map(it => it.maKh);
+        DataStore.markDvkhUpdateSynced(syncedMaKhs);
+        window.dispatchEvent(new CustomEvent('dvkh_updated'));
+        return {
+          total: itemsToSync.length,
+          success: true,
+          message: `Đã đồng bộ thành công toàn bộ ${itemsToSync.length} hồ sơ đã làm trên máy này lên Google Sheet!`
+        };
+      } else {
+        return {
+          total: itemsToSync.length,
+          success: false,
+          message: 'Không thể kết nối đến Google Apps Script. Vui lòng kiểm tra lại cấu hình URL Google Script trong bánh răng hệ thống.'
+        };
+      }
+    } catch (err: any) {
+      return {
+        total: 0,
+        success: false,
+        message: err?.message || 'Có lỗi xảy ra khi đồng bộ dữ liệu lên Google Sheet.'
+      };
+    }
+  },
+
+  // ======== CÁC HÀM XỬ LÝ THEO DÕI THAY CÔNG TƠ THEO QUYẾT ĐỊNH 963 ========
+  parse963CSVData: (csvText: string): Entry963[] => {
+    if (!csvText || !csvText.trim()) return [];
+    try {
+      const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+      const rows = (parsed.data || []) as Record<string, any>[];
+      const result: Entry963[] = [];
+
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r || Object.keys(r).length === 0) continue;
+
+        // Trích xuất linh hoạt tên cột
+        const getV = (keys: string[]): string => {
+          for (const k of keys) {
+            if (r[k] !== undefined && r[k] !== null) {
+              const val = String(r[k]).trim();
+              if (val.startsWith("'")) return val.substring(1).trim();
+              return val;
+            }
+          }
+          // Tìm theo chuẩn hóa chữ thường
+          const rKeys = Object.keys(r);
+          for (const opt of keys) {
+            const optClean = opt.toLowerCase().replace(/[^a-z0-9]/g, '');
+            for (const rk of rKeys) {
+              const rkClean = rk.toLowerCase().replace(/[^a-z0-9]/g, '');
+              if (rkClean === optClean) {
+                const val = String(r[rk]).trim();
+                if (val.startsWith("'")) return val.substring(1).trim();
+                return val;
+              }
+            }
+          }
+          return '';
+        };
+
+        const maKh = getV(['MA_KHANG', 'Mã KH', 'makh', 'Ma_Khang', 'MA_KH']);
+        if (!maKh) continue;
+
+        const kv = getV(['KV', 'Khu vực', 'KhuVuc', 'KVUC']) || 'Khác';
+        const tenKh = getV(['TEN_KHANG', 'Tên KH', 'Ten_Khang', 'TEN_KH', 'Họ tên', 'Ho_Ten']);
+        const diaChi = getV(['DIA_CHI', 'Địa chỉ', 'Dia_Chi', 'DIACHI']);
+        const dot = getV(['Dot', 'Đợt', 'DOT']) || '1';
+        const kSuDung = getV(['KSuDung', 'Không sử dụng', 'K_SuDung', 'KSUDUNG', 'Thu hồi']);
+        const nv = getV(['NV', 'Nhân viên', 'NhanVien', 'NguoiThucHien']);
+        const ngayGio = getV(['NgayGio', 'Ngày giờ', 'Ngay_Gio', 'NGAYGIO', 'NgayThucHien']);
+        const ketQua = getV(['KetQua', 'Kết quả', 'Ket_Qua', 'KETQUA']);
+        const rawGioVuot = getV(['GioVuot', 'Giờ vượt', 'Gio_Vuot', 'GIOVUOT']);
+
+        let gioVuot = 0;
+        if (rawGioVuot) {
+          const parsedGv = parseFloat(rawGioVuot.replace(',', '.'));
+          if (!isNaN(parsedGv)) gioVuot = parsedGv;
+        } else if (ngayGio && ketQua.toLowerCase().includes('xong')) {
+          gioVuot = calculateGioVuot(ngayGio);
+        }
+
+        result.push({
+          maKh,
+          kv,
+          tenKh,
+          diaChi,
+          maCloai: getV(['MA_CLOAI', 'Mã CLOAI']),
+          maNn: getV(['MA_NN', 'Mã NN']),
+          maNhomnn: getV(['MA_NHOMNN', 'Mã nhóm NN']),
+          tySoTu: getV(['ty so_TU', 'ty_so_tu', 'TU']),
+          tySoTi: getV(['ty0so0_TI', 'ty_so_ti', 'TI']),
+          soPha: getV(['SO_PHA', 'Số pha']),
+          congNghe: getV(['CONG NGHE', 'Công nghệ']),
+          doXa: getV(['DoXa', 'Đo xa']),
+          sl2025: getV(['SL2025']),
+          nlmt: getV(['NLMT']),
+          phien: getV(['PHIEN', 'Phiên']),
+          loaiCto: getV(['LOAICTO_TTIEP_GTIEP', 'Loại công tơ']),
+          dot,
+          kSuDung,
+          nv,
+          ngayGio,
+          ketQua,
+          gioVuot,
+          slKyTruoc: getV(['SLKyTruoc']),
+          slVuot: getV(['SLVuot']),
+          raw: r
+        });
+      }
+      return result;
+    } catch (e) {
+      console.warn('Lỗi khi parse CSV sheet 963:', e);
+      return [];
+    }
+  },
+
+  get963Entries: (): Entry963[] => {
+    if (memCache963List) return memCache963List;
+    try {
+      const local = safeGetItem(SHEET_963_KEY);
+      if (local) {
+        const parsed = JSON.parse(local);
+        if (Array.isArray(parsed)) {
+          memCache963List = DataStore.applyLocal963Updates(parsed);
+          return memCache963List;
+        }
+      }
+    } catch (e) {}
+    return [];
+  },
+
+  save963Entries: (list: Entry963[]): void => {
+    memCache963List = list;
+    try {
+      safeSetItem(SHEET_963_KEY, JSON.stringify(list));
+      set(SHEET_963_KEY, list).catch(() => {});
+    } catch (e) {
+      console.warn('Lỗi khi lưu danh sách 963:', e);
+    }
+  },
+
+  getLocal963UpdatesMap: (): Record<string, Local963Update> => {
+    if (memCache963UpdatesMap) return memCache963UpdatesMap;
+    try {
+      const local = safeGetItem(LOCAL_963_UPDATES_KEY);
+      if (local) {
+        const parsed = JSON.parse(local);
+        if (parsed && typeof parsed === 'object') {
+          memCache963UpdatesMap = parsed;
+          return parsed;
+        }
+      }
+    } catch (e) {}
+    memCache963UpdatesMap = {};
+    return {};
+  },
+
+  recordLocal963Update: (maKh: string, updates: Partial<Entry963>, synced: boolean = false): void => {
+    if (!maKh) return;
+    const key = maKh.trim().toLowerCase();
+    const map = { ...DataStore.getLocal963UpdatesMap() };
+    const prev = map[key];
+    map[key] = {
+      maKh,
+      updates: { ...(prev?.updates || {}), ...updates },
+      timestamp: Date.now(),
+      synced
+    };
+    memCache963UpdatesMap = map;
+    try {
+      safeSetItem(LOCAL_963_UPDATES_KEY, JSON.stringify(map));
+      set(LOCAL_963_UPDATES_KEY, map).catch(() => {});
+    } catch (e) {}
+  },
+
+  mark963UpdateSynced: (maKhs: string[]): void => {
+    if (!maKhs || maKhs.length === 0) return;
+    const map = { ...DataStore.getLocal963UpdatesMap() };
+    let changed = false;
+    for (const m of maKhs) {
+      const key = String(m || '').trim().toLowerCase();
+      if (map[key] && !map[key].synced) {
+        map[key].synced = true;
+        changed = true;
+      }
+    }
+    if (changed) {
+      memCache963UpdatesMap = map;
+      try {
+        safeSetItem(LOCAL_963_UPDATES_KEY, JSON.stringify(map));
+        set(LOCAL_963_UPDATES_KEY, map).catch(() => {});
+      } catch (e) {}
+    }
+  },
+
+  applyLocal963Updates: (list: Entry963[]): Entry963[] => {
+    if (!list || list.length === 0) return [];
+    const map = DataStore.getLocal963UpdatesMap();
+    const keys = Object.keys(map);
+    if (keys.length === 0) return list;
+
+    return list.map(item => {
+      const key = String(item.maKh || '').trim().toLowerCase();
+      const localUpdate = map[key];
+      if (localUpdate && !localUpdate.synced) {
+        return { ...item, ...localUpdate.updates, isLocal: true };
+      }
+      return item;
+    });
+  },
+
+  fetch963Data: async (forceRefresh?: boolean): Promise<Entry963[]> => {
+    try {
+      const sheetId = DataStore.getSpreadsheetId() || DEFAULT_SPREADSHEET_ID;
+      const csvText = await DataStore.fetchSheetCSV('963', sheetId);
+      if (csvText && !csvText.includes('<html') && csvText.trim().length > 50) {
+        const parsed = DataStore.parse963CSVData(csvText);
+        if (parsed && parsed.length > 0) {
+          const merged = DataStore.applyLocal963Updates(parsed);
+          DataStore.save963Entries(merged);
+          window.dispatchEvent(new CustomEvent('tab963_updated'));
+          DataStore.syncPending963Updates().catch(() => {});
+          return merged;
+        }
+      }
+    } catch (e) {
+      console.warn('Lỗi tải dữ liệu sheet 963:', e);
+    }
+    return DataStore.get963Entries();
+  },
+
+  syncPending963Updates: async (): Promise<void> => {
+    try {
+      const map = DataStore.getLocal963UpdatesMap();
+      const pendingKeys = Object.keys(map).filter(k => !map[k].synced);
+      if (pendingKeys.length === 0) return;
+
+      const currentList = DataStore.get963Entries();
+      const currentMap = new Map<string, Entry963>();
+      for (const item of currentList) {
+        if (item.maKh) currentMap.set(String(item.maKh).trim().toLowerCase(), item);
+      }
+
+      const itemsToSync: Entry963[] = [];
+      const syncedKeys: string[] = [];
+
+      for (const k of pendingKeys) {
+        const entry = currentMap.get(k);
+        if (entry) {
+          itemsToSync.push(entry);
+          syncedKeys.push(entry.maKh);
+        }
+      }
+
+      if (itemsToSync.length > 0) {
+        const ok = await DataStore.sync963ToSheet(itemsToSync);
+        if (ok) {
+          DataStore.mark963UpdateSynced(syncedKeys);
+        }
+      }
+    } catch (e) {
+      console.warn('Error in syncPending963Updates:', e);
+    }
+  },
+
+  update963Entry: async (
+    maKh: string,
+    updates: { nv: string; ngayGio: string; ketQua: string; gioVuot: number }
+  ): Promise<{ success: boolean; entry: Entry963 | null; error?: string }> => {
+    const list = [...DataStore.get963Entries()];
+    const key = String(maKh || '').trim().toLowerCase();
+    const idx = list.findIndex(e => String(e.maKh || '').trim().toLowerCase() === key);
+
+    if (idx === -1) {
+      return { success: false, entry: null, error: `Không tìm thấy khách hàng có mã ${maKh}` };
+    }
+
+    const current = list[idx];
+
+    // Ràng buộc quy định QĐ 963: Không được thay khách hàng có trạng thái Thu hồi
+    if (current.kSuDung && current.kSuDung.trim().toLowerCase().includes('thu hồi')) {
+      return {
+        success: false,
+        entry: current,
+        error: 'Khách hàng có trạng thái "Thu hồi" (Không sử dụng) — Không được phép thay theo quy định QĐ 963!'
+      };
+    }
+
+    const updatedEntry: Entry963 = {
+      ...current,
+      nv: updates.nv,
+      ngayGio: updates.ngayGio,
+      ketQua: updates.ketQua || 'Xong',
+      gioVuot: updates.gioVuot,
+      isLocal: true
+    };
+
+    list[idx] = updatedEntry;
+    DataStore.save963Entries(list);
+    DataStore.recordLocal963Update(maKh, {
+      nv: updates.nv,
+      ngayGio: updates.ngayGio,
+      ketQua: updates.ketQua || 'Xong',
+      gioVuot: updates.gioVuot
+    }, false);
+
+    window.dispatchEvent(new CustomEvent('tab963_updated'));
+
+    // Đồng bộ lên Google Sheets
+    const syncOk = await DataStore.sync963ToSheet(updatedEntry);
+    if (syncOk) {
+      DataStore.mark963UpdateSynced([maKh]);
+    }
+
+    return { success: syncOk, entry: updatedEntry };
+  },
+
+  sync963ToSheet: async (data: Entry963 | Entry963[]): Promise<boolean> => {
+    try {
+      const rawItems = Array.isArray(data) ? data : [data];
+      if (rawItems.length === 0) return true;
+
+      const items = rawItems.map(item => ({
+        maKh: item.maKh,
+        MA_KHANG: item.maKh,
+        nv: item.nv || '',
+        ngayGio: item.ngayGio || '',
+        ketQua: item.ketQua || 'Xong',
+        gioVuot: item.gioVuot !== undefined ? item.gioVuot : 0
+      }));
+
+      const payload = {
+        action: 'save_963',
+        sheetName: '963',
+        items: items
+      };
+
+      // 1. Thử gửi qua proxy backend
+      try {
+        const proxyRes = await fetch('/api/proxy/apps-script', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...payload,
+            _targetUrl: DataStore.getAppScriptUrl()
+          })
+        });
+        if (proxyRes.ok) {
+          const resJson = await proxyRes.json();
+          if (resJson && resJson.status === 'success') {
+            return true;
+          }
+        }
+      } catch (proxyErr) {}
+
+      // 2. Fallback: Trực tiếp từ trình duyệt
+      const url = DataStore.getAppScriptUrl();
+      if (!url || !url.startsWith('http') || url.includes('AKfycbzpw3SlqJxXYC29qjPRqH8ehfJp764bNvQFUzqIgMW_rMrpitMKvvRvWbbGrP505Sdi')) {
+        return false;
+      }
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload)
+      });
+      return response.ok;
+    } catch (e) {
+      console.warn('Lỗi khi đồng bộ sheet 963:', e);
+      return false;
+    }
   }
 
 };

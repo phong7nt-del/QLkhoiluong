@@ -7,7 +7,7 @@ import {
   Search, RefreshCw, X, Calendar, User, ChevronDown, ChevronUp,
   Download, Sparkles, Shield, AlertCircle, Eye, EyeOff, Layers, Headphones,
   Upload, FileSpreadsheet, HelpCircle, Camera, Image as ImageIcon, ExternalLink, Maximize2,
-  MapPin, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Trash2
+  MapPin, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Trash2, UploadCloud
 } from 'lucide-react';
 import { DataStore, SheetMember, DvkhEntry } from '../store/DataStore';
 import { PermissionStore, normalizeRoleStr } from '../store/PermissionStore';
@@ -330,6 +330,33 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
   useEffect(() => {
     setDvkhList(DataStore.getDvkhEntries());
   }, [refreshToggle]);
+
+  // Tự động đồng bộ từ Google Sheets khi vào tab DVKH và định kỳ mỗi 30s để cập nhật tiếp nhận/phân công từ các máy khác
+  useEffect(() => {
+    let isMounted = true;
+    const fetchLatest = async () => {
+      try {
+        await DataStore.syncMasterData();
+        if (isMounted) {
+          setDvkhList(DataStore.getDvkhEntries());
+        }
+      } catch (e) {}
+    };
+
+    fetchLatest();
+    const intervalId = setInterval(fetchLatest, 30000);
+    return () => {
+      isMounted = false;
+      clearInterval(intervalId);
+    };
+  }, []);
+
+  // Tải lại dữ liệu khi người dùng chuyển giữa Tab 1, Tab 2, Tab 3
+  useEffect(() => {
+    DataStore.syncMasterData().then(() => {
+      setDvkhList(DataStore.getDvkhEntries());
+    }).catch(() => {});
+  }, [activeSubTab]);
 
   // Current User Role & Department Analysis
   const roleStrNorm = useMemo(() => {
@@ -830,15 +857,21 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
       return;
     }
 
+    const count = tab1SelectedMaKhs.length;
     const nowStr = getCurrentDateTimeStr();
-    await DataStore.batchUpdateDvkh(tab1SelectedMaKhs, {
+    showToast('info', `Đang giao ${count} hồ sơ sang Đội QLHTĐĐ và đồng bộ...`);
+    const ok = await DataStore.batchUpdateDvkh(tab1SelectedMaKhs, {
       ngayNhan: nowStr,
       trangThai: 'Chờ nhận'
     });
 
     setDvkhList(DataStore.getDvkhEntries());
     setTab1SelectedMaKhs([]);
-    showToast('success', `Đã giao thành công ${tab1SelectedMaKhs.length} hồ sơ sang Đội QLHTĐĐ!`);
+    if (ok) {
+      showToast('success', `Đã giao thành công ${count} hồ sơ sang Đội QLHTĐĐ và đồng bộ lên Google Sheet!`);
+    } else {
+      showToast('error', `Đã ghi nhận trên máy, nhưng đồng bộ lên Google Sheet thất bại. Vui lòng kiểm tra lại URL App Script trong Cài đặt!`);
+    }
   };
 
   // Tab 1: Xóa đơn lẻ hồ sơ chưa giao sang QLHTĐĐ
@@ -926,14 +959,19 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     const nowStr = getCurrentDateTimeStr();
     const currentUserName = sessionUser?.name || 'Lãnh đạo QLHTĐĐ';
 
-    await DataStore.updateDvkhEntry(maKh, {
+    showToast('info', `Đang tiếp nhận và đồng bộ hồ sơ "${maKh}"...`);
+    const res = await DataStore.updateDvkhEntry(maKh, {
       nguoiNhan: currentUserName,
       ngayNhan: nowStr,
       trangThai: 'Đã Nhận'
     });
 
     setDvkhList(DataStore.getDvkhEntries());
-    showToast('success', `Đã tiếp nhận hồ sơ "${maKh}" vào Đội QLHTĐĐ!`);
+    if (res && res.success) {
+      showToast('success', `Đã tiếp nhận hồ sơ "${maKh}" vào Đội QLHTĐĐ và đồng bộ lên Google Sheet!`);
+    } else {
+      showToast('error', `Đã ghi nhận trên máy, nhưng chưa đồng bộ được sang Google Sheet. Vui lòng kiểm tra lại URL App Script trong Cài đặt!`);
+    }
   };
 
   const handleConfirmAllReceipts = async () => {
@@ -945,17 +983,23 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     const pendingKeys = filteredTab1DeliveredWaitingConfirm.map(e => e.maKh);
     if (pendingKeys.length === 0) return;
 
+    const count = pendingKeys.length;
     const nowStr = getCurrentDateTimeStr();
     const currentUserName = sessionUser?.name || 'Lãnh đạo QLHTĐĐ';
 
-    await DataStore.batchUpdateDvkh(pendingKeys, {
+    showToast('info', `Đang tiếp nhận và đồng bộ ${count} hồ sơ sang Google Sheet...`);
+    const ok = await DataStore.batchUpdateDvkh(pendingKeys, {
       nguoiNhan: currentUserName,
       ngayNhan: nowStr,
       trangThai: 'Đã Nhận'
     });
 
     setDvkhList(DataStore.getDvkhEntries());
-    showToast('success', `Đã tiếp nhận ${pendingKeys.length} hồ sơ vào Đội QLHTĐĐ!`);
+    if (ok) {
+      showToast('success', `Đã tiếp nhận ${count} hồ sơ vào Đội QLHTĐĐ và đồng bộ lên Google Sheet!`);
+    } else {
+      showToast('error', `Đã ghi nhận trên máy, nhưng đồng bộ lên Google Sheet thất bại. Vui lòng kiểm tra lại URL App Script trong Cài đặt!`);
+    }
   };
 
   // ==============================================================
@@ -1011,10 +1055,13 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
       return;
     }
 
+    const count = tab2SelectedMaKhs.length;
+    const assignee = selectedAssignee;
     const nowStr = getCurrentDateTimeStr();
     const currentUserName = sessionUser?.name || 'Tổ trưởng/Đội trưởng';
 
-    await DataStore.batchUpdateDvkh(tab2SelectedMaKhs, {
+    showToast('info', `Đang giao ${count} hồ sơ cho "${assignee}" và đồng bộ lên Google Sheet...`);
+    const ok = await DataStore.batchUpdateDvkh(tab2SelectedMaKhs, {
       ngayGiao: nowStr,
       nguoiGiao: currentUserName,
       // Không cập nhật cột người nhận (giữ nguyên người nhận của Đội QLHTĐĐ)
@@ -1025,7 +1072,11 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     setDvkhList(DataStore.getDvkhEntries());
     setTab2SelectedMaKhs([]);
     setSelectedAssignee('');
-    showToast('success', `Đã giao ${tab2SelectedMaKhs.length} hồ sơ cho nhân viên "${selectedAssignee}" thi công!`);
+    if (ok) {
+      showToast('success', `Đã giao ${count} hồ sơ cho nhân viên "${assignee}" thi công và đồng bộ lên Google Sheet!`);
+    } else {
+      showToast('error', `Đã ghi nhận trên máy, nhưng đồng bộ lên Google Sheet thất bại. Vui lòng kiểm tra lại URL App Script trong Cài đặt!`);
+    }
   };
 
   // ==============================================================
@@ -1171,7 +1222,9 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     const finalNgayHoanTat = allowCustomNgayHoanTat ? (updateNgayHoanTat.trim() || getCurrentDateStr()) : getCurrentDateStr();
     const finalPic = uploadedPicUrl || picPreview || updatingRecord.pic || '';
 
-    await DataStore.updateDvkhEntry(updatingRecord.maKh, {
+    const targetMaKh = updatingRecord.maKh;
+    showToast('info', `Đang lưu kết quả cho hồ sơ ${targetMaKh} và đồng bộ lên Google Sheet...`);
+    const res = await DataStore.updateDvkhEntry(targetMaKh, {
       ngayHoanTat: finalNgayHoanTat,
       ketQua: updateKetQua,
       ghiChu: finalGhiChu,
@@ -1185,7 +1238,11 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     setUploadedPicUrl('');
     setPicSizeKb(0);
     setUploadPicError('');
-    showToast('success', `Đã cập nhật kết quả "${updateKetQua}" cho hồ sơ ${updatingRecord.maKh}!`);
+    if (res && res.success) {
+      showToast('success', `Đã cập nhật kết quả "${updateKetQua}" cho hồ sơ ${targetMaKh} và đồng bộ lên Google Sheet!`);
+    } else {
+      showToast('error', `Đã ghi nhận trên máy, nhưng đồng bộ lên Google Sheet thất bại. Vui lòng kiểm tra lại URL App Script trong Cài đặt!`);
+    }
   };
 
   // Voice speech-to-text recording
@@ -1372,6 +1429,40 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     }
   };
 
+  const [isSyncingAll, setIsSyncingAll] = useState(false);
+
+  const localPendingWorkCount = useMemo(() => {
+    const map = DataStore.getLocalDvkhUpdatesMap();
+    const unsyncedCount = Object.keys(map).filter(k => !map[k].synced).length;
+    if (unsyncedCount > 0) return unsyncedCount;
+    const workedOn = dvkhList.filter(e => (
+      e.trangThai !== 'Chưa giao' ||
+      Boolean(e.nguoiNhan && e.nguoiNhan.trim()) ||
+      Boolean(e.nguoiThucHien && e.nguoiThucHien.trim()) ||
+      Boolean(e.ketQua && e.ketQua.trim())
+    ));
+    return workedOn.length;
+  }, [dvkhList]);
+
+  const handleSyncAllLocalWorkToCloud = async () => {
+    setIsSyncingAll(true);
+    showToast('info', 'Đang đồng bộ toàn bộ công việc từ máy này lên Google Sheets...');
+    try {
+      const res = await DataStore.syncAllLocalDvkhWorkToCloud();
+      if (res.success) {
+        showToast('success', res.message);
+        await DataStore.syncMasterData();
+        setDvkhList(DataStore.getDvkhEntries());
+      } else {
+        showToast('error', res.message);
+      }
+    } catch (err: any) {
+      showToast('error', err?.message || 'Lỗi khi đồng bộ.');
+    } finally {
+      setIsSyncingAll(false);
+    }
+  };
+
   // Export CSV helper
   const handleExportCSV = () => {
     const headers = ['STT', 'Mã KH', 'Tên KH', 'Địa chỉ', 'Ngày nhận', 'Ngày hoàn tất', 'Ghi chú', 'Trạng thái', 'Người thực hiện', 'Kết quả'];
@@ -1418,8 +1509,58 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     }
   };
 
+  const isAppScriptConfigured = useMemo(() => {
+    const url = DataStore.getAppScriptUrl();
+    return url && url.startsWith('http') && !url.includes('AKfycbzpw3SlqJxXYC29qjPRqH8ehfJp764bNvQFUzqIgMW_rMrpitMKvvRvWbbGrP505Sdi');
+  }, [refreshToggle]);
+
   return (
     <div className="space-y-6 pb-12 animate-fade-in font-sans">
+      {!isAppScriptConfigured && (
+        <div className="bg-amber-50 border-2 border-amber-400 p-4 rounded-2xl flex items-start gap-3 shadow-md animate-bounce-subtle">
+          <AlertCircle className="w-6 h-6 text-amber-600 shrink-0 mt-0.5" />
+          <div className="text-xs text-amber-950 space-y-1">
+            <div className="font-black text-sm text-amber-900 uppercase">
+              Chưa cấu hình URL Google Apps Script đồng bộ đa máy
+            </div>
+            <p>
+              Hệ thống phát hiện máy này chưa nhận được URL Web App Google Apps Script hợp lệ. Thao tác tiếp nhận & phân công sẽ được lưu tạm tại máy này nhưng chưa thể đồng bộ sang Google Sheet cho các máy khác.
+            </p>
+            <p className="font-semibold text-amber-800">
+              💡 <b>Cách khắc phục:</b> Vào mục <b>Cài đặt (biểu tượng bánh răng ⚙️ ở góc trên màn hình)</b>, dán URL Web App Google Apps Script mới nhất và bấm <b>Lưu URL & Tải Dữ Liệu</b>. Khi lưu một lần, hệ thống máy chủ sẽ tự động lưu và đồng bộ sang tất cả các máy khác!
+            </p>
+          </div>
+        </div>
+      )}
+
+      {localPendingWorkCount > 0 && (
+        <div className="bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-500 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md animate-in fade-in">
+          <div className="flex items-center gap-3">
+            <span className="p-2.5 bg-amber-500 text-white rounded-xl font-black text-xs shrink-0 flex items-center gap-1 shadow-sm">
+              <UploadCloud className="w-4 h-4" />
+              <span>{localPendingWorkCount}</span>
+            </span>
+            <div>
+              <div className="font-bold text-amber-950 text-sm">
+                Phát hiện {localPendingWorkCount} hồ sơ đã thao tác tiếp nhận / phân công trên máy này
+              </div>
+              <p className="text-xs text-amber-800 mt-0.5">
+                Để các máy khác nhìn thấy đầy đủ dữ liệu bạn đã làm mà không phải làm lại, bấm nút bên cạnh để đồng bộ lên Google Sheet ngay.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleSyncAllLocalWorkToCloud}
+            disabled={isSyncingAll}
+            className="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-bold text-xs rounded-xl shadow-md transition-all shrink-0 cursor-pointer flex items-center gap-2 disabled:opacity-50"
+          >
+            <UploadCloud className={`w-4 h-4 ${isSyncingAll ? 'animate-bounce' : ''}`} />
+            <span>{isSyncingAll ? 'Đang đồng bộ...' : 'Đồng bộ lên Google Sheet ngay'}</span>
+          </button>
+        </div>
+      )}
+
       {/* Top Banner & Header */}
       <div className="bg-gradient-to-r from-purple-800 via-indigo-800 to-[#005a9c] text-white p-5 md:p-6 rounded-2xl shadow-lg relative overflow-hidden">
         <div className="absolute right-0 top-0 bottom-0 w-1/3 bg-white/5 transform skew-x-12 pointer-events-none"></div>
@@ -1488,13 +1629,24 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
             )}
 
             <button
+              type="button"
+              onClick={handleSyncAllLocalWorkToCloud}
+              disabled={isSyncingAll}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-amber-950 font-black text-xs transition-all shadow-md active:scale-95 cursor-pointer disabled:opacity-50"
+              title="Đẩy toàn bộ các hồ sơ đã tiếp nhận, phân công, hoàn tất từ máy này lên Google Sheet"
+            >
+              <UploadCloud className={`w-4 h-4 ${isSyncingAll ? 'animate-bounce text-amber-800' : ''}`} />
+              <span>{isSyncingAll ? 'Đang gửi...' : 'Đồng bộ việc đã làm'}</span>
+            </button>
+
+            <button
               onClick={handleManualSync}
               disabled={isLoading}
               className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/20 text-xs font-bold transition-all backdrop-blur-md shadow-xs active:scale-95 cursor-pointer disabled:opacity-50"
-              title="Đồng bộ dữ liệu với Google Sheets"
+              title="Tải lại dữ liệu mới nhất từ Google Sheets"
             >
               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-              <span>Đồng bộ Sheet</span>
+              <span>Tải lại Sheet</span>
             </button>
           </div>
         </div>

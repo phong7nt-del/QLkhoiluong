@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { format } from "date-fns";
-import { ClipboardList, BarChart3, Database, TrendingUp, LogOut, User as UserIcon, CheckSquare, Settings, Activity, Menu, WifiOff, ChevronUp, ChevronDown, KeyRound, Search, Package, Gift, Award, Users, X, ShieldAlert, FolderTree, Headphones } from "lucide-react";
+import { ClipboardList, BarChart3, Database, TrendingUp, LogOut, User as UserIcon, CheckSquare, Settings, Activity, Menu, WifiOff, ChevronUp, ChevronDown, KeyRound, Search, Package, Gift, Award, Users, X, ShieldAlert, FolderTree, Headphones, Gauge } from "lucide-react";
 import WorkloadForm from "./components/WorkloadForm";
 import Analytics from "./components/Analytics";
 import Stations from "./components/Stations";
@@ -18,6 +18,7 @@ import PlanProgressTab from "./components/PlanProgressTab";
 import BirthdayTab from "./components/BirthdayTab";
 import KthtddTab from "./components/KthtddTab";
 import DvkhTab from "./components/DvkhTab";
+import Tab963 from "./components/Tab963";
 import ChangePasswordModal from "./components/ChangePasswordModal";
 import { DataStore, SheetMember, OnlineStats } from "./store/DataStore";
 import { PermissionStore } from './store/PermissionStore';
@@ -96,7 +97,7 @@ export const getSeasonTheme = () => {
 
 export default function App() {
   const [dbReady, setDbReady] = useState(false);
-  const [activeTab, setActiveTab] = useState<"input" | "report" | "stations" | "analysis" | "progress" | "tuti" | "disconnect" | "sangtai" | "warehouse" | "kthtdd" | "plan_progress" | "birthday" | "search" | "dvkh" | "system">("input");
+  const [activeTab, setActiveTab] = useState<"input" | "report" | "stations" | "analysis" | "progress" | "tuti" | "disconnect" | "sangtai" | "warehouse" | "kthtdd" | "plan_progress" | "birthday" | "search" | "dvkh" | "tab963" | "system">("input");
   const [refreshToggle, setRefreshToggle] = useState(0);
 
   useEffect(() => {
@@ -578,6 +579,7 @@ export default function App() {
     { id: "plan_progress", icon: TrendingUp, label: "Tiến độ kế hoạch", color: "blue" },
     { id: "kthtdd", icon: FolderTree, label: "Kiện toàn HTDD", color: "teal" },
     { id: "dvkh", icon: Headphones, label: "DVKH", color: "purple" },
+    { id: "tab963", icon: Gauge, label: "963", color: "amber" },
     { id: "birthday", icon: Award, label: "Công Đoàn", color: "rose" },
     { id: "sangtai", icon: Database, label: "KT sang tải", color: "amber" },
     { id: "warehouse", icon: Package, label: "Kho VTTB", color: "amber" },
@@ -868,6 +870,9 @@ export default function App() {
                 )}
                 {activeTab === "dvkh" && (
                   <DvkhTab sessionUser={sessionUser} refreshToggle={refreshToggle} />
+                )}
+                {activeTab === "tab963" && (
+                  <Tab963 sessionUser={sessionUser} refreshToggle={refreshToggle} />
                 )}
                 {activeTab === "system" && (
                   <SystemTab />

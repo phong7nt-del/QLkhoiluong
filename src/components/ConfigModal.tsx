@@ -406,6 +406,22 @@ function doGet(e) {
         matKetNoi: matKetNoiList
       })).setMimeType(ContentService.MimeType.JSON);
     }
+
+    if (e.parameter.action === 'get_dvkh') {
+      var ssDv = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
+      var sheetDv = getSheetFlexibly(ssDv, ['DVKH', 'dvkh', 'Dịch vụ khách hàng', 'DV_KH']);
+      if (!sheetDv) return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: [] })).setMimeType(ContentService.MimeType.JSON);
+      var allDvVals = sheetDv.getDataRange().getValues();
+      return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: allDvVals })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (e.parameter.action === 'get_963') {
+      var ss963 = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
+      var sheet963 = getSheetFlexibly(ss963, ['963', 'qd963', 'QD963', 'QĐ963']);
+      if (!sheet963) return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: [] })).setMimeType(ContentService.MimeType.JSON);
+      var all963Vals = sheet963.getDataRange().getValues();
+      return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: all963Vals })).setMimeType(ContentService.MimeType.JSON);
+    }
   } catch (err) {
     return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: err.toString() })).setMimeType(ContentService.MimeType.JSON);
   }
@@ -920,26 +936,28 @@ function doPost(e) {
           if (colIndices.sdt === undefined) colIndices.sdt = c;
         } else if (nh === 'loai' || nh === 'loaiyeucau' || nh === 'yeucau' || nh === 'loaihs') {
           if (colIndices.loai === undefined) colIndices.loai = c;
-        } else if (nh === 'ngaynhan' || nh === 'ngay' || nh === 'ngaytao') {
+        } else if (nh === 'ngaynhan' || nh === 'ngaytiepnhan' || nh.indexOf('ngaynhan') !== -1 || nh.indexOf('tiepnhan') !== -1) {
           if (colIndices.ngayNhan === undefined) colIndices.ngayNhan = c;
-        } else if (nh === 'nguoinhan') {
+        } else if (nh === 'nguoinhan' || nh === 'nguoitiepnhan' || nh === 'lanhdaonhan' || nh.indexOf('nguoinhan') !== -1) {
           if (colIndices.nguoiNhan === undefined) colIndices.nguoiNhan = c;
-        } else if (nh === 'ngaygiao') {
+        } else if (nh === 'ngaygiao' || nh === 'ngayphancong' || nh.indexOf('ngaygiao') !== -1 || nh.indexOf('phancong') !== -1) {
           if (colIndices.ngayGiao === undefined) colIndices.ngayGiao = c;
-        } else if (nh === 'nguoigiao') {
+        } else if (nh === 'nguoigiao' || nh === 'nguoiphancong') {
           if (colIndices.nguoiGiao === undefined) colIndices.nguoiGiao = c;
-        } else if (nh === 'nguoithuchien' || nh === 'nhanvien' || nh === 'nguoith' || nh === 'nvth') {
+        } else if (nh === 'nguoithuchien' || nh === 'nhanvienthuchien' || nh === 'nhanvien' || nh === 'nguoith' || nh === 'nvth' || nh === 'nguoithicong' || nh === 'nhanvienthicong' || nh === 'kythuatvien' || nh.indexOf('thuchien') !== -1 || nh.indexOf('thicong') !== -1) {
           if (colIndices.nguoiThucHien === undefined) colIndices.nguoiThucHien = c;
         } else if (nh === 'ngayhoantat' || nh === 'ngayxong' || nh === 'ngayhoanthanh') {
           if (colIndices.ngayHoanTat === undefined) colIndices.ngayHoanTat = c;
         } else if (nh === 'ketqua') {
           if (colIndices.ketQua === undefined) colIndices.ketQua = c;
-        } else if (nh === 'trangthai' || nh === 'tinhtrang') {
+        } else if (nh === 'trangthai' || nh === 'tinhtrang' || nh === 'trangthaihoso' || nh.indexOf('trangthai') !== -1) {
           if (colIndices.trangThai === undefined) colIndices.trangThai = c;
-        } else if (nh === 'ghichu' || nh === 'trongai' || nh === 'noidungghichu') {
+        } else if (nh === 'ghichu' || nh === 'trongai' || nh === 'noidungghichu' || nh === 'ghichutrongai' || nh.indexOf('ghichu') !== -1) {
           if (colIndices.ghiChu === undefined) colIndices.ghiChu = c;
         } else if (nh === 'pic' || nh === 'hinhanh' || nh === 'anh' || nh === 'linkanh' || nh === 'anhtrongai') {
           if (colIndices.pic === undefined) colIndices.pic = c;
+        } else if (nh === 'khuvuc' || nh === 'phuongxa' || nh === 'diaban' || nh.indexOf('khuvuc') !== -1) {
+          if (colIndices.khuVuc === undefined) colIndices.khuVuc = c;
         } else if (nh === 'ngaytao') {
           if (colIndices.ngayTao === undefined) colIndices.ngayTao = c;
         } else if (nh === 'nguoitao') {
@@ -2812,6 +2830,62 @@ function doPost(e) {
        return ContentService.createTextOutput(JSON.stringify({ status: 'error' })).setMimeType(ContentService.MimeType.JSON);
     }
 
+    // ======== XỬ LÝ LƯU & CẬP NHẬT THAY CÔNG TƠ THEO QĐ 963 ========
+    if (action === 'save_963' || action === 'update_963') {
+      var data = payload.data || payload.items || payload;
+      var items = Array.isArray(data) ? data : [data];
+      var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
+      var sheet = getSheetFlexibly(ss, ['963', 'qd963', 'QD963', 'QĐ963']);
+      if (!sheet) {
+        return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "Không tìm thấy sheet 963" }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      var lastRow = sheet.getLastRow();
+      var lastCol = sheet.getLastColumn();
+      if (lastRow < 2 || lastCol < 1) {
+        return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "Sheet 963 chưa có dữ liệu" }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+      var colMaKh = -1, colNv = -1, colNgayGio = -1, colKetQua = -1, colGioVuot = -1, colKSuDung = -1;
+      for (var c = 0; c < headers.length; c++) {
+        var hNorm = String(headers[c] || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (hNorm === 'makhang' || hNorm === 'makh') colMaKh = c;
+        if (hNorm === 'nv' || hNorm === 'nhanvien') colNv = c;
+        if (hNorm === 'ngaygio' || hNorm === 'ngaygiothay') colNgayGio = c;
+        if (hNorm === 'ketqua') colKetQua = c;
+        if (hNorm === 'giovuot') colGioVuot = c;
+        if (hNorm === 'ksudung') colKSuDung = c;
+      }
+      if (colMaKh === -1) colMaKh = 0;
+
+      var maVals = sheet.getRange(2, colMaKh + 1, lastRow - 1, 1).getValues();
+      var maRowMap = {};
+      for (var r = 0; r < maVals.length; r++) {
+        var mStr = String(maVals[r][0] || '').trim().toLowerCase();
+        if (mStr) maRowMap[mStr] = r + 2;
+      }
+
+      var updatedCount = 0;
+      for (var i = 0; i < items.length; i++) {
+        var it = items[i];
+        var itemMa = String(it.maKh || it.MA_KHANG || '').trim().toLowerCase();
+        var rowNum = maRowMap[itemMa];
+        if (rowNum) {
+          if (colNv > -1 && it.nv !== undefined) sheet.getRange(rowNum, colNv + 1).setValue(it.nv);
+          if (colNgayGio > -1 && it.ngayGio !== undefined) sheet.getRange(rowNum, colNgayGio + 1).setValue(it.ngayGio);
+          if (colKetQua > -1 && it.ketQua !== undefined) sheet.getRange(rowNum, colKetQua + 1).setValue(it.ketQua);
+          if (colGioVuot !== undefined && colGioVuot > -1 && it.gioVuot !== undefined) sheet.getRange(rowNum, colGioVuot + 1).setValue(it.gioVuot);
+          updatedCount++;
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({ 
+        status: "success", 
+        updatedCount: updatedCount, 
+        message: "Đã cập nhật " + updatedCount + " khách hàng vào sheet 963" 
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Unknown action: ' + action })).setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
     return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: err.toString() })).setMimeType(ContentService.MimeType.JSON);
@@ -2835,6 +2909,16 @@ export default function ConfigModal({ onClose }: { onClose: () => void }) {
     DataStore.setAppScriptUrl(url);
     setSyncing(true);
     setSyncResult(null);
+    try {
+      await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          appScriptUrl: url,
+          spreadsheetId: DataStore.getSpreadsheetId()
+        })
+      });
+    } catch (e) {}
     const success = await DataStore.syncMasterData();
     setSyncing(false);
     if (success) {

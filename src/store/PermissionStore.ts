@@ -25,6 +25,7 @@ export const DEFAULT_RBAC: RBACConfig = {
     'kthtdd': STANDARD_ROLES,
     'birthday': STANDARD_ROLES,
     'dvkh': ALL_ROLES, // Tab DVKH: tất cả vai trò, bao gồm DVKH (mặc định người DVKH chỉ xem được tab DVKH)
+    'tab963': ALL_ROLES, // Tab 963: Theo dõi thay công tơ theo QĐ 963
     'system': ['đội trưởng'], // specifically requested
   },
   actions: {
