@@ -129,7 +129,11 @@ export interface Entry963 {
   ketQua?: string; // KetQua ("Xong" hoặc rỗng)
   gioVuot?: number; // GioVuot (quy ra giờ vượt từ 9h30 đến 11h30)
   slKyTruoc?: string; // SLKyTruoc
-  slVuot?: string; // SLVuot
+  cscdKyTruoc?: string; // CSCDKyTruoc (Chỉ số cao điểm kỳ trước)
+  cscdThao?: string; // CSCDThao (Chỉ số cao điểm khi tháo)
+  cs930?: string; // CS930 (Chỉ số cao điểm lúc 9h30 khi có đo xa)
+  cs9h30?: string; // CS9h30 alias
+  slVuot?: string; // SLVuot (Sản lượng cao điểm vượt)
   raw?: Record<string, string>;
   isLocal?: boolean;
 }
@@ -140,6 +144,22 @@ export interface Local963Update {
   timestamp: number;
   synced: boolean;
 }
+
+export const parseHsn = (tySoTi?: string): number => {
+  if (!tySoTi) return 1;
+  const s = String(tySoTi).trim();
+  const match = s.match(/^(\d+(?:\.\d+)?)\s*[\/:]\s*(\d+(?:\.\d+)?)$/);
+  if (match) {
+    const num = parseFloat(match[1]);
+    const den = parseFloat(match[2]);
+    if (!isNaN(num) && !isNaN(den) && den > 0) {
+      return num / den;
+    }
+  }
+  const directNum = parseFloat(s.replace(',', '.'));
+  if (!isNaN(directNum) && directNum > 0) return directNum;
+  return 1;
+};
 
 export const calculateGioVuot = (ngayGioStr: string): number => {
   if (!ngayGioStr) return 0;
@@ -153,11 +173,42 @@ export const calculateGioVuot = (ngayGioStr: string): number => {
   const startMinutes = 9 * 60 + 30; // 570 (09:30)
   const endMinutes = 11 * 60 + 30;  // 690 (11:30)
 
-  if (totalMinutes >= startMinutes && totalMinutes <= endMinutes) {
-    const diffMinutes = totalMinutes - startMinutes;
-    return Math.round((diffMinutes / 60) * 100) / 100;
+  if (totalMinutes < startMinutes) {
+    return 0;
   }
-  return 0;
+  if (totalMinutes > endMinutes) {
+    // Trường hợp thay công tơ sau 11h30 (ví dụ 13h00): đã đi qua trọn vẹn 2 giờ cao điểm sáng 9h30 - 11h30 -> 2.0 giờ
+    return 2;
+  }
+  const diffMinutes = totalMinutes - startMinutes;
+  return Math.round((diffMinutes / 60) * 100) / 100;
+};
+
+export const calculateSlVuotKhongDoXa = (
+  cscdThao: number,
+  cscdKyTruoc: number,
+  days: number,
+  gioVuot: number,
+  hsn: number = 1
+): { aTbCd: number; slVuot: number } => {
+  if (days <= 0 || cscdThao < cscdKyTruoc) {
+    return { aTbCd: 0, slVuot: 0 };
+  }
+  // A(trung bình CĐ) = (CSCDThao - CSCDKyTruoc) / (5 * days)
+  const aTbCd = (cscdThao - cscdKyTruoc) / (5 * days);
+  // SLVuot = round(A(trung bình CĐ) * GioVuot * HSN)
+  const slVuot = Math.round(aTbCd * gioVuot * hsn);
+  return { aTbCd: Math.round(aTbCd * 100) / 100, slVuot };
+};
+
+export const calculateSlVuotCoDoXa = (
+  cscdThao: number,
+  cs930: number,
+  hsn: number = 1
+): number => {
+  if (cscdThao < cs930) return 0;
+  // SLVuot = round((CSCDThao - CS930) * HSN)
+  return Math.round((cscdThao - cs930) * hsn);
 };
 
 export const getDvkhStatusWeight = (status?: string): number => {
@@ -6227,8 +6278,12 @@ export const DataStore = {
           ngayGio,
           ketQua,
           gioVuot,
-          slKyTruoc: getV(['SLKyTruoc']),
-          slVuot: getV(['SLVuot']),
+          slKyTruoc: getV(['SLKyTruoc', 'CSCDKyTruoc', 'CSCD_KyTruoc', 'CSCD kỳ trước', 'Chỉ số CĐ kỳ trước']),
+          cscdKyTruoc: getV(['CSCDKyTruoc', 'CSCD_KyTruoc', 'CSCD kỳ trước', 'Chỉ số CĐ kỳ trước', 'SLKyTruoc', 'CSCD_KY_TRUOC']),
+          cscdThao: getV(['CSCDThao', 'CSCD_Thao', 'CSCD tháo', 'Chỉ số CĐ tháo', 'CSCD_THAO']),
+          cs930: getV(['CS9h30', 'CS930', 'CS_9h30', 'CS_930', 'Chỉ số 9h30', 'CS 9h30']),
+          cs9h30: getV(['CS9h30', 'CS930', 'CS_9h30', 'CS_930', 'Chỉ số 9h30', 'CS 9h30']),
+          slVuot: getV(['SLVuot', 'SL_Vuot', 'Sản lượng vượt', 'SL_VUOT']),
           raw: r
         });
       }
@@ -6390,7 +6445,17 @@ export const DataStore = {
 
   update963Entry: async (
     maKh: string,
-    updates: { nv: string; ngayGio: string; ketQua: string; gioVuot: number }
+    updates: {
+      nv: string;
+      ngayGio: string;
+      ketQua: string;
+      gioVuot: number;
+      cscdKyTruoc?: string;
+      cscdThao?: string;
+      cs930?: string;
+      cs9h30?: string;
+      slVuot?: string;
+    }
   ): Promise<{ success: boolean; entry: Entry963 | null; error?: string }> => {
     const list = [...DataStore.get963Entries()];
     const key = String(maKh || '').trim().toLowerCase();
@@ -6411,12 +6476,19 @@ export const DataStore = {
       };
     }
 
+    const cs930Clean = updates.cs930 !== undefined ? updates.cs930 : (updates.cs9h30 !== undefined ? updates.cs9h30 : (current.cs930 || current.cs9h30 || ''));
+
     const updatedEntry: Entry963 = {
       ...current,
       nv: updates.nv,
       ngayGio: updates.ngayGio,
       ketQua: updates.ketQua || 'Xong',
       gioVuot: updates.gioVuot,
+      cscdKyTruoc: updates.cscdKyTruoc !== undefined ? updates.cscdKyTruoc : current.cscdKyTruoc,
+      cscdThao: updates.cscdThao !== undefined ? updates.cscdThao : current.cscdThao,
+      cs930: cs930Clean,
+      cs9h30: cs930Clean,
+      slVuot: updates.slVuot !== undefined ? updates.slVuot : current.slVuot,
       isLocal: true
     };
 
@@ -6426,7 +6498,12 @@ export const DataStore = {
       nv: updates.nv,
       ngayGio: updates.ngayGio,
       ketQua: updates.ketQua || 'Xong',
-      gioVuot: updates.gioVuot
+      gioVuot: updates.gioVuot,
+      cscdKyTruoc: updatedEntry.cscdKyTruoc,
+      cscdThao: updatedEntry.cscdThao,
+      cs930: cs930Clean,
+      cs9h30: cs930Clean,
+      slVuot: updatedEntry.slVuot
     }, false);
 
     window.dispatchEvent(new CustomEvent('tab963_updated'));
@@ -6445,14 +6522,27 @@ export const DataStore = {
       const rawItems = Array.isArray(data) ? data : [data];
       if (rawItems.length === 0) return true;
 
-      const items = rawItems.map(item => ({
-        maKh: item.maKh,
-        MA_KHANG: item.maKh,
-        nv: item.nv || '',
-        ngayGio: item.ngayGio || '',
-        ketQua: item.ketQua || 'Xong',
-        gioVuot: item.gioVuot !== undefined ? item.gioVuot : 0
-      }));
+      const items = rawItems.map(item => {
+        const val930 = item.cs930 || item.cs9h30 || '';
+        return {
+          maKh: item.maKh,
+          MA_KHANG: item.maKh,
+          nv: item.nv || '',
+          ngayGio: item.ngayGio || '',
+          ketQua: item.ketQua || 'Xong',
+          gioVuot: item.gioVuot !== undefined ? item.gioVuot : 0,
+          cscdKyTruoc: item.cscdKyTruoc !== undefined ? item.cscdKyTruoc : '',
+          CSCDKyTruoc: item.cscdKyTruoc !== undefined ? item.cscdKyTruoc : '',
+          cscdThao: item.cscdThao !== undefined ? item.cscdThao : '',
+          CSCDThao: item.cscdThao !== undefined ? item.cscdThao : '',
+          cs930: val930,
+          CS930: val930,
+          cs9h30: val930,
+          CS9h30: val930,
+          slVuot: item.slVuot !== undefined ? item.slVuot : '',
+          SLVuot: item.slVuot !== undefined ? item.slVuot : ''
+        };
+      });
 
       const payload = {
         action: 'save_963',

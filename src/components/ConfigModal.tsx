@@ -2848,16 +2848,64 @@ function doPost(e) {
       }
       var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
       var colMaKh = -1, colNv = -1, colNgayGio = -1, colKetQua = -1, colGioVuot = -1, colKSuDung = -1;
+      var colCscdKyTruoc = -1, colCscdThao = -1, colCs930 = -1, colSlVuot = -1;
       for (var c = 0; c < headers.length; c++) {
         var hNorm = String(headers[c] || '').toLowerCase().replace(/[^a-z0-9]/g, '');
         if (hNorm === 'makhang' || hNorm === 'makh') colMaKh = c;
-        if (hNorm === 'nv' || hNorm === 'nhanvien') colNv = c;
+        if (hNorm === 'nv' || hNorm === 'nhanvien' || hNorm === 'nguoithuchien') colNv = c;
         if (hNorm === 'ngaygio' || hNorm === 'ngaygiothay') colNgayGio = c;
         if (hNorm === 'ketqua') colKetQua = c;
         if (hNorm === 'giovuot') colGioVuot = c;
         if (hNorm === 'ksudung') colKSuDung = c;
+        if (hNorm.indexOf('cscdkytruoc') !== -1 || hNorm === 'slkytruoc' || hNorm.indexOf('kytruoc') !== -1) colCscdKyTruoc = c;
+        if (hNorm.indexOf('cscdthao') !== -1 || hNorm.indexOf('cdthao') !== -1) colCscdThao = c;
+        if (hNorm.indexOf('cs930') !== -1 || hNorm.indexOf('cs9h30') !== -1 || hNorm.indexOf('9h30') !== -1 || hNorm.indexOf('930') !== -1) colCs930 = c;
+        if (hNorm === 'slvuot' || hNorm.indexOf('slvuot') !== -1 || hNorm.indexOf('sanluongvuot') !== -1) colSlVuot = c;
       }
       if (colMaKh === -1) colMaKh = 0;
+
+      // Tự động bổ sung các cột còn thiếu vào dòng 1 của sheet 963 nếu chưa có
+      var curLastCol = sheet.getLastColumn();
+      if (colNv === -1) {
+        curLastCol++;
+        sheet.getRange(1, curLastCol).setValue('NV');
+        colNv = curLastCol - 1;
+      }
+      if (colNgayGio === -1) {
+        curLastCol++;
+        sheet.getRange(1, curLastCol).setValue('NgayGio');
+        colNgayGio = curLastCol - 1;
+      }
+      if (colKetQua === -1) {
+        curLastCol++;
+        sheet.getRange(1, curLastCol).setValue('KetQua');
+        colKetQua = curLastCol - 1;
+      }
+      if (colGioVuot === -1) {
+        curLastCol++;
+        sheet.getRange(1, curLastCol).setValue('GioVuot');
+        colGioVuot = curLastCol - 1;
+      }
+      if (colCscdKyTruoc === -1) {
+        curLastCol++;
+        sheet.getRange(1, curLastCol).setValue('CSCDKyTruoc');
+        colCscdKyTruoc = curLastCol - 1;
+      }
+      if (colCscdThao === -1) {
+        curLastCol++;
+        sheet.getRange(1, curLastCol).setValue('CSCDThao');
+        colCscdThao = curLastCol - 1;
+      }
+      if (colCs930 === -1) {
+        curLastCol++;
+        sheet.getRange(1, curLastCol).setValue('CS9h30');
+        colCs930 = curLastCol - 1;
+      }
+      if (colSlVuot === -1) {
+        curLastCol++;
+        sheet.getRange(1, curLastCol).setValue('SLVuot');
+        colSlVuot = curLastCol - 1;
+      }
 
       var maVals = sheet.getRange(2, colMaKh + 1, lastRow - 1, 1).getValues();
       var maRowMap = {};
@@ -2876,6 +2924,31 @@ function doPost(e) {
           if (colNgayGio > -1 && it.ngayGio !== undefined) sheet.getRange(rowNum, colNgayGio + 1).setValue(it.ngayGio);
           if (colKetQua > -1 && it.ketQua !== undefined) sheet.getRange(rowNum, colKetQua + 1).setValue(it.ketQua);
           if (colGioVuot !== undefined && colGioVuot > -1 && it.gioVuot !== undefined) sheet.getRange(rowNum, colGioVuot + 1).setValue(it.gioVuot);
+          
+          // Ghi nhận CS CĐ Kỳ trước
+          var valCscdKyTruoc = it.cscdKyTruoc !== undefined ? it.cscdKyTruoc : it.CSCDKyTruoc;
+          if (colCscdKyTruoc > -1 && valCscdKyTruoc !== undefined) {
+            sheet.getRange(rowNum, colCscdKyTruoc + 1).setValue(valCscdKyTruoc);
+          }
+
+          // Ghi nhận CS CĐ lúc tháo
+          var valCscdThao = it.cscdThao !== undefined ? it.cscdThao : it.CSCDThao;
+          if (colCscdThao > -1 && valCscdThao !== undefined) {
+            sheet.getRange(rowNum, colCscdThao + 1).setValue(valCscdThao);
+          }
+
+          // Ghi nhận CS CĐ lúc 9h30 (cột CS9h30 hoặc CS930)
+          var valCs930 = it.cs9h30 !== undefined ? it.cs9h30 : (it.CS9h30 !== undefined ? it.CS9h30 : (it.cs930 !== undefined ? it.cs930 : it.CS930));
+          if (colCs930 > -1 && valCs930 !== undefined) {
+            sheet.getRange(rowNum, colCs930 + 1).setValue(valCs930);
+          }
+
+          // Ghi nhận Sản lượng vượt (cột SLVuot)
+          var valSlVuot = it.slVuot !== undefined ? it.slVuot : it.SLVuot;
+          if (colSlVuot > -1 && valSlVuot !== undefined) {
+            sheet.getRange(rowNum, colSlVuot + 1).setValue(valSlVuot);
+          }
+
           updatedCount++;
         }
       }
