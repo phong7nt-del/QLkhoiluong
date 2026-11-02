@@ -125,6 +125,7 @@ export interface Entry963 {
   loaiCto?: string; // LOAICTO_TTIEP_GTIEP
   dot: string; // Dot (1, 2, v.v.)
   kSuDung?: string; // KSuDung ("Thu hồi" hoặc rỗng)
+  kqRaSoat?: string; // KQRaSoat (Kết quả rà soát: Thu hồi, Sử dụng lại, Khác: ...)
   nv?: string; // NV (Người thực hiện / Nhân viên đăng nhập)
   ngayGio?: string; // NgayGio (dd/mm/yyyy hh:mm)
   ketQua?: string; // KetQua ("Xong" hoặc rỗng)
@@ -6260,7 +6261,13 @@ export const DataStore = {
         const tenKh = getV(['TEN_KHANG', 'Tên KH', 'Ten_Khang', 'TEN_KH', 'Họ tên', 'Ho_Ten']);
         const diaChi = getV(['DIA_CHI', 'Địa chỉ', 'Dia_Chi', 'DIACHI']);
         const dot = getV(['Dot', 'Đợt', 'DOT']) || '1';
-        const kSuDung = getV(['KSuDung', 'Không sử dụng', 'K_SuDung', 'KSUDUNG', 'Thu hồi']);
+        const rawKSuDung = getV(['KSuDung', 'KSudung', 'Không sử dụng', 'K_SuDung', 'K_Sudung', 'KSUDUNG', 'Thu hồi']);
+        const kqRaSoat = getV(['KQRasoat', 'KQRaSoat', 'KQ_RaSoat', 'KQ_rasoat', 'KQRASOAT', 'KetQuaRaSoat', 'Kết quả rà soát']);
+        // Trường hợp "KQRaSoat" có giá trị "Sử dụng lại" thì cập nhật giá trị "KSuDung" về rỗng (tức cho phép thay)
+        let kSuDung = rawKSuDung;
+        if (kqRaSoat && kqRaSoat.trim().toLowerCase().includes('sử dụng lại')) {
+          kSuDung = '';
+        }
         const nv = getV(['NV', 'Nhân viên', 'NhanVien', 'NguoiThucHien']);
         const ngayGio = getV(['NgayGio', 'Ngày giờ', 'Ngay_Gio', 'NGAYGIO', 'NgayThucHien']);
         const ketQua = getV(['KetQua', 'Kết quả', 'Ket_Qua', 'KETQUA']);
@@ -6294,6 +6301,7 @@ export const DataStore = {
           loaiCto: getV(['LOAICTO_TTIEP_GTIEP', 'Loại công tơ']),
           dot,
           kSuDung,
+          kqRaSoat,
           nv,
           ngayGio,
           ketQua,
@@ -6532,30 +6540,90 @@ export const DataStore = {
     window.dispatchEvent(new CustomEvent('tab963_updated'));
 
     // Đồng bộ lên Google Sheets
-    const syncOk = await DataStore.sync963ToSheet(updatedEntry);
-    if (syncOk) {
+    const syncRes = await DataStore.sync963ToSheet(updatedEntry);
+    if (syncRes.success) {
       DataStore.mark963UpdateSynced([maKh]);
     }
 
-    return { success: syncOk, entry: updatedEntry };
+    return { 
+      success: syncRes.success, 
+      entry: updatedEntry,
+      error: syncRes.success ? undefined : (syncRes.error || 'Đã lưu trên thiết bị nhưng đồng bộ Google Sheet chưa thành công.')
+    };
   },
 
-  sync963ToSheet: async (data: Entry963 | Entry963[]): Promise<boolean> => {
+  update963ReviewResult: async (
+    maKh: string,
+    kqRaSoat: string
+  ): Promise<{ success: boolean; entry: Entry963 | null; error?: string }> => {
+    const list = [...DataStore.get963Entries()];
+    const key = String(maKh || '').trim().toLowerCase();
+    const idx = list.findIndex(e => String(e.maKh || '').trim().toLowerCase() === key);
+
+    if (idx === -1) {
+      return { success: false, entry: null, error: `Không tìm thấy khách hàng có mã ${maKh}` };
+    }
+
+    const current = list[idx];
+    const isSuDungLai = kqRaSoat.trim().toLowerCase() === 'sử dụng lại';
+    // Trường hợp "KQRaSoat" có giá trị "Sử dụng lại" thì cập nhật giá trị "KSuDung" về rỗng (cho phép thay)
+    const newKSuDung = isSuDungLai ? '' : (current.kSuDung || 'Thu hồi');
+
+    const updatedEntry: Entry963 = {
+      ...current,
+      kqRaSoat,
+      kSuDung: newKSuDung,
+      isLocal: true
+    };
+
+    list[idx] = updatedEntry;
+    DataStore.save963Entries(list);
+    DataStore.recordLocal963Update(maKh, {
+      kqRaSoat,
+      kSuDung: newKSuDung
+    }, false);
+
+    window.dispatchEvent(new CustomEvent('tab963_updated'));
+
+    // Đồng bộ lên Google Sheets
+    const syncRes = await DataStore.sync963ToSheet(updatedEntry);
+    if (syncRes.success) {
+      DataStore.mark963UpdateSynced([maKh]);
+      return { success: true, entry: updatedEntry };
+    } else {
+      return { 
+        success: false, 
+        entry: updatedEntry, 
+        error: syncRes.error || 'Đã lưu trên thiết bị nhưng chưa thể lưu trực tiếp lên Google Sheet. Vui lòng kiểm tra lại URL Google Apps Script hoặc cập nhật mã Code.gs mới nhất.' 
+      };
+    }
+  },
+
+  sync963ToSheet: async (data: Entry963 | Entry963[]): Promise<{ success: boolean; error?: string; updatedCount?: number }> => {
     try {
       const rawItems = Array.isArray(data) ? data : [data];
-      if (rawItems.length === 0) return true;
+      if (rawItems.length === 0) return { success: true };
 
       const items = rawItems.map(item => {
-        const val930 = item.cs930 || item.cs9h30 || '';
+        const val930 = item.cs930 !== undefined ? item.cs930 : (item.cs9h30 !== undefined ? item.cs9h30 : '');
+        const valKSuDung = item.kSuDung !== undefined ? item.kSuDung : '';
+        const valKqRaSoat = item.kqRaSoat !== undefined ? item.kqRaSoat : '';
+
         return {
           maKh: item.maKh,
           MA_KHANG: item.maKh,
           nv: item.nv || '',
           ngayGio: item.ngayGio || '',
-          ketQua: item.ketQua || 'Xong',
+          ketQua: item.ketQua !== undefined ? item.ketQua : '',
           gioVuot: item.gioVuot !== undefined ? item.gioVuot : 0,
           hsn: item.hsn !== undefined ? item.hsn : '',
           HSN: item.hsn !== undefined ? item.hsn : '',
+          kSuDung: valKSuDung,
+          KSuDung: valKSuDung,
+          KSudung: valKSuDung,
+          kqRaSoat: valKqRaSoat,
+          KQRaSoat: valKqRaSoat,
+          KQRasoat: valKqRaSoat,
           cscdKyTruoc: item.cscdKyTruoc !== undefined ? item.cscdKyTruoc : '',
           CSCDKyTruoc: item.cscdKyTruoc !== undefined ? item.cscdKyTruoc : '',
           cscdThao: item.cscdThao !== undefined ? item.cscdThao : '',
@@ -6572,8 +6640,11 @@ export const DataStore = {
       const payload = {
         action: 'save_963',
         sheetName: '963',
-        items: items
+        items: items,
+        data: items
       };
+
+      let lastError = '';
 
       // 1. Thử gửi qua proxy backend
       try {
@@ -6586,27 +6657,64 @@ export const DataStore = {
           })
         });
         if (proxyRes.ok) {
-          const resJson = await proxyRes.json();
-          if (resJson && resJson.status === 'success') {
-            return true;
+          const resJson = await proxyRes.json().catch(() => null);
+          if (resJson && (resJson.status === 'success' || (typeof resJson.updatedCount === 'number' && resJson.updatedCount >= 0))) {
+            return { success: true, updatedCount: resJson.updatedCount };
           }
+          if (resJson && resJson.message) {
+            lastError = resJson.message;
+          }
+        } else {
+          const errText = await proxyRes.text().catch(() => '');
+          lastError = errText || `Lỗi máy chủ proxy (${proxyRes.status})`;
         }
-      } catch (proxyErr) {}
+      } catch (proxyErr: any) {
+        lastError = proxyErr?.message || 'Không thể kết nối qua máy chủ proxy';
+      }
 
       // 2. Fallback: Trực tiếp từ trình duyệt
       const url = DataStore.getAppScriptUrl();
       if (!url || !url.startsWith('http') || url.includes('AKfycbzpw3SlqJxXYC29qjPRqH8ehfJp764bNvQFUzqIgMW_rMrpitMKvvRvWbbGrP505Sdi')) {
-        return false;
+        return { 
+          success: false, 
+          error: lastError || 'Chưa cấu hình URL Google Apps Script hợp lệ trong Cài đặt hệ thống.' 
+        };
       }
+
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(payload)
       });
-      return response.ok;
-    } catch (e) {
+
+      const rawText = await response.text().catch(() => '');
+      try {
+        const directJson = JSON.parse(rawText);
+        if (directJson.status === 'success') {
+          return { success: true, updatedCount: directJson.updatedCount };
+        }
+        return { 
+          success: false, 
+          error: directJson.message || 'Apps Script phản hồi không thành công.' 
+        };
+      } catch {
+        if (response.ok && !rawText.includes('Unknown action')) {
+          return { success: true };
+        }
+        if (rawText.includes('Unknown action')) {
+          return { 
+            success: false, 
+            error: 'Apps Script chưa có lệnh save_963. Vui lòng sao chép lại mã Apps Script mới nhất từ tab Hệ thống.' 
+          };
+        }
+        return { 
+          success: false, 
+          error: rawText || lastError || 'Lỗi kết nối tới Google Apps Script' 
+        };
+      }
+    } catch (e: any) {
       console.warn('Lỗi khi đồng bộ sheet 963:', e);
-      return false;
+      return { success: false, error: e?.message || 'Lỗi mạng khi đồng bộ sheet 963' };
     }
   }
 

@@ -6,8 +6,9 @@ import {
   FileSpreadsheet, Filter, User, Calendar, MapPin, 
   Layers, Check, Sparkles, AlertCircle, Zap, ChevronLeft,
   ChevronsLeft, ChevronsRight, ChevronsDown, ChevronsUp, ShieldAlert, BarChart3, ListFilter, X,
-  Calculator, Info, HelpCircle, ArrowRight, Eye, EyeOff
+  Calculator, Info, HelpCircle, ArrowRight, Eye, EyeOff, Code2, Copy
 } from 'lucide-react';
+import { SCRIPT_TEMPLATE } from './ConfigModal';
 import { 
   DataStore, 
   Entry963, 
@@ -114,6 +115,11 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
   const [formNgayGio, setFormNgayGio] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Review / Rà soát khách hàng thu hồi state (KQRaSoat)
+  const [reviewChoice, setReviewChoice] = useState<'Thu hồi' | 'Sử dụng lại' | 'Khác'>('Thu hồi');
+  const [reviewExplanation, setReviewExplanation] = useState<string>('');
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+
   // Calculation inputs state (QĐ 963)
   const [calcMode, setCalcMode] = useState<'no_doxa' | 'has_doxa'>('no_doxa');
   const [calcBillingDate, setCalcBillingDate] = useState<string>(''); // YYYY-MM-DD
@@ -126,6 +132,16 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
   // Completed table pagination (10 customers / page)
   const PAGE_SIZE = 10;
   const [completedPage, setCompletedPage] = useState(1);
+
+  // Script modal state
+  const [showScriptModal, setShowScriptModal] = useState(false);
+  const [copiedScript, setCopiedScript] = useState(false);
+
+  const handleCopyScript = () => {
+    navigator.clipboard.writeText(SCRIPT_TEMPLATE);
+    setCopiedScript(true);
+    setTimeout(() => setCopiedScript(false), 3000);
+  };
 
   // Format current datetime helper dd/MM/yyyy HH:mm
   const getCurrentDateTimeStr = (): string => {
@@ -222,6 +238,23 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
         const m = String(now.getMonth() + 1).padStart(2, '0');
         setCalcBillingDate(`${y}-${m}-01`);
         setCalcDays(Math.max(1, now.getDate() - 1));
+      }
+
+      // 7. Khởi tạo trạng thái rà soát (KQRaSoat)
+      if (selectedCustomer.kqRaSoat) {
+        if (selectedCustomer.kqRaSoat.startsWith('Khác')) {
+          setReviewChoice('Khác');
+          setReviewExplanation(selectedCustomer.kqRaSoat.replace(/^Khác:\s*/, ''));
+        } else if (selectedCustomer.kqRaSoat.includes('Sử dụng lại')) {
+          setReviewChoice('Sử dụng lại');
+          setReviewExplanation('');
+        } else {
+          setReviewChoice('Thu hồi');
+          setReviewExplanation('');
+        }
+      } else {
+        setReviewChoice(selectedCustomer.kSuDung?.toLowerCase().includes('thu hồi') ? 'Thu hồi' : 'Sử dụng lại');
+        setReviewExplanation('');
       }
     }
   }, [selectedCustomer]);
@@ -618,6 +651,42 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
     }
   };
 
+  // Cập nhật kết quả rà soát khách hàng thu hồi (cột KQRaSoat & KSuDung)
+  const handleSaveReviewResult = async () => {
+    if (!selectedCustomer) return;
+    if (reviewChoice === 'Khác' && !reviewExplanation.trim()) {
+      showToast('error', 'Vui lòng nhập nội dung diễn giải cho trường hợp "Khác"');
+      return;
+    }
+
+    const finalVal = reviewChoice === 'Khác'
+      ? `Khác: ${reviewExplanation.trim()}`
+      : reviewChoice;
+
+    setIsSubmittingReview(true);
+    showToast('info', `Đang cập nhật kết quả rà soát cho KH ${selectedCustomer.maKh}...`);
+
+    try {
+      const res = await DataStore.update963ReviewResult(selectedCustomer.maKh, finalVal);
+      if (res.entry) {
+        setSelectedCustomer(res.entry);
+      }
+      if (res.success) {
+        if (reviewChoice === 'Sử dụng lại') {
+          showToast('success', `Đã lưu thành công! Cột KSudung đã xóa rỗng và KQRasoat đã ghi nhận "Sử dụng lại" trên Sheet 963. Khách hàng ${selectedCustomer.maKh} hiện đã ĐƯỢC PHÉP THAY.`);
+        } else {
+          showToast('success', `Đã lưu thành công kết quả rà soát "${finalVal}" vào cột KQRasoat trên Sheet 963!`);
+        }
+      } else {
+        showToast('error', res.error || 'Đã lưu trên app nhưng Google Sheets chưa cập nhật được. Hãy kiểm tra URL hoặc cập nhật mã Apps Script mới!');
+      }
+    } catch (e: any) {
+      showToast('error', 'Lỗi khi lưu kết quả rà soát: ' + (e?.message || 'Có sự cố xảy ra'));
+    } finally {
+      setIsSubmittingReview(false);
+    }
+  };
+
   // Export Tab 1 completed customers to Excel
   const handleExportCompletedExcel = () => {
     if (completedCustomersList.length === 0) {
@@ -642,6 +711,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       'NV Thực Hiện': c.nv || '',
       'Ngày Giờ Thay': c.ngayGio || '',
       'Kết Quả': c.ketQua || 'Xong',
+      'Kết Quả Rà Soát (KQRaSoat)': c.kqRaSoat || '',
       'Giờ Vượt (h)': c.gioVuot !== undefined ? c.gioVuot : 0,
       'CS CĐ Lúc Tháo': c.cscdThao || '',
       'CS CĐ Lúc 9h30': c.cs930 || c.cs9h30 || '',
@@ -864,6 +934,15 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setShowScriptModal(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500/25 hover:bg-amber-500/40 text-amber-100 hover:text-white border border-amber-300/40 text-xs font-bold transition-all backdrop-blur-md shadow-xs active:scale-95 cursor-pointer"
+              title="Xem và sao chép mã Google Apps Script mới nhất hỗ trợ ghi nhận KQRasoat và KSudung"
+            >
+              <Code2 className="w-4 h-4 text-amber-300" />
+              <span>Mã Apps Script (Mới)</span>
+            </button>
             <button
               type="button"
               onClick={() => refreshData(true)}
@@ -1268,17 +1347,135 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
               {collapsedSections.customerDetail ? (
                 selectedCustomer ? (
                 <div className="space-y-4">
-                  {/* Warning if Thu hồi */}
-                  {selectedCustomer.kSuDung?.toLowerCase().includes('thu hồi') && (
-                    <div className="bg-rose-50 border-2 border-rose-400 p-3.5 rounded-xl flex items-start gap-3 text-xs text-rose-950">
-                      <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
-                      <div>
-                        <div className="font-black text-rose-900 uppercase">
-                          Cảnh báo: Khách hàng không sử dụng (Thu hồi)
+                  {/* KHỐI CẢNH BÁO & CẬP NHẬT KẾT QUẢ RÀ SOÁT / XỬ LÝ KHÁCH HÀNG THU HỒI */}
+                  {(selectedCustomer.kSuDung?.toLowerCase().includes('thu hồi') || selectedCustomer.kqRaSoat) && (
+                    <div className={`p-4 rounded-xl border-2 space-y-3 transition-colors ${
+                      selectedCustomer.kSuDung?.toLowerCase().includes('thu hồi')
+                        ? 'bg-rose-50/80 border-rose-300 text-rose-950'
+                        : 'bg-emerald-50/80 border-emerald-300 text-emerald-950'
+                    }`}>
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-rose-200/60 pb-2">
+                        <div className="flex items-center gap-2">
+                          {selectedCustomer.kSuDung?.toLowerCase().includes('thu hồi') ? (
+                            <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0" />
+                          ) : (
+                            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                          )}
+                          <div>
+                            <span className="font-black text-xs uppercase">
+                              {selectedCustomer.kSuDung?.toLowerCase().includes('thu hồi')
+                                ? 'Khách hàng không sử dụng (Thu hồi) — Hiện không cho thay'
+                                : 'Khách hàng đã rà soát: Được phép thay công tơ'}
+                            </span>
+                            <p className="text-[11px] text-slate-600 mt-0.5">
+                              Cập nhật kết quả xử lý vào cột <b>KQRaSoat</b>. Nếu chọn <b>&quot;Sử dụng lại&quot;</b>, cột <b>KSuDung</b> sẽ tự động về rỗng để mở khóa cho phép thay công tơ.
+                            </p>
+                          </div>
                         </div>
-                        <p className="mt-0.5">
-                          Theo quy định tại QĐ 963, đối với các khách hàng có trạng thái &quot;Thu hồi&quot; (không sử dụng), hệ thống không cho phép thực hiện thay công tơ.
-                        </p>
+                        {selectedCustomer.kqRaSoat && (
+                          <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full border shrink-0 ${
+                            selectedCustomer.kqRaSoat.includes('Sử dụng lại')
+                              ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                              : 'bg-amber-100 text-amber-900 border-amber-300'
+                          }`}>
+                            KQRaSoat: {selectedCustomer.kqRaSoat}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Form chọn kết quả xử lý */}
+                      <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs space-y-3">
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-700 mb-1.5 uppercase tracking-wide">
+                            Chọn kết quả rà soát / xử lý (Cột KQRaSoat):
+                          </label>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            {/* Lựa chọn 1: Thu hồi */}
+                            <button
+                              type="button"
+                              onClick={() => setReviewChoice('Thu hồi')}
+                              className={`p-2.5 rounded-xl text-xs font-bold border flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                                reviewChoice === 'Thu hồi'
+                                  ? 'bg-rose-600 text-white border-rose-700 shadow-xs ring-2 ring-rose-200'
+                                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                              }`}
+                            >
+                              <ShieldAlert className="w-4 h-4" />
+                              <span>1. Thu hồi</span>
+                            </button>
+
+                            {/* Lựa chọn 2: Sử dụng lại (Mở khóa cho phép thay) */}
+                            <button
+                              type="button"
+                              onClick={() => setReviewChoice('Sử dụng lại')}
+                              className={`p-2.5 rounded-xl text-xs font-bold border flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                                reviewChoice === 'Sử dụng lại'
+                                  ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs ring-2 ring-emerald-300'
+                                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                              }`}
+                            >
+                              <CheckCircle2 className="w-4 h-4" />
+                              <span>2. Sử dụng lại (Cho phép thay)</span>
+                            </button>
+
+                            {/* Lựa chọn 3: Khác */}
+                            <button
+                              type="button"
+                              onClick={() => setReviewChoice('Khác')}
+                              className={`p-2.5 rounded-xl text-xs font-bold border flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                                reviewChoice === 'Khác'
+                                  ? 'bg-amber-600 text-white border-amber-700 shadow-xs ring-2 ring-amber-200'
+                                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                              }`}
+                            >
+                              <Sparkles className="w-4 h-4" />
+                              <span>3. Khác (Có diễn giải)</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Trường hợp chọn Khác -> Cho nhập diễn giải */}
+                        {reviewChoice === 'Khác' && (
+                          <div className="pt-1 space-y-1">
+                            <label className="block text-[11px] font-bold text-amber-950">
+                              Nội dung diễn giải lý do khác (Bắt buộc khi chọn &quot;Khác&quot;):
+                            </label>
+                            <input
+                              type="text"
+                              value={reviewExplanation}
+                              onChange={e => setReviewExplanation(e.target.value)}
+                              placeholder="Ví dụ: Chờ giải tỏa, Tranh chấp ranh giới, Đang sửa nhà..."
+                              className="w-full px-3 py-2 bg-amber-50/50 border border-amber-300 rounded-xl text-xs text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-amber-500"
+                            />
+                            <span className="text-[10px] text-slate-500 block">
+                              Giá trị lưu vào sheet 963 sẽ là: <b className="font-mono text-amber-900">Khác: {reviewExplanation.trim() || '...'}</b>
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Nút lưu kết quả rà soát */}
+                        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1 border-t border-slate-100">
+                          <span className="text-[11px] text-slate-500">
+                            {reviewChoice === 'Sử dụng lại' ? (
+                              <span className="text-emerald-700 font-semibold flex items-center gap-1">
+                                <Check className="w-3.5 h-3.5" />
+                                Khi bấm lưu, hệ thống sẽ xóa &quot;Thu hồi&quot; (KSuDung về rỗng) để bạn tiến hành thay công tơ ngay!
+                              </span>
+                            ) : (
+                              <span>Lưu kết quả rà soát vào cột <b>KQRaSoat</b> sheet 963.</span>
+                            )}
+                          </span>
+
+                          <button
+                            type="button"
+                            onClick={handleSaveReviewResult}
+                            disabled={isSubmittingReview}
+                            className="w-full sm:w-auto px-4 py-2 bg-slate-900 hover:bg-slate-800 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                            <span>{isSubmittingReview ? 'Đang lưu kết quả...' : 'Cập nhật Kết Quả Rà Soát (KQRaSoat)'}</span>
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -1335,6 +1532,12 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                         {selectedCustomer.kSuDung || 'Bình thường'}
                       </div>
                     </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 font-bold uppercase">KQ Rà Soát (KQRaSoat)</span>
+                      <div className={`font-bold mt-0.5 ${selectedCustomer.kqRaSoat?.includes('Sử dụng lại') ? 'text-emerald-700' : selectedCustomer.kqRaSoat ? 'text-amber-800' : 'text-slate-400'}`}>
+                        {selectedCustomer.kqRaSoat || 'Chưa rà soát'}
+                      </div>
+                    </div>
 
                     {/* Dữ liệu đã lưu trên sheet 963 nếu khách hàng đã thực hiện hoặc đã nhập chỉ số */}
                     {(selectedCustomer.ketQua?.toLowerCase().includes('xong') || selectedCustomer.cscdThao || selectedCustomer.slVuot) && (
@@ -1375,9 +1578,13 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                             <span className="text-slate-500 block text-[10px]">NV Thực Hiện:</span>
                             <span className="font-medium text-slate-800">{selectedCustomer.nv || '—'}</span>
                           </div>
-                          <div className="sm:col-span-2">
+                          <div className="sm:col-span-1">
                             <span className="text-slate-500 block text-[10px]">Ngày Giờ Thay:</span>
                             <span className="font-mono text-slate-800">{selectedCustomer.ngayGio || '—'}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-500 block text-[10px]">KQ Rà Soát:</span>
+                            <span className={`font-bold ${selectedCustomer.kqRaSoat?.includes('Sử dụng lại') ? 'text-emerald-700' : 'text-amber-900'}`}>{selectedCustomer.kqRaSoat || '—'}</span>
                           </div>
                         </div>
                       </div>
@@ -1988,6 +2195,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                         <th className="py-2.5 px-3 text-center">HSN</th>
                         <th className="py-2.5 px-3">NV Thay</th>
                         <th className="py-2.5 px-3">Ngày Giờ</th>
+                        <th className="py-2.5 px-3">KQ Rà Soát</th>
                         <th className="py-2.5 px-3 text-right">Giờ Vượt</th>
                         <th className="py-2.5 px-3 text-right">CS Tháo</th>
                         <th className="py-2.5 px-3 text-right">CS 9h30</th>
@@ -2015,6 +2223,15 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                               <td className="py-2 px-3 text-center font-mono font-bold text-amber-900">{hsnVal}</td>
                               <td className="py-2 px-3 text-slate-700">{item.nv || '—'}</td>
                               <td className="py-2 px-3 font-mono text-[11px] text-slate-600">{item.ngayGio || '—'}</td>
+                              <td className="py-2 px-3 text-[11px]">
+                                {item.kqRaSoat ? (
+                                  <span className={`px-1.5 py-0.5 rounded font-medium ${item.kqRaSoat.includes('Sử dụng lại') ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'}`}>
+                                    {item.kqRaSoat}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400">—</span>
+                                )}
+                              </td>
                               <td className="py-2 px-3 text-right font-mono font-bold text-indigo-800">
                                 {item.gioVuot !== undefined ? `${item.gioVuot}h` : '0h'}
                               </td>
@@ -2037,7 +2254,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                         })
                       ) : (
                         <tr>
-                          <td colSpan={13} className="py-8 text-center text-slate-400 text-xs">
+                          <td colSpan={14} className="py-8 text-center text-slate-400 text-xs">
                             Chưa có khách hàng nào được thay xong trong phạm vi lựa chọn này.
                           </td>
                         </tr>
@@ -2327,6 +2544,92 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
               </span>
             </div>
           )}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL HƯỚNG DẪN & SAO CHÉP MÃ GOOGLE APPS SCRIPT CHO SHEET 963 */}
+      {showScriptModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border-2 border-slate-900 shadow-2xl max-w-3xl w-full max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
+            {/* Modal Header */}
+            <div className="p-4 bg-gradient-to-r from-amber-600 to-amber-700 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Code2 className="w-5 h-5 text-amber-200" />
+                <h3 className="font-bold text-sm uppercase tracking-wide">
+                  Mã Nguồn Google Apps Script Mới (Hỗ Trợ KQRasoat & KSudung Sheet 963)
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowScriptModal(false)}
+                className="p-1 hover:bg-white/20 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-5 overflow-y-auto space-y-4 text-xs text-slate-700">
+              <div className="bg-amber-50 border border-amber-300 p-3.5 rounded-xl space-y-2 text-amber-950">
+                <div className="font-bold flex items-center gap-1.5 text-xs text-amber-900">
+                  <Sparkles className="w-4 h-4 text-amber-600" />
+                  <span>Hướng dẫn cập nhật lên Google Sheets (Thực hiện trong 1 phút):</span>
+                </div>
+                <ol className="list-decimal pl-5 space-y-1 text-[11px] leading-relaxed">
+                  <li>Bấm nút <b>&quot;Sao Chép Toàn Bộ Mã&quot;</b> màu xanh bên dưới.</li>
+                  <li>Mở file Google Sheet <b>963</b> trên trình duyệt, vào menu <b>Tiện ích mở rộng</b> (Extensions) → chọn <b>Apps Script</b>.</li>
+                  <li>Xóa sạch toàn bộ nội dung trong tệp <b>Code.gs</b>, sau đó <b>Dán (Ctrl + V)</b> mã vừa sao chép vào.</li>
+                  <li>Bấm nút <b>Lưu</b> (biểu tượng 💾 đĩa mềm).</li>
+                  <li>Bấm <b>Triển khai</b> (Deploy) → <b>Quản lý bản triển khai</b> (Manage deployments) → Bấm vào <b>Cây bút (Chỉnh sửa)</b> → mục <i>Phiên bản</i> chọn <b>&quot;Phiên bản mới&quot; (New version)</b> → Bấm nút <b>Triển khai (Deploy)</b>.</li>
+                </ol>
+                <p className="text-[11px] text-amber-800 italic pt-1">
+                  * Sau khi triển khai, nếu Sheet 963 của bạn chưa có sẵn các cột <b>KQRasoat</b> hoặc <b>KSudung</b>, script sẽ tự động tạo thêm vào dòng tiêu đề và ghi nhận đầy đủ!
+                </p>
+              </div>
+
+              {/* Code viewer */}
+              <div className="border border-slate-300 rounded-xl overflow-hidden bg-slate-900 text-slate-100">
+                <div className="flex items-center justify-between px-3 py-2 bg-slate-950 border-b border-slate-800 text-[11px]">
+                  <span className="font-mono text-slate-400">Code.gs (Google Apps Script)</span>
+                  <button
+                    type="button"
+                    onClick={handleCopyScript}
+                    className="flex items-center gap-1.5 px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-bold transition-all cursor-pointer text-[11px]"
+                  >
+                    {copiedScript ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedScript ? 'Đã sao chép!' : 'Sao chép mã'}</span>
+                  </button>
+                </div>
+                <pre className="p-3 font-mono text-[11px] max-h-[280px] overflow-auto text-emerald-400/90 leading-tight">
+                  <code>{SCRIPT_TEMPLATE}</code>
+                </pre>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+              <span className="text-[11px] text-slate-500">
+                {copiedScript ? '✓ Mã đã được chép vào bộ nhớ tạm!' : 'Sẵn sàng triển khai lên Google Apps Script'}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCopyScript}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  {copiedScript ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  <span>{copiedScript ? 'Đã Sao Chép!' : 'Sao Chép Toàn Bộ Mã'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowScriptModal(false)}
+                  className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs rounded-xl transition-all cursor-pointer"
+                >
+                  Đóng
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

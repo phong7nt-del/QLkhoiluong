@@ -2010,9 +2010,68 @@ function doPost(e) {
             else if (h === 'cs930' || h === 'cs9h30') colMap.cs930 = c;
             else if (h === 'cscdkytruoc' || h === 'slkytruoc') colMap.cscdKyTruoc = c;
             else if (h === 'slvuot') colMap.slVuot = c;
+            else if (h === 'kqrasoat' || h === 'ketquarasoat' || h === 'rasoat') colMap.kqRaSoat = c;
+            else if (h === 'ksudung' || h === 'khongsudung' || h === 'thuhoi') colMap.kSuDung = c;
         }
 
         if (colMap.maKh === undefined) colMap.maKh = 0;
+
+        var curLastCol = sheet.getLastColumn();
+        if (colMap.nv === undefined) {
+            curLastCol++;
+            sheet.getRange(headerRowIdx + 1, curLastCol).setValue('NV');
+            colMap.nv = curLastCol - 1;
+        }
+        if (colMap.ngayGio === undefined) {
+            curLastCol++;
+            sheet.getRange(headerRowIdx + 1, curLastCol).setValue('NgayGio');
+            colMap.ngayGio = curLastCol - 1;
+        }
+        if (colMap.ketQua === undefined) {
+            curLastCol++;
+            sheet.getRange(headerRowIdx + 1, curLastCol).setValue('KetQua');
+            colMap.ketQua = curLastCol - 1;
+        }
+        if (colMap.gioVuot === undefined) {
+            curLastCol++;
+            sheet.getRange(headerRowIdx + 1, curLastCol).setValue('GioVuot');
+            colMap.gioVuot = curLastCol - 1;
+        }
+        if (colMap.hsn === undefined) {
+            curLastCol++;
+            sheet.getRange(headerRowIdx + 1, curLastCol).setValue('HSN');
+            colMap.hsn = curLastCol - 1;
+        }
+        if (colMap.kSuDung === undefined) {
+            curLastCol++;
+            sheet.getRange(headerRowIdx + 1, curLastCol).setValue('KSudung');
+            colMap.kSuDung = curLastCol - 1;
+        }
+        if (colMap.kqRaSoat === undefined) {
+            curLastCol++;
+            sheet.getRange(headerRowIdx + 1, curLastCol).setValue('KQRasoat');
+            colMap.kqRaSoat = curLastCol - 1;
+        }
+        if (colMap.cscdKyTruoc === undefined) {
+            curLastCol++;
+            sheet.getRange(headerRowIdx + 1, curLastCol).setValue('CSCDKyTruoc');
+            colMap.cscdKyTruoc = curLastCol - 1;
+        }
+        if (colMap.cscdThao === undefined) {
+            curLastCol++;
+            sheet.getRange(headerRowIdx + 1, curLastCol).setValue('CSCDThao');
+            colMap.cscdThao = curLastCol - 1;
+        }
+        if (colMap.cs930 === undefined) {
+            curLastCol++;
+            sheet.getRange(headerRowIdx + 1, curLastCol).setValue('CS9h30');
+            colMap.cs930 = curLastCol - 1;
+        }
+        if (colMap.slVuot === undefined) {
+            curLastCol++;
+            sheet.getRange(headerRowIdx + 1, curLastCol).setValue('SLVuot');
+            colMap.slVuot = curLastCol - 1;
+        }
 
         var existingRowIndexByMaKh = {};
         for (var r = headerRowIdx + 1; r < sheetData.length; r++) {
@@ -2036,17 +2095,29 @@ function doPost(e) {
                 if (colMap.gioVuot !== undefined && item.gioVuot !== undefined) sheet.getRange(rowIndex, colMap.gioVuot + 1).setValue(item.gioVuot);
                 if (colMap.hsn !== undefined && item.hsn !== undefined && item.hsn !== '') sheet.getRange(rowIndex, colMap.hsn + 1).setValue(item.hsn);
                 if (colMap.cscdThao !== undefined && item.cscdThao !== undefined) sheet.getRange(rowIndex, colMap.cscdThao + 1).setValue(item.cscdThao);
-                var v930 = item.cs930 || item.cs9h30;
+                var v930 = item.cs930 !== undefined ? item.cs930 : (item.cs9h30 !== undefined ? item.cs9h30 : (item.CS9h30 !== undefined ? item.CS9h30 : item.CS930));
                 if (colMap.cs930 !== undefined && v930 !== undefined) sheet.getRange(rowIndex, colMap.cs930 + 1).setValue(v930);
-                if (colMap.cscdKyTruoc !== undefined && item.cscdKyTruoc !== undefined) sheet.getRange(rowIndex, colMap.cscdKyTruoc + 1).setValue(item.cscdKyTruoc);
-                if (colMap.slVuot !== undefined && item.slVuot !== undefined) sheet.getRange(rowIndex, colMap.slVuot + 1).setValue(item.slVuot);
+                var vKyTruoc = item.cscdKyTruoc !== undefined ? item.cscdKyTruoc : item.CSCDKyTruoc;
+                if (colMap.cscdKyTruoc !== undefined && vKyTruoc !== undefined) sheet.getRange(rowIndex, colMap.cscdKyTruoc + 1).setValue(vKyTruoc);
+                var vSlv = item.slVuot !== undefined ? item.slVuot : item.SLVuot;
+                if (colMap.slVuot !== undefined && vSlv !== undefined) sheet.getRange(rowIndex, colMap.slVuot + 1).setValue(vSlv);
+
+                // Cập nhật kết quả rà soát (cột KQRasoat)
+                var valKq = item.kqRaSoat !== undefined ? item.kqRaSoat : (item.KQRaSoat !== undefined ? item.KQRaSoat : item.KQRasoat);
+                if (colMap.kqRaSoat !== undefined && valKq !== undefined) sheet.getRange(rowIndex, colMap.kqRaSoat + 1).setValue(valKq);
+
+                // Cập nhật tình trạng sử dụng (cột KSudung)
+                var valKsd = item.kSuDung !== undefined ? item.kSuDung : (item.KSuDung !== undefined ? item.KSuDung : item.KSudung);
+                if (colMap.kSuDung !== undefined && valKsd !== undefined) sheet.getRange(rowIndex, colMap.kSuDung + 1).setValue(valKsd);
+
                 updatedCount++;
             }
         }
 
         return ContentService.createTextOutput(JSON.stringify({ 
             status: 'success', 
-            updatedCount: updatedCount 
+            updatedCount: updatedCount,
+            message: 'Đã cập nhật ' + updatedCount + ' khách hàng vào sheet 963'
         })).setMimeType(ContentService.MimeType.JSON);
      }
 

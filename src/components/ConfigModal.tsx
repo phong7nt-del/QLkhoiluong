@@ -2847,16 +2847,19 @@ function doPost(e) {
           .setMimeType(ContentService.MimeType.JSON);
       }
       var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
-      var colMaKh = -1, colNv = -1, colNgayGio = -1, colKetQua = -1, colGioVuot = -1, colKSuDung = -1;
+      var colMaKh = -1, colNv = -1, colNgayGio = -1, colKetQua = -1, colGioVuot = -1, colHsn = -1;
+      var colKSuDung = -1, colKqRaSoat = -1;
       var colCscdKyTruoc = -1, colCscdThao = -1, colCs930 = -1, colSlVuot = -1;
       for (var c = 0; c < headers.length; c++) {
         var hNorm = String(headers[c] || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-        if (hNorm === 'makhang' || hNorm === 'makh') colMaKh = c;
+        if (hNorm === 'makhang' || hNorm === 'makh' || hNorm === 'makhachhang') colMaKh = c;
         if (hNorm === 'nv' || hNorm === 'nhanvien' || hNorm === 'nguoithuchien') colNv = c;
-        if (hNorm === 'ngaygio' || hNorm === 'ngaygiothay') colNgayGio = c;
-        if (hNorm === 'ketqua') colKetQua = c;
+        if (hNorm === 'ngaygio' || hNorm === 'ngaygiothay' || hNorm === 'ngaythay') colNgayGio = c;
+        if (hNorm === 'ketqua' || hNorm === 'kq') colKetQua = c;
         if (hNorm === 'giovuot') colGioVuot = c;
-        if (hNorm === 'ksudung') colKSuDung = c;
+        if (hNorm === 'hsn' || hNorm === 'hesonhan') colHsn = c;
+        if (hNorm === 'ksudung' || hNorm === 'khongsudung' || hNorm === 'thuhoi') colKSuDung = c;
+        if (hNorm === 'kqrasoat' || hNorm === 'ketquarasoat' || hNorm === 'rasoat') colKqRaSoat = c;
         if (hNorm.indexOf('cscdkytruoc') !== -1 || hNorm === 'slkytruoc' || hNorm.indexOf('kytruoc') !== -1) colCscdKyTruoc = c;
         if (hNorm.indexOf('cscdthao') !== -1 || hNorm.indexOf('cdthao') !== -1) colCscdThao = c;
         if (hNorm.indexOf('cs930') !== -1 || hNorm.indexOf('cs9h30') !== -1 || hNorm.indexOf('9h30') !== -1 || hNorm.indexOf('930') !== -1) colCs930 = c;
@@ -2885,6 +2888,21 @@ function doPost(e) {
         curLastCol++;
         sheet.getRange(1, curLastCol).setValue('GioVuot');
         colGioVuot = curLastCol - 1;
+      }
+      if (colHsn === -1) {
+        curLastCol++;
+        sheet.getRange(1, curLastCol).setValue('HSN');
+        colHsn = curLastCol - 1;
+      }
+      if (colKSuDung === -1) {
+        curLastCol++;
+        sheet.getRange(1, curLastCol).setValue('KSudung');
+        colKSuDung = curLastCol - 1;
+      }
+      if (colKqRaSoat === -1) {
+        curLastCol++;
+        sheet.getRange(1, curLastCol).setValue('KQRasoat');
+        colKqRaSoat = curLastCol - 1;
       }
       if (colCscdKyTruoc === -1) {
         curLastCol++;
@@ -2924,7 +2942,20 @@ function doPost(e) {
           if (colNgayGio > -1 && it.ngayGio !== undefined) sheet.getRange(rowNum, colNgayGio + 1).setValue(it.ngayGio);
           if (colKetQua > -1 && it.ketQua !== undefined) sheet.getRange(rowNum, colKetQua + 1).setValue(it.ketQua);
           if (colGioVuot !== undefined && colGioVuot > -1 && it.gioVuot !== undefined) sheet.getRange(rowNum, colGioVuot + 1).setValue(it.gioVuot);
-          
+          if (colHsn > -1 && it.hsn !== undefined && it.hsn !== '') sheet.getRange(rowNum, colHsn + 1).setValue(it.hsn);
+
+          // Cập nhật kết quả rà soát (cột KQRasoat)
+          var valKqRaSoat = it.kqRaSoat !== undefined ? it.kqRaSoat : (it.KQRaSoat !== undefined ? it.KQRaSoat : it.KQRasoat);
+          if (colKqRaSoat > -1 && valKqRaSoat !== undefined) {
+            sheet.getRange(rowNum, colKqRaSoat + 1).setValue(valKqRaSoat);
+          }
+
+          // Cập nhật trạng thái sử dụng (cột KSudung)
+          var valKSuDung = it.kSuDung !== undefined ? it.kSuDung : (it.KSuDung !== undefined ? it.KSuDung : it.KSudung);
+          if (colKSuDung > -1 && valKSuDung !== undefined) {
+            sheet.getRange(rowNum, colKSuDung + 1).setValue(valKSuDung);
+          }
+
           // Ghi nhận CS CĐ Kỳ trước
           var valCscdKyTruoc = it.cscdKyTruoc !== undefined ? it.cscdKyTruoc : it.CSCDKyTruoc;
           if (colCscdKyTruoc > -1 && valCscdKyTruoc !== undefined) {
