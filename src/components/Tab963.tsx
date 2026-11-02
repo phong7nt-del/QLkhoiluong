@@ -14,6 +14,7 @@ import {
   SheetMember, 
   calculateGioVuot, 
   parseHsn,
+  resolveHsn,
   calculateSlVuotKhongDoXa,
   calculateSlVuotCoDoXa 
 } from '../store/DataStore';
@@ -192,8 +193,8 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       const hasDoXa = dx.includes('có') || dx.includes('co') || dx.includes('rf') || dx.includes('plc') || dx.includes('modem') || dx.includes('đo xa');
       setCalcMode(hasDoXa ? 'has_doxa' : 'no_doxa');
 
-      // 2. Hệ số nhân HSN từ tỷ số TI (cột ty0so0_TI)
-      const hsn = parseHsn(selectedCustomer.tySoTi);
+      // 2. Hệ số nhân HSN: hiệu chỉnh lấy giá trị (không quy đổi) từ cột "HSN" của sheet 963
+      const hsn = resolveHsn(selectedCustomer);
       setCalcHsn(hsn);
 
       // 3. Nạp chỉ số cao điểm kỳ trước (cột CSCDKyTruoc hoặc SLKyTruoc)
@@ -582,6 +583,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
         ngayGio: dtStr,
         ketQua: 'Xong',
         gioVuot: gv,
+        hsn: calcHsn,
         cscdKyTruoc: cscdKyTruocClean,
         cscdThao: cscdThaoClean,
         cs930: cs930Clean,
@@ -593,6 +595,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
         showToast('error', res.error);
       } else {
         const metricSummary = [
+          `HSN: ${calcHsn}`,
           cscdThaoClean ? `CS Tháo: ${cscdThaoClean}` : null,
           cs930Clean ? `CS 9h30: ${cs930Clean}` : null,
           cscdKyTruocClean ? `CS Kỳ trước: ${cscdKyTruocClean}` : null,
@@ -633,7 +636,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       'Số Pha': c.soPha || '',
       'Tỷ Số TU': c.tySoTu || '',
       'Tỷ Số TI': c.tySoTi || '',
-      'Hệ Số Nhân (HSN)': parseHsn(c.tySoTi),
+      'Hệ Số Nhân (HSN)': c.hsn !== undefined && c.hsn !== '' ? c.hsn : resolveHsn(c),
       'Công Nghệ': c.congNghe || '',
       'Đo Xa': c.doXa || '',
       'NV Thực Hiện': c.nv || '',
@@ -1232,24 +1235,38 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                     Chi Tiết Khách Hàng & Xác Nhận Thay Xong
                   </h3>
                 </div>
-                {selectedCustomer && (
-                  <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                    selectedCustomer.kSuDung?.toLowerCase().includes('thu hồi')
-                      ? 'bg-rose-100 text-rose-800 border border-rose-300'
-                      : selectedCustomer.ketQua?.toLowerCase().includes('xong')
-                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                      : 'bg-amber-100 text-amber-800 border border-amber-300'
-                  }`}>
-                    {selectedCustomer.kSuDung?.toLowerCase().includes('thu hồi')
-                      ? 'Trạng thái: Thu hồi (Không được thay)'
-                      : selectedCustomer.ketQua?.toLowerCase().includes('xong')
-                      ? 'Đã thay xong'
-                      : 'Chưa thay'}
-                  </span>
-                )}
+                <div className="flex items-center gap-2">
+                  {selectedCustomer && (
+                    <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+                      selectedCustomer.kSuDung?.toLowerCase().includes('thu hồi')
+                        ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                        : selectedCustomer.ketQua?.toLowerCase().includes('xong')
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                        : 'bg-amber-100 text-amber-800 border border-amber-300'
+                    }`}>
+                      {selectedCustomer.kSuDung?.toLowerCase().includes('thu hồi')
+                        ? 'Trạng thái: Thu hồi (Không được thay)'
+                        : selectedCustomer.ketQua?.toLowerCase().includes('xong')
+                        ? 'Đã thay xong'
+                        : 'Chưa thay'}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => toggleSection('customerDetail')}
+                    className="p-1 hover:bg-slate-100 text-slate-500 hover:text-slate-800 rounded-lg transition-colors flex items-center gap-1 cursor-pointer shrink-0"
+                    title={collapsedSections.customerDetail ? "Thu gọn phần chi tiết khách hàng" : "Bung ra phần chi tiết khách hàng"}
+                  >
+                    <span className="text-[10px] text-slate-400 font-normal hidden sm:inline">
+                      {collapsedSections.customerDetail ? 'Thu gọn' : 'Bung ra'}
+                    </span>
+                    {collapsedSections.customerDetail ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
 
-              {selectedCustomer ? (
+              {collapsedSections.customerDetail ? (
+                selectedCustomer ? (
                 <div className="space-y-4">
                   {/* Warning if Thu hồi */}
                   {selectedCustomer.kSuDung?.toLowerCase().includes('thu hồi') && (
@@ -1295,6 +1312,14 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                     <div>
                       <span className="text-[10px] text-slate-500 font-bold uppercase">Tỷ Số TU / TI</span>
                       <div className="font-medium text-slate-800 mt-0.5">{selectedCustomer.tySoTu || '—'} / {selectedCustomer.tySoTi || '—'}</div>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 font-bold uppercase">Hệ Số Nhân (Cột HSN)</span>
+                      <div className="font-mono font-black text-amber-900 mt-0.5">
+                        {selectedCustomer.hsn !== undefined && selectedCustomer.hsn !== ''
+                          ? selectedCustomer.hsn
+                          : `${resolveHsn(selectedCustomer)}`}
+                      </div>
                     </div>
                     <div>
                       <span className="text-[10px] text-slate-500 font-bold uppercase">Đo Xa / NLMT</span>
@@ -1454,7 +1479,27 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                     Hãy nhấp vào một khách hàng trên sơ đồ cây bên trái để xem thông tin chi tiết và cập nhật kết quả thay công tơ.
                   </p>
                 </div>
-              )}
+              )
+            ) : (
+              <div
+                onClick={() => toggleSection('customerDetail')}
+                className="p-3.5 bg-slate-50 hover:bg-amber-50/50 rounded-xl border border-dashed border-slate-200 flex items-center justify-between cursor-pointer transition-colors text-xs"
+              >
+                <div className="flex items-center gap-2 truncate">
+                  <CheckCircle2 className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span className="font-semibold text-slate-700 truncate">
+                    {selectedCustomer ? (
+                      <>Đang chọn: <b className="text-amber-900 font-mono">{selectedCustomer.maKh}</b> - {selectedCustomer.tenKh} ({selectedCustomer.kv})</>
+                    ) : (
+                      'Phần chi tiết khách hàng đang thu gọn'
+                    )}
+                  </span>
+                </div>
+                <span className="text-[11px] text-amber-700 font-bold hover:underline shrink-0 ml-2">
+                  Bung ra ▾
+                </span>
+              </div>
+            )}
             </div>
 
             {/* 2. KHỐI TÍNH TOÁN SẢN LƯỢNG CAO ĐIỂM VƯỢT (QUY ĐỊNH QĐ 963) */}
@@ -1478,37 +1523,54 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                 </div>
 
                 {/* Chuyển đổi qua lại giữa 2 trường hợp: Không đo xa vs Có đo xa */}
-                <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 shrink-0">
+                <div className="flex items-center gap-2 shrink-0">
+                  {/* Chuyển đổi qua lại giữa 2 trường hợp: Không đo xa vs Có đo xa */}
+                  <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => setCalcMode('no_doxa')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        calcMode === 'no_doxa'
+                          ? 'bg-amber-600 text-white shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      1. Không có đo xa
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCalcMode('has_doxa')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        calcMode === 'has_doxa'
+                          ? 'bg-amber-600 text-white shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      2. Có đo xa
+                    </button>
+                  </div>
+
                   <button
                     type="button"
-                    onClick={() => setCalcMode('no_doxa')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      calcMode === 'no_doxa'
-                        ? 'bg-amber-600 text-white shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
+                    onClick={() => toggleSection('calculation')}
+                    className="p-1 hover:bg-slate-100 text-slate-500 hover:text-slate-800 rounded-lg transition-colors flex items-center gap-1 cursor-pointer shrink-0"
+                    title={collapsedSections.calculation ? "Thu gọn phần tính toán sản lượng vượt" : "Bung ra phần tính toán sản lượng vượt"}
                   >
-                    1. Không có đo xa
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCalcMode('has_doxa')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      calcMode === 'has_doxa'
-                        ? 'bg-amber-600 text-white shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    2. Có đo xa
+                    <span className="text-[10px] text-slate-400 font-normal hidden sm:inline">
+                      {collapsedSections.calculation ? 'Thu gọn' : 'Bung ra'}
+                    </span>
+                    {collapsedSections.calculation ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                   </button>
                 </div>
               </div>
 
-              {/* Quick Preset Buttons for 1-click testing user's exact examples */}
-              <div className="bg-amber-50/60 border border-amber-200/70 p-3 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs">
-                <span className="font-bold text-amber-950 flex items-center gap-1.5 text-[11px]">
-                  <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-                  <span>Nạp nhanh ví dụ kiểm tra:</span>
+              {collapsedSections.calculation ? (
+                <>
+                  {/* Quick Preset Buttons for 1-click testing user's exact examples */}
+                  <div className="bg-amber-50/60 border border-amber-200/70 p-3 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span className="font-bold text-amber-950 flex items-center gap-1.5 text-[11px]">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Nạp nhanh ví dụ kiểm tra:</span>
                 </span>
                 <div className="flex flex-wrap items-center gap-1.5">
                   <button
@@ -1635,7 +1697,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                     {/* Hệ số nhân (HSN) */}
                     <div>
                       <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                        Hệ số nhân HSN (từ ty0so0_TI)
+                        Hệ số nhân (Cột HSN)
                       </label>
                       <div className="flex items-center gap-2">
                         <input
@@ -1645,12 +1707,12 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                           onChange={e => setCalcHsn(parseFloat(e.target.value) || 1)}
                           className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 font-mono font-bold focus:outline-none focus:ring-2 focus:ring-amber-500"
                         />
-                        <span className="text-xs font-mono font-bold text-slate-500 px-2 py-1 bg-slate-100 rounded-lg shrink-0">
-                          TI: {selectedCustomer?.tySoTi || '1/1'}
+                        <span className="text-xs font-mono font-bold text-amber-900 px-2 py-1 bg-amber-50 rounded-lg shrink-0 border border-amber-200">
+                          HSN: {selectedCustomer?.hsn !== undefined && selectedCustomer?.hsn !== '' ? selectedCustomer.hsn : calcHsn}
                         </span>
                       </div>
-                      <span className="text-[10px] text-slate-400 mt-0.5 block">
-                        Ví dụ: 400/5 = 80; 1/1 = 1
+                      <span className="text-[10px] text-slate-500 mt-0.5 block">
+                        Lấy trực tiếp giá trị từ cột &quot;HSN&quot; (không quy đổi). Có thể hiệu chỉnh nếu cần.
                       </span>
                     </div>
                   </div>
@@ -1761,7 +1823,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                     {/* Hệ số nhân HSN */}
                     <div>
                       <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                        Hệ số nhân HSN (từ ty0so0_TI)
+                        Hệ số nhân (Cột HSN)
                       </label>
                       <div className="flex items-center gap-2">
                         <input
@@ -1771,12 +1833,12 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                           onChange={e => setCalcHsn(parseFloat(e.target.value) || 1)}
                           className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 font-mono font-bold focus:outline-none focus:ring-2 focus:ring-amber-500"
                         />
-                        <span className="text-xs font-mono font-bold text-slate-500 px-2 py-1 bg-slate-100 rounded-lg shrink-0">
-                          TI: {selectedCustomer?.tySoTi || '1/1'}
+                        <span className="text-xs font-mono font-bold text-amber-900 px-2 py-1 bg-amber-50 rounded-lg shrink-0 border border-amber-200">
+                          HSN: {selectedCustomer?.hsn !== undefined && selectedCustomer?.hsn !== '' ? selectedCustomer.hsn : calcHsn}
                         </span>
                       </div>
-                      <span className="text-[10px] text-slate-400 mt-0.5 block">
-                        Ví dụ: 400/5 = 80; 1/1 = 1
+                      <span className="text-[10px] text-slate-500 mt-0.5 block">
+                        Lấy trực tiếp giá trị từ cột &quot;HSN&quot; (không quy đổi). Có thể hiệu chỉnh nếu cần.
                       </span>
                     </div>
                   </div>
@@ -1847,6 +1909,29 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                   <span>{isSubmitting ? 'Đang lưu vào Sheet...' : 'Lưu & Cập Nhật Vào Sheet 963'}</span>
                 </button>
               </div>
+            </>
+          ) : (
+            <div
+              onClick={() => toggleSection('calculation')}
+              className="p-3.5 bg-slate-50 hover:bg-amber-50/50 rounded-xl border border-dashed border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 cursor-pointer transition-colors text-xs"
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <Calculator className="w-4 h-4 text-amber-600 shrink-0" />
+                <span className="font-semibold text-slate-700">
+                  Tính toán sản lượng vượt ({calcMode === 'has_doxa' ? 'Có đo xa' : 'Không có đo xa'}):
+                </span>
+                <span className="bg-amber-100 text-amber-950 px-2 py-0.5 rounded font-mono font-bold border border-amber-300 text-[11px]">
+                  SL Vượt: {calculationResult.slVuot} kWh
+                </span>
+                <span className="text-slate-500 text-[11px]">
+                  (Giờ vượt: {calculatedGioVuot}h | CS Tháo: {calcCscdThao || '0'} | HSN: {calcHsn})
+                </span>
+              </div>
+              <span className="text-[11px] text-amber-700 font-bold hover:underline shrink-0">
+                Bung ra ▾
+              </span>
+            </div>
+          )}
             </div>
 
             {/* 3. KHỐI DANH SÁCH KHÁCH HÀNG ĐÃ THAY XONG (10 KHÁCH HÀNG TRÊN TRANG, CHO PHÉP KẾT XUẤT EXCEL) */}
@@ -1864,18 +1949,33 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                   </p>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={handleExportCompletedExcel}
-                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
-                >
-                  <FileSpreadsheet className="w-4 h-4" />
-                  <span>Xuất Excel</span>
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleExportCompletedExcel}
+                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+                  >
+                    <FileSpreadsheet className="w-4 h-4" />
+                    <span>Xuất Excel</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => toggleSection('completedList')}
+                    className="p-1.5 hover:bg-slate-100 text-slate-500 hover:text-slate-800 rounded-lg transition-colors flex items-center gap-1 cursor-pointer shrink-0"
+                    title={collapsedSections.completedList ? "Thu gọn danh sách đã thay xong" : "Bung ra danh sách đã thay xong"}
+                  >
+                    <span className="text-[10px] text-slate-400 font-normal hidden sm:inline">
+                      {collapsedSections.completedList ? 'Thu gọn' : 'Bung ra'}
+                    </span>
+                    {collapsedSections.completedList ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
 
-              {/* Table */}
-              <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+              {collapsedSections.completedList ? (
+                /* Table */
+                <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs border-collapse">
                     <thead>
@@ -1885,6 +1985,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                         <th className="py-2.5 px-3">Tên Khách Hàng</th>
                         <th className="py-2.5 px-3">Khu Vực</th>
                         <th className="py-2.5 px-3">Đợt</th>
+                        <th className="py-2.5 px-3 text-center">HSN</th>
                         <th className="py-2.5 px-3">NV Thay</th>
                         <th className="py-2.5 px-3">Ngày Giờ</th>
                         <th className="py-2.5 px-3 text-right">Giờ Vượt</th>
@@ -1899,6 +2000,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                         paginatedCompletedList.map((item, idx) => {
                           const stt = (currentCompletedPage - 1) * PAGE_SIZE + idx + 1;
                           const slv = item.slVuot !== undefined && item.slVuot !== '' ? item.slVuot : '0';
+                          const hsnVal = item.hsn !== undefined && item.hsn !== '' ? item.hsn : resolveHsn(item);
                           return (
                             <tr
                               key={item.maKh}
@@ -1910,6 +2012,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                               <td className="py-2 px-3 font-medium text-slate-800">{item.tenKh}</td>
                               <td className="py-2 px-3 font-semibold text-slate-700">{item.kv}</td>
                               <td className="py-2 px-3 font-mono text-slate-600">{item.dot}</td>
+                              <td className="py-2 px-3 text-center font-mono font-bold text-amber-900">{hsnVal}</td>
                               <td className="py-2 px-3 text-slate-700">{item.nv || '—'}</td>
                               <td className="py-2 px-3 font-mono text-[11px] text-slate-600">{item.ngayGio || '—'}</td>
                               <td className="py-2 px-3 text-right font-mono font-bold text-indigo-800">
@@ -1934,7 +2037,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                         })
                       ) : (
                         <tr>
-                          <td colSpan={12} className="py-8 text-center text-slate-400 text-xs">
+                          <td colSpan={13} className="py-8 text-center text-slate-400 text-xs">
                             Chưa có khách hàng nào được thay xong trong phạm vi lựa chọn này.
                           </td>
                         </tr>
@@ -1988,6 +2091,22 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                   </div>
                 )}
               </div>
+            ) : (
+              <div
+                onClick={() => toggleSection('completedList')}
+                className="p-3.5 bg-slate-50 hover:bg-amber-50/50 rounded-xl border border-dashed border-slate-200 flex items-center justify-between cursor-pointer transition-colors text-xs"
+              >
+                <div className="flex items-center gap-2 truncate">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span className="font-semibold text-slate-700 truncate">
+                    Danh sách khách hàng đã thay xong đang thu gọn ({completedCustomersList.length} khách hàng)
+                  </span>
+                </div>
+                <span className="text-[11px] text-amber-700 font-bold hover:underline shrink-0 ml-2">
+                  Bung ra ▾
+                </span>
+              </div>
+            )}
             </div>
 
           </div>
@@ -1999,46 +2118,82 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       {/* ========================================================= */}
       {activeSubTab === 'bao_cao' && (
         <div className="space-y-5">
-          {/* Top KPI Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-              <span className="text-[10px] uppercase font-bold text-slate-500">Tổng khách hàng</span>
-              <div className="text-2xl font-black text-slate-900 mt-1">{reportTotals.tongKh}</div>
-              <span className="text-[10px] text-slate-400">Toàn bộ sheet 963</span>
-            </div>
-
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-              <span className="text-[10px] uppercase font-bold text-rose-600">Thu hồi (KSuDung)</span>
-              <div className="text-2xl font-black text-rose-700 mt-1">{reportTotals.thuHoi}</div>
-              <span className="text-[10px] text-slate-400">Không được thay</span>
-            </div>
-
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-              <span className="text-[10px] uppercase font-bold text-amber-600">Cần thay</span>
-              <div className="text-2xl font-black text-amber-700 mt-1">{reportTotals.canThay}</div>
-              <span className="text-[10px] text-slate-400">Tổng trừ đi Thu hồi</span>
-            </div>
-
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-              <span className="text-[10px] uppercase font-bold text-emerald-600">Đã thay xong</span>
-              <div className="text-2xl font-black text-emerald-700 mt-1 flex items-baseline gap-1.5">
-                <span>{reportTotals.daThay}</span>
-                <span className="text-xs font-bold text-emerald-600">({reportTotals.tyLeChung}%)</span>
+          {/* Top KPI Cards (Có thể Ẩn/Hiện) */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-3">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+              <div className="flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-amber-600" />
+                <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wide">
+                  Thống Kê Tiến Độ Tổng Quan (KPIs)
+                </h4>
               </div>
-              <span className="text-[10px] text-slate-400">Còn lại: {reportTotals.chuaThay} KH</span>
+              <button
+                type="button"
+                onClick={() => toggleSection('reportKpi')}
+                className="p-1 hover:bg-slate-100 text-slate-500 hover:text-slate-800 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                title={collapsedSections.reportKpi ? "Thu gọn thống kê tổng quan" : "Bung ra thống kê tổng quan"}
+              >
+                <span className="text-[10px] text-slate-400 font-normal hidden sm:inline">
+                  {collapsedSections.reportKpi ? 'Thu gọn' : 'Bung ra'}
+                </span>
+                {collapsedSections.reportKpi ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              </button>
             </div>
 
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-              <span className="text-[10px] uppercase font-bold text-indigo-600">Tổng giờ vượt</span>
-              <div className="text-2xl font-black text-indigo-700 mt-1">{reportTotals.tongGioVuot}h</div>
-              <span className="text-[10px] text-slate-400">Khung 9h30 - 11h30</span>
-            </div>
+            {collapsedSections.reportKpi ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-1">
+                <div className="bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80 shadow-2xs">
+                  <span className="text-[10px] uppercase font-bold text-slate-500">Tổng khách hàng</span>
+                  <div className="text-xl font-black text-slate-900 mt-1">{reportTotals.tongKh}</div>
+                  <span className="text-[10px] text-slate-400">Toàn bộ sheet 963</span>
+                </div>
 
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-              <span className="text-[10px] uppercase font-bold text-amber-700">Tổng SL Vượt</span>
-              <div className="text-2xl font-black text-amber-900 mt-1">{reportTotals.tongSlVuot} <span className="text-xs">kWh</span></div>
-              <span className="text-[10px] text-slate-400">Sản lượng bù trừ</span>
-            </div>
+                <div className="bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80 shadow-2xs">
+                  <span className="text-[10px] uppercase font-bold text-rose-600">Thu hồi (KSuDung)</span>
+                  <div className="text-xl font-black text-rose-700 mt-1">{reportTotals.thuHoi}</div>
+                  <span className="text-[10px] text-slate-400">Không được thay</span>
+                </div>
+
+                <div className="bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80 shadow-2xs">
+                  <span className="text-[10px] uppercase font-bold text-amber-600">Cần thay</span>
+                  <div className="text-xl font-black text-amber-700 mt-1">{reportTotals.canThay}</div>
+                  <span className="text-[10px] text-slate-400">Tổng trừ đi Thu hồi</span>
+                </div>
+
+                <div className="bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80 shadow-2xs">
+                  <span className="text-[10px] uppercase font-bold text-emerald-600">Đã thay xong</span>
+                  <div className="text-xl font-black text-emerald-700 mt-1 flex items-baseline gap-1.5">
+                    <span>{reportTotals.daThay}</span>
+                    <span className="text-xs font-bold text-emerald-600">({reportTotals.tyLeChung}%)</span>
+                  </div>
+                  <span className="text-[10px] text-slate-400">Còn lại: {reportTotals.chuaThay} KH</span>
+                </div>
+
+                <div className="bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80 shadow-2xs">
+                  <span className="text-[10px] uppercase font-bold text-indigo-600">Tổng giờ vượt</span>
+                  <div className="text-xl font-black text-indigo-700 mt-1">{reportTotals.tongGioVuot}h</div>
+                  <span className="text-[10px] text-slate-400">Khung 9h30 - 11h30</span>
+                </div>
+
+                <div className="bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80 shadow-2xs">
+                  <span className="text-[10px] uppercase font-bold text-amber-700">Tổng SL Vượt</span>
+                  <div className="text-xl font-black text-amber-900 mt-1">{reportTotals.tongSlVuot} <span className="text-xs">kWh</span></div>
+                  <span className="text-[10px] text-slate-400">Sản lượng bù trừ</span>
+                </div>
+              </div>
+            ) : (
+              <div
+                onClick={() => toggleSection('reportKpi')}
+                className="p-3 bg-slate-50 hover:bg-amber-50/50 rounded-xl border border-dashed border-slate-200 flex items-center justify-between cursor-pointer transition-colors text-xs"
+              >
+                <span className="text-slate-600 font-medium">
+                  Đã thay: <b className="text-emerald-700">{reportTotals.daThay}</b>/{reportTotals.canThay} ({reportTotals.tyLeChung}%) | Tổng SL Vượt: <b className="text-amber-900">{reportTotals.tongSlVuot} kWh</b> | Tổng Giờ Vượt: <b className="text-indigo-800">{reportTotals.tongGioVuot}h</b>
+                </span>
+                <span className="text-[11px] text-amber-700 font-bold hover:underline shrink-0 ml-2">
+                  Bung ra ▾
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Aggregated Report Table */}
@@ -2054,17 +2209,32 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={handleExportReportExcel}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
-              >
-                <FileSpreadsheet className="w-4 h-4" />
-                <span>Xuất Excel Báo Cáo</span>
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleExportReportExcel}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  <span>Xuất Excel Báo Cáo</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => toggleSection('reportTable')}
+                  className="p-1.5 hover:bg-slate-100 text-slate-500 hover:text-slate-800 rounded-lg transition-colors flex items-center gap-1 cursor-pointer shrink-0"
+                  title={collapsedSections.reportTable ? "Thu gọn bảng báo cáo" : "Bung ra bảng báo cáo"}
+                >
+                  <span className="text-[10px] text-slate-400 font-normal hidden sm:inline">
+                    {collapsedSections.reportTable ? 'Thu gọn' : 'Bung ra'}
+                  </span>
+                  {collapsedSections.reportTable ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
 
-            <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+            {collapsedSections.reportTable ? (
+              <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
@@ -2141,6 +2311,22 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                 </table>
               </div>
             </div>
+          ) : (
+            <div
+              onClick={() => toggleSection('reportTable')}
+              className="p-3.5 bg-slate-50 hover:bg-amber-50/50 rounded-xl border border-dashed border-slate-200 flex items-center justify-between cursor-pointer transition-colors text-xs"
+            >
+              <div className="flex items-center gap-2 truncate">
+                <BarChart3 className="w-4 h-4 text-amber-600 shrink-0" />
+                <span className="font-semibold text-slate-700 truncate">
+                  Bảng báo cáo chi tiết theo {reportData.length} đợt & khu vực đang thu gọn
+                </span>
+              </div>
+              <span className="text-[11px] text-amber-700 font-bold hover:underline shrink-0 ml-2">
+                Bung ra ▾
+              </span>
+            </div>
+          )}
           </div>
         </div>
       )}

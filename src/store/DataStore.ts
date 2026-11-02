@@ -115,6 +115,7 @@ export interface Entry963 {
   maNhomnn?: string; // MA_NHOMNN
   tySoTu?: string; // ty so_TU
   tySoTi?: string; // ty0so0_TI
+  hsn?: string | number; // HSN (Cột HSN lấy trực tiếp không quy đổi từ sheet 963)
   soPha?: string; // SO_PHA
   congNghe?: string; // CONG NGHE
   doXa?: string; // DoXa
@@ -158,6 +159,24 @@ export const parseHsn = (tySoTi?: string): number => {
   }
   const directNum = parseFloat(s.replace(',', '.'));
   if (!isNaN(directNum) && directNum > 0) return directNum;
+  return 1;
+};
+
+// Hiệu chỉnh HSN: Lấy giá trị trực tiếp (không quy đổi) từ cột "HSN" của sheet 963
+export const resolveHsn = (customer?: { hsn?: string | number; tySoTi?: string } | null): number => {
+  if (!customer) return 1;
+  // Ưu tiên 1: Lấy trực tiếp giá trị (không quy đổi) từ cột "HSN"
+  if (customer.hsn !== undefined && customer.hsn !== null && String(customer.hsn).trim() !== '') {
+    const s = String(customer.hsn).trim().replace(',', '.');
+    const val = parseFloat(s);
+    if (!isNaN(val) && val > 0) {
+      return val;
+    }
+  }
+  // Dự phòng: Nếu cột HSN chưa có dữ liệu hoặc rỗng, tự động quy đổi từ ty0so0_TI
+  if (customer.tySoTi) {
+    return parseHsn(customer.tySoTi);
+  }
   return 1;
 };
 
@@ -6265,6 +6284,7 @@ export const DataStore = {
           maNhomnn: getV(['MA_NHOMNN', 'Mã nhóm NN']),
           tySoTu: getV(['ty so_TU', 'ty_so_tu', 'TU']),
           tySoTi: getV(['ty0so0_TI', 'ty_so_ti', 'TI']),
+          hsn: getV(['HSN', 'H_S_N', 'HeSoNhan', 'Hệ số nhân', 'He_so_nhan', 'HSN_Cto']),
           soPha: getV(['SO_PHA', 'Số pha']),
           congNghe: getV(['CONG NGHE', 'Công nghệ']),
           doXa: getV(['DoXa', 'Đo xa']),
@@ -6450,6 +6470,7 @@ export const DataStore = {
       ngayGio: string;
       ketQua: string;
       gioVuot: number;
+      hsn?: string | number;
       cscdKyTruoc?: string;
       cscdThao?: string;
       cs930?: string;
@@ -6484,6 +6505,7 @@ export const DataStore = {
       ngayGio: updates.ngayGio,
       ketQua: updates.ketQua || 'Xong',
       gioVuot: updates.gioVuot,
+      hsn: updates.hsn !== undefined ? updates.hsn : current.hsn,
       cscdKyTruoc: updates.cscdKyTruoc !== undefined ? updates.cscdKyTruoc : current.cscdKyTruoc,
       cscdThao: updates.cscdThao !== undefined ? updates.cscdThao : current.cscdThao,
       cs930: cs930Clean,
@@ -6499,6 +6521,7 @@ export const DataStore = {
       ngayGio: updates.ngayGio,
       ketQua: updates.ketQua || 'Xong',
       gioVuot: updates.gioVuot,
+      hsn: updatedEntry.hsn,
       cscdKyTruoc: updatedEntry.cscdKyTruoc,
       cscdThao: updatedEntry.cscdThao,
       cs930: cs930Clean,
@@ -6531,6 +6554,8 @@ export const DataStore = {
           ngayGio: item.ngayGio || '',
           ketQua: item.ketQua || 'Xong',
           gioVuot: item.gioVuot !== undefined ? item.gioVuot : 0,
+          hsn: item.hsn !== undefined ? item.hsn : '',
+          HSN: item.hsn !== undefined ? item.hsn : '',
           cscdKyTruoc: item.cscdKyTruoc !== undefined ? item.cscdKyTruoc : '',
           CSCDKyTruoc: item.cscdKyTruoc !== undefined ? item.cscdKyTruoc : '',
           cscdThao: item.cscdThao !== undefined ? item.cscdThao : '',
