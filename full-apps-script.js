@@ -1959,6 +1959,44 @@ function doPost(e) {
        })).setMimeType(ContentService.MimeType.JSON);
     }
 
+    if (action === 'delete_dvkh') {
+       var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
+       var sheet = getSheetFlexibly(ss, ['DVKH', 'dvkh', 'Dịch vụ khách hàng', 'DV_KH']);
+       if (!sheet) {
+           return ContentService.createTextOutput(JSON.stringify({ status: 'success', message: 'Sheet DVKH not found' })).setMimeType(ContentService.MimeType.JSON);
+       }
+       var rawKeys = payload.maKhs || (payload.maKh ? [payload.maKh] : []);
+       var deleteKeys = {};
+       for (var k = 0; k < rawKeys.length; k++) {
+           var normK = String(rawKeys[k] || '').trim().toLowerCase();
+           if (normK) deleteKeys[normK] = true;
+       }
+       var sheetData = sheet.getDataRange().getValues();
+       var headerRowIdx = 0;
+       var colMaKh = -1;
+       for (var r = 0; r < Math.min(5, sheetData.length); r++) {
+           for (var c = 0; c < sheetData[r].length; c++) {
+               var val = String(sheetData[r][c] || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+               if (val === 'makh' || val === 'makhachhang' || val === 'ma' || val === 'makhang' || val === 'sohoso' || val === 'shs') {
+                   headerRowIdx = r;
+                   colMaKh = c;
+                   break;
+               }
+           }
+           if (colMaKh !== -1) break;
+       }
+       if (colMaKh === -1) colMaKh = 1;
+       var deletedCount = 0;
+       for (var r = sheetData.length - 1; r > headerRowIdx; r--) {
+           var rKey = String(sheetData[r][colMaKh] || '').trim().toLowerCase();
+           if (rKey && deleteKeys[rKey]) {
+               sheet.deleteRow(r + 1);
+               deletedCount++;
+           }
+       }
+       return ContentService.createTextOutput(JSON.stringify({ status: 'success', deletedCount: deletedCount })).setMimeType(ContentService.MimeType.JSON);
+    }
+
      if (action === 'save_963' || action === 'update_963') {
         var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
         var sheet = getSheetFlexibly(ss, ['963', 'TheoDoi963', 'ThayCongTo963', 'QD963', 'QĐ 963']);

@@ -6008,7 +6008,8 @@ export const DataStore = {
       const payload = {
         action: 'save_dvkh',
         sheetName: 'DVKH',
-        items: items
+        items: items,
+        data: items
       };
 
       // Priority 1: Proxy through local backend server to bypass CORS and share URL across devices
@@ -6023,8 +6024,12 @@ export const DataStore = {
         });
         if (proxyRes.ok) {
           const resJson = await proxyRes.json().catch(() => null);
-          if (resJson && (resJson.status === 'success' || resJson.success !== false)) {
+          if (resJson && (resJson.status === 'success' || (typeof resJson.updatedCount === 'number' && resJson.updatedCount >= 0) || (typeof resJson.appendedCount === 'number' && resJson.appendedCount >= 0))) {
             return true;
+          }
+          if (resJson && resJson.status === 'error') {
+            console.error('Apps Script error saving DVKH:', resJson.message);
+            return false;
           }
         }
       } catch (proxyErr) {}
@@ -6040,7 +6045,23 @@ export const DataStore = {
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(payload)
       });
-      return response.ok;
+      if (response.ok) {
+        const rawText = await response.text().catch(() => '');
+        try {
+          const resJson = JSON.parse(rawText);
+          if (resJson && resJson.status === 'error') {
+            console.error('Apps Script direct error saving DVKH:', resJson.message);
+            return false;
+          }
+          if (resJson && (resJson.status === 'success' || (typeof resJson.updatedCount === 'number' && resJson.updatedCount >= 0))) {
+            return true;
+          }
+        } catch {
+          return true;
+        }
+        return true;
+      }
+      return false;
     } catch (e) {
       console.warn('Could not sync DVKH to sheet:', e);
       return false;
@@ -6205,7 +6226,7 @@ export const DataStore = {
         return {
           total: itemsToSync.length,
           success: false,
-          message: 'Không thể kết nối đến Google Apps Script. Vui lòng kiểm tra lại cấu hình URL Google Script trong bánh răng hệ thống.'
+          message: 'Không thể cập nhật lên Google Apps Script. Vui lòng kiểm tra lại URL Script hoặc bấm nút "Mã Apps Script (Mới)" ở góc trên để sao chép và triển khai lại mã script mới nhất trong Google Sheet!'
         };
       }
     } catch (err: any) {

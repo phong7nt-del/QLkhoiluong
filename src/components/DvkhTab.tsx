@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { DataStore, SheetMember, DvkhEntry } from '../store/DataStore';
 import { PermissionStore, normalizeRoleStr } from '../store/PermissionStore';
+import { SCRIPT_TEMPLATE } from './ConfigModal';
 
 // Cấu trúc khu vực & phường xã theo phân cấp DVKH:
 // Vũng Tàu: Phường Vũng Tàu, Phường Tam Thắng, Phường Rạch Dừa, Phường Phước Thắng, Xã Long Sơn
@@ -1463,30 +1464,269 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     }
   };
 
-  // Export CSV helper
-  const handleExportCSV = () => {
-    const headers = ['STT', 'Mã KH', 'Tên KH', 'Địa chỉ', 'Ngày nhận', 'Ngày hoàn tất', 'Ghi chú', 'Trạng thái', 'Người thực hiện', 'Kết quả'];
-    const rows = bottomFilteredList.map((item, idx) => [
+  // Generic Excel Export Function for all DVKH Tables
+  const exportDvkhToExcelFile = (
+    sheetTitle: string,
+    fileNamePrefix: string,
+    headers: string[],
+    rows: (string | number)[][],
+    colWidths?: number[]
+  ) => {
+    if (rows.length === 0) {
+      showToast('error', 'Không có dữ liệu để xuất file Excel!');
+      return;
+    }
+
+    const timeStr = getCurrentDateTimeStr();
+    const wsData = [
+      [sheetTitle.toUpperCase()],
+      [`Thời gian xuất: ${timeStr} | Tổng số bản ghi: ${rows.length}`],
+      [],
+      headers,
+      ...rows
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+    // Merge title cells across columns
+    ws['!merges'] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: Math.max(headers.length - 1, 3) } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: Math.max(headers.length - 1, 3) } }
+    ];
+
+    // Style Title (Row 0)
+    const titleCell = XLSX.utils.encode_cell({ r: 0, c: 0 });
+    if (ws[titleCell]) {
+      ws[titleCell].s = {
+        font: { bold: true, sz: 13, color: { rgb: "1E1B4B" } },
+        alignment: { vertical: "center", horizontal: "left" }
+      };
+    }
+
+    // Style Subtitle (Row 1)
+    const subCell = XLSX.utils.encode_cell({ r: 1, c: 0 });
+    if (ws[subCell]) {
+      ws[subCell].s = {
+        font: { italic: true, sz: 10, color: { rgb: "475569" } },
+        alignment: { vertical: "center", horizontal: "left" }
+      };
+    }
+
+    // Set Column Widths
+    if (colWidths && colWidths.length === headers.length) {
+      ws['!cols'] = colWidths.map(w => ({ wch: w }));
+    } else {
+      ws['!cols'] = headers.map((h, i) => {
+        let maxLen = h.length;
+        rows.forEach(r => {
+          const val = String(r[i] || '');
+          if (val.length > maxLen) maxLen = Math.min(val.length, 50);
+        });
+        return { wch: Math.max(maxLen + 4, 10) };
+      });
+    }
+
+    // Style Headers (Row 3, 0-indexed)
+    for (let c = 0; c < headers.length; c++) {
+      const cellRef = XLSX.utils.encode_cell({ r: 3, c });
+      if (ws[cellRef]) {
+        ws[cellRef].s = {
+          font: { bold: true, color: { rgb: "FFFFFF" }, sz: 10 },
+          fill: { fgColor: { rgb: "581C87" } }, // Purple-900 / Brand
+          alignment: { vertical: "center", horizontal: "center", wrapText: true },
+          border: {
+            top: { style: 'thin', color: { rgb: 'D8B4FE' } },
+            bottom: { style: 'medium', color: { rgb: '3B0764' } },
+            left: { style: 'thin', color: { rgb: 'D8B4FE' } },
+            right: { style: 'thin', color: { rgb: 'D8B4FE' } }
+          }
+        };
+      }
+    }
+
+    // Style Data Rows
+    for (let r = 0; r < rows.length; r++) {
+      const isEven = r % 2 === 0;
+      for (let c = 0; c < headers.length; c++) {
+        const cellRef = XLSX.utils.encode_cell({ r: r + 4, c });
+        if (ws[cellRef]) {
+          const headerName = headers[c];
+          const isCenter = c === 0 || headerName.includes('Mã') || headerName.includes('Ngày') || headerName.includes('Trạng Thái') || headerName.includes('Kết Quả') || headerName.includes('SĐT') || headerName.includes('Loại');
+          ws[cellRef].s = {
+            font: { sz: 10, color: { rgb: "0F172A" } },
+            fill: isEven ? { fgColor: { rgb: "FFFFFF" } } : { fgColor: { rgb: "FAF5FF" } },
+            alignment: { vertical: "center", horizontal: isCenter ? "center" : "left", wrapText: true },
+            border: {
+              top: { style: 'thin', color: { rgb: 'E2E8F0' } },
+              bottom: { style: 'thin', color: { rgb: 'E2E8F0' } },
+              left: { style: 'thin', color: { rgb: 'E2E8F0' } },
+              right: { style: 'thin', color: { rgb: 'E2E8F0' } }
+            }
+          };
+        }
+      }
+    }
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "DVKH");
+    const dateStamp = getCurrentDateStr().replace(/\//g, '_');
+    XLSX.writeFile(wb, `${fileNamePrefix}_${dateStamp}.xlsx`);
+    showToast('success', `Đã xuất ${rows.length} hồ sơ ra file Excel thành công!`);
+  };
+
+  // 1. Xuất Excel Bảng 1: Hồ sơ chưa giao sang QLHTĐĐ (Tab 1)
+  const handleExportExcelPending = () => {
+    const list = filteredTab1PendingRecords;
+    if (list.length === 0) {
+      showToast('error', 'Không có hồ sơ chưa giao để xuất file Excel!');
+      return;
+    }
+    const headers = ['STT', 'Mã KH', 'Tên Khách Hàng', 'Địa Chỉ', 'Số Điện Thoại', 'Loại Yêu Cầu', 'Ngày Nhận', 'Ghi Chú', 'Trạng Thái'];
+    const rows = list.map((item, idx) => [
       item.stt || (idx + 1),
       item.maKh,
-      `"${item.tenKh.replace(/"/g, '""')}"`,
-      `"${item.diaChi.replace(/"/g, '""')}"`,
+      item.tenKh || '',
+      item.diaChi || '',
+      item.sdt || '',
+      item.loaiYeuCau || 'Gắn mới',
       item.ngayNhan || '',
-      item.ngayHoanTat || '',
-      `"${(item.ghiChu || '').replace(/"/g, '""')}"`,
-      item.trangThai,
-      item.nguoiThucHien || item.nguoiNhan || '',
-      item.ketQua || ''
+      item.ghiChu || '',
+      item.trangThai || 'Chưa giao'
     ]);
+    exportDvkhToExcelFile(
+      'Danh Sách Hồ Sơ DVKH Chưa Giao Sang QLHTĐĐ',
+      'DS_DVKH_ChuaGiao',
+      headers,
+      rows,
+      [8, 16, 26, 35, 14, 14, 18, 25, 15]
+    );
+  };
 
-    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `Danh_Sach_Ho_So_DVKH_${getCurrentDateStr().replace(/\//g, '_')}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+  // 2. Xuất Excel Bảng 2: Hồ sơ chờ xác nhận tiếp nhận vào QLHTĐĐ (Tab 1)
+  const handleExportExcelWaitingConfirm = () => {
+    const list = filteredTab1DeliveredWaitingConfirm;
+    if (list.length === 0) {
+      showToast('error', 'Không có hồ sơ chờ tiếp nhận để xuất file Excel!');
+      return;
+    }
+    const headers = ['STT', 'Mã KH', 'Tên Khách Hàng', 'Địa Chỉ', 'Số Điện Thoại', 'Loại Yêu Cầu', 'Ngày Giao Từ DVKH', 'Trạng Thái'];
+    const rows = list.map((item, idx) => [
+      item.stt || (idx + 1),
+      item.maKh,
+      item.tenKh || '',
+      item.diaChi || '',
+      item.sdt || '',
+      item.loaiYeuCau || 'Gắn mới',
+      item.ngayGiao || '',
+      item.trangThai || 'Chờ nhận'
+    ]);
+    exportDvkhToExcelFile(
+      'Danh Sách Hồ Sơ DVKH Chờ Xác Nhận Tiếp Nhận Vào QLHTĐĐ',
+      'DS_DVKH_ChoTiepNhan',
+      headers,
+      rows,
+      [8, 16, 26, 35, 14, 14, 20, 16]
+    );
+  };
+
+  // 3. Xuất Excel Bảng 3: Hồ sơ đã tiếp nhận chờ phân công thi công (Tab 2)
+  const handleExportExcelTab2 = () => {
+    const list = tab2Records;
+    if (list.length === 0) {
+      showToast('error', 'Không có hồ sơ chờ phân công để xuất file Excel!');
+      return;
+    }
+    const headers = ['STT', 'Mã KH', 'Tên Khách Hàng', 'Địa Chỉ', 'Số Điện Thoại', 'Loại Yêu Cầu', 'Ngày Tiếp Nhận', 'Người Tiếp Nhận', 'Trạng Thái'];
+    const rows = list.map((item, idx) => [
+      item.stt || (idx + 1),
+      item.maKh,
+      item.tenKh || '',
+      item.diaChi || '',
+      item.sdt || '',
+      item.loaiYeuCau || 'Gắn mới',
+      item.ngayNhan || '',
+      item.nguoiNhan || '',
+      item.trangThai || 'Đã Nhận'
+    ]);
+    exportDvkhToExcelFile(
+      'Danh Sách Hồ Sơ DVKH Chờ Phân Công Thi Công',
+      'DS_DVKH_ChoPhanCong',
+      headers,
+      rows,
+      [8, 16, 26, 35, 14, 14, 18, 20, 16]
+    );
+  };
+
+  // 4. Xuất Excel Bảng 4: Hồ sơ đang thực hiện / có trở ngại (Tab 2)
+  const handleExportExcelTab3 = () => {
+    const list = tab3Records;
+    if (list.length === 0) {
+      showToast('error', 'Không có hồ sơ đang thực hiện để xuất file Excel!');
+      return;
+    }
+    const headers = ['STT', 'Mã KH', 'Tên Khách Hàng', 'Địa Chỉ', 'Số Điện Thoại', 'Loại Yêu Cầu', 'Người Thực Hiện', 'Ngày Giao', 'Trạng Thái', 'Kết Quả', 'Ghi Chú / Trở Ngại', 'Ngày Hoàn Tất'];
+    const rows = list.map((item, idx) => [
+      item.stt || (idx + 1),
+      item.maKh,
+      item.tenKh || '',
+      item.diaChi || '',
+      item.sdt || '',
+      item.loaiYeuCau || 'Gắn mới',
+      item.nguoiThucHien || '',
+      item.ngayGiao || '',
+      item.trangThai || '',
+      item.ketQua || '',
+      item.ghiChu || '',
+      item.ngayHoanTat || ''
+    ]);
+    exportDvkhToExcelFile(
+      'Danh Sách Hồ Sơ DVKH Đang Thực Hiện & Trở Ngại',
+      'DS_DVKH_DangThucHien_TroNgai',
+      headers,
+      rows,
+      [8, 16, 26, 35, 14, 14, 20, 18, 16, 12, 28, 18]
+    );
+  };
+
+  // 5. Xuất Excel Bảng 5: Tổng hợp danh sách hồ sơ DVKH & Tiến độ
+  const handleExportExcelBottomList = () => {
+    const list = bottomFilteredList;
+    if (list.length === 0) {
+      showToast('error', 'Không có hồ sơ nào trong bộ lọc hiện tại để xuất file Excel!');
+      return;
+    }
+    const headers = ['STT', 'Mã KH', 'Tên Khách Hàng', 'Địa Chỉ', 'Số Điện Thoại', 'Loại Yêu Cầu', 'Ngày Nhận', 'Người Nhận', 'Ngày Giao', 'Người Thực Hiện', 'Ngày Hoàn Tất', 'Kết Quả', 'Trạng Thái HS', 'Ghi Chú', 'Link Ảnh', 'Ngày Tạo', 'Người Tạo'];
+    const rows = list.map((item, idx) => [
+      item.stt || (idx + 1),
+      item.maKh,
+      item.tenKh || '',
+      item.diaChi || '',
+      item.sdt || '',
+      item.loaiYeuCau || 'Gắn mới',
+      item.ngayNhan || '',
+      item.nguoiNhan || '',
+      item.ngayGiao || '',
+      item.nguoiThucHien || '',
+      item.ngayHoanTat || '',
+      item.ketQua || '',
+      item.trangThai || '',
+      item.ghiChu || '',
+      item.pic ? (item.pic.startsWith('data:') ? '[Đã đính kèm ảnh]' : item.pic) : '',
+      item.ngayTao || '',
+      item.nguoiTao || ''
+    ]);
+    exportDvkhToExcelFile(
+      'Tổng Hợp Danh Sách Hồ Sơ Dịch Vụ Khách Hàng & Tiến Độ',
+      'TongHop_HoSo_DVKH',
+      headers,
+      rows,
+      [8, 16, 26, 35, 14, 14, 18, 18, 18, 20, 18, 12, 16, 28, 20, 18, 16]
+    );
+  };
+
+  // Export CSV fallback helper
+  const handleExportCSV = () => {
+    handleExportExcelBottomList();
   };
 
   // Status badge styling
@@ -1637,6 +1877,19 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
             >
               <UploadCloud className={`w-4 h-4 ${isSyncingAll ? 'animate-bounce text-amber-800' : ''}`} />
               <span>{isSyncingAll ? 'Đang gửi...' : 'Đồng bộ việc đã làm'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard.writeText(SCRIPT_TEMPLATE);
+                showToast('success', 'Đã sao chép mã Google Apps Script mới nhất (đã có save_dvkh)! Hãy mở Google Sheets -> Tiện ích mở rộng -> Apps Script -> Dán đè mã này và chọn "Triển khai" (Deploy) để cập nhật cho mọi máy.');
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-purple-900/60 hover:bg-purple-900/80 text-purple-200 border border-purple-400/40 font-bold text-xs transition-all backdrop-blur-md shadow-xs active:scale-95 cursor-pointer"
+              title="Sao chép mã Google Apps Script mới nhất để dán vào Google Sheet"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+              <span>Mã Apps Script (Mới)</span>
             </button>
 
             <button
@@ -2147,6 +2400,17 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                   </button>
                 )}
 
+                <button
+                  type="button"
+                  onClick={handleExportExcelPending}
+                  disabled={filteredTab1PendingRecords.length === 0}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-2xs active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  title="Xuất file Excel danh sách hồ sơ chưa giao"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  <span>Xuất Excel ({filteredTab1PendingRecords.length})</span>
+                </button>
+
                 {/* Nút Thu gọn / Mở rộng */}
                 <button
                   type="button"
@@ -2349,6 +2613,17 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                   </button>
                 )}
 
+                <button
+                  type="button"
+                  onClick={handleExportExcelWaitingConfirm}
+                  disabled={filteredTab1DeliveredWaitingConfirm.length === 0}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-2xs active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  title="Xuất file Excel danh sách hồ sơ chờ tiếp nhận"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  <span>Xuất Excel ({filteredTab1DeliveredWaitingConfirm.length})</span>
+                </button>
+
                 {/* Nút Thu gọn / Mở rộng */}
                 <button
                   type="button"
@@ -2495,6 +2770,17 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                 >
                   <Send className="w-3.5 h-3.5" />
                   <span>Giao thi công {tab2SelectedMaKhs.length > 0 ? `(${tab2SelectedMaKhs.length})` : ''}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleExportExcelTab2}
+                  disabled={tab2Records.length === 0}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-2xs active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  title="Xuất file Excel danh sách hồ sơ chờ phân công"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  <span>Xuất Excel ({tab2Records.length})</span>
                 </button>
 
                 {/* Nút Thu gọn / Mở rộng */}
@@ -2664,6 +2950,17 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                   Chính sách ngày hoàn tất:{' '}
                   <b>{allowCustomNgayHoanTat ? 'Cho phép chọn ngày' : 'Cố định ngày hiện tại'}</b>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={handleExportExcelTab3}
+                  disabled={tab3Records.length === 0}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-2xs active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  title="Xuất file Excel danh sách hồ sơ đang thi công hoặc có trở ngại"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  <span>Xuất Excel ({tab3Records.length})</span>
+                </button>
 
                 {/* Nút Thu gọn / Mở rộng */}
                 <button
@@ -3161,14 +3458,16 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
               <span className="hidden sm:inline">Bộ lọc</span>
             </button>
 
-            {/* Export CSV */}
+            {/* Export Excel */}
             <button
               type="button"
-              onClick={handleExportCSV}
-              className="p-1.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs font-bold cursor-pointer"
-              title="Xuất file CSV / Excel"
+              onClick={handleExportExcelBottomList}
+              disabled={bottomFilteredList.length === 0}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-2xs active:scale-95 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Xuất file Excel (.xlsx) danh sách hồ sơ tổng hợp theo bộ lọc"
             >
-              <Download className="w-4 h-4" />
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Xuất Excel ({bottomFilteredList.length})</span>
             </button>
 
             {/* Nút Thu gọn / Mở rộng */}

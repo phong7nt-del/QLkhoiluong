@@ -2830,6 +2830,207 @@ function doPost(e) {
        return ContentService.createTextOutput(JSON.stringify({ status: 'error' })).setMimeType(ContentService.MimeType.JSON);
     }
 
+    // ======== XỬ LÝ LƯU & CẬP NHẬT DỊCH VỤ KHÁCH HÀNG (DVKH) ========
+    if (action === 'save_dvkh' || action === 'update_dvkh') {
+       var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
+       var sheet = getSheetFlexibly(ss, ['DVKH', 'dvkh', 'Dịch vụ khách hàng', 'DV_KH']);
+       if (!sheet) {
+           sheet = ss.insertSheet('DVKH');
+           sheet.appendRow([
+             'STT', 'Mã KH', 'Tên KH', 'Địa chỉ', 'Số điện thoại', 'Loại', 
+             'Ngày nhận', 'Người nhận', 'Ngày giao', 'Người giao', 'Người thực hiện', 
+             'Ngày hoàn tất', 'Kết quả', 'Trạng thái', 'Ghi chú', 'Hình ảnh', 'Ngày tạo', 'Người tạo'
+           ]);
+       }
+
+       var items = payload.items || (payload.data ? (Array.isArray(payload.data) ? payload.data : [payload.data]) : []);
+       if (!Array.isArray(items) || items.length === 0) {
+           return ContentService.createTextOutput(JSON.stringify({ status: 'success', message: 'No items to update' })).setMimeType(ContentService.MimeType.JSON);
+       }
+
+       var sheetData = sheet.getDataRange().getValues();
+       var headerRowIdx = 0;
+       
+       function normDvkhH(raw) {
+           var s = String(raw || '').toLowerCase().trim();
+           if (s.normalize) s = s.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');
+           return s.replace(/đ/g, 'd').replace(/[^a-z0-9]/g, '');
+       }
+
+       for (var rIdx = 0; rIdx < Math.min(5, sheetData.length); rIdx++) {
+           var tempRow = sheetData[rIdx] || [];
+           var foundMakh = false;
+           for (var c = 0; c < tempRow.length; c++) {
+               var h = normDvkhH(tempRow[c]);
+               if (h === 'makh' || h === 'makhachhang' || h === 'ma' || h === 'makhang' || h === 'sohoso' || h === 'shs') {
+                   foundMakh = true;
+                   break;
+               }
+           }
+           if (foundMakh) {
+               headerRowIdx = rIdx;
+               break;
+           }
+       }
+
+       var headers = sheetData[headerRowIdx] || [];
+       var colMap = {};
+       for (var c = 0; c < headers.length; c++) {
+           var h = normDvkhH(headers[c]);
+           if (h === 'stt' || h === 'sott' || h === 'sothutu') colMap.stt = c;
+           else if (h === 'makh' || h === 'makhachhang' || h === 'ma' || h === 'makhang' || h === 'sohoso' || h === 'shs') colMap.maKh = c;
+           else if (h === 'tenkh' || h === 'tenkhachhang' || h === 'ten' || h === 'hovaten' || h === 'hoten') colMap.tenKh = c;
+           else if (h === 'diachi' || h === 'diachikhachhang') colMap.diaChi = c;
+           else if (h === 'sdt' || h === 'sodienthoai' || h === 'dienthoai' || h === 'phone' || h === 'tel') colMap.sdt = c;
+           else if (h === 'loai' || h === 'loaiyeucau' || h === 'yeucau' || h === 'loaihs') colMap.loai = c;
+           else if (h === 'ngaynhan' || h === 'ngaytiepnhan') colMap.ngayNhan = c;
+           else if (h === 'nguoinhan' || h === 'nguoitiepnhan' || h === 'lanhdaonhan') colMap.nguoiNhan = c;
+           else if (h === 'ngaygiao' || h === 'ngayphancong') colMap.ngayGiao = c;
+           else if (h === 'nguoigiao' || h === 'nguoiphancong') colMap.nguoiGiao = c;
+           else if (h === 'nguoithuchien' || h === 'nhanvien' || h === 'nguoith' || h === 'nvth' || h === 'nguoithicong' || h === 'nhanvienthicong') colMap.nguoiThucHien = c;
+           else if (h === 'ngayhoantat' || h === 'ngayxong' || h === 'ngayhoanthanh') colMap.ngayHoanTat = c;
+           else if (h === 'ketqua' || h === 'kq') colMap.ketQua = c;
+           else if (h === 'trangthai' || h === 'tinhtrang' || h === 'trangthaihoso') colMap.trangThai = c;
+           else if (h === 'ghichu' || h === 'trongai' || h === 'noidungghichu') colMap.ghiChu = c;
+           else if (h === 'hinhanh' || h === 'pic' || h === 'anh' || h === 'anhtrongai') colMap.pic = c;
+           else if (h === 'ngaytao') colMap.ngayTao = c;
+           else if (h === 'nguoitao') colMap.nguoiTao = c;
+       }
+
+       if (colMap.maKh === undefined) colMap.maKh = 1;
+
+       var defaultCols = [
+         { k: 'stt', l: 'STT' }, { k: 'maKh', l: 'Mã KH' }, { k: 'tenKh', l: 'Tên KH' },
+         { k: 'diaChi', l: 'Địa chỉ' }, { k: 'sdt', l: 'Số điện thoại' }, { k: 'loai', l: 'Loại' },
+         { k: 'ngayNhan', l: 'Ngày nhận' }, { k: 'nguoiNhan', l: 'Người nhận' },
+         { k: 'ngayGiao', l: 'Ngày giao' }, { k: 'nguoiGiao', l: 'Người giao' },
+         { k: 'nguoiThucHien', l: 'Người thực hiện' }, { k: 'ngayHoanTat', l: 'Ngày hoàn tất' },
+         { k: 'ketQua', l: 'Kết quả' }, { k: 'trangThai', l: 'Trạng thái' },
+         { k: 'ghiChu', l: 'Ghi chú' }, { k: 'pic', l: 'Hình ảnh' },
+         { k: 'ngayTao', l: 'Ngày tạo' }, { k: 'nguoiTao', l: 'Người tạo' }
+       ];
+       for (var dc = 0; dc < defaultCols.length; dc++) {
+         var itemDef = defaultCols[dc];
+         if (colMap[itemDef.k] === undefined) {
+           var nextCol = headers.length;
+           sheet.getRange(headerRowIdx + 1, nextCol + 1).setValue(itemDef.l);
+           headers.push(itemDef.l);
+           colMap[itemDef.k] = nextCol;
+         }
+       }
+
+       var existingRowIndexByMaKh = {};
+       for (var r = headerRowIdx + 1; r < sheetData.length; r++) {
+           var rowMaKh = String(sheetData[r][colMap.maKh] || '').trim().toLowerCase();
+           if (rowMaKh) {
+               existingRowIndexByMaKh[rowMaKh] = r + 1;
+           }
+       }
+
+       var updatedCount = 0;
+       var appendedCount = 0;
+
+       for (var i = 0; i < items.length; i++) {
+           var item = items[i];
+           var maKhKey = String(item.maKh || '').trim().toLowerCase();
+           if (!maKhKey) continue;
+
+           var rowIndex = existingRowIndexByMaKh[maKhKey];
+           if (rowIndex) {
+               var rowVals = sheet.getRange(rowIndex, 1, 1, headers.length).getValues()[0];
+               if (colMap.stt !== undefined && item.stt !== undefined && item.stt !== '') rowVals[colMap.stt] = item.stt;
+               if (colMap.tenKh !== undefined && item.tenKh !== undefined) rowVals[colMap.tenKh] = item.tenKh;
+               if (colMap.diaChi !== undefined && item.diaChi !== undefined) rowVals[colMap.diaChi] = item.diaChi;
+               if (colMap.sdt !== undefined && item.sdt !== undefined) rowVals[colMap.sdt] = item.sdt;
+               if (colMap.loai !== undefined && (item.loai || item.loaiYeuCau)) rowVals[colMap.loai] = item.loai || item.loaiYeuCau;
+               if (colMap.ngayNhan !== undefined && item.ngayNhan !== undefined) rowVals[colMap.ngayNhan] = item.ngayNhan;
+               if (colMap.nguoiNhan !== undefined && item.nguoiNhan !== undefined) rowVals[colMap.nguoiNhan] = item.nguoiNhan;
+               if (colMap.ngayGiao !== undefined && item.ngayGiao !== undefined) rowVals[colMap.ngayGiao] = item.ngayGiao;
+               if (colMap.nguoiGiao !== undefined && item.nguoiGiao !== undefined) rowVals[colMap.nguoiGiao] = item.nguoiGiao;
+               if (colMap.nguoiThucHien !== undefined && item.nguoiThucHien !== undefined) rowVals[colMap.nguoiThucHien] = item.nguoiThucHien;
+               if (colMap.ngayHoanTat !== undefined && item.ngayHoanTat !== undefined) rowVals[colMap.ngayHoanTat] = item.ngayHoanTat;
+               if (colMap.ketQua !== undefined && item.ketQua !== undefined) rowVals[colMap.ketQua] = item.ketQua;
+               if (colMap.trangThai !== undefined && item.trangThai !== undefined) rowVals[colMap.trangThai] = item.trangThai;
+               if (colMap.ghiChu !== undefined && item.ghiChu !== undefined) rowVals[colMap.ghiChu] = item.ghiChu;
+               if (colMap.pic !== undefined && item.pic !== undefined) rowVals[colMap.pic] = item.pic;
+               if (colMap.ngayTao !== undefined && item.ngayTao !== undefined) rowVals[colMap.ngayTao] = item.ngayTao;
+               if (colMap.nguoiTao !== undefined && item.nguoiTao !== undefined) rowVals[colMap.nguoiTao] = item.nguoiTao;
+               sheet.getRange(rowIndex, 1, 1, headers.length).setValues([rowVals]);
+               updatedCount++;
+           } else {
+               var lastRow = sheet.getLastRow();
+               var newRow = new Array(headers.length).fill('');
+               if (colMap.stt !== undefined) newRow[colMap.stt] = item.stt || (lastRow - headerRowIdx + 1);
+               if (colMap.maKh !== undefined) newRow[colMap.maKh] = item.maKh;
+               if (colMap.tenKh !== undefined) newRow[colMap.tenKh] = item.tenKh || '';
+               if (colMap.diaChi !== undefined) newRow[colMap.diaChi] = item.diaChi || '';
+               if (colMap.sdt !== undefined) newRow[colMap.sdt] = item.sdt || '';
+               if (colMap.loai !== undefined) newRow[colMap.loai] = item.loai || item.loaiYeuCau || 'Gắn mới';
+               if (colMap.ngayNhan !== undefined) newRow[colMap.ngayNhan] = item.ngayNhan || '';
+               if (colMap.nguoiNhan !== undefined) newRow[colMap.nguoiNhan] = item.nguoiNhan || '';
+               if (colMap.ngayGiao !== undefined) newRow[colMap.ngayGiao] = item.ngayGiao || '';
+               if (colMap.nguoiGiao !== undefined) newRow[colMap.nguoiGiao] = item.nguoiGiao || '';
+               if (colMap.nguoiThucHien !== undefined) newRow[colMap.nguoiThucHien] = item.nguoiThucHien || '';
+               if (colMap.ngayHoanTat !== undefined) newRow[colMap.ngayHoanTat] = item.ngayHoanTat || '';
+               if (colMap.ketQua !== undefined) newRow[colMap.ketQua] = item.ketQua || '';
+               if (colMap.trangThai !== undefined) newRow[colMap.trangThai] = item.trangThai || 'Chưa giao';
+               if (colMap.ghiChu !== undefined) newRow[colMap.ghiChu] = item.ghiChu || '';
+               if (colMap.pic !== undefined) newRow[colMap.pic] = item.pic || '';
+               if (colMap.ngayTao !== undefined) newRow[colMap.ngayTao] = item.ngayTao || item.ngayNhan || '';
+               if (colMap.nguoiTao !== undefined) newRow[colMap.nguoiTao] = item.nguoiTao || '';
+
+               sheet.appendRow(newRow);
+               existingRowIndexByMaKh[maKhKey] = sheet.getLastRow();
+               appendedCount++;
+           }
+       }
+
+       return ContentService.createTextOutput(JSON.stringify({ 
+           status: 'success', 
+           updatedCount: updatedCount, 
+           appendedCount: appendedCount 
+       })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // ======== XỬ LÝ XÓA HỒ SƠ DVKH ========
+    if (action === 'delete_dvkh') {
+       var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
+       var sheet = getSheetFlexibly(ss, ['DVKH', 'dvkh', 'Dịch vụ khách hàng', 'DV_KH']);
+       if (!sheet) {
+           return ContentService.createTextOutput(JSON.stringify({ status: 'success', message: 'Sheet DVKH not found' })).setMimeType(ContentService.MimeType.JSON);
+       }
+       var rawKeys = payload.maKhs || (payload.maKh ? [payload.maKh] : []);
+       var deleteKeys = {};
+       for (var k = 0; k < rawKeys.length; k++) {
+           var normK = String(rawKeys[k] || '').trim().toLowerCase();
+           if (normK) deleteKeys[normK] = true;
+       }
+       var sheetData = sheet.getDataRange().getValues();
+       var headerRowIdx = 0;
+       var colMaKh = -1;
+       for (var r = 0; r < Math.min(5, sheetData.length); r++) {
+           for (var c = 0; c < sheetData[r].length; c++) {
+               var val = String(sheetData[r][c] || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+               if (val === 'makh' || val === 'makhachhang' || val === 'ma' || val === 'makhang' || val === 'sohoso' || val === 'shs') {
+                   headerRowIdx = r;
+                   colMaKh = c;
+                   break;
+               }
+           }
+           if (colMaKh !== -1) break;
+       }
+       if (colMaKh === -1) colMaKh = 1;
+       var deletedCount = 0;
+       for (var r = sheetData.length - 1; r > headerRowIdx; r--) {
+           var rKey = String(sheetData[r][colMaKh] || '').trim().toLowerCase();
+           if (rKey && deleteKeys[rKey]) {
+               sheet.deleteRow(r + 1);
+               deletedCount++;
+           }
+       }
+       return ContentService.createTextOutput(JSON.stringify({ status: 'success', deletedCount: deletedCount })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     // ======== XỬ LÝ LƯU & CẬP NHẬT THAY CÔNG TƠ THEO QĐ 963 ========
     if (action === 'save_963' || action === 'update_963') {
       var data = payload.data || payload.items || payload;
