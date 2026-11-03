@@ -6008,6 +6008,7 @@ export const DataStore = {
       const payload = {
         action: 'save_dvkh',
         sheetName: 'DVKH',
+        spreadsheetId: DataStore.getSpreadsheetId(),
         items: items,
         data: items
       };
@@ -6115,6 +6116,7 @@ export const DataStore = {
       const payload = {
         action: 'delete_dvkh',
         sheetName: 'DVKH',
+        spreadsheetId: DataStore.getSpreadsheetId(),
         maKhs: maKhs
       };
 

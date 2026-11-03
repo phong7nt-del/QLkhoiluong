@@ -2832,7 +2832,8 @@ function doPost(e) {
 
     // ======== XỬ LÝ LƯU & CẬP NHẬT DỊCH VỤ KHÁCH HÀNG (DVKH) ========
     if (action === 'save_dvkh' || action === 'update_dvkh') {
-       var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
+       var targetSpreadsheetId = payload.spreadsheetId || payload.sheetId || SPREADSHEET_ID;
+       var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(targetSpreadsheetId));
        var sheet = getSheetFlexibly(ss, ['DVKH', 'dvkh', 'Dịch vụ khách hàng', 'DV_KH']);
        if (!sheet) {
            sheet = ss.insertSheet('DVKH');
@@ -2994,7 +2995,8 @@ function doPost(e) {
 
     // ======== XỬ LÝ XÓA HỒ SƠ DVKH ========
     if (action === 'delete_dvkh') {
-       var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
+       var targetSpreadsheetId = payload.spreadsheetId || payload.sheetId || SPREADSHEET_ID;
+       var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(targetSpreadsheetId));
        var sheet = getSheetFlexibly(ss, ['DVKH', 'dvkh', 'Dịch vụ khách hàng', 'DV_KH']);
        if (!sheet) {
            return ContentService.createTextOutput(JSON.stringify({ status: 'success', message: 'Sheet DVKH not found' })).setMimeType(ContentService.MimeType.JSON);
