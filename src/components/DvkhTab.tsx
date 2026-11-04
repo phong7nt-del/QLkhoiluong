@@ -1767,191 +1767,97 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
   }, [refreshToggle]);
 
   return (
-    <div className="space-y-6 pb-12 animate-fade-in font-sans">
+    <div className="space-y-4 pb-12 animate-fade-in font-sans">
       {!isAppScriptConfigured && (
-        <div className="bg-amber-50 border-2 border-amber-400 p-4 rounded-2xl flex items-start gap-3 shadow-md animate-bounce-subtle">
-          <AlertCircle className="w-6 h-6 text-amber-600 shrink-0 mt-0.5" />
-          <div className="text-xs text-amber-950 space-y-1">
-            <div className="font-black text-sm text-amber-900 uppercase">
-              Chưa cấu hình URL Google Apps Script đồng bộ đa máy
-            </div>
-            <p>
-              Hệ thống phát hiện máy này chưa nhận được URL Web App Google Apps Script hợp lệ. Thao tác tiếp nhận & phân công sẽ được lưu tạm tại máy này nhưng chưa thể đồng bộ sang Google Sheet cho các máy khác.
-            </p>
-            <p className="font-semibold text-amber-800">
-              💡 <b>Cách khắc phục:</b> Vào mục <b>Cài đặt (biểu tượng bánh răng ⚙️ ở góc trên màn hình)</b>, dán URL Web App Google Apps Script mới nhất và bấm <b>Lưu URL & Tải Dữ Liệu</b>. Khi lưu một lần, hệ thống máy chủ sẽ tự động lưu và đồng bộ sang tất cả các máy khác!
-            </p>
+        <div className="bg-amber-50 border border-amber-300 px-4 py-2 rounded-xl flex items-center justify-between gap-3 text-xs text-amber-900 shadow-xs">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>Chưa cấu hình URL Google Apps Script đồng bộ đa máy. Vui lòng vào Cài đặt (⚙️) dán URL Apps Script để đồng bộ với các máy khác.</span>
           </div>
         </div>
       )}
 
-      {localPendingWorkCount > 0 && (
-        <div className="bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-500 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md animate-in fade-in">
+      {/* Sleek, Compact Executive Header */}
+      <div className="bg-white border border-slate-200/90 rounded-2xl shadow-xs overflow-hidden">
+        {/* Main Header Bar */}
+        <div className="px-4 py-2.5 sm:px-5 sm:py-3 flex flex-col md:flex-row md:items-center justify-between gap-2.5 bg-gradient-to-r from-slate-900 via-indigo-950 to-purple-950 text-white">
           <div className="flex items-center gap-3">
-            <span className="p-2.5 bg-amber-500 text-white rounded-xl font-black text-xs shrink-0 flex items-center gap-1 shadow-sm">
-              <UploadCloud className="w-4 h-4" />
-              <span>{localPendingWorkCount}</span>
+            <span className="p-2 rounded-xl bg-white/10 backdrop-blur-md border border-white/15 text-purple-300 shrink-0">
+              <Headphones className="w-5 h-5" />
             </span>
             <div>
-              <div className="font-bold text-amber-950 text-sm">
-                Phát hiện {localPendingWorkCount} hồ sơ đã thao tác tiếp nhận / phân công trên máy này
-              </div>
-              <p className="text-xs text-amber-800 mt-0.5">
-                Để các máy khác nhìn thấy đầy đủ dữ liệu bạn đã làm mà không phải làm lại, bấm nút bên cạnh để đồng bộ lên Google Sheet ngay.
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={handleSyncAllLocalWorkToCloud}
-            disabled={isSyncingAll}
-            className="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-bold text-xs rounded-xl shadow-md transition-all shrink-0 cursor-pointer flex items-center gap-2 disabled:opacity-50"
-          >
-            <UploadCloud className={`w-4 h-4 ${isSyncingAll ? 'animate-bounce' : ''}`} />
-            <span>{isSyncingAll ? 'Đang đồng bộ...' : 'Đồng bộ lên Google Sheet ngay'}</span>
-          </button>
-        </div>
-      )}
-
-      {/* Top Banner & Header */}
-      <div className="bg-gradient-to-r from-purple-800 via-indigo-800 to-[#005a9c] text-white p-5 md:p-6 rounded-2xl shadow-lg relative overflow-hidden">
-        <div className="absolute right-0 top-0 bottom-0 w-1/3 bg-white/5 transform skew-x-12 pointer-events-none"></div>
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="p-2 rounded-xl bg-white/10 backdrop-blur-md border border-white/20">
-                <Headphones className="w-6 h-6 text-purple-200" />
-              </span>
-              <div>
-                <h2 className="text-xl md:text-2xl font-black uppercase tracking-wide">
-                  Quản Lý Hồ Sơ Dịch Vụ Khách Hàng (DVKH)
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-base sm:text-lg font-black tracking-tight text-white uppercase">
+                  Quản Lý Hồ Sơ DVKH
                 </h2>
-                <p className="text-xs md:text-sm text-purple-100 mt-0.5">
-                  Quy trình tiếp nhận, giao thi công và báo cáo kết quả gắn mới, thay 3 giá giữa Đội DVKH và Đội QLHTĐĐ.
-                </p>
+                <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                  isDvkhUser 
+                    ? 'bg-amber-400 text-amber-950' 
+                    : 'bg-emerald-500/30 text-emerald-200 border border-emerald-400/30'
+                }`}>
+                  {isDvkhUser ? 'Bộ phận DVKH' : 'Bộ phận QLHTĐĐ'}
+                </span>
+                {isDoiLeader && (
+                  <span className="bg-amber-300 text-amber-950 px-2 py-0.5 rounded-full text-[10px] font-black">
+                    Quản trị
+                  </span>
+                )}
               </div>
-            </div>
-            
-            {/* User identity & Role recognition */}
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-              <span className="bg-white/20 px-3 py-1 rounded-full font-semibold border border-white/20 flex items-center gap-1.5">
-                <User className="w-3.5 h-3.5" />
-                <span>Người dùng: <b>{sessionUser?.name || 'Khách'}</b></span>
-              </span>
-              <span className="bg-white/25 px-3 py-1 rounded-full font-bold border border-white/30 text-amber-200 flex items-center gap-1">
-                <span>Chức danh: <b>{displayRoleTitle}</b></span>
-              </span>
-              <span className={`px-3 py-1 rounded-full font-bold border ${
-                isDvkhUser 
-                  ? 'bg-amber-400 text-amber-950 border-amber-300' 
-                  : 'bg-emerald-500/30 text-emerald-100 border-emerald-400/40'
-              }`}>
-                {isDvkhUser ? 'Bộ phận: DVKH' : `Bộ phận: QLHTĐĐ (${sessionUser?.team || 'Đội QLHTĐĐ'})`}
-              </span>
-              {isDoiLeader && (
-                <span className="bg-amber-300 text-amber-950 border border-amber-200 px-2.5 py-1 rounded-full text-[11px] font-black shadow-xs">
-                  Quản trị Đội trưởng
-                </span>
-              )}
-              {canConfirmReceipt && !isDoiLeader && (
-                <span className="bg-sky-400/30 text-sky-100 border border-sky-300/40 px-2.5 py-1 rounded-full text-[11px] font-bold">
-                  Quyền tiếp nhận hồ sơ
-                </span>
-              )}
+              <div className="flex flex-wrap items-center gap-x-2 text-xs text-slate-300 mt-0.5">
+                <span>{sessionUser?.name || 'Khách'} ({displayRoleTitle})</span>
+                {sessionUser?.team && <span className="text-slate-400">• {sessionUser.team}</span>}
+              </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            {dvkhList.length > 0 && (
-              <button
-                type="button"
-                onClick={() => {
-                  if (window.confirm('Bạn có chắc muốn làm mới danh sách DVKH về trống (xóa cache)?')) {
-                    DataStore.saveDvkhEntries([]);
-                    setDvkhList([]);
-                    showToast('success', 'Đã đặt lại danh sách DVKH về trống!');
-                  }
-                }}
-                disabled={isLoading}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-100 border border-rose-400/30 text-xs font-semibold transition-all backdrop-blur-md shadow-xs active:scale-95 cursor-pointer disabled:opacity-50"
-                title="Làm mới danh sách về 0 hồ sơ nếu còn sót dữ liệu mẫu"
-              >
-                <span>Xóa cache ({dvkhList.length})</span>
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={handleSyncAllLocalWorkToCloud}
-              disabled={isSyncingAll}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-amber-950 font-black text-xs transition-all shadow-md active:scale-95 cursor-pointer disabled:opacity-50"
-              title="Đẩy toàn bộ các hồ sơ đã tiếp nhận, phân công, hoàn tất từ máy này lên Google Sheet"
-            >
-              <UploadCloud className={`w-4 h-4 ${isSyncingAll ? 'animate-bounce text-amber-800' : ''}`} />
-              <span>{isSyncingAll ? 'Đang gửi...' : 'Đồng bộ việc đã làm'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                navigator.clipboard.writeText(SCRIPT_TEMPLATE);
-                showToast('success', 'Đã sao chép mã Google Apps Script mới nhất (đã có save_dvkh)! Hãy mở Google Sheets -> Tiện ích mở rộng -> Apps Script -> Dán đè mã này và chọn "Triển khai" (Deploy) để cập nhật cho mọi máy.');
-              }}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-purple-900/60 hover:bg-purple-900/80 text-purple-200 border border-purple-400/40 font-bold text-xs transition-all backdrop-blur-md shadow-xs active:scale-95 cursor-pointer"
-              title="Sao chép mã Google Apps Script mới nhất để dán vào Google Sheet"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-              <span>Mã Apps Script (Mới)</span>
-            </button>
-
+          <div className="flex items-center gap-2 self-end md:self-auto shrink-0">
             {/* Live Real-time Status Badge */}
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/25 border border-emerald-300/40 text-emerald-100 text-xs font-bold backdrop-blur-md shadow-xs select-none" title="Kết nối thời gian thực đa thiết bị đang hoạt động. Mọi thay đổi tiếp nhận, phân công, kết quả sẽ cập nhật tức thì sang các máy khác và lưu vào Google Sheet.">
-              <span className="relative flex h-2.5 w-2.5">
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-xs font-bold backdrop-blur-md select-none" title="Kết nối thời gian thực đang hoạt động. Mọi thay đổi tiếp nhận, phân công, kết quả sẽ tự động đồng bộ tức thì sang các máy khác.">
+              <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-400"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
               </span>
-              <span className="tracking-wide">Đồng bộ tức thì</span>
+              <span className="text-[11px]">Đồng bộ tức thì</span>
             </div>
 
+            {/* Refresh Sheet Button */}
             <button
               onClick={handleManualSync}
               disabled={isLoading}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/20 text-xs font-bold transition-all backdrop-blur-md shadow-xs active:scale-95 cursor-pointer disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 text-white border border-white/15 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
               title="Tải lại dữ liệu mới nhất từ Google Sheets"
             >
-              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-              <span>Tải lại Sheet</span>
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+              <span>Tải lại</span>
             </button>
           </div>
         </div>
 
-        {/* Global summary count pills */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mt-5 pt-4 border-t border-white/10 text-xs">
-          <div className="bg-white/10 backdrop-blur-md p-2.5 rounded-xl border border-white/10">
-            <span className="text-purple-200 text-[10px] uppercase font-bold">Tổng hồ sơ</span>
-            <div className="text-lg font-black mt-0.5">{dvkhList.length}</div>
+        {/* Compact KPI Mini Strip (Single horizontal line, scannable and saves maximum vertical space) */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 divide-y sm:divide-y-0 sm:divide-x divide-slate-100 bg-slate-50/70 text-xs">
+          <div className="px-3.5 py-1.5 flex items-center justify-between">
+            <span className="text-slate-500 font-medium text-[11px]">Tổng hồ sơ</span>
+            <span className="font-bold text-slate-800 text-xs sm:text-sm">{dvkhList.length}</span>
           </div>
-          <div className="bg-white/10 backdrop-blur-md p-2.5 rounded-xl border border-white/10">
-            <span className="text-purple-200 text-[10px] uppercase font-bold">Chưa giao</span>
-            <div className="text-lg font-black mt-0.5 text-amber-300">{countTab1Pending}</div>
+          <div className="px-3.5 py-1.5 flex items-center justify-between">
+            <span className="text-amber-700 font-medium text-[11px]">Chưa giao</span>
+            <span className="font-bold text-amber-700 text-xs sm:text-sm bg-amber-100/70 px-2 py-0.5 rounded-md">{countTab1Pending}</span>
           </div>
-          <div className="bg-white/10 backdrop-blur-md p-2.5 rounded-xl border border-white/10">
-            <span className="text-purple-200 text-[10px] uppercase font-bold">Chờ nhận QLHTĐĐ</span>
-            <div className="text-lg font-black mt-0.5 text-sky-300">{tab1DeliveredWaitingConfirm.length}</div>
+          <div className="px-3.5 py-1.5 flex items-center justify-between">
+            <span className="text-sky-700 font-medium text-[11px]">Chờ nhận</span>
+            <span className="font-bold text-sky-700 text-xs sm:text-sm bg-sky-100/70 px-2 py-0.5 rounded-md">{tab1DeliveredWaitingConfirm.length}</span>
           </div>
-          <div className="bg-white/10 backdrop-blur-md p-2.5 rounded-xl border border-white/10">
-            <span className="text-purple-200 text-[10px] uppercase font-bold">Tồn chưa giao thi công</span>
-            <div className="text-lg font-black mt-0.5 text-blue-200">{countTab2Pending}</div>
+          <div className="px-3.5 py-1.5 flex items-center justify-between">
+            <span className="text-indigo-700 font-medium text-[11px]">Chưa giao TC</span>
+            <span className="font-bold text-indigo-700 text-xs sm:text-sm bg-indigo-100/70 px-2 py-0.5 rounded-md">{countTab2Pending}</span>
           </div>
-          <div className="bg-white/10 backdrop-blur-md p-2.5 rounded-xl border border-white/10">
-            <span className="text-purple-200 text-[10px] uppercase font-bold">Đang thi công</span>
-            <div className="text-lg font-black mt-0.5 text-purple-200">{countTab3Pending}</div>
+          <div className="px-3.5 py-1.5 flex items-center justify-between">
+            <span className="text-purple-700 font-medium text-[11px]">Đang thi công</span>
+            <span className="font-bold text-purple-700 text-xs sm:text-sm bg-purple-100/70 px-2 py-0.5 rounded-md">{countTab3Pending}</span>
           </div>
-          <div className="bg-white/10 backdrop-blur-md p-2.5 rounded-xl border border-white/10">
-            <span className="text-purple-200 text-[10px] uppercase font-bold">Hoàn tất</span>
-            <div className="text-lg font-black mt-0.5 text-emerald-300">
-              {dvkhList.filter(e => e.trangThai === 'Xong').length}
-            </div>
+          <div className="px-3.5 py-1.5 flex items-center justify-between">
+            <span className="text-emerald-700 font-medium text-[11px]">Hoàn tất</span>
+            <span className="font-bold text-emerald-700 text-xs sm:text-sm bg-emerald-100/70 px-2 py-0.5 rounded-md">{dvkhList.filter(e => e.trangThai === 'Xong').length}</span>
           </div>
         </div>
       </div>
