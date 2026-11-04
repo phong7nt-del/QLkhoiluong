@@ -6,7 +6,8 @@ import {
   FileSpreadsheet, Filter, User, Calendar, MapPin, 
   Layers, Check, Sparkles, AlertCircle, Zap, ChevronLeft,
   ChevronsLeft, ChevronsRight, ChevronsDown, ChevronsUp, ShieldAlert, BarChart3, ListFilter, X,
-  Calculator, Info, HelpCircle, ArrowRight, Eye, EyeOff, Code2, Copy
+  Calculator, Info, HelpCircle, ArrowRight, Eye, EyeOff, Code2, Copy,
+  Sun, ClipboardCheck, CheckCheck
 } from 'lucide-react';
 import { SCRIPT_TEMPLATE } from './ConfigModal';
 import { 
@@ -27,9 +28,11 @@ interface SectionCollapseState {
   completedList: boolean;
   reportKpi: boolean;
   reportTable: boolean;
+  reportNlmt: boolean;
+  reportRaSoat: boolean;
 }
 
-const SECTION_COLLAPSE_STORAGE_KEY = 'tab963_sections_collapse_v1';
+const SECTION_COLLAPSE_STORAGE_KEY = 'tab963_sections_collapse_v2';
 
 interface Tab963Props {
   sessionUser: SheetMember | null;
@@ -55,6 +58,8 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
           completedList: parsed.completedList ?? true,
           reportKpi: parsed.reportKpi ?? true,
           reportTable: parsed.reportTable ?? true,
+          reportNlmt: parsed.reportNlmt ?? true,
+          reportRaSoat: parsed.reportRaSoat ?? true,
         };
       }
     } catch {}
@@ -65,6 +70,8 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       completedList: true,
       reportKpi: true,
       reportTable: true,
+      reportNlmt: true,
+      reportRaSoat: true,
     };
   });
 
@@ -86,6 +93,8 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       completedList: expand,
       reportKpi: expand,
       reportTable: expand,
+      reportNlmt: expand,
+      reportRaSoat: expand,
     };
     setCollapsedSections(next);
     try {
@@ -132,6 +141,17 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
   // Completed table pagination (10 customers / page)
   const PAGE_SIZE = 10;
   const [completedPage, setCompletedPage] = useState(1);
+
+  // Sub-reports in Tab 2 state
+  const [nlmtFilter, setNlmtFilter] = useState<'all' | 'completed' | 'pending'>('all');
+  const [nlmtPage, setNlmtPage] = useState(1);
+  const [nlmtSearch, setNlmtSearch] = useState('');
+  const [showNlmtDetails, setShowNlmtDetails] = useState(false);
+
+  const [raSoatFilter, setRaSoatFilter] = useState<'all' | 'chua' | 'su_dung_lai' | 'thu_hoi' | 'khac'>('all');
+  const [raSoatPage, setRaSoatPage] = useState(1);
+  const [raSoatSearch, setRaSoatSearch] = useState('');
+  const [showRaSoatDetails, setShowRaSoatDetails] = useState(false);
 
   // Script modal state
   const [showScriptModal, setShowScriptModal] = useState(false);
@@ -729,6 +749,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
 
   // ==============================================================
   // TAB 2: BÁO CÁO KẾT QUẢ THAY CÔNG TƠ THEO QĐ 963
+  // Bổ sung: Báo cáo Khách hàng NLMT (giá trị "x") & Kết quả rà soát khách hàng thu hồi (KQRaSoat)
   // ==============================================================
   interface ReportRow {
     dot: string;
@@ -741,6 +762,19 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
     chuaThay: number;
     tongGioVuot: number;
     tongSlVuot: number;
+    // Bổ sung NLMT
+    nlmtTong: number;
+    nlmtDaThay: number;
+    nlmtChuaThay: number;
+    nlmtTyLe: number;
+    // Bổ sung Rà soát Thu hồi
+    thuHoiScopeTong: number;
+    rsThuHoi: number;
+    rsSuDungLai: number;
+    rsKhac: number;
+    rsChuaRaSoat: number;
+    rsDaRaSoat: number;
+    rsTyLe: number;
   }
 
   const reportData = useMemo(() => {
@@ -751,27 +785,74 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       daThay: number;
       gioVuot: number;
       slVuot: number;
+      nlmtTong: number;
+      nlmtDaThay: number;
+      thuHoiScopeTong: number;
+      rsThuHoi: number;
+      rsSuDungLai: number;
+      rsKhac: number;
+      rsChuaRaSoat: number;
     }>> = {};
 
     entries.forEach(e => {
       const dot = e.dot || '1';
       const kv = e.kv || 'Khác';
-      const isDone = e.ketQua && e.ketQua.trim().toLowerCase().includes('xong');
-      const isThuHoi = e.kSuDung && e.kSuDung.trim().toLowerCase().includes('thu hồi');
+      const isDone = Boolean(e.ketQua && e.ketQua.trim().toLowerCase().includes('xong'));
+      const isThuHoi = Boolean(e.kSuDung && e.kSuDung.trim().toLowerCase().includes('thu hồi'));
+      const isNlmt = Boolean(e.nlmt && (e.nlmt.trim().toLowerCase() === 'x' || e.nlmt.trim().toLowerCase().includes('x')));
       const gv = typeof e.gioVuot === 'number' ? e.gioVuot : (parseFloat(String(e.gioVuot || 0)) || 0);
       const slv = typeof e.slVuot === 'number' ? e.slVuot : (parseFloat(String(e.slVuot || 0)) || 0);
 
+      // Phạm vi rà soát thu hồi: bất kỳ KH nào có kSuDung === 'Thu hồi' HOẶC có giá trị KQRaSoat
+      const hasKq = Boolean(e.kqRaSoat && e.kqRaSoat.trim());
+      const isThuHoiScope = isThuHoi || hasKq;
+
       if (!dotsMap[dot]) dotsMap[dot] = {};
       if (!dotsMap[dot][kv]) {
-        dotsMap[dot][kv] = { tong: 0, thuHoi: 0, daThay: 0, gioVuot: 0, slVuot: 0 };
+        dotsMap[dot][kv] = {
+          tong: 0,
+          thuHoi: 0,
+          daThay: 0,
+          gioVuot: 0,
+          slVuot: 0,
+          nlmtTong: 0,
+          nlmtDaThay: 0,
+          thuHoiScopeTong: 0,
+          rsThuHoi: 0,
+          rsSuDungLai: 0,
+          rsKhac: 0,
+          rsChuaRaSoat: 0
+        };
       }
 
-      dotsMap[dot][kv].tong++;
-      if (isThuHoi) dotsMap[dot][kv].thuHoi++;
+      const item = dotsMap[dot][kv];
+      item.tong++;
+      if (isThuHoi) item.thuHoi++;
       if (isDone) {
-        dotsMap[dot][kv].daThay++;
-        dotsMap[dot][kv].gioVuot += gv;
-        dotsMap[dot][kv].slVuot += slv;
+        item.daThay++;
+        item.gioVuot += gv;
+        item.slVuot += slv;
+      }
+
+      if (isNlmt) {
+        item.nlmtTong++;
+        if (isDone) item.nlmtDaThay++;
+      }
+
+      if (isThuHoiScope) {
+        item.thuHoiScopeTong++;
+        if (hasKq) {
+          const kqNorm = e.kqRaSoat!.trim().toLowerCase();
+          if (kqNorm.includes('sử dụng lại')) {
+            item.rsSuDungLai++;
+          } else if (kqNorm === 'thu hồi' || kqNorm.includes('thu hồi')) {
+            item.rsThuHoi++;
+          } else {
+            item.rsKhac++;
+          }
+        } else {
+          item.rsChuaRaSoat++;
+        }
       }
     });
 
@@ -790,6 +871,12 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
         const chuaThay = Math.max(0, canThay - item.daThay);
         const tyLe = canThay > 0 ? Math.round((item.daThay / canThay) * 1000) / 10 : (item.daThay > 0 ? 100 : 0);
 
+        const nlmtChuaThay = Math.max(0, item.nlmtTong - item.nlmtDaThay);
+        const nlmtTyLe = item.nlmtTong > 0 ? Math.round((item.nlmtDaThay / item.nlmtTong) * 1000) / 10 : 0;
+
+        const rsDaRaSoat = item.rsThuHoi + item.rsSuDungLai + item.rsKhac;
+        const rsTyLe = item.thuHoiScopeTong > 0 ? Math.round((rsDaRaSoat / item.thuHoiScopeTong) * 1000) / 10 : 0;
+
         rows.push({
           dot,
           kv,
@@ -800,7 +887,18 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
           tyLe,
           chuaThay,
           tongGioVuot: Math.round(item.gioVuot * 100) / 100,
-          tongSlVuot: Math.round(item.slVuot)
+          tongSlVuot: Math.round(item.slVuot),
+          nlmtTong: item.nlmtTong,
+          nlmtDaThay: item.nlmtDaThay,
+          nlmtChuaThay,
+          nlmtTyLe,
+          thuHoiScopeTong: item.thuHoiScopeTong,
+          rsThuHoi: item.rsThuHoi,
+          rsSuDungLai: item.rsSuDungLai,
+          rsKhac: item.rsKhac,
+          rsChuaRaSoat: item.rsChuaRaSoat,
+          rsDaRaSoat,
+          rsTyLe
         });
       });
     });
@@ -818,6 +916,17 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
     let tongGioVuot = 0;
     let tongSlVuot = 0;
 
+    let nlmtTong = 0;
+    let nlmtDaThay = 0;
+    let nlmtChuaThay = 0;
+
+    let thuHoiScopeTong = 0;
+    let rsThuHoi = 0;
+    let rsSuDungLai = 0;
+    let rsKhac = 0;
+    let rsChuaRaSoat = 0;
+    let rsDaRaSoat = 0;
+
     reportData.forEach(r => {
       tongKh += r.tongKh;
       thuHoi += r.thuHoi;
@@ -826,9 +935,22 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       chuaThay += r.chuaThay;
       tongGioVuot += r.tongGioVuot;
       tongSlVuot += r.tongSlVuot;
+
+      nlmtTong += r.nlmtTong;
+      nlmtDaThay += r.nlmtDaThay;
+      nlmtChuaThay += r.nlmtChuaThay;
+
+      thuHoiScopeTong += r.thuHoiScopeTong;
+      rsThuHoi += r.rsThuHoi;
+      rsSuDungLai += r.rsSuDungLai;
+      rsKhac += r.rsKhac;
+      rsChuaRaSoat += r.rsChuaRaSoat;
+      rsDaRaSoat += r.rsDaRaSoat;
     });
 
     const tyLeChung = canThay > 0 ? Math.round((daThay / canThay) * 1000) / 10 : 0;
+    const nlmtTyLeChung = nlmtTong > 0 ? Math.round((nlmtDaThay / nlmtTong) * 1000) / 10 : 0;
+    const rsTyLeChung = thuHoiScopeTong > 0 ? Math.round((rsDaRaSoat / thuHoiScopeTong) * 1000) / 10 : 0;
 
     return {
       tongKh,
@@ -838,17 +960,100 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       chuaThay,
       tongGioVuot: Math.round(tongGioVuot * 100) / 100,
       tongSlVuot: Math.round(tongSlVuot),
-      tyLeChung
+      tyLeChung,
+      // NLMT Totals
+      nlmtTong,
+      nlmtDaThay,
+      nlmtChuaThay,
+      nlmtTyLeChung,
+      // Rà soát Totals
+      thuHoiScopeTong,
+      rsThuHoi,
+      rsSuDungLai,
+      rsKhac,
+      rsChuaRaSoat,
+      rsDaRaSoat,
+      rsTyLeChung
     };
   }, [reportData]);
 
-  // Export Tab 2 Report to Excel
+  // Danh sách toàn bộ khách hàng NLMT (có cột nlmt là 'x' hoặc chứa 'x')
+  const nlmtCustomerList = useMemo(() => {
+    return entries.filter(e => Boolean(e.nlmt && (e.nlmt.trim().toLowerCase() === 'x' || e.nlmt.trim().toLowerCase().includes('x'))));
+  }, [entries]);
+
+  // Danh sách toàn bộ khách hàng thuộc diện Thu hồi hoặc đã rà soát
+  const thuHoiReviewCustomerList = useMemo(() => {
+    return entries.filter(e => {
+      const isThuHoi = Boolean(e.kSuDung && e.kSuDung.trim().toLowerCase().includes('thu hồi'));
+      const hasKq = Boolean(e.kqRaSoat && e.kqRaSoat.trim());
+      return isThuHoi || hasKq;
+    });
+  }, [entries]);
+
+  // Bộ lọc danh sách chi tiết NLMT
+  const filteredNlmtCustomers = useMemo(() => {
+    return nlmtCustomerList.filter(item => {
+      const isDone = Boolean(item.ketQua && item.ketQua.trim().toLowerCase().includes('xong'));
+      if (nlmtFilter === 'completed' && !isDone) return false;
+      if (nlmtFilter === 'pending' && isDone) return false;
+
+      if (nlmtSearch.trim()) {
+        const q = nlmtSearch.trim().toLowerCase();
+        const match = 
+          (item.maKh && item.maKh.toLowerCase().includes(q)) ||
+          (item.tenKh && item.tenKh.toLowerCase().includes(q)) ||
+          (item.diaChi && item.diaChi.toLowerCase().includes(q)) ||
+          (item.kv && item.kv.toLowerCase().includes(q)) ||
+          (item.dot && String(item.dot).toLowerCase().includes(q));
+        if (!match) return false;
+      }
+      return true;
+    });
+  }, [nlmtCustomerList, nlmtFilter, nlmtSearch]);
+
+  // Bộ lọc danh sách chi tiết Rà soát thu hồi
+  const filteredRaSoatCustomers = useMemo(() => {
+    return thuHoiReviewCustomerList.filter(item => {
+      const hasKq = Boolean(item.kqRaSoat && item.kqRaSoat.trim());
+      const kqNorm = (item.kqRaSoat || '').trim().toLowerCase();
+
+      if (raSoatFilter === 'chua' && hasKq) return false;
+      if (raSoatFilter === 'su_dung_lai' && (!hasKq || !kqNorm.includes('sử dụng lại'))) return false;
+      if (raSoatFilter === 'thu_hoi' && (!hasKq || (!kqNorm.includes('thu hồi') && kqNorm !== 'thu hồi'))) return false;
+      if (raSoatFilter === 'khac' && (!hasKq || kqNorm.includes('sử dụng lại') || kqNorm.includes('thu hồi'))) return false;
+
+      if (raSoatSearch.trim()) {
+        const q = raSoatSearch.trim().toLowerCase();
+        const match = 
+          (item.maKh && item.maKh.toLowerCase().includes(q)) ||
+          (item.tenKh && item.tenKh.toLowerCase().includes(q)) ||
+          (item.diaChi && item.diaChi.toLowerCase().includes(q)) ||
+          (item.kv && item.kv.toLowerCase().includes(q)) ||
+          (item.kqRaSoat && item.kqRaSoat.toLowerCase().includes(q)) ||
+          (item.dot && String(item.dot).toLowerCase().includes(q));
+        if (!match) return false;
+      }
+      return true;
+    });
+  }, [thuHoiReviewCustomerList, raSoatFilter, raSoatSearch]);
+
+  // Chuyển nhanh sang Tab 1 để thao tác với khách hàng được chọn từ báo cáo
+  const handleSelectCustomerFromReport = (item: Entry963) => {
+    setSelectedCustomer(item);
+    setActiveSubTab('thuc_hien');
+    window.scrollTo({ top: 300, behavior: 'smooth' });
+    showToast('info', `Đã chọn khách hàng ${item.maKh} (${item.tenKh}) để xử lý ở Tab 1.`);
+  };
+
+  // Export Tab 2 Report to Excel (bao gồm Tổng Hợp, NLMT và Kết Quả Rà Soát Thu Hồi)
   const handleExportReportExcel = () => {
     if (reportData.length === 0) {
       alert('Không có dữ liệu báo cáo để xuất!');
       return;
     }
 
+    // 1. Sheet Tổng Hợp Đợt & Khu Vực
     const exportRows = reportData.map((r, idx) => ({
       'STT': idx + 1,
       'Đợt Thực Hiện': `Đợt ${r.dot}`,
@@ -859,6 +1064,20 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       'Đã Thay Xong': r.daThay,
       'Tỷ Lệ Hoàn Thành (%)': `${r.tyLe}%`,
       'Còn Lại Chưa Thay': r.chuaThay,
+      // Bổ sung NLMT
+      'Tổng KH NLMT': r.nlmtTong,
+      'NLMT Đã Thay': r.nlmtDaThay,
+      'Tỷ Lệ NLMT (%)': `${r.nlmtTyLe}%`,
+      'NLMT Còn Lại': r.nlmtChuaThay,
+      // Bổ sung Rà Soát Thu Hồi
+      'Tổng Diện Thu Hồi': r.thuHoiScopeTong,
+      'Đã Rà Soát': r.rsDaRaSoat,
+      'Tỷ Lệ Rà Soát (%)': `${r.rsTyLe}%`,
+      'RS: Sử Dụng Lại': r.rsSuDungLai,
+      'RS: Thu Hồi': r.rsThuHoi,
+      'RS: Khác': r.rsKhac,
+      'Chưa Rà Soát': r.rsChuaRaSoat,
+      // Giờ vượt & Sản lượng
       'Tổng Giờ Vượt (h)': r.tongGioVuot,
       'Tổng Sản Lượng Vượt (kWh)': r.tongSlVuot
     }));
@@ -874,15 +1093,92 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       'Đã Thay Xong': reportTotals.daThay,
       'Tỷ Lệ Hoàn Thành (%)': `${reportTotals.tyLeChung}%`,
       'Còn Lại Chưa Thay': reportTotals.chuaThay,
+      // Tổng NLMT
+      'Tổng KH NLMT': reportTotals.nlmtTong,
+      'NLMT Đã Thay': reportTotals.nlmtDaThay,
+      'Tỷ Lệ NLMT (%)': `${reportTotals.nlmtTyLeChung}%`,
+      'NLMT Còn Lại': reportTotals.nlmtChuaThay,
+      // Tổng Rà Soát
+      'Tổng Diện Thu Hồi': reportTotals.thuHoiScopeTong,
+      'Đã Rà Soát': reportTotals.rsDaRaSoat,
+      'Tỷ Lệ Rà Soát (%)': `${reportTotals.rsTyLeChung}%`,
+      'RS: Sử Dụng Lại': reportTotals.rsSuDungLai,
+      'RS: Thu Hồi': reportTotals.rsThuHoi,
+      'RS: Khác': reportTotals.rsKhac,
+      'Chưa Rà Soát': reportTotals.rsChuaRaSoat,
+      // Tổng Giờ & Sản lượng
       'Tổng Giờ Vượt (h)': reportTotals.tongGioVuot,
       'Tổng Sản Lượng Vượt (kWh)': reportTotals.tongSlVuot
     });
 
-    const ws = XLSX.utils.json_to_sheet(exportRows);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'BaoCao_QD963');
-    XLSX.writeFile(wb, `BaoCao_KetQua_ThayCongTo_QD963_${getCurrentDateTimeStr().replace(/[/ :]/g, '_')}.xlsx`);
-    showToast('success', 'Đã xuất file Excel báo cáo QĐ 963 thành công!');
+
+    // Sheet 1: Tổng Hợp
+    const ws1 = XLSX.utils.json_to_sheet(exportRows);
+    XLSX.utils.book_append_sheet(wb, ws1, 'TongHop_QD963');
+
+    // Sheet 2: Danh sách Khách Hàng NLMT
+    if (nlmtCustomerList.length > 0) {
+      const nlmtRows = nlmtCustomerList.map((c, idx) => ({
+        'STT': idx + 1,
+        'Mã Khách Hàng': c.maKh,
+        'Tên Khách Hàng': c.tenKh,
+        'Địa Chỉ': c.diaChi,
+        'Khu Vực': c.kv,
+        'Đợt': c.dot,
+        'Loại Công Tơ': c.loaiCto || '',
+        'Hệ Số Nhân (HSN)': c.hsn !== undefined && c.hsn !== '' ? c.hsn : resolveHsn(c),
+        'Trạng Thái Thay': (c.ketQua && c.ketQua.toLowerCase().includes('xong')) ? 'Đã thay xong' : 'Chưa thay',
+        'NV Thực Hiện': c.nv || '',
+        'Ngày Giờ Thay': c.ngayGio || '',
+        'Giờ Vượt (h)': c.gioVuot !== undefined ? c.gioVuot : 0,
+        'SL Vượt (kWh)': c.slVuot || 0,
+        'Không Sử Dụng': c.kSuDung || '',
+        'KQ Rà Soát': c.kqRaSoat || ''
+      }));
+      const ws2 = XLSX.utils.json_to_sheet(nlmtRows);
+      XLSX.utils.book_append_sheet(wb, ws2, 'DS_KhachHang_NLMT');
+    }
+
+    // Sheet 3: Danh sách Khách Hàng Diện Thu Hồi & Kết Quả Rà Soát
+    if (thuHoiReviewCustomerList.length > 0) {
+      const rsRows = thuHoiReviewCustomerList.map((c, idx) => {
+        const hasKq = Boolean(c.kqRaSoat && c.kqRaSoat.trim());
+        const isSuDungLai = c.kqRaSoat?.trim().toLowerCase().includes('sử dụng lại');
+        const isThuHoiGiuNguyen = c.kqRaSoat?.trim().toLowerCase().includes('thu hồi') || c.kqRaSoat?.trim().toLowerCase() === 'thu hồi';
+        const phanLoai = !hasKq 
+          ? 'Chưa rà soát' 
+          : isSuDungLai 
+          ? 'Sử dụng lại (Được thay)' 
+          : isThuHoiGiuNguyen 
+          ? 'Thu hồi (Không thay)' 
+          : 'Khác';
+
+        const choPhepThay = (!c.kSuDung || !c.kSuDung.toLowerCase().includes('thu hồi')) ? 'Được phép thay' : 'Không được thay';
+        const isDone = Boolean(c.ketQua && c.ketQua.toLowerCase().includes('xong'));
+
+        return {
+          'STT': idx + 1,
+          'Mã Khách Hàng': c.maKh,
+          'Tên Khách Hàng': c.tenKh,
+          'Địa Chỉ': c.diaChi,
+          'Khu Vực': c.kv,
+          'Đợt': c.dot,
+          'Cột KSuDung': c.kSuDung || '',
+          'Kết Quả Rà Soát (KQRaSoat)': c.kqRaSoat || 'Chưa rà soát',
+          'Phân Loại Rà Soát': phanLoai,
+          'Quy Định Thay': choPhepThay,
+          'Trạng Thái Thay': isDone ? 'Đã thay xong' : 'Chưa thay',
+          'NV Thực Hiện': c.nv || '',
+          'Ngày Giờ Thay': c.ngayGio || ''
+        };
+      });
+      const ws3 = XLSX.utils.json_to_sheet(rsRows);
+      XLSX.utils.book_append_sheet(wb, ws3, 'DS_RaSoat_ThuHoi');
+    }
+
+    XLSX.writeFile(wb, `BaoCao_ToanDien_ThayCongTo_QD963_${getCurrentDateTimeStr().replace(/[/ :]/g, '_')}.xlsx`);
+    showToast('success', 'Đã xuất file Excel báo cáo QĐ 963 toàn diện (gồm Tổng hợp, NLMT và Rà soát thu hồi)!');
   };
 
   return (
@@ -2334,14 +2630,14 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       {/* SUB-TAB 2: BÁO CÁO KẾT QUẢ THAY CÔNG TƠ THEO QĐ 963 */}
       {/* ========================================================= */}
       {activeSubTab === 'bao_cao' && (
-        <div className="space-y-5">
+        <div className="space-y-6">
           {/* Top KPI Cards (Có thể Ẩn/Hiện) */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-3">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
               <div className="flex items-center gap-2">
                 <BarChart3 className="w-4 h-4 text-amber-600" />
                 <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wide">
-                  Thống Kê Tiến Độ Tổng Quan (KPIs)
+                  Thống Kê Tiến Độ Tổng Quan (KPIs QĐ 963)
                 </h4>
               </div>
               <button
@@ -2358,43 +2654,82 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
             </div>
 
             {collapsedSections.reportKpi ? (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-1">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 pt-1">
+                {/* 1. Tổng khách hàng */}
                 <div className="bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80 shadow-2xs">
                   <span className="text-[10px] uppercase font-bold text-slate-500">Tổng khách hàng</span>
                   <div className="text-xl font-black text-slate-900 mt-1">{reportTotals.tongKh}</div>
                   <span className="text-[10px] text-slate-400">Toàn bộ sheet 963</span>
                 </div>
 
-                <div className="bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80 shadow-2xs">
-                  <span className="text-[10px] uppercase font-bold text-rose-600">Thu hồi (KSuDung)</span>
-                  <div className="text-xl font-black text-rose-700 mt-1">{reportTotals.thuHoi}</div>
-                  <span className="text-[10px] text-slate-400">Không được thay</span>
-                </div>
-
+                {/* 2. Cần thay */}
                 <div className="bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80 shadow-2xs">
                   <span className="text-[10px] uppercase font-bold text-amber-600">Cần thay</span>
                   <div className="text-xl font-black text-amber-700 mt-1">{reportTotals.canThay}</div>
-                  <span className="text-[10px] text-slate-400">Tổng trừ đi Thu hồi</span>
-                </div>
-
-                <div className="bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80 shadow-2xs">
-                  <span className="text-[10px] uppercase font-bold text-emerald-600">Đã thay xong</span>
-                  <div className="text-xl font-black text-emerald-700 mt-1 flex items-baseline gap-1.5">
-                    <span>{reportTotals.daThay}</span>
-                    <span className="text-xs font-bold text-emerald-600">({reportTotals.tyLeChung}%)</span>
-                  </div>
                   <span className="text-[10px] text-slate-400">Còn lại: {reportTotals.chuaThay} KH</span>
                 </div>
 
+                {/* 3. Đã thay xong */}
+                <div className="bg-emerald-50/60 p-3.5 rounded-xl border border-emerald-200/80 shadow-2xs">
+                  <span className="text-[10px] uppercase font-bold text-emerald-700">Đã thay xong</span>
+                  <div className="text-xl font-black text-emerald-800 mt-1 flex items-baseline gap-1.5">
+                    <span>{reportTotals.daThay}</span>
+                    <span className="text-xs font-bold text-emerald-600">({reportTotals.tyLeChung}%)</span>
+                  </div>
+                  <span className="text-[10px] text-emerald-600">Tỷ lệ hoàn thành</span>
+                </div>
+
+                {/* 4. Khách hàng NLMT (Mới bổ sung) */}
+                <div className="bg-amber-50/70 p-3.5 rounded-xl border border-amber-200 shadow-2xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] uppercase font-bold text-amber-800 flex items-center gap-1">
+                      <Sun className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      <span>KH NLMT (x)</span>
+                    </span>
+                    <span className="bg-amber-200 text-amber-900 text-[9px] font-black px-1.5 py-0.2 rounded">
+                      {reportTotals.nlmtTyLeChung}%
+                    </span>
+                  </div>
+                  <div className="text-xl font-black text-amber-900 mt-1 flex items-baseline gap-1">
+                    <span>{reportTotals.nlmtDaThay}</span>
+                    <span className="text-xs text-slate-500 font-semibold">/ {reportTotals.nlmtTong} KH</span>
+                  </div>
+                  <span className="text-[10px] text-amber-700">Còn lại: {reportTotals.nlmtChuaThay} KH</span>
+                </div>
+
+                {/* 5. Rà soát Thu hồi (Mới bổ sung) */}
+                <div className="bg-indigo-50/70 p-3.5 rounded-xl border border-indigo-200 shadow-2xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] uppercase font-bold text-indigo-800 flex items-center gap-1">
+                      <ClipboardCheck className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                      <span>Rà Soát Thu Hồi</span>
+                    </span>
+                    <span className="bg-indigo-200 text-indigo-950 text-[9px] font-black px-1.5 py-0.2 rounded">
+                      {reportTotals.rsTyLeChung}%
+                    </span>
+                  </div>
+                  <div className="text-xl font-black text-indigo-900 mt-1 flex items-baseline gap-1">
+                    <span>{reportTotals.rsDaRaSoat}</span>
+                    <span className="text-xs text-slate-500 font-semibold">/ {reportTotals.thuHoiScopeTong} KH</span>
+                  </div>
+                  <div className="text-[10px] text-indigo-700 flex items-center gap-1">
+                    <span>Dùng lại: <b>{reportTotals.rsSuDungLai}</b></span>
+                    <span>|</span>
+                    <span>Chưa: <b>{reportTotals.rsChuaRaSoat}</b></span>
+                  </div>
+                </div>
+
+                {/* 6. Tổng giờ vượt */}
                 <div className="bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80 shadow-2xs">
                   <span className="text-[10px] uppercase font-bold text-indigo-600">Tổng giờ vượt</span>
                   <div className="text-xl font-black text-indigo-700 mt-1">{reportTotals.tongGioVuot}h</div>
                   <span className="text-[10px] text-slate-400">Khung 9h30 - 11h30</span>
                 </div>
 
+                {/* 7. Tổng SL Vượt */}
                 <div className="bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80 shadow-2xs">
                   <span className="text-[10px] uppercase font-bold text-amber-700">Tổng SL Vượt</span>
-                  <div className="text-xl font-black text-amber-900 mt-1">{reportTotals.tongSlVuot} <span className="text-xs">kWh</span></div>
+                  <div className="text-xl font-black text-amber-900 mt-1">{reportTotals.tongSlVuot} <span className="text-xs font-semibold">kWh</span></div>
                   <span className="text-[10px] text-slate-400">Sản lượng bù trừ</span>
                 </div>
               </div>
@@ -2404,7 +2739,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                 className="p-3 bg-slate-50 hover:bg-amber-50/50 rounded-xl border border-dashed border-slate-200 flex items-center justify-between cursor-pointer transition-colors text-xs"
               >
                 <span className="text-slate-600 font-medium">
-                  Đã thay: <b className="text-emerald-700">{reportTotals.daThay}</b>/{reportTotals.canThay} ({reportTotals.tyLeChung}%) | Tổng SL Vượt: <b className="text-amber-900">{reportTotals.tongSlVuot} kWh</b> | Tổng Giờ Vượt: <b className="text-indigo-800">{reportTotals.tongGioVuot}h</b>
+                  Đã thay: <b className="text-emerald-700">{reportTotals.daThay}</b>/{reportTotals.canThay} ({reportTotals.tyLeChung}%) | NLMT: <b className="text-amber-800">{reportTotals.nlmtDaThay}/{reportTotals.nlmtTong} ({reportTotals.nlmtTyLeChung}%)</b> | Rà soát thu hồi: <b className="text-indigo-800">{reportTotals.rsDaRaSoat}/{reportTotals.thuHoiScopeTong} ({reportTotals.rsTyLeChung}%)</b> | Tổng SL Vượt: <b className="text-amber-900">{reportTotals.tongSlVuot} kWh</b>
                 </span>
                 <span className="text-[11px] text-amber-700 font-bold hover:underline shrink-0 ml-2">
                   Bung ra ▾
@@ -2413,16 +2748,16 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
             )}
           </div>
 
-          {/* Aggregated Report Table */}
+          {/* 1. BẢNG BÁO CÁO TỔNG HỢP THEO ĐỢT & KHU VỰC (CÓ CỘT NLMT VÀ RÀ SOÁT THU HỒI) */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
               <div>
                 <h3 className="font-black text-slate-800 text-base uppercase flex items-center gap-2">
                   <BarChart3 className="w-5 h-5 text-amber-600" />
-                  <span>Bảng Báo Cáo Thay Công Tơ Theo Đợt & Khu Vực (QĐ 963)</span>
+                  <span>Bảng Báo Cáo Tiến Độ Thay Công Tơ Theo Đợt & Khu Vực (QĐ 963)</span>
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Tổng hợp số lượng, tỷ lệ hoàn thành, tổng giờ vượt và sản lượng vượt cho từng đợt và từng khu vực.
+                  Tổng hợp số lượng, tỷ lệ hoàn thành, tiến độ khách hàng NLMT, kết quả rà soát thu hồi và sản lượng vượt cho từng đợt & khu vực.
                 </p>
               </div>
 
@@ -2431,9 +2766,10 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                   type="button"
                   onClick={handleExportReportExcel}
                   className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+                  title="Xuất file Excel gồm 3 sheet: Tổng hợp, Khách hàng NLMT và Rà soát thu hồi"
                 >
                   <FileSpreadsheet className="w-4 h-4" />
-                  <span>Xuất Excel Báo Cáo</span>
+                  <span>Xuất Excel Toàn Diện</span>
                 </button>
 
                 <button
@@ -2456,8 +2792,8 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
                     <tr className="bg-slate-100/90 text-slate-700 font-bold border-b border-slate-200 uppercase text-[10px]">
-                      <th className="py-2.5 px-3 w-12 text-center">STT</th>
-                      <th className="py-2.5 px-3">Đợt Thực Hiện</th>
+                      <th className="py-2.5 px-3 w-10 text-center">STT</th>
+                      <th className="py-2.5 px-3">Đợt</th>
                       <th className="py-2.5 px-3">Khu Vực</th>
                       <th className="py-2.5 px-3 text-right">Tổng KH</th>
                       <th className="py-2.5 px-3 text-right text-rose-700">Thu Hồi</th>
@@ -2465,8 +2801,22 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                       <th className="py-2.5 px-3 text-right text-emerald-700">Đã Thay Xong</th>
                       <th className="py-2.5 px-3 text-center">Tỷ Lệ (%)</th>
                       <th className="py-2.5 px-3 text-right text-slate-600">Còn Lại</th>
-                      <th className="py-2.5 px-3 text-right text-indigo-700">Tổng Giờ Vượt (h)</th>
-                      <th className="py-2.5 px-3 text-right text-amber-900">Tổng SL Vượt (kWh)</th>
+                      {/* Cột NLMT */}
+                      <th className="py-2.5 px-3 text-center bg-amber-50/70 text-amber-900 border-x border-amber-200/60">
+                        <div className="flex items-center justify-center gap-1">
+                          <Sun className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                          <span>KH NLMT (Xong/Tổng)</span>
+                        </div>
+                      </th>
+                      {/* Cột Rà Soát Thu Hồi */}
+                      <th className="py-2.5 px-3 bg-indigo-50/70 text-indigo-900 border-r border-indigo-200/60">
+                        <div className="flex items-center gap-1">
+                          <ClipboardCheck className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                          <span>Kết Quả Rà Soát Thu Hồi</span>
+                        </div>
+                      </th>
+                      <th className="py-2.5 px-3 text-right text-indigo-700">Giờ Vượt (h)</th>
+                      <th className="py-2.5 px-3 text-right text-amber-900">SL Vượt (kWh)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -2492,6 +2842,65 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                             </span>
                           </td>
                           <td className="py-2.5 px-3 text-right font-mono text-slate-600">{row.chuaThay}</td>
+
+                          {/* Dữ liệu KH NLMT */}
+                          <td className="py-2.5 px-3 text-center bg-amber-50/40 border-x border-amber-200/50">
+                            {row.nlmtTong > 0 ? (
+                              <div className="inline-flex flex-col items-center">
+                                <span className="font-mono font-bold text-amber-950">
+                                  {row.nlmtDaThay} / {row.nlmtTong}
+                                </span>
+                                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                                  row.nlmtTyLe === 100 ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'
+                                }`}>
+                                  {row.nlmtTyLe}% (còn {row.nlmtChuaThay})
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 font-mono text-[11px]">—</span>
+                            )}
+                          </td>
+
+                          {/* Dữ liệu Rà soát Thu Hồi */}
+                          <td className="py-2.5 px-3 bg-indigo-50/40 border-r border-indigo-200/50">
+                            {row.thuHoiScopeTong > 0 ? (
+                              <div className="space-y-1">
+                                <div className="flex items-center justify-between text-[11px]">
+                                  <span className="font-semibold text-slate-700">
+                                    Đã RS: <b className="text-indigo-900">{row.rsDaRaSoat}/{row.thuHoiScopeTong}</b>
+                                  </span>
+                                  <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100 px-1.5 rounded">
+                                    {row.rsTyLe}%
+                                  </span>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-1 text-[10px]">
+                                  {row.rsSuDungLai > 0 && (
+                                    <span className="bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-semibold" title="Được mở khóa để thay">
+                                      Dùng lại: {row.rsSuDungLai}
+                                    </span>
+                                  )}
+                                  {row.rsThuHoi > 0 && (
+                                    <span className="bg-rose-100 text-rose-800 px-1.5 py-0.2 rounded font-semibold" title="Giữ nguyên thu hồi">
+                                      Thu hồi: {row.rsThuHoi}
+                                    </span>
+                                  )}
+                                  {row.rsKhac > 0 && (
+                                    <span className="bg-slate-100 text-slate-700 px-1.5 py-0.2 rounded font-semibold" title="Trường hợp khác">
+                                      Khác: {row.rsKhac}
+                                    </span>
+                                  )}
+                                  {row.rsChuaRaSoat > 0 && (
+                                    <span className="bg-amber-100 text-amber-800 px-1.5 py-0.2 rounded font-semibold" title="Chưa có kết quả rà soát">
+                                      Chưa RS: {row.rsChuaRaSoat}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 font-mono text-[11px]">—</span>
+                            )}
+                          </td>
+
                           <td className="py-2.5 px-3 text-right font-mono font-bold text-indigo-700">{row.tongGioVuot}h</td>
                           <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-900">
                             {row.tongSlVuot} kWh
@@ -2500,7 +2909,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={11} className="py-8 text-center text-slate-400 text-xs">
+                        <td colSpan={13} className="py-8 text-center text-slate-400 text-xs">
                           Chưa có dữ liệu báo cáo nào trong sheet 963.
                         </td>
                       </tr>
@@ -2520,6 +2929,24 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                           {reportTotals.tyLeChung}%
                         </td>
                         <td className="py-3 px-3 text-right font-mono">{reportTotals.chuaThay}</td>
+                        {/* Tổng NLMT */}
+                        <td className="py-3 px-3 text-center font-mono text-amber-950 bg-amber-100 border-x border-amber-300">
+                          <div className="font-bold">{reportTotals.nlmtDaThay} / {reportTotals.nlmtTong} ({reportTotals.nlmtTyLeChung}%)</div>
+                          <div className="text-[10px] normal-case text-amber-800 font-normal">Còn lại: {reportTotals.nlmtChuaThay} KH</div>
+                        </td>
+                        {/* Tổng Rà Soát */}
+                        <td className="py-3 px-3 text-left font-mono text-indigo-950 bg-indigo-100 border-r border-indigo-300">
+                          <div className="font-bold">Đã RS: {reportTotals.rsDaRaSoat} / {reportTotals.thuHoiScopeTong} ({reportTotals.rsTyLeChung}%)</div>
+                          <div className="text-[10px] normal-case text-indigo-800 font-normal flex flex-wrap gap-1 mt-0.5">
+                            <span>Dùng lại: <b>{reportTotals.rsSuDungLai}</b></span>
+                            <span>•</span>
+                            <span>Thu hồi: <b>{reportTotals.rsThuHoi}</b></span>
+                            <span>•</span>
+                            <span>Khác: <b>{reportTotals.rsKhac}</b></span>
+                            <span>•</span>
+                            <span>Chưa: <b>{reportTotals.rsChuaRaSoat}</b></span>
+                          </div>
+                        </td>
                         <td className="py-3 px-3 text-right font-mono text-indigo-900">{reportTotals.tongGioVuot}h</td>
                         <td className="py-3 px-3 text-right font-mono text-amber-950 font-black">{reportTotals.tongSlVuot} kWh</td>
                       </tr>
@@ -2544,6 +2971,696 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
               </span>
             </div>
           )}
+          </div>
+
+          {/* ========================================================= */}
+          {/* 2. KHỐI BÁO CÁO CHUYÊN ĐỀ: KHÁCH HÀNG NĂNG LƯỢNG MẶT TRỜI (NLMT = "x") */}
+          {/* ========================================================= */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <span className="p-2 rounded-xl bg-amber-100 text-amber-800">
+                  <Sun className="w-5 h-5 text-amber-600" />
+                </span>
+                <div>
+                  <h3 className="font-black text-slate-800 text-base uppercase flex items-center gap-2">
+                    <span>Báo Cáo Khách Hàng Năng Lượng Mặt Trời (Cột NLMT = "x")</span>
+                    <span className="bg-amber-100 text-amber-800 font-bold text-xs px-2 py-0.5 rounded-full normal-case">
+                      {nlmtCustomerList.length} khách hàng
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Theo dõi chi tiết số lượng khách hàng NLMT đã thay xong, tỷ lệ hoàn thành và danh sách cần xử lý theo từng đợt & khu vực.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowNlmtDetails(prev => !prev)}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-xl border transition-all cursor-pointer flex items-center gap-1.5 ${
+                    showNlmtDetails 
+                      ? 'bg-amber-100 text-amber-900 border-amber-300' 
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>{showNlmtDetails ? 'Ẩn danh sách từng KH' : 'Xem danh sách từng KH'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => toggleSection('reportNlmt')}
+                  className="p-1.5 hover:bg-slate-100 text-slate-500 hover:text-slate-800 rounded-lg transition-colors flex items-center gap-1 cursor-pointer shrink-0"
+                  title={collapsedSections.reportNlmt ? "Thu gọn báo cáo NLMT" : "Bung ra báo cáo NLMT"}
+                >
+                  <span className="text-[10px] text-slate-400 font-normal hidden sm:inline">
+                    {collapsedSections.reportNlmt ? 'Thu gọn' : 'Bung ra'}
+                  </span>
+                  {collapsedSections.reportNlmt ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            {collapsedSections.reportNlmt ? (
+              <div className="space-y-4">
+                {/* Cards tóm tắt NLMT */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="p-3 rounded-xl bg-amber-50/60 border border-amber-200/80">
+                    <span className="text-[10px] font-bold uppercase text-amber-800">Tổng KH NLMT</span>
+                    <div className="text-xl font-black text-amber-950 mt-1">{reportTotals.nlmtTong}</div>
+                    <span className="text-[10px] text-amber-700">Có đánh dấu "x" cột NLMT</span>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-emerald-50/60 border border-emerald-200/80">
+                    <span className="text-[10px] font-bold uppercase text-emerald-700">Đã Thay Xong</span>
+                    <div className="text-xl font-black text-emerald-800 mt-1 flex items-baseline gap-1">
+                      <span>{reportTotals.nlmtDaThay}</span>
+                      <span className="text-xs font-bold text-emerald-600">({reportTotals.nlmtTyLeChung}%)</span>
+                    </div>
+                    <span className="text-[10px] text-emerald-600">Tỷ lệ hoàn thành</span>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                    <span className="text-[10px] font-bold uppercase text-slate-600">Còn Lại Chưa Thay</span>
+                    <div className="text-xl font-black text-slate-800 mt-1">{reportTotals.nlmtChuaThay}</div>
+                    <span className="text-[10px] text-slate-500">Cần tiếp tục thực hiện</span>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-indigo-50/60 border border-indigo-200/80">
+                    <span className="text-[10px] font-bold uppercase text-indigo-700">Tỷ Lệ Đạt Được</span>
+                    <div className="text-xl font-black text-indigo-900 mt-1">{reportTotals.nlmtTyLeChung}%</div>
+                    <span className="text-[10px] text-indigo-600">Tiến độ thay công tơ NLMT</span>
+                  </div>
+                </div>
+
+                {/* Bảng tổng hợp theo Đợt & Khu vực cho NLMT */}
+                <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-amber-100/60 text-amber-950 font-bold border-b border-amber-200 uppercase text-[10px]">
+                        <th className="py-2.5 px-3 w-10 text-center">STT</th>
+                        <th className="py-2.5 px-3">Đợt Thực Hiện</th>
+                        <th className="py-2.5 px-3">Khu Vực</th>
+                        <th className="py-2.5 px-3 text-right">Tổng KH NLMT</th>
+                        <th className="py-2.5 px-3 text-right text-emerald-700">Đã Thay Xong</th>
+                        <th className="py-2.5 px-3 text-center">Tỷ Lệ (%)</th>
+                        <th className="py-2.5 px-3 text-right text-amber-900">Còn Lại Chưa Thay</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {reportData.filter(r => r.nlmtTong > 0).length > 0 ? (
+                        reportData.filter(r => r.nlmtTong > 0).map((r, idx) => (
+                          <tr key={`nlmt_${r.dot}_${r.kv}`} className="hover:bg-amber-50/50 transition-colors">
+                            <td className="py-2.5 px-3 text-center text-slate-400 font-mono text-[11px]">{idx + 1}</td>
+                            <td className="py-2.5 px-3 font-bold text-slate-900">Đợt {r.dot}</td>
+                            <td className="py-2.5 px-3 font-bold text-amber-900">{r.kv}</td>
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-800">{r.nlmtTong}</td>
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-700">{r.nlmtDaThay}</td>
+                            <td className="py-2.5 px-3 text-center">
+                              <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                                r.nlmtTyLe === 100
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : r.nlmtTyLe >= 50
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-slate-100 text-slate-700'
+                              }`}>
+                                {r.nlmtTyLe}%
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-900">{r.nlmtChuaThay}</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={7} className="py-6 text-center text-slate-400 text-xs">
+                            Không có khách hàng NLMT nào trong danh sách hiện tại.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                    {reportData.filter(r => r.nlmtTong > 0).length > 0 && (
+                      <tfoot>
+                        <tr className="bg-amber-100/90 border-t-2 border-amber-300 font-bold text-amber-950 text-xs uppercase">
+                          <td colSpan={3} className="py-2.5 px-3 text-right">TỔNG CỘNG KHÁCH HÀNG NLMT:</td>
+                          <td className="py-2.5 px-3 text-right font-mono">{reportTotals.nlmtTong}</td>
+                          <td className="py-2.5 px-3 text-right font-mono text-emerald-800">{reportTotals.nlmtDaThay}</td>
+                          <td className="py-2.5 px-3 text-center font-mono text-emerald-800">{reportTotals.nlmtTyLeChung}%</td>
+                          <td className="py-2.5 px-3 text-right font-mono text-amber-950">{reportTotals.nlmtChuaThay}</td>
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
+                </div>
+
+                {/* Danh sách chi tiết từng khách hàng NLMT (Bật/Tắt) */}
+                {showNlmtDetails && (
+                  <div className="mt-4 p-4 rounded-xl border border-amber-200 bg-amber-50/20 space-y-3 animate-in fade-in duration-200">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-xs font-bold text-amber-900 mr-1">Lọc trạng thái:</span>
+                        <button
+                          type="button"
+                          onClick={() => { setNlmtFilter('all'); setNlmtPage(1); }}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            nlmtFilter === 'all' ? 'bg-amber-600 text-white shadow-xs' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                          }`}
+                        >
+                          Tất cả ({nlmtCustomerList.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setNlmtFilter('completed'); setNlmtPage(1); }}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            nlmtFilter === 'completed' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50'
+                          }`}
+                        >
+                          Đã thay xong ({reportTotals.nlmtDaThay})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setNlmtFilter('pending'); setNlmtPage(1); }}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            nlmtFilter === 'pending' ? 'bg-amber-600 text-white shadow-xs' : 'bg-white text-amber-800 border border-amber-200 hover:bg-amber-50'
+                          }`}
+                        >
+                          Chưa thay ({reportTotals.nlmtChuaThay})
+                        </button>
+                      </div>
+
+                      {/* Ô tìm kiếm khách hàng NLMT */}
+                      <div className="relative w-full sm:w-64">
+                        <input
+                          type="text"
+                          value={nlmtSearch}
+                          onChange={(e) => { setNlmtSearch(e.target.value); setNlmtPage(1); }}
+                          placeholder="Tìm Mã KH, Tên KH, KV..."
+                          className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-amber-500 bg-white"
+                        />
+                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                      </div>
+                    </div>
+
+                    {/* Bảng chi tiết NLMT */}
+                    <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-2xs">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200 text-[10px] uppercase">
+                              <th className="py-2 px-3 w-10 text-center">STT</th>
+                              <th className="py-2 px-3">Mã KH</th>
+                              <th className="py-2 px-3">Tên Khách Hàng</th>
+                              <th className="py-2 px-3">Địa Chỉ</th>
+                              <th className="py-2 px-3">Khu Vực</th>
+                              <th className="py-2 px-3">Đợt</th>
+                              <th className="py-2 px-3 text-center">HSN</th>
+                              <th className="py-2 px-3 text-center">Trạng Thái</th>
+                              <th className="py-2 px-3">NV / Ngày giờ</th>
+                              <th className="py-2 px-3 text-right">SL Vượt</th>
+                              <th className="py-2 px-3 text-center">Thao Tác</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {filteredNlmtCustomers.length > 0 ? (
+                              filteredNlmtCustomers.slice((nlmtPage - 1) * PAGE_SIZE, nlmtPage * PAGE_SIZE).map((c, idx) => {
+                                const stt = (nlmtPage - 1) * PAGE_SIZE + idx + 1;
+                                const isDone = Boolean(c.ketQua && c.ketQua.toLowerCase().includes('xong'));
+                                const hsnVal = c.hsn !== undefined && c.hsn !== '' ? c.hsn : resolveHsn(c);
+                                return (
+                                  <tr key={c.maKh} className="hover:bg-amber-50/50 transition-colors">
+                                    <td className="py-2 px-3 text-center text-slate-400 font-mono text-[11px]">{stt}</td>
+                                    <td className="py-2 px-3 font-mono font-bold text-amber-900">{c.maKh}</td>
+                                    <td className="py-2 px-3 font-medium text-slate-800">{c.tenKh}</td>
+                                    <td className="py-2 px-3 text-slate-600 truncate max-w-xs" title={c.diaChi}>{c.diaChi}</td>
+                                    <td className="py-2 px-3 font-semibold text-slate-700">{c.kv}</td>
+                                    <td className="py-2 px-3 font-mono text-slate-600">Đợt {c.dot}</td>
+                                    <td className="py-2 px-3 text-center font-mono font-bold text-amber-900">{hsnVal}</td>
+                                    <td className="py-2 px-3 text-center">
+                                      {isDone ? (
+                                        <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                                          <Check className="w-3 h-3" /> Đã thay
+                                        </span>
+                                      ) : (
+                                        <span className="bg-amber-100 text-amber-900 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                                          Chưa thay
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td className="py-2 px-3 text-[11px] text-slate-600">
+                                      {isDone ? `${c.nv || '—'} (${c.ngayGio || '—'})` : '—'}
+                                    </td>
+                                    <td className="py-2 px-3 text-right font-mono font-bold text-amber-900">
+                                      {c.slVuot ? `${c.slVuot} kWh` : '—'}
+                                    </td>
+                                    <td className="py-2 px-3 text-center">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSelectCustomerFromReport(c)}
+                                        className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white text-[11px] font-bold rounded-lg shadow-2xs transition-all cursor-pointer"
+                                        title="Chuyển sang Tab 1 để cập nhật / thay công tơ cho khách hàng này"
+                                      >
+                                        Chọn xử lý ➔
+                                      </button>
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            ) : (
+                              <tr>
+                                <td colSpan={11} className="py-6 text-center text-slate-400 text-xs">
+                                  Không tìm thấy khách hàng NLMT nào phù hợp với bộ lọc.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Phân trang NLMT */}
+                      {Math.ceil(filteredNlmtCustomers.length / PAGE_SIZE) > 1 && (
+                        <div className="flex items-center justify-between px-4 py-2 bg-slate-50 border-t border-slate-200 text-xs">
+                          <span className="text-slate-500 text-[11px]">
+                            Trang <b>{nlmtPage}</b> / <b>{Math.ceil(filteredNlmtCustomers.length / PAGE_SIZE)}</b> ({filteredNlmtCustomers.length} khách hàng NLMT)
+                          </span>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setNlmtPage(p => Math.max(1, p - 1))}
+                              disabled={nlmtPage <= 1}
+                              className="px-2 py-1 rounded bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed text-[11px] font-bold"
+                            >
+                              Trước
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setNlmtPage(p => Math.min(Math.ceil(filteredNlmtCustomers.length / PAGE_SIZE), p + 1))}
+                              disabled={nlmtPage >= Math.ceil(filteredNlmtCustomers.length / PAGE_SIZE)}
+                              className="px-2 py-1 rounded bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed text-[11px] font-bold"
+                            >
+                              Sau
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div
+                onClick={() => toggleSection('reportNlmt')}
+                className="p-3 bg-slate-50 hover:bg-amber-50/50 rounded-xl border border-dashed border-slate-200 flex items-center justify-between cursor-pointer transition-colors text-xs"
+              >
+                <div className="flex items-center gap-2 truncate">
+                  <Sun className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span className="font-semibold text-slate-700 truncate">
+                    Báo cáo tiến độ khách hàng NLMT đang thu gọn ({reportTotals.nlmtDaThay}/{reportTotals.nlmtTong} KH - {reportTotals.nlmtTyLeChung}%)
+                  </span>
+                </div>
+                <span className="text-[11px] text-amber-700 font-bold hover:underline shrink-0 ml-2">
+                  Bung ra ▾
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* ========================================================= */}
+          {/* 3. KHỐI BÁO CÁO CHUYÊN ĐỀ: KẾT QUẢ RÀ SOÁT KHÁCH HÀNG THU HỒI (CỘT KQRASOAT) */}
+          {/* ========================================================= */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <span className="p-2 rounded-xl bg-indigo-100 text-indigo-800">
+                  <ClipboardCheck className="w-5 h-5 text-indigo-600" />
+                </span>
+                <div>
+                  <h3 className="font-black text-slate-800 text-base uppercase flex items-center gap-2">
+                    <span>Báo Cáo Kết Quả Rà Soát Khách Hàng Thu Hồi (Cột KQRaSoat)</span>
+                    <span className="bg-indigo-100 text-indigo-900 font-bold text-xs px-2 py-0.5 rounded-full normal-case">
+                      {thuHoiReviewCustomerList.length} khách hàng
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Thống kê tỷ lệ rà soát và cơ cấu xử lý (Sử dụng lại để mở khóa thay, Thu hồi giữ nguyên, Khác, hoặc Chưa rà soát) theo từng đợt & khu vực.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowRaSoatDetails(prev => !prev)}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-xl border transition-all cursor-pointer flex items-center gap-1.5 ${
+                    showRaSoatDetails 
+                      ? 'bg-indigo-100 text-indigo-900 border-indigo-300' 
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>{showRaSoatDetails ? 'Ẩn danh sách từng KH' : 'Xem danh sách từng KH'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => toggleSection('reportRaSoat')}
+                  className="p-1.5 hover:bg-slate-100 text-slate-500 hover:text-slate-800 rounded-lg transition-colors flex items-center gap-1 cursor-pointer shrink-0"
+                  title={collapsedSections.reportRaSoat ? "Thu gọn báo cáo rà soát thu hồi" : "Bung ra báo cáo rà soát thu hồi"}
+                >
+                  <span className="text-[10px] text-slate-400 font-normal hidden sm:inline">
+                    {collapsedSections.reportRaSoat ? 'Thu gọn' : 'Bung ra'}
+                  </span>
+                  {collapsedSections.reportRaSoat ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            {collapsedSections.reportRaSoat ? (
+              <div className="space-y-4">
+                {/* Cards tóm tắt Rà Soát */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                    <span className="text-[10px] font-bold uppercase text-slate-600">Tổng Diện Thu Hồi</span>
+                    <div className="text-xl font-black text-slate-900 mt-1">{reportTotals.thuHoiScopeTong}</div>
+                    <span className="text-[10px] text-slate-400">KH không sử dụng / có KQ</span>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-indigo-50/60 border border-indigo-200/80">
+                    <span className="text-[10px] font-bold uppercase text-indigo-700">Đã Rà Soát</span>
+                    <div className="text-xl font-black text-indigo-900 mt-1 flex items-baseline gap-1">
+                      <span>{reportTotals.rsDaRaSoat}</span>
+                      <span className="text-xs font-bold text-indigo-600">({reportTotals.rsTyLeChung}%)</span>
+                    </div>
+                    <span className="text-[10px] text-indigo-600">Đã cập nhật KQRaSoat</span>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200">
+                    <span className="text-[10px] font-bold uppercase text-emerald-800">Sử Dụng Lại</span>
+                    <div className="text-xl font-black text-emerald-900 mt-1">{reportTotals.rsSuDungLai}</div>
+                    <span className="text-[10px] text-emerald-700">Đã mở khóa, được phép thay</span>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-rose-50/60 border border-rose-200/80">
+                    <span className="text-[10px] font-bold uppercase text-rose-700">Thu Hồi (Giữ Nguyên)</span>
+                    <div className="text-xl font-black text-rose-800 mt-1">{reportTotals.rsThuHoi}</div>
+                    <span className="text-[10px] text-rose-600">Xác nhận không sử dụng</span>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-amber-50/50 border border-amber-200/60">
+                    <span className="text-[10px] font-bold uppercase text-amber-800">Khác</span>
+                    <div className="text-xl font-black text-amber-900 mt-1">{reportTotals.rsKhac}</div>
+                    <span className="text-[10px] text-amber-700">Có kèm nội dung diễn giải</span>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-amber-50/80 border border-amber-300">
+                    <span className="text-[10px] font-bold uppercase text-amber-900">Chưa Rà Soát</span>
+                    <div className="text-xl font-black text-amber-950 mt-1">{reportTotals.rsChuaRaSoat}</div>
+                    <span className="text-[10px] text-amber-800 font-medium">Cần hoàn tất rà soát</span>
+                  </div>
+                </div>
+
+                {/* Bảng tổng hợp theo Đợt & Khu vực cho Rà soát thu hồi */}
+                <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-indigo-100/60 text-indigo-950 font-bold border-b border-indigo-200 uppercase text-[10px]">
+                        <th className="py-2.5 px-3 w-10 text-center">STT</th>
+                        <th className="py-2.5 px-3">Đợt Thực Hiện</th>
+                        <th className="py-2.5 px-3">Khu Vực</th>
+                        <th className="py-2.5 px-3 text-right">Tổng Thu Hồi</th>
+                        <th className="py-2.5 px-3 text-right text-indigo-700">Đã Rà Soát</th>
+                        <th className="py-2.5 px-3 text-center">Tỷ Lệ RS (%)</th>
+                        <th className="py-2.5 px-3 text-right text-emerald-700">Sử Dụng Lại</th>
+                        <th className="py-2.5 px-3 text-right text-rose-700">Thu Hồi</th>
+                        <th className="py-2.5 px-3 text-right text-slate-700">Khác</th>
+                        <th className="py-2.5 px-3 text-right text-amber-900">Chưa Rà Soát</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {reportData.filter(r => r.thuHoiScopeTong > 0).length > 0 ? (
+                        reportData.filter(r => r.thuHoiScopeTong > 0).map((r, idx) => (
+                          <tr key={`rs_${r.dot}_${r.kv}`} className="hover:bg-indigo-50/40 transition-colors">
+                            <td className="py-2.5 px-3 text-center text-slate-400 font-mono text-[11px]">{idx + 1}</td>
+                            <td className="py-2.5 px-3 font-bold text-slate-900">Đợt {r.dot}</td>
+                            <td className="py-2.5 px-3 font-bold text-amber-900">{r.kv}</td>
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-800">{r.thuHoiScopeTong}</td>
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-indigo-800">{r.rsDaRaSoat}</td>
+                            <td className="py-2.5 px-3 text-center">
+                              <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                                r.rsTyLe === 100
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : r.rsTyLe >= 50
+                                  ? 'bg-indigo-100 text-indigo-800'
+                                  : 'bg-slate-100 text-slate-700'
+                              }`}>
+                                {r.rsTyLe}%
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-700">{r.rsSuDungLai}</td>
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-rose-600">{r.rsThuHoi}</td>
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-700">{r.rsKhac}</td>
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-900">{r.rsChuaRaSoat}</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={10} className="py-6 text-center text-slate-400 text-xs">
+                            Không có khách hàng nào thuộc diện thu hồi trong danh sách hiện tại.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                    {reportData.filter(r => r.thuHoiScopeTong > 0).length > 0 && (
+                      <tfoot>
+                        <tr className="bg-indigo-100/90 border-t-2 border-indigo-300 font-bold text-indigo-950 text-xs uppercase">
+                          <td colSpan={3} className="py-2.5 px-3 text-right">TỔNG CỘNG DIỆN THU HỒI:</td>
+                          <td className="py-2.5 px-3 text-right font-mono">{reportTotals.thuHoiScopeTong}</td>
+                          <td className="py-2.5 px-3 text-right font-mono text-indigo-900">{reportTotals.rsDaRaSoat}</td>
+                          <td className="py-2.5 px-3 text-center font-mono text-indigo-900">{reportTotals.rsTyLeChung}%</td>
+                          <td className="py-2.5 px-3 text-right font-mono text-emerald-800">{reportTotals.rsSuDungLai}</td>
+                          <td className="py-2.5 px-3 text-right font-mono text-rose-700">{reportTotals.rsThuHoi}</td>
+                          <td className="py-2.5 px-3 text-right font-mono text-slate-800">{reportTotals.rsKhac}</td>
+                          <td className="py-2.5 px-3 text-right font-mono text-amber-950 font-black">{reportTotals.rsChuaRaSoat}</td>
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
+                </div>
+
+                {/* Danh sách chi tiết từng khách hàng diện thu hồi & KQ rà soát (Bật/Tắt) */}
+                {showRaSoatDetails && (
+                  <div className="mt-4 p-4 rounded-xl border border-indigo-200 bg-indigo-50/20 space-y-3 animate-in fade-in duration-200">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-xs font-bold text-indigo-900 mr-1">Lọc kết quả:</span>
+                        <button
+                          type="button"
+                          onClick={() => { setRaSoatFilter('all'); setRaSoatPage(1); }}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            raSoatFilter === 'all' ? 'bg-indigo-700 text-white shadow-xs' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                          }`}
+                        >
+                          Tất cả ({thuHoiReviewCustomerList.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setRaSoatFilter('chua'); setRaSoatPage(1); }}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            raSoatFilter === 'chua' ? 'bg-amber-600 text-white shadow-xs' : 'bg-white text-amber-800 border border-amber-300 hover:bg-amber-50'
+                          }`}
+                        >
+                          Chưa rà soát ({reportTotals.rsChuaRaSoat})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setRaSoatFilter('su_dung_lai'); setRaSoatPage(1); }}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            raSoatFilter === 'su_dung_lai' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-white text-emerald-700 border border-emerald-300 hover:bg-emerald-50'
+                          }`}
+                        >
+                          Sử dụng lại ({reportTotals.rsSuDungLai})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setRaSoatFilter('thu_hoi'); setRaSoatPage(1); }}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            raSoatFilter === 'thu_hoi' ? 'bg-rose-600 text-white shadow-xs' : 'bg-white text-rose-700 border border-rose-300 hover:bg-rose-50'
+                          }`}
+                        >
+                          Thu hồi ({reportTotals.rsThuHoi})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setRaSoatFilter('khac'); setRaSoatPage(1); }}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            raSoatFilter === 'khac' ? 'bg-slate-700 text-white shadow-xs' : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-50'
+                          }`}
+                        >
+                          Khác ({reportTotals.rsKhac})
+                        </button>
+                      </div>
+
+                      {/* Ô tìm kiếm khách hàng diện thu hồi */}
+                      <div className="relative w-full sm:w-64">
+                        <input
+                          type="text"
+                          value={raSoatSearch}
+                          onChange={(e) => { setRaSoatSearch(e.target.value); setRaSoatPage(1); }}
+                          placeholder="Tìm Mã KH, Tên KH, Diễn giải..."
+                          className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 bg-white"
+                        />
+                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                      </div>
+                    </div>
+
+                    {/* Bảng chi tiết Rà Soát */}
+                    <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-2xs">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200 text-[10px] uppercase">
+                              <th className="py-2 px-3 w-10 text-center">STT</th>
+                              <th className="py-2 px-3">Mã KH</th>
+                              <th className="py-2 px-3">Tên Khách Hàng</th>
+                              <th className="py-2 px-3">Khu Vực</th>
+                              <th className="py-2 px-3">Đợt</th>
+                              <th className="py-2 px-3">Cột KSuDung</th>
+                              <th className="py-2 px-3">Kết Quả Rà Soát (KQRaSoat)</th>
+                              <th className="py-2 px-3 text-center">Quy Định Thay</th>
+                              <th className="py-2 px-3 text-center">Trạng Thái Thay</th>
+                              <th className="py-2 px-3 text-center">Thao Tác</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {filteredRaSoatCustomers.length > 0 ? (
+                              filteredRaSoatCustomers.slice((raSoatPage - 1) * PAGE_SIZE, raSoatPage * PAGE_SIZE).map((c, idx) => {
+                                const stt = (raSoatPage - 1) * PAGE_SIZE + idx + 1;
+                                const isDone = Boolean(c.ketQua && c.ketQua.toLowerCase().includes('xong'));
+                                const hasKq = Boolean(c.kqRaSoat && c.kqRaSoat.trim());
+                                const isThuHoiBlocked = Boolean(c.kSuDung && c.kSuDung.toLowerCase().includes('thu hồi'));
+                                return (
+                                  <tr key={c.maKh} className="hover:bg-indigo-50/40 transition-colors">
+                                    <td className="py-2 px-3 text-center text-slate-400 font-mono text-[11px]">{stt}</td>
+                                    <td className="py-2 px-3 font-mono font-bold text-amber-900">{c.maKh}</td>
+                                    <td className="py-2 px-3 font-medium text-slate-800">{c.tenKh}</td>
+                                    <td className="py-2 px-3 font-semibold text-slate-700">{c.kv}</td>
+                                    <td className="py-2 px-3 font-mono text-slate-600">Đợt {c.dot}</td>
+                                    <td className="py-2 px-3">
+                                      {c.kSuDung ? (
+                                        <span className="bg-rose-100 text-rose-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                                          {c.kSuDung}
+                                        </span>
+                                      ) : (
+                                        <span className="text-slate-400 font-mono text-[11px]">(Đã xóa rỗng)</span>
+                                      )}
+                                    </td>
+                                    <td className="py-2 px-3 font-medium">
+                                      {hasKq ? (
+                                        <span className={`px-2 py-0.5 rounded-md text-[11px] font-bold ${
+                                          c.kqRaSoat!.includes('Sử dụng lại') 
+                                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' 
+                                            : c.kqRaSoat!.includes('Thu hồi')
+                                            ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                                            : 'bg-indigo-100 text-indigo-800 border border-indigo-300'
+                                        }`}>
+                                          {c.kqRaSoat}
+                                        </span>
+                                      ) : (
+                                        <span className="text-amber-700 bg-amber-100 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                                          Chưa rà soát
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td className="py-2 px-3 text-center">
+                                      {isThuHoiBlocked ? (
+                                        <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
+                                          Không được thay
+                                        </span>
+                                      ) : (
+                                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                                          Được phép thay
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td className="py-2 px-3 text-center">
+                                      {isDone ? (
+                                        <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                                          <Check className="w-3 h-3" /> Đã xong
+                                        </span>
+                                      ) : (
+                                        <span className="text-slate-400 text-[11px]">Chưa thay</span>
+                                      )}
+                                    </td>
+                                    <td className="py-2 px-3 text-center">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSelectCustomerFromReport(c)}
+                                        className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-[11px] font-bold rounded-lg shadow-2xs transition-all cursor-pointer"
+                                        title="Chuyển sang Tab 1 để rà soát hoặc thay thế cho khách hàng này"
+                                      >
+                                        Rà soát / Xử lý ➔
+                                      </button>
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            ) : (
+                              <tr>
+                                <td colSpan={10} className="py-6 text-center text-slate-400 text-xs">
+                                  Không tìm thấy khách hàng nào phù hợp với bộ lọc rà soát.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Phân trang Rà Soát */}
+                      {Math.ceil(filteredRaSoatCustomers.length / PAGE_SIZE) > 1 && (
+                        <div className="flex items-center justify-between px-4 py-2 bg-slate-50 border-t border-slate-200 text-xs">
+                          <span className="text-slate-500 text-[11px]">
+                            Trang <b>{raSoatPage}</b> / <b>{Math.ceil(filteredRaSoatCustomers.length / PAGE_SIZE)}</b> ({filteredRaSoatCustomers.length} khách hàng)
+                          </span>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setRaSoatPage(p => Math.max(1, p - 1))}
+                              disabled={raSoatPage <= 1}
+                              className="px-2 py-1 rounded bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed text-[11px] font-bold"
+                            >
+                              Trước
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setRaSoatPage(p => Math.min(Math.ceil(filteredRaSoatCustomers.length / PAGE_SIZE), p + 1))}
+                              disabled={raSoatPage >= Math.ceil(filteredRaSoatCustomers.length / PAGE_SIZE)}
+                              className="px-2 py-1 rounded bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed text-[11px] font-bold"
+                            >
+                              Sau
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div
+                onClick={() => toggleSection('reportRaSoat')}
+                className="p-3 bg-slate-50 hover:bg-indigo-50/50 rounded-xl border border-dashed border-slate-200 flex items-center justify-between cursor-pointer transition-colors text-xs"
+              >
+                <div className="flex items-center gap-2 truncate">
+                  <ClipboardCheck className="w-4 h-4 text-indigo-600 shrink-0" />
+                  <span className="font-semibold text-slate-700 truncate">
+                    Báo cáo kết quả rà soát khách hàng thu hồi đang thu gọn ({reportTotals.rsDaRaSoat}/{reportTotals.thuHoiScopeTong} KH đã rà soát - {reportTotals.rsTyLeChung}%)
+                  </span>
+                </div>
+                <span className="text-[11px] text-indigo-700 font-bold hover:underline shrink-0 ml-2">
+                  Bung ra ▾
+                </span>
+              </div>
+            )}
           </div>
         </div>
       )}
