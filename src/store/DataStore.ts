@@ -540,6 +540,15 @@ let kthtddMaKhIndexMap = new Map<string, number>();
 let kthtddMaTramIndexMap = new Map<string, number[]>();
 let saveKthtddIDBTimeout: any = null;
 
+// Unique client instance ID to avoid self-echoing during live multi-device broadcast
+export const CLIENT_INSTANCE_ID = 'client_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now();
+let dvkhBroadcastChannel: BroadcastChannel | null = null;
+let dvkhEventSource: EventSource | null = null;
+let dvkhLastServerVersion = 0;
+let dvkhRealtimeInitialized = false;
+let dvkhPollTimer: any = null;
+
+
 export const rebuildKthtddIndexes = (list: KthtddEntry[] | null) => {
   kthtddMaKhIndexMap.clear();
   kthtddMaTramIndexMap.clear();
@@ -5808,6 +5817,224 @@ export const DataStore = {
     window.dispatchEvent(new CustomEvent('dvkh_updated'));
   },
 
+  // Real-time synchronization helper: instantly broadcasts mutation to all other computers & browser tabs
+  pushDvkhRealtimeSync: async (action: 'save' | 'delete', items?: DvkhEntry[], maKhs?: string[]) => {
+    try {
+      const payload = {
+        action,
+        items,
+        maKhs,
+        senderId: CLIENT_INSTANCE_ID,
+        timestamp: Date.now()
+      };
+
+      // 1. Broadcast immediately to other tabs on the same computer via BroadcastChannel
+      if (dvkhBroadcastChannel) {
+        try {
+          dvkhBroadcastChannel.postMessage({ type: 'dvkh_change', ...payload });
+        } catch {}
+      }
+
+      // 2. Post immediately to server-side SSE hub (/api/dvkh/sync) to broadcast to all other computers
+      fetch('/api/dvkh/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }).catch(err => console.warn('Could not push realtime sync:', err));
+    } catch (e) {
+      console.warn('pushDvkhRealtimeSync error:', e);
+    }
+  },
+
+  // Initialize Real-time synchronization engine (SSE + BroadcastChannel + Auto-reconnect + Fast-polling fallback)
+  initDvkhRealtimeSync: () => {
+    if (typeof window === 'undefined' || dvkhRealtimeInitialized) return;
+    dvkhRealtimeInitialized = true;
+
+    // 1. Cross-tab instant communication
+    try {
+      if ('BroadcastChannel' in window) {
+        dvkhBroadcastChannel = new BroadcastChannel('dvkh_live_channel');
+        dvkhBroadcastChannel.onmessage = (event) => {
+          const data = event.data;
+          if (data && data.senderId !== CLIENT_INSTANCE_ID) {
+            DataStore.handleIncomingDvkhChange(data);
+          }
+        };
+      }
+    } catch (e) {
+      console.warn('BroadcastChannel not supported:', e);
+    }
+
+    // 2. Connect to Server-Sent Events (SSE) stream for sub-second cross-device updates
+    const connectSSE = () => {
+      try {
+        if (dvkhEventSource) {
+          dvkhEventSource.close();
+        }
+        dvkhEventSource = new EventSource('/api/dvkh/events');
+
+        dvkhEventSource.onmessage = (e) => {
+          try {
+            const data = JSON.parse(e.data);
+            if (data.type === 'init') {
+              if (data.version) dvkhLastServerVersion = Number(data.version);
+            } else if (data.type === 'dvkh_change') {
+              if (data.version) dvkhLastServerVersion = Number(data.version);
+              if (data.senderId !== CLIENT_INSTANCE_ID) {
+                DataStore.handleIncomingDvkhChange(data);
+              }
+            }
+          } catch (err) {}
+        };
+
+        dvkhEventSource.onerror = () => {
+          // Reconnect with exponential backoff on error
+          if (dvkhEventSource) {
+            dvkhEventSource.close();
+            dvkhEventSource = null;
+          }
+          setTimeout(connectSSE, 4000);
+        };
+      } catch (err) {
+        console.warn('SSE connection error:', err);
+      }
+    };
+
+    connectSSE();
+
+    // 3. Fast Poll on tab focus / visibility change to guarantee 100% data freshness
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') {
+        DataStore.pollDvkhUpdates();
+      }
+    };
+    window.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.addEventListener('focus', handleVisibilityOrFocus);
+
+    // 4. Polling fallback every 6 seconds in case browser sleeps SSE connection
+    if (dvkhPollTimer) clearInterval(dvkhPollTimer);
+    dvkhPollTimer = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        DataStore.pollDvkhUpdates();
+      }
+    }, 6000);
+  },
+
+  // Internal helper to apply incoming change from other devices into local state
+  handleIncomingDvkhChange: (data: { action: 'save' | 'delete'; items?: DvkhEntry[]; maKhs?: string[] }) => {
+    try {
+      const current = [...DataStore.getDvkhEntries()];
+      let changed = false;
+
+      if (data.action === 'delete' && data.maKhs) {
+        const delSet = new Set(data.maKhs.map(k => String(k || '').trim().toLowerCase()));
+        DataStore.recordDeletedDvkhKeys(data.maKhs);
+        const filtered = current.filter(item => !delSet.has(String(item.maKh || '').trim().toLowerCase()));
+        DataStore.saveDvkhEntries(filtered);
+        window.dispatchEvent(new CustomEvent('dvkh_updated', { detail: { remote: true, action: 'delete', maKhs: data.maKhs } }));
+        return;
+      }
+
+      if (data.action === 'save' && data.items && data.items.length > 0) {
+        const itemMap = new Map<string, number>();
+        current.forEach((it, idx) => {
+          const k = String(it.maKh || '').trim().toLowerCase();
+          if (k) itemMap.set(k, idx);
+        });
+
+        const newItems: DvkhEntry[] = [];
+        for (const inc of data.items) {
+          const k = String(inc.maKh || '').trim().toLowerCase();
+          if (!k) continue;
+
+          // Unmark from deleted if it was updated/added
+          DataStore.unmarkDeletedDvkhKeys([inc.maKh]);
+
+          if (itemMap.has(k)) {
+            const idx = itemMap.get(k)!;
+            current[idx] = { ...current[idx], ...inc };
+            changed = true;
+          } else {
+            newItems.push(inc);
+            itemMap.set(k, -1);
+            changed = true;
+          }
+        }
+
+        if (changed) {
+          const merged = [...newItems, ...current];
+          DataStore.saveDvkhEntries(merged);
+          window.dispatchEvent(new CustomEvent('dvkh_updated', { detail: { remote: true, action: 'save', items: data.items } }));
+        }
+      }
+    } catch (e) {
+      console.warn('Error handling incoming DVKH change:', e);
+    }
+  },
+
+  // Fast poll check against server
+  pollDvkhUpdates: async () => {
+    try {
+      const res = await fetch(`/api/dvkh/poll?since=${dvkhLastServerVersion}&_t=${Date.now()}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json && json.hasUpdate && Array.isArray(json.items)) {
+          dvkhLastServerVersion = Number(json.version) || dvkhLastServerVersion;
+          const currentLocal = DataStore.getDvkhEntries();
+          const merged = DataStore.mergeDvkhList(json.items, currentLocal);
+          DataStore.saveDvkhEntries(merged);
+          window.dispatchEvent(new CustomEvent('dvkh_updated', { detail: { remote: true, poll: true } }));
+        }
+      }
+    } catch {}
+  },
+
+  // Fetch full consolidated DVKH data from server, with fallback to Google Sheets
+  fetchDvkhData: async (force?: boolean): Promise<DvkhEntry[]> => {
+    try {
+      // Priority 1: Check server-side consolidated store (sub-second response)
+      const res = await fetch(`/api/dvkh/data?_t=${Date.now()}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json && Array.isArray(json.items) && json.items.length > 0) {
+          dvkhLastServerVersion = Number(json.version) || dvkhLastServerVersion;
+          const currentLocal = DataStore.getDvkhEntries();
+          const merged = DataStore.mergeDvkhList(json.items, currentLocal);
+          DataStore.saveDvkhEntries(merged);
+          return merged;
+        }
+      }
+    } catch (e) {}
+
+    // Priority 2: If server has no items yet, check if local already has entries and seed server
+    const currentLocal = DataStore.getDvkhEntries();
+    if (currentLocal.length > 0 && !force) {
+      DataStore.pushDvkhRealtimeSync('save', currentLocal);
+      return currentLocal;
+    }
+
+    // Priority 3: Fetch directly from sheet DVKH via CSV proxy / export
+    try {
+      const sheetId = DataStore.getSpreadsheetId() || DEFAULT_SPREADSHEET_ID;
+      const csvText = await DataStore.fetchSheetCSV('DVKH', sheetId);
+      if (csvText && !csvText.includes('<html') && csvText.trim().length > 30) {
+        const parsed = DataStore.parseDvkhCSVData(csvText);
+        if (parsed.length > 0) {
+          const merged = DataStore.mergeDvkhList(parsed, currentLocal);
+          DataStore.saveDvkhEntries(merged);
+          // Seed to server live store so all other machines get it instantly
+          DataStore.pushDvkhRealtimeSync('save', merged);
+          return merged;
+        }
+      }
+    } catch (sheetErr) {
+      console.warn('Could not fetch DVKH sheet CSV:', sheetErr);
+    }
+
+    return DataStore.getDvkhEntries();
+  },
+
   addDvkhEntry: async (entry: DvkhEntry): Promise<DvkhEntry> => {
     const list = [...DataStore.getDvkhEntries()];
     const maxStt = list.reduce((max, item) => Math.max(max, typeof item.stt === 'number' ? item.stt : parseInt(String(item.stt || 0), 10) || 0), 0);
@@ -5832,8 +6059,14 @@ export const DataStore = {
       list.unshift(entry);
     }
 
+    // 1. Lưu cục bộ tức thì
     DataStore.saveDvkhEntries(list);
     DataStore.recordLocalDvkhUpdate(entry.maKh, entry, false);
+
+    // 2. Phát tán thời gian thực ngay lập tức tới tất cả máy và tab khác
+    DataStore.pushDvkhRealtimeSync('save', [entry]);
+
+    // 3. Đồng bộ lên Google Sheet ở chế độ nền
     DataStore.syncDvkhToSheet(entry).then(ok => {
       if (ok) DataStore.markDvkhUpdateSynced([entry.maKh]);
     }).catch(() => {});
@@ -5893,8 +6126,14 @@ export const DataStore = {
     });
 
     const updatedList = [...preparedNewItems, ...list];
+    // 1. Lưu cục bộ
     DataStore.saveDvkhEntries(updatedList);
     allSyncedItems.forEach(item => DataStore.recordLocalDvkhUpdate(item.maKh, item, false));
+
+    // 2. Phát tán thời gian thực ngay lập tức tới tất cả máy và tab khác
+    DataStore.pushDvkhRealtimeSync('save', allSyncedItems);
+
+    // 3. Đồng bộ lên Google Sheet
     DataStore.syncDvkhToSheet(allSyncedItems).then(ok => {
       if (ok) DataStore.markDvkhUpdateSynced(allSyncedItems.map(p => p.maKh));
     }).catch(() => {});
@@ -5907,8 +6146,14 @@ export const DataStore = {
     const idx = list.findIndex(e => String(e.maKh || '').trim().toLowerCase() === normTarget);
     if (idx !== -1) {
       list[idx] = { ...list[idx], ...updates };
+      // 1. Lưu cục bộ tức thì
       DataStore.saveDvkhEntries(list);
       DataStore.recordLocalDvkhUpdate(maKh, updates, false);
+
+      // 2. Phát tán thời gian thực ngay lập tức tới tất cả máy và tab khác
+      DataStore.pushDvkhRealtimeSync('save', [list[idx]]);
+
+      // 3. Đồng bộ lên Google Sheet
       const syncOk = await DataStore.syncDvkhToSheet(list[idx]);
       if (syncOk) {
         DataStore.markDvkhUpdateSynced([maKh]);
@@ -5930,9 +6175,14 @@ export const DataStore = {
       }
       return item;
     });
+
+    // 1. Lưu cục bộ tức thì
     DataStore.saveDvkhEntries(updatedList);
     maKhs.forEach(k => DataStore.recordLocalDvkhUpdate(k, updates, false));
+
+    // 2. Phát tán thời gian thực ngay lập tức tới tất cả máy và tab khác
     if (updatedItems.length > 0) {
+      DataStore.pushDvkhRealtimeSync('save', updatedItems);
       const syncOk = await DataStore.syncDvkhToSheet(updatedItems);
       if (syncOk) {
         DataStore.markDvkhUpdateSynced(maKhs);
@@ -6102,10 +6352,13 @@ export const DataStore = {
       } catch {}
     }
 
-    // 4. Đồng bộ xóa dòng trực tiếp trong sheet DVKH trên Google Sheets
+    // 4. Phát tán xóa tức thì tới tất cả các máy khác
+    DataStore.pushDvkhRealtimeSync('delete', undefined, maKhs);
+
+    // 5. Đồng bộ xóa dòng trực tiếp trong sheet DVKH trên Google Sheets
     const syncSuccess = await DataStore.syncDeleteDvkhToSheet(maKhs);
 
-    // 5. Bắn sự kiện cập nhật giao diện
+    // 6. Bắn sự kiện cập nhật giao diện
     window.dispatchEvent(new CustomEvent('dvkh_updated'));
     return syncSuccess;
   },

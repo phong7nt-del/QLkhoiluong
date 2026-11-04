@@ -109,6 +109,241 @@ async function startServer() {
     }
   });
 
+  // =========================================================================
+  // REAL-TIME DVKH LIVE STORE & MULTI-DEVICE INSTANT SYNCHRONIZATION HUB
+  // =========================================================================
+  const dvkhStorePath = path.join(process.cwd(), 'dvkh_live_store.json');
+  
+  interface DvkhLiveStore {
+    version: number;
+    items: any[];
+    updatedAt: string;
+  }
+
+  let dvkhStore: DvkhLiveStore = {
+    version: 1,
+    items: [],
+    updatedAt: new Date().toISOString()
+  };
+
+  const loadDvkhStore = () => {
+    try {
+      if (fs.existsSync(dvkhStorePath)) {
+        const raw = fs.readFileSync(dvkhStorePath, 'utf8');
+        const parsed = JSON.parse(raw);
+        if (parsed && Array.isArray(parsed.items)) {
+          dvkhStore = {
+            version: Number(parsed.version) || 1,
+            items: parsed.items,
+            updatedAt: parsed.updatedAt || new Date().toISOString()
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('Could not load dvkh_live_store.json:', e);
+    }
+  };
+  loadDvkhStore();
+
+  const saveDvkhStore = () => {
+    try {
+      fs.writeFileSync(dvkhStorePath, JSON.stringify(dvkhStore, null, 2), 'utf8');
+    } catch (e) {
+      console.warn('Could not write dvkh_live_store.json:', e);
+    }
+  };
+
+  // Connected SSE clients for instantaneous push to all active browsers
+  const sseClients = new Set<express.Response>();
+
+  const broadcastDvkhEvent = (eventData: any) => {
+    const dataStr = `data: ${JSON.stringify(eventData)}\n\n`;
+    for (const client of sseClients) {
+      try {
+        client.write(dataStr);
+      } catch (err) {
+        sseClients.delete(client);
+      }
+    }
+  };
+
+  // Asynchronously and safely forward updates to Google Apps Script
+  const forwardDvkhToGoogleSheet = async (payload: { action: 'save_dvkh' | 'delete_dvkh'; items?: any[]; maKhs?: any[] }) => {
+    try {
+      const cfg = getSharedConfig();
+      if (!cfg.appScriptUrl || !cfg.appScriptUrl.startsWith('http') || cfg.appScriptUrl.includes('AKfycbzpw3SlqJxXYC29qjPRqH8ehfJp764bNvQFUzqIgMW_rMrpitMKvvRvWbbGrP505Sdi')) {
+        return false;
+      }
+      const bodyData = {
+        sheetName: 'DVKH',
+        spreadsheetId: cfg.spreadsheetId,
+        ...payload
+      };
+      const res = await fetch(cfg.appScriptUrl, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(bodyData)
+      });
+      return res.ok;
+    } catch (e) {
+      console.warn('Background sync to Google Sheet error:', e);
+      return false;
+    }
+  };
+
+  // 1. SSE Real-time Endpoint
+  app.get("/api/dvkh/events", (req, res) => {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders?.();
+
+    sseClients.add(res);
+
+    // Initial greeting with current version
+    res.write(`data: ${JSON.stringify({ type: 'init', version: dvkhStore.version, count: dvkhStore.items.length })}\n\n`);
+
+    // Keepalive ping every 15s to prevent timeouts through proxies and iframes
+    const pingTimer = setInterval(() => {
+      try {
+        res.write(": ping\n\n");
+      } catch {
+        clearInterval(pingTimer);
+        sseClients.delete(res);
+      }
+    }, 15000);
+
+    req.on("close", () => {
+      clearInterval(pingTimer);
+      sseClients.delete(res);
+    });
+  });
+
+  // 2. Instant Sync Mutation Endpoint (Called whenever any user on any machine adds, edits, assigns, or deletes)
+  app.post("/api/dvkh/sync", async (req, res) => {
+    try {
+      const { action, items, maKhs, senderId } = req.body || {};
+      let changed = false;
+
+      if (action === 'delete') {
+        const targetKeys = new Set((maKhs || []).map((k: any) => String(k || '').trim().toLowerCase()));
+        if (targetKeys.size > 0) {
+          const initialLen = dvkhStore.items.length;
+          dvkhStore.items = dvkhStore.items.filter((item: any) => !targetKeys.has(String(item.maKh || '').trim().toLowerCase()));
+          if (dvkhStore.items.length !== initialLen) {
+            changed = true;
+          }
+        }
+        dvkhStore.version++;
+        dvkhStore.updatedAt = new Date().toISOString();
+        saveDvkhStore();
+
+        // Broadcast to all other devices immediately
+        broadcastDvkhEvent({
+          type: 'dvkh_change',
+          action: 'delete',
+          maKhs,
+          version: dvkhStore.version,
+          senderId,
+          timestamp: Date.now()
+        });
+
+        // Forward to Google Sheet in background
+        forwardDvkhToGoogleSheet({
+          action: 'delete_dvkh',
+          maKhs: maKhs
+        }).catch(() => {});
+
+        res.json({ success: true, version: dvkhStore.version, count: dvkhStore.items.length });
+        return;
+      }
+
+      // Default: 'save' / update
+      const incomingItems = Array.isArray(items) ? items : (items ? [items] : []);
+      if (incomingItems.length > 0) {
+        const itemMap = new Map<string, number>();
+        dvkhStore.items.forEach((item: any, idx: number) => {
+          const k = String(item.maKh || '').trim().toLowerCase();
+          if (k) itemMap.set(k, idx);
+        });
+
+        const newItems: any[] = [];
+        for (const inc of incomingItems) {
+          const k = String(inc.maKh || '').trim().toLowerCase();
+          if (!k) continue;
+
+          if (itemMap.has(k)) {
+            const existingIdx = itemMap.get(k)!;
+            dvkhStore.items[existingIdx] = { ...dvkhStore.items[existingIdx], ...inc };
+          } else {
+            newItems.push(inc);
+            itemMap.set(k, -1);
+          }
+          changed = true;
+        }
+
+        if (newItems.length > 0) {
+          dvkhStore.items = [...newItems, ...dvkhStore.items];
+        }
+
+        dvkhStore.version++;
+        dvkhStore.updatedAt = new Date().toISOString();
+        saveDvkhStore();
+
+        // Broadcast to all other devices immediately (<10ms!)
+        broadcastDvkhEvent({
+          type: 'dvkh_change',
+          action: 'save',
+          items: incomingItems,
+          version: dvkhStore.version,
+          senderId,
+          timestamp: Date.now()
+        });
+
+        // Forward to Google Sheet in background
+        forwardDvkhToGoogleSheet({
+          action: 'save_dvkh',
+          items: incomingItems
+        }).catch(() => {});
+      }
+
+      res.json({ success: true, version: dvkhStore.version, count: dvkhStore.items.length });
+    } catch (err: any) {
+      console.warn('Error in /api/dvkh/sync:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // 3. Get Full Consolidated DVKH Dataset
+  app.get("/api/dvkh/data", (req, res) => {
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.json({
+      version: dvkhStore.version,
+      items: dvkhStore.items,
+      updatedAt: dvkhStore.updatedAt
+    });
+  });
+
+  // 4. Fast Polling Endpoint (Fallback for mobile or reconnecting tabs)
+  app.get("/api/dvkh/poll", (req, res) => {
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    const since = Number(req.query.since) || 0;
+    if (dvkhStore.version > since) {
+      res.json({
+        hasUpdate: true,
+        version: dvkhStore.version,
+        items: dvkhStore.items,
+        updatedAt: dvkhStore.updatedAt
+      });
+    } else {
+      res.json({
+        hasUpdate: false,
+        version: dvkhStore.version
+      });
+    }
+  });
+
   // Cache for sheet name -> gid mapping to prevent gviz active-filter truncation
   const gidCache = new Map<string, { map: Record<string, string>; timestamp: number }>();
 

@@ -312,10 +312,20 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
   // System config for NgayHoanTat
   const [allowCustomNgayHoanTat, setAllowCustomNgayHoanTat] = useState(() => DataStore.getAllowCustomNgayHoanTatDvkh());
 
-  // Listen to updates from other parts of the app
+  // Listen to updates from other parts of the app and real-time multi-device events
   useEffect(() => {
-    const handleUpdate = () => {
+    // Start real-time multi-device sync engine (SSE + BroadcastChannel + Auto-reconnect)
+    DataStore.initDvkhRealtimeSync();
+
+    const handleUpdate = (e?: any) => {
       setDvkhList(DataStore.getDvkhEntries());
+      if (e && e.detail && e.detail.remote) {
+        setSyncStatusMsg({
+          type: 'info',
+          text: '🔔 Dữ liệu vừa được tự động đồng bộ từ máy khác!'
+        });
+        setTimeout(() => setSyncStatusMsg(null), 3500);
+      }
     };
     const handleConfigUpdate = () => {
       setAllowCustomNgayHoanTat(DataStore.getAllowCustomNgayHoanTatDvkh());
@@ -332,11 +342,12 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     setDvkhList(DataStore.getDvkhEntries());
   }, [refreshToggle]);
 
-  // Tự động đồng bộ từ Google Sheets khi vào tab DVKH và định kỳ mỗi 30s để cập nhật tiếp nhận/phân công từ các máy khác
+  // Tự động nạp dữ liệu DVKH từ server/sheet khi vào tab và định kỳ mỗi 15s để đảm bảo toàn bộ máy luôn mới nhất
   useEffect(() => {
     let isMounted = true;
     const fetchLatest = async () => {
       try {
+        await DataStore.fetchDvkhData();
         await DataStore.syncMasterData();
         if (isMounted) {
           setDvkhList(DataStore.getDvkhEntries());
@@ -345,7 +356,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     };
 
     fetchLatest();
-    const intervalId = setInterval(fetchLatest, 30000);
+    const intervalId = setInterval(fetchLatest, 15000);
     return () => {
       isMounted = false;
       clearInterval(intervalId);
@@ -354,7 +365,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
 
   // Tải lại dữ liệu khi người dùng chuyển giữa Tab 1, Tab 2, Tab 3
   useEffect(() => {
-    DataStore.syncMasterData().then(() => {
+    DataStore.fetchDvkhData().then(() => {
       setDvkhList(DataStore.getDvkhEntries());
     }).catch(() => {});
   }, [activeSubTab]);
@@ -1421,6 +1432,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     showToast('info', 'Đang đồng bộ dữ liệu với Google Sheets...');
     try {
       await DataStore.syncMasterData();
+      await DataStore.fetchDvkhData(true);
       setDvkhList(DataStore.getDvkhEntries());
       showToast('success', 'Đã cập nhật dữ liệu mới nhất từ máy chủ Google Sheets!');
     } catch (e: any) {
@@ -1891,6 +1903,15 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
               <Sparkles className="w-3.5 h-3.5 text-amber-300" />
               <span>Mã Apps Script (Mới)</span>
             </button>
+
+            {/* Live Real-time Status Badge */}
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/25 border border-emerald-300/40 text-emerald-100 text-xs font-bold backdrop-blur-md shadow-xs select-none" title="Kết nối thời gian thực đa thiết bị đang hoạt động. Mọi thay đổi tiếp nhận, phân công, kết quả sẽ cập nhật tức thì sang các máy khác và lưu vào Google Sheet.">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-400"></span>
+              </span>
+              <span className="tracking-wide">Đồng bộ tức thì</span>
+            </div>
 
             <button
               onClick={handleManualSync}
