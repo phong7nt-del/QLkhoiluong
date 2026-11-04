@@ -26,10 +26,10 @@ export const DEFAULT_RBAC: RBACConfig = {
     'birthday': STANDARD_ROLES,
     'dvkh': ALL_ROLES, // Tab DVKH: tất cả vai trò, bao gồm DVKH (mặc định người DVKH chỉ xem được tab DVKH)
     'tab963': ALL_ROLES, // Tab 963: Theo dõi thay công tơ theo QĐ 963
-    'system': ['đội trưởng'], // specifically requested
+    'system': ALL_ROLES, // cho tất cả người dùng thấy tab Hệ thống / Cài đặt
   },
   actions: {
-    'config_system': ['đội trưởng'], // access settings gear
+    'config_system': ALL_ROLES, // cho tất cả người dùng thấy nút Cài đặt (bánh răng) theo mặc định
     'edit_others_workload': ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'],
     'bao_cao_ho': ['đội trưởng', 'giám đốc'],
     'view_online_users': ['đội trưởng'], // xem danh sách người dùng online (mặc định Đội trưởng)

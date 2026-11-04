@@ -228,12 +228,7 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
        setSelectedTasks(resetTasks);
        onSaved();
     } else {
-       const isDefault = DataStore.getAppScriptUrl() === 'https://script.google.com/macros/s/AKfycbzpw3SlqJxXYC29qjPRqH8ehfJp764bNvQFUzqIgMW_rMrpitMKvvRvWbbGrP505Sdi/exec';
-       if (isDefault) {
-           setMessage({ type: 'error', text: "Lỗi: Máy này chưa cấu hình Link App Script mới. Vào phần Cài đặt (bánh răng) để cập nhật Link App Script!" });
-       } else {
-           setMessage({ type: 'error', text: "Có lỗi xảy ra. Hãy kiểm tra kết nối mạng hoặc đảm bảo Link App Script (trong Cài đặt) đã chính xác." });
-       }
+       setMessage({ type: 'error', text: "Có lỗi xảy ra khi lưu dữ liệu lên Google Sheet. Hãy kiểm tra kết nối mạng hoặc Link App Script trong Cài đặt (bánh răng)." });
        setTimeout(() => setMessage(null), 8000);
     }
   };
@@ -291,12 +286,7 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
        setSelectedTasks(resetTasks);
        onSaved();
     } else {
-       const isDefault = DataStore.getAppScriptUrl() === 'https://script.google.com/macros/s/AKfycbzpw3SlqJxXYC29qjPRqH8ehfJp764bNvQFUzqIgMW_rMrpitMKvvRvWbbGrP505Sdi/exec';
-       if (isDefault) {
-           setMessage({ type: 'error', text: "Lỗi: Máy này chưa cấu hình Link App Script mới. Vào phần Cài đặt (bánh răng) để cập nhật Link App Script!" });
-       } else {
-           setMessage({ type: 'error', text: "Có lỗi xảy ra. Hãy kiểm tra kết nối mạng hoặc đảm bảo Link App Script (trong Cài đặt) đã chính xác." });
-       }
+       setMessage({ type: 'error', text: "Có lỗi xảy ra khi lưu kế hoạch năm lên Google Sheet. Hãy kiểm tra kết nối mạng hoặc Link App Script trong Cài đặt (bánh răng)." });
        setTimeout(() => setMessage(null), 8000);
     }
   };

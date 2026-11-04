@@ -772,29 +772,30 @@ export const initDB = async () => {
 
     // Automatically synchronize centralized server configuration across all devices
     try {
-      const cfgRes = await fetch('/api/config');
+      const cfgRes = await fetch('/api/config?_t=' + Date.now(), { cache: 'no-store' });
       if (cfgRes.ok) {
         const sCfg = await cfgRes.json();
-        if (sCfg.appScriptUrl && sCfg.appScriptUrl.startsWith('http') && !sCfg.appScriptUrl.includes('AKfycbzpw3SlqJxXYC29qjPRqH8ehfJp764bNvQFUzqIgMW_rMrpitMKvvRvWbbGrP505Sdi')) {
-          memoryCache[SCRIPT_URL_KEY] = sCfg.appScriptUrl;
-          try { localStorage.setItem(SCRIPT_URL_KEY, sCfg.appScriptUrl); } catch (e) {}
-        } else {
-          // If server config is empty but this device has a custom URL, broadcast it to server so other machines get it
-          const curLocalUrl = memoryCache[SCRIPT_URL_KEY] || localStorage.getItem(SCRIPT_URL_KEY);
-          if (curLocalUrl && curLocalUrl.startsWith('http') && !curLocalUrl.includes('AKfycbzpw3SlqJxXYC29qjPRqH8ehfJp764bNvQFUzqIgMW_rMrpitMKvvRvWbbGrP505Sdi')) {
-            fetch('/api/config', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ appScriptUrl: curLocalUrl })
-            }).catch(() => {});
-          }
+        const serverUrl = sCfg.appScriptUrl || DEFAULT_APP_SCRIPT_URL;
+        if (serverUrl && serverUrl.startsWith('http')) {
+          memoryCache[SCRIPT_URL_KEY] = serverUrl;
+          try {
+            localStorage.setItem(SCRIPT_URL_KEY, serverUrl);
+            await set(SCRIPT_URL_KEY, serverUrl);
+          } catch (e) {}
         }
         if (sCfg.spreadsheetId && sCfg.spreadsheetId.trim()) {
           memoryCache[SPREADSHEET_ID_KEY] = sCfg.spreadsheetId.trim();
-          try { localStorage.setItem(SPREADSHEET_ID_KEY, sCfg.spreadsheetId.trim()); } catch (e) {}
+          try {
+            localStorage.setItem(SPREADSHEET_ID_KEY, sCfg.spreadsheetId.trim());
+            await set(SPREADSHEET_ID_KEY, sCfg.spreadsheetId.trim());
+          } catch (e) {}
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      if (!memoryCache[SCRIPT_URL_KEY]) {
+        memoryCache[SCRIPT_URL_KEY] = DEFAULT_APP_SCRIPT_URL;
+      }
+    }
 };
 
 const safeSetItem = (key: string, value: string) => {
@@ -858,14 +859,31 @@ export const DEFAULT_SAMPLE_DVKH: DvkhEntry[] = [];
 export const DataStore = {
 
   initDB: initDB,
+  syncCentralConfig: async (): Promise<boolean> => {
+    try {
+      const cfgRes = await fetch('/api/config?_t=' + Date.now(), { cache: 'no-store' });
+      if (cfgRes.ok) {
+        const sCfg = await cfgRes.json();
+        const serverUrl = sCfg.appScriptUrl || DEFAULT_APP_SCRIPT_URL;
+        if (serverUrl && serverUrl.startsWith('http')) {
+          const cur = safeGetItem(SCRIPT_URL_KEY);
+          if (cur !== serverUrl) {
+            safeSetItem(SCRIPT_URL_KEY, serverUrl);
+            return true;
+          }
+        }
+      }
+    } catch (e) {}
+    return false;
+  },
   getAppScriptUrl: () => { 
       const url = safeGetItem(SCRIPT_URL_KEY);
-      return url ? url.trim() : DEFAULT_APP_SCRIPT_URL;
+      return (url && url.startsWith('http')) ? url.trim() : DEFAULT_APP_SCRIPT_URL;
   },
   setAppScriptUrl: (url: string) => {
       safeSetItem(SCRIPT_URL_KEY, url);
       try {
-        if (url && url.startsWith('http') && !url.includes('AKfycbzpw3SlqJxXYC29qjPRqH8ehfJp764bNvQFUzqIgMW_rMrpitMKvvRvWbbGrP505Sdi')) {
+        if (url && url.startsWith('http')) {
           fetch('/api/config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -6287,7 +6305,7 @@ export const DataStore = {
 
       // Priority 2: Direct browser fetch to Google Apps Script
       const url = DataStore.getAppScriptUrl();
-      if (!url || !url.startsWith('http') || url.includes('AKfycbzpw3SlqJxXYC29qjPRqH8ehfJp764bNvQFUzqIgMW_rMrpitMKvvRvWbbGrP505Sdi')) {
+      if (!url || !url.startsWith('http')) {
         return false;
       }
 
@@ -6390,7 +6408,7 @@ export const DataStore = {
 
       // Priority 2: Direct browser fetch
       const url = DataStore.getAppScriptUrl();
-      if (!url || !url.startsWith('http') || url.includes('AKfycbzpw3SlqJxXYC29qjPRqH8ehfJp764bNvQFUzqIgMW_rMrpitMKvvRvWbbGrP505Sdi')) return false;
+      if (!url || !url.startsWith('http')) return false;
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -6950,7 +6968,7 @@ export const DataStore = {
 
       // 2. Fallback: Trực tiếp từ trình duyệt
       const url = DataStore.getAppScriptUrl();
-      if (!url || !url.startsWith('http') || url.includes('AKfycbzpw3SlqJxXYC29qjPRqH8ehfJp764bNvQFUzqIgMW_rMrpitMKvvRvWbbGrP505Sdi')) {
+      if (!url || !url.startsWith('http')) {
         return { 
           success: false, 
           error: lastError || 'Chưa cấu hình URL Google Apps Script hợp lệ trong Cài đặt hệ thống.' 

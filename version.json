@@ -1,9 +1,11 @@
 {
   "year": "2026",
   "month": "11",
-  "day": "02",
-  "build": 7,
-  "version": "2026.11.02.7",
-  "updatedAt": "2026-11-02T18:40:00.000Z",
-  "formattedTime": "01:40:00 3/11/2026"
+  "day": "04",
+  "build": 2,
+  "version": "2026.11.04.2",
+  "appScriptUrl": "https://script.google.com/macros/s/AKfycbzpw3SlqJxXYC29qjPRqH8ehfJp764bNvQFUzqIgMW_rMrpitMKvvRvWbbGrP505Sdi/exec",
+  "spreadsheetId": "1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ",
+  "updatedAt": "2026-11-04T11:04:29.016Z",
+  "formattedTime": "18:04:29 4/11/2026"
 }

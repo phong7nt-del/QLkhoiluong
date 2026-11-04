@@ -68,12 +68,42 @@ function bumpVersion() {
     hour12: false,
   });
 
+  const CANONICAL_APP_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzpw3SlqJxXYC29qjPRqH8ehfJp764bNvQFUzqIgMW_rMrpitMKvvRvWbbGrP505Sdi/exec';
+  const CANONICAL_SPREADSHEET_ID = '1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ';
+
+  const sharedConfigPath = path.join(rootDir, 'shared_config.json');
+  let currentScriptUrl = CANONICAL_APP_SCRIPT_URL;
+  let currentSpreadsheetId = CANONICAL_SPREADSHEET_ID;
+
+  if (fs.existsSync(sharedConfigPath)) {
+    try {
+      const sCfg = JSON.parse(fs.readFileSync(sharedConfigPath, 'utf8'));
+      if (sCfg.appScriptUrl && sCfg.appScriptUrl.startsWith('http')) {
+        currentScriptUrl = sCfg.appScriptUrl;
+      }
+      if (sCfg.spreadsheetId && sCfg.spreadsheetId.trim()) {
+        currentSpreadsheetId = sCfg.spreadsheetId.trim();
+      }
+    } catch (e) {}
+  }
+
+  // Update shared_config.json with latest version and script URL
+  const sharedConfigData = {
+    spreadsheetId: currentSpreadsheetId,
+    appScriptUrl: currentScriptUrl,
+    version: versionString,
+    updatedAt: now.toISOString()
+  };
+  fs.writeFileSync(sharedConfigPath, JSON.stringify(sharedConfigData, null, 2) + '\n', 'utf8');
+
   const versionData = {
     year,
     month,
     day,
     build,
     version: versionString,
+    appScriptUrl: currentScriptUrl,
+    spreadsheetId: currentSpreadsheetId,
     updatedAt: now.toISOString(),
     formattedTime,
   };
@@ -92,6 +122,8 @@ function bumpVersion() {
 // Cấu trúc phiên bản: Năm.Tháng.Ngày.Số (YYYY.MM.DD.Build)
 
 export const APP_VERSION = '${versionString}';
+export const DEFAULT_APP_SCRIPT_URL = '${currentScriptUrl}';
+export const DEFAULT_SPREADSHEET_ID = '${currentSpreadsheetId}';
 
 export const APP_VERSION_DETAILS = {
   year: '${year}',
@@ -99,6 +131,8 @@ export const APP_VERSION_DETAILS = {
   day: '${day}',
   build: ${build},
   version: '${versionString}',
+  appScriptUrl: '${currentScriptUrl}',
+  spreadsheetId: '${currentSpreadsheetId}',
   updatedAt: '${now.toISOString()}',
   formattedTime: '${formattedTime}',
 };

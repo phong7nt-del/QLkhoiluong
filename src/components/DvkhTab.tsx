@@ -1763,7 +1763,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
 
   const isAppScriptConfigured = useMemo(() => {
     const url = DataStore.getAppScriptUrl();
-    return url && url.startsWith('http') && !url.includes('AKfycbzpw3SlqJxXYC29qjPRqH8ehfJp764bNvQFUzqIgMW_rMrpitMKvvRvWbbGrP505Sdi');
+    return !!(url && url.startsWith('http'));
   }, [refreshToggle]);
 
   return (

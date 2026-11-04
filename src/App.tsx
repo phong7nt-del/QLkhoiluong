@@ -105,6 +105,13 @@ export default function App() {
       setDbReady(true);
       DataStore.syncMasterData().then(() => setRefreshToggle(prev => prev + 1));
     });
+
+    // Tự động kiểm tra và đồng bộ cấu hình link Apps Script mới từ máy chủ về máy người dùng
+    DataStore.syncCentralConfig().then(hasUpdate => {
+      if (hasUpdate) {
+        setRefreshToggle(prev => prev + 1);
+      }
+    });
   }, []);
 
   const [showConfig, setShowConfig] = useState(false);
@@ -699,15 +706,13 @@ export default function App() {
             >
               <KeyRound className="w-5 h-5" />
             </button>
-            {PermissionStore.hasActionAccess('config_system', roleStr) && (
             <button 
               onClick={() => setShowConfig(true)}
               className="text-white hover:text-white hover:bg-white/20 p-2 rounded-full transition-colors border border-transparent hover:border-white/30 backdrop-blur-md"
-              title="Cấu hình hệ thống"
+              title="Cấu hình hệ thống (Cài đặt)"
             >
               <Settings className="w-5 h-5" />
             </button>
-            )}
             <button 
               onClick={handleLogout}
               className="text-white hover:text-red-300 hover:bg-white/20 p-2 rounded-full transition-all hover:scale-105 border border-transparent hover:border-white/30 backdrop-blur-md"

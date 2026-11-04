@@ -6,6 +6,8 @@ export interface VersionInfo {
   month?: string;
   day?: string;
   build?: number;
+  appScriptUrl?: string;
+  spreadsheetId?: string;
   updatedAt?: string;
   formattedTime?: string;
 }
@@ -55,6 +57,17 @@ export function isNewerVersion(latestVersion: string, currentVersion: string): b
  */
 export async function forceRefreshApp(): Promise<void> {
   try {
+    // 0. Trước khi làm mới, đồng bộ URL Apps Script mới nhất từ server vào localStorage
+    try {
+      const cfgRes = await fetch('/api/config?_t=' + Date.now(), { cache: 'no-store' });
+      if (cfgRes.ok) {
+        const cfg = await cfgRes.json();
+        if (cfg.appScriptUrl && cfg.appScriptUrl.startsWith('http')) {
+          localStorage.setItem('app_script_url_v1', cfg.appScriptUrl);
+        }
+      }
+    } catch (e) {}
+
     // 1. Xóa Cache Storage của trình duyệt nếu có
     if ('caches' in window) {
       const keys = await caches.keys();
@@ -104,6 +117,13 @@ export async function checkLatestVersion(): Promise<CheckVersionResult> {
         if (data && typeof data.version === 'string') {
           latestVersion = data.version.trim();
           details = data;
+
+          // Tự động cập nhật Google Apps Script URL vào máy nếu phiên bản mang theo URL mới
+          if (data.appScriptUrl && typeof data.appScriptUrl === 'string' && data.appScriptUrl.startsWith('http')) {
+            try {
+              localStorage.setItem('app_script_url_v1', data.appScriptUrl.trim());
+            } catch (e) {}
+          }
           break;
         }
       }

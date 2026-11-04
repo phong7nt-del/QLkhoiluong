@@ -11,7 +11,34 @@ async function startServer() {
   app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
   // API route for version info (always no-cache to ensure clients detect new releases immediately)
+  const CANONICAL_APP_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzpw3SlqJxXYC29qjPRqH8ehfJp764bNvQFUzqIgMW_rMrpitMKvvRvWbbGrP505Sdi/exec";
+  const CANONICAL_SPREADSHEET_ID = "1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ";
+
+  // Shared server configuration (synchronizes Apps Script URL and Spreadsheet ID across all devices)
+  const sharedConfigPath = path.join(process.cwd(), 'shared_config.json');
+
+  const getSharedConfig = () => {
+    try {
+      if (fs.existsSync(sharedConfigPath)) {
+        const parsed = JSON.parse(fs.readFileSync(sharedConfigPath, 'utf8'));
+        if (!parsed.appScriptUrl) {
+          parsed.appScriptUrl = CANONICAL_APP_SCRIPT_URL;
+        }
+        if (!parsed.spreadsheetId) {
+          parsed.spreadsheetId = CANONICAL_SPREADSHEET_ID;
+        }
+        return parsed;
+      }
+    } catch (e) {}
+    return {
+      spreadsheetId: CANONICAL_SPREADSHEET_ID,
+      appScriptUrl: CANONICAL_APP_SCRIPT_URL
+    };
+  };
+
+  // API route for version info (always no-cache to ensure clients detect new releases immediately)
   const getVersionData = () => {
+    let data: any = { version: "2026.11.04.1" };
     const candidatePaths = [
       path.join(process.cwd(), 'version.json'),
       path.join(process.cwd(), 'public', 'version.json'),
@@ -20,11 +47,17 @@ async function startServer() {
     for (const vPath of candidatePaths) {
       try {
         if (fs.existsSync(vPath)) {
-          return JSON.parse(fs.readFileSync(vPath, 'utf8'));
+          data = JSON.parse(fs.readFileSync(vPath, 'utf8'));
+          break;
         }
       } catch (e) {}
     }
-    return { version: "2026.10.07.1" };
+    const cfg = getSharedConfig();
+    return {
+      ...data,
+      appScriptUrl: cfg.appScriptUrl || CANONICAL_APP_SCRIPT_URL,
+      spreadsheetId: cfg.spreadsheetId || CANONICAL_SPREADSHEET_ID
+    };
   };
 
   app.get(["/api/version", "/version.json"], (req, res) => {
@@ -33,21 +66,6 @@ async function startServer() {
     res.setHeader("Expires", "0");
     res.json(getVersionData());
   });
-
-  // Shared server configuration (synchronizes Apps Script URL and Spreadsheet ID across all devices)
-  const sharedConfigPath = path.join(process.cwd(), 'shared_config.json');
-
-  const getSharedConfig = () => {
-    try {
-      if (fs.existsSync(sharedConfigPath)) {
-        return JSON.parse(fs.readFileSync(sharedConfigPath, 'utf8'));
-      }
-    } catch (e) {}
-    return {
-      spreadsheetId: "1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ",
-      appScriptUrl: ""
-    };
-  };
 
   const saveSharedConfig = (data: Partial<{ spreadsheetId: string; appScriptUrl: string }>) => {
     try {
@@ -171,15 +189,16 @@ async function startServer() {
   const forwardDvkhToGoogleSheet = async (payload: { action: 'save_dvkh' | 'delete_dvkh'; items?: any[]; maKhs?: any[] }) => {
     try {
       const cfg = getSharedConfig();
-      if (!cfg.appScriptUrl || !cfg.appScriptUrl.startsWith('http') || cfg.appScriptUrl.includes('AKfycbzpw3SlqJxXYC29qjPRqH8ehfJp764bNvQFUzqIgMW_rMrpitMKvvRvWbbGrP505Sdi')) {
+      const targetUrl = cfg.appScriptUrl || CANONICAL_APP_SCRIPT_URL;
+      if (!targetUrl || !targetUrl.startsWith('http')) {
         return false;
       }
       const bodyData = {
         sheetName: 'DVKH',
-        spreadsheetId: cfg.spreadsheetId,
+        spreadsheetId: cfg.spreadsheetId || CANONICAL_SPREADSHEET_ID,
         ...payload
       };
-      const res = await fetch(cfg.appScriptUrl, {
+      const res = await fetch(targetUrl, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify(bodyData)
