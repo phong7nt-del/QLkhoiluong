@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { DataStore, TaskProgress, SheetMember } from '../store/DataStore';
-import { CheckCircle, Clock, AlertCircle, Plus, User as UserIcon, Mic, XCircle, LayoutGrid, GripHorizontal, List, FileSpreadsheet, MessageSquarePlus, Send, Search, ChevronDown, ChevronRight } from 'lucide-react';
+import { CheckCircle, Clock, AlertCircle, Plus, User as UserIcon, Mic, XCircle, LayoutGrid, GripHorizontal, List, FileSpreadsheet, MessageSquarePlus, Send, Search, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { SeasonTheme } from '../App';
 
@@ -300,55 +300,82 @@ export default function ProgressTab({ refreshToggle, sessionUser, theme }: { ref
   return (
     <div className="space-y-8 pb-12">
        
-      {/* Search and Refresh Bar */}
-      <div className="flex flex-col sm:flex-row gap-3">
-         <div className="relative flex-1">
-            <Search className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
+      {/* Compact Executive Header Bar */}
+      <div className="bg-white border border-slate-200/90 rounded-2xl p-3 sm:p-4 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        {/* Title and Summary Badges */}
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <div className="bg-amber-100 text-amber-700 p-2 rounded-xl">
+            <Clock className="w-4 h-4 sm:w-5 sm:h-5" />
+          </div>
+          <div>
+            <h2 className="text-sm sm:text-base font-black tracking-tight text-slate-800 flex items-center gap-2">
+              <span>Quản lý tiến độ công việc</span>
+            </h2>
+            <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+              <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full">
+                {pendingTasks.length} đang thực hiện
+              </span>
+              {overdueCount > 0 && (
+                <span className="text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full">
+                  {overdueCount} quá hạn
+                </span>
+              )}
+              {warningCount > 0 && (
+                <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                  {warningCount} gần hạn
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Search and Action Buttons */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[200px] flex-1 sm:flex-initial">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input 
-               type="text" 
-               placeholder="Tìm kiếm nội dung công việc hoặc người nhận..." 
-               value={searchText}
-               onChange={(e) => setSearchText(e.target.value)}
-               className="w-full pl-11 pr-4 py-3 border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium shadow-[0_2px_10px_rgb(0,0,0,0.02)]"
+              type="text" 
+              placeholder="Tìm nội dung / người nhận..." 
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              className="w-full pl-8 pr-7 py-1.5 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium bg-slate-50"
             />
             {searchText && (
-               <button onClick={() => setSearchText('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                  <XCircle className="w-5 h-5" />
-               </button>
+              <button onClick={() => setSearchText('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                <XCircle className="w-3.5 h-3.5" />
+              </button>
             )}
-         </div>
-         <button
+          </div>
+
+          <button
             onClick={fetchProgress}
             disabled={isRefreshing}
-            className="px-6 py-3 flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-700 rounded-2xl hover:bg-slate-50 transition-all font-bold text-sm shadow-sm disabled:opacity-50 min-w-[140px]"
-         >
-            {isRefreshing ? 'ĐANG TẢI...' : '⟳ LÀM MỚI'}
-         </button>
-      </div>
+            className="px-3 py-1.5 flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all font-bold text-xs disabled:opacity-50 cursor-pointer"
+            title="Tải lại danh sách tiến độ công việc"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+            <span>Làm mới</span>
+          </button>
 
-      <div className="flex flex-col md:flex-row md:justify-between md:items-center bg-white border border-slate-200 rounded-2xl p-5 shadow-[0_8px_30px_rgb(0,0,0,0.04)] gap-4">
-         <h2 className="text-xl font-bold tracking-tight text-slate-800 flex items-center gap-3">
-            <div className="bg-amber-100 text-amber-600 p-2 rounded-xl">
-               <Clock className="w-5 h-5" />
-            </div>
-            Quản lý tiến độ công việc
-         </h2>
-         <div className="flex flex-wrap items-center gap-3">
-             <button 
-               onClick={exportExcel}
-               className="bg-emerald-50 text-emerald-600 border border-emerald-200 px-4 py-2 font-bold text-xs hover:bg-emerald-100 rounded-xl transition-all tracking-wide flex items-center gap-2 shadow-sm"
-             >
-               <FileSpreadsheet className="w-4 h-4" /> XUẤT EXCEL
-             </button>
-             {isDoiTruong && (
-                 <button 
-                   onClick={() => setShowForm(!showForm)}
-                   className="bg-blue-600 text-white px-5 py-2 font-bold text-xs hover:bg-blue-700 rounded-xl transition-all shadow-md shadow-blue-500/30 flex items-center gap-2"
-                 >
-                   <Plus className="w-4 h-4" /> THÊM CÔNG VIỆC
-                 </button>
-             )}
-         </div>
+          <button 
+            onClick={exportExcel}
+            className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1.5 font-bold text-xs hover:bg-emerald-100 rounded-xl transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer"
+            title="Xuất file Excel"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            <span>Xuất Excel</span>
+          </button>
+
+          {isDoiTruong && (
+            <button 
+              onClick={() => setShowForm(!showForm)}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-1.5 font-bold text-xs rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>{showForm ? 'Đóng form' : 'Thêm việc'}</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {showForm && (

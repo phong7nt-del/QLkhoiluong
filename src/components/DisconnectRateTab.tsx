@@ -367,62 +367,62 @@ export default function DisconnectRateTab({
         }}
       />
 
-      {/* Sub-tab Navigation */}
-      <div className="flex border-b border-[#141414]/20 bg-white shadow-sm overflow-x-auto">
+      {/* Compact Executive Sub-tab Navigation */}
+      <div className="bg-white border border-slate-200/90 rounded-2xl p-1.5 shadow-xs flex items-center gap-1 overflow-x-auto">
          <button 
             onClick={() => setSubTab('xuly')}
-            className={`px-6 py-3.5 font-extrabold uppercase tracking-widest text-sm transition-all whitespace-nowrap flex items-center gap-2 ${
+            className={`px-3.5 py-1.5 rounded-xl font-bold text-xs transition-all whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
                 subTab === 'xuly' 
-                ? 'bg-[#141414] text-white' 
-                : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+                ? 'bg-slate-900 text-white shadow-xs' 
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
          >
-            <Wrench size={16} />
-            Xử lý
+            <Wrench size={14} />
+            <span>Xử lý</span>
          </button>
          <button 
             onClick={() => setSubTab('dcu')}
-            className={`px-6 py-3.5 font-extrabold uppercase tracking-widest text-sm transition-all whitespace-nowrap flex items-center gap-2 ${
+            className={`px-3.5 py-1.5 rounded-xl font-bold text-xs transition-all whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
                 subTab === 'dcu' 
-                ? 'bg-[#141414] text-white' 
-                : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+                ? 'bg-slate-900 text-white shadow-xs' 
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
          >
-            <Cpu size={16} />
-            Thông tin DCU
+            <Cpu size={14} />
+            <span>Thông tin DCU</span>
          </button>
          <button 
             onClick={() => setSubTab('overview')}
-            className={`px-6 py-3.5 font-extrabold uppercase tracking-widest text-sm transition-all whitespace-nowrap flex items-center gap-2 ${
+            className={`px-3.5 py-1.5 rounded-xl font-bold text-xs transition-all whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
                 subTab === 'overview' 
-                ? 'bg-[#141414] text-white' 
-                : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+                ? 'bg-slate-900 text-white shadow-xs' 
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
          >
-            <PieChartIcon size={16} />
-            Thống kê khu vực
+            <PieChartIcon size={14} />
+            <span>Thống kê khu vực</span>
          </button>
          <button 
             onClick={() => setSubTab('details')}
-            className={`px-6 py-3.5 font-extrabold uppercase tracking-widest text-sm transition-all whitespace-nowrap flex items-center gap-2 ${
+            className={`px-3.5 py-1.5 rounded-xl font-bold text-xs transition-all whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
                 subTab === 'details' 
-                ? 'bg-[#141414] text-white' 
-                : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+                ? 'bg-slate-900 text-white shadow-xs' 
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
          >
-            <Building2 size={16} />
-            Thống kê Trạm
+            <Building2 size={14} />
+            <span>Thống kê Trạm</span>
          </button>
          <button 
             onClick={() => setSubTab('statistics')}
-            className={`px-6 py-3.5 font-extrabold uppercase tracking-widest text-sm transition-all whitespace-nowrap flex items-center gap-2 ${
+            className={`px-3.5 py-1.5 rounded-xl font-bold text-xs transition-all whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
                 subTab === 'statistics' 
-                ? 'bg-[#141414] text-white' 
-                : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+                ? 'bg-slate-900 text-white shadow-xs' 
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
          >
-            <Users size={16} />
-            Thống kê KH
+            <Users size={14} />
+            <span>Thống kê KH</span>
          </button>
       </div>
       

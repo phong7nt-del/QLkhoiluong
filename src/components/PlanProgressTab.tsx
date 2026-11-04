@@ -417,74 +417,81 @@ export default function PlanProgressTab({ refreshToggle }: { refreshToggle?: num
         </div>
     )}
 
-    <div className="h-[calc(100vh-140px)] flex flex-col p-4 md:p-8 max-w-7xl mx-auto w-full gap-6">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
-         <div>
-            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-               <TrendingUp className="w-6 h-6 text-indigo-500" />
-               Tiến độ Kế hoạch
-            </h2>
-            <p className="text-sm text-slate-500 mt-1">So sánh khối lượng thực hiện với kế hoạch đề ra</p>
+    <div className="h-[calc(100vh-140px)] flex flex-col p-3 md:p-6 max-w-7xl mx-auto w-full gap-4">
+      {/* Compact Executive Header Bar */}
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-3 bg-white p-3 sm:p-4 rounded-2xl shadow-xs border border-slate-200/90">
+         <div className="flex items-center gap-2.5">
+            <span className="p-2 rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-100">
+               <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5" />
+            </span>
+            <div>
+               <h2 className="text-sm sm:text-base font-black text-slate-800 flex items-center gap-2">
+                  <span>Tiến độ Kế hoạch</span>
+               </h2>
+               <span className="text-[10px] text-slate-500 font-medium hidden sm:inline">
+                  So sánh khối lượng thực hiện theo định mức và kế hoạch
+               </span>
+            </div>
          </div>
-         
-         
-         <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto mt-4 md:mt-0">
-            <button
-               onClick={() => setShowAllTasks(!showAllTasks)}
-               className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-lg flex items-center gap-2 transition-colors w-full sm:w-auto justify-center"
-            >
-               {showAllTasks ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-               {showAllTasks ? 'Ẩn mục KH = 0' : 'Hiện tất cả'}
-            </button>
-            <button
-               onClick={exportToExcel}
-               disabled={filteredData.length === 0}
-               className="px-4 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-sm font-bold rounded-lg flex items-center gap-2 transition-colors w-full sm:w-auto justify-center disabled:opacity-50 disabled:cursor-not-allowed border border-emerald-200"
-            >
-               <FileSpreadsheet className="w-4 h-4" />
-               Xuất Excel
-            </button>
-         </div>
-         <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto mt-4 md:mt-0">
 
-            <div className="relative w-full sm:w-auto">
-               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+         {/* Compact Toolbar Controls */}
+         <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto justify-end">
+            <div className="relative min-w-[150px] flex-1 sm:flex-initial">
+               <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
                <input
                   type="text"
-                  placeholder="Tìm kiếm nội dung..."
+                  placeholder="Tìm nội dung..."
                   value={search}
-                 onChange={e => setSearch(e.target.value)}
-                 className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                  onChange={e => setSearch(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
                />
             </div>
             
-            <div className="relative w-full sm:w-auto min-w-[150px]">
+            <div className="relative min-w-[130px]">
                <select
                  value={selectedTeam}
                  onChange={e => setSelectedTeam(e.target.value)}
-                 className="w-full pl-9 pr-4 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 appearance-none"
+                 className="w-full pl-7 pr-3 py-1.5 bg-indigo-50 border border-indigo-200 text-indigo-800 font-bold rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 appearance-none cursor-pointer"
                >
-                 {availableTeams.length === 0 && <option value="">Không có dữ liệu Tổ</option>}
+                 {availableTeams.length === 0 && <option value="">Không có Tổ</option>}
                  {availableTeams.map(t => (
                     <option key={t} value={t}>{t}</option>
                  ))}
                </select>
-               <Users className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-indigo-500 pointer-events-none" />
+               <Users className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-indigo-600 pointer-events-none" />
             </div>
 
-            <div className="relative w-full sm:w-auto min-w-[150px]">
+            <div className="relative min-w-[120px]">
                <select
                  value={selectedMonth}
                  onChange={e => setSelectedMonth(e.target.value)}
-                 className="w-full pl-9 pr-4 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 appearance-none"
+                 className="w-full pl-7 pr-3 py-1.5 bg-indigo-50 border border-indigo-200 text-indigo-800 font-bold rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 appearance-none cursor-pointer"
                >
-                 {availableMonths.length === 0 && <option value="">Không có dữ liệu KH</option>}
+                 {availableMonths.length === 0 && <option value="">Không có kỳ</option>}
                  {availableMonths.map(m => (
                     <option key={m} value={m}>{m.includes('/') ? `Tháng ${m}` : `Năm ${m}`}</option>
                  ))}
                </select>
-               <Calendar className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-indigo-500 pointer-events-none" />
+               <Calendar className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-indigo-600 pointer-events-none" />
             </div>
+
+            <button
+               onClick={() => setShowAllTasks(!showAllTasks)}
+               className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
+               title={showAllTasks ? 'Ẩn mục kế hoạch = 0' : 'Hiện tất cả'}
+            >
+               {showAllTasks ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+               <span>{showAllTasks ? 'Ẩn KH = 0' : 'Hiện hết'}</span>
+            </button>
+
+            <button
+               onClick={exportToExcel}
+               disabled={filteredData.length === 0}
+               className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-colors disabled:opacity-50 border border-emerald-200 cursor-pointer shadow-2xs"
+            >
+               <FileSpreadsheet className="w-3.5 h-3.5" />
+               <span>Xuất Excel</span>
+            </button>
          </div>
       </div>
       

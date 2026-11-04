@@ -946,67 +946,67 @@ export default function DcuTab() {
       </div>
       
       
-        <div className="flex border-b border-[#141414]/20 bg-white shadow-sm overflow-x-auto mb-4">
-            <button 
-                onClick={() => { setListType('chua_phan_cong'); setCurrentPage(1); setSelectedIds([]); }}
-                className={`px-6 py-3.5 font-extrabold uppercase tracking-widest text-sm transition-all whitespace-nowrap flex items-center gap-2 ${
-                    listType === 'chua_phan_cong' 
-                    ? 'bg-[#141414] text-white' 
-                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
-                }`}
-            >
-                <ListTodo size={16} />
-                Danh sách đang phân công ({userSpecificData.filter(d => !d.toadoX || !d.toadoY).length})
-            </button>
-            <button 
-                onClick={() => { setListType('da_phan_cong'); setCurrentPage(1); setSelectedIds([]); }}
-                className={`px-6 py-3.5 font-extrabold uppercase tracking-widest text-sm transition-all whitespace-nowrap flex items-center gap-2 ${
-                    listType === 'da_phan_cong' 
-                    ? 'bg-[#141414] text-white' 
-                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
-                }`}
-            >
-                <CheckSquare size={16} />
-                Danh sách đã xử lý ({userSpecificData.filter(d => !!d.toadoX && !!d.toadoY).length})
-            </button>
-        </div>
+      {/* Compact Segmented List Switcher */}
+      <div className="bg-white border border-slate-200/90 rounded-2xl p-1.5 shadow-xs flex items-center gap-1 overflow-x-auto mb-3">
+        <button 
+          onClick={() => { setListType('chua_phan_cong'); setCurrentPage(1); setSelectedIds([]); }}
+          className={`px-3.5 py-1.5 rounded-xl font-bold text-xs transition-all whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
+            listType === 'chua_phan_cong' 
+              ? 'bg-slate-900 text-white shadow-xs' 
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+        >
+          <ListTodo size={14} />
+          <span>Đang phân công ({userSpecificData.filter(d => !d.toadoX || !d.toadoY).length})</span>
+        </button>
+        <button 
+          onClick={() => { setListType('da_phan_cong'); setCurrentPage(1); setSelectedIds([]); }}
+          className={`px-3.5 py-1.5 rounded-xl font-bold text-xs transition-all whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
+            listType === 'da_phan_cong' 
+              ? 'bg-slate-900 text-white shadow-xs' 
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+        >
+          <CheckSquare size={14} />
+          <span>Đã xử lý ({userSpecificData.filter(d => !!d.toadoX && !!d.toadoY).length})</span>
+        </button>
+      </div>
 
-<div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-<div className="bg-slate-50 border-b border-slate-200 px-4 py-3 flex flex-col md:flex-row md:items-center justify-between gap-3">
-<h3 className="text-sm font-bold text-slate-800 uppercase flex items-center gap-2">
-2. Danh sách DCU
-                <span className="bg-slate-200 text-slate-700 py-0.5 px-2 rounded-full text-[10px]">{filteredData.length}</span>
-            </h3>
-            <div className="flex items-center gap-2">
-      {listType === 'chua_phan_cong' && selectedIds.length > 0 && (
-          <button 
-              type="button"
-              onClick={handleDeleteSelected}
-              disabled={isDeletingBulk}
-              className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-1 shadow-sm transition-colors whitespace-nowrap disabled:opacity-50"
-          >
-              <Trash2 className="w-4 h-4" />
-              {isDeletingBulk ? 'Đang xóa...' : `Xóa ${selectedIds.length} dòng`}
-          </button>
-      )}
-      <label className="cursor-pointer bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-1 transition-colors whitespace-nowrap">
-          <Upload className="w-4 h-4" />
-          Import 
-          {isImporting && <span className="ml-1 animate-pulse">...</span>}
-          <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={handleImport} disabled={isImporting} />
-      </label>
-      <div className="relative">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input 
-                    type="text"
-                    placeholder="Lọc (ID, Tên, Ghi chú)..."
-                    value={search}
-                    onChange={e => { setSearch(e.target.value); setCurrentPage(1); }}
-                    className="w-full md:w-64 pl-9 pr-3 py-1.5 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-slate-800"
-                />
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className="bg-slate-50/70 border-b border-slate-200/80 px-3.5 py-2 flex flex-col md:flex-row md:items-center justify-between gap-2.5">
+          <h3 className="text-xs font-bold text-slate-800 uppercase flex items-center gap-2">
+            <span>2. Danh sách DCU</span>
+            <span className="bg-slate-200 text-slate-700 py-0.2 px-2 rounded-full text-[10px] font-mono">{filteredData.length}</span>
+          </h3>
+          <div className="flex items-center gap-2 flex-wrap">
+            {listType === 'chua_phan_cong' && selectedIds.length > 0 && (
+              <button 
+                type="button"
+                onClick={handleDeleteSelected}
+                disabled={isDeletingBulk}
+                className="bg-red-600 hover:bg-red-700 text-white px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 shadow-2xs transition-colors whitespace-nowrap disabled:opacity-50 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>{isDeletingBulk ? 'Đang xóa...' : `Xóa ${selectedIds.length} dòng`}</span>
+              </button>
+            )}
+            <label className="cursor-pointer bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors whitespace-nowrap shadow-2xs">
+              <Upload className="w-3.5 h-3.5" />
+              <span>Import</span>
+              {isImporting && <span className="ml-1 animate-pulse">...</span>}
+              <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={handleImport} disabled={isImporting} />
+            </label>
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input 
+                type="text"
+                placeholder="Lọc (ID, Tên, Ghi chú)..."
+                value={search}
+                onChange={e => { setSearch(e.target.value); setCurrentPage(1); }}
+                className="w-full md:w-56 pl-8 pr-3 py-1 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-slate-800"
+              />
             </div>
-        </div>
-        
+          </div>
         </div>
         <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">

@@ -2319,97 +2319,89 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
 
   return (
     <div className="flex flex-col gap-5 min-w-0 pb-16">
-      {/* Top Banner / Header */}
-      <div className="bg-gradient-to-r from-[#005a9c] via-[#004b87] to-teal-800 text-white rounded-2xl p-4 md:p-6 shadow-xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 -mt-8 -mr-8 w-44 h-44 bg-teal-400/10 rounded-full blur-2xl pointer-events-none" />
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 relative z-10">
-          <div>
-            <div className="flex items-center gap-2.5">
-              <div className="p-2.5 bg-white/10 rounded-xl backdrop-blur-md border border-white/20 shadow-inner">
-                <FolderTree className="w-6 h-6 text-teal-300" />
-              </div>
-              <div>
-                <h1 className="text-lg md:text-2xl font-black uppercase tracking-tight text-white drop-shadow-md">
-                  Kiện toàn Hệ thống Đo đếm (KTHTDD)
-                </h1>
-                <p className="text-xs md:text-sm text-teal-100 font-medium">
-                  Phân công kiểm tra trạm & Cập nhật kết quả kiểm tra hệ thống đo đếm hàng ngày
-                </p>
-              </div>
+      {/* Compact Executive Header Bar */}
+      <div className="bg-gradient-to-r from-slate-900 via-teal-950 to-blue-950 text-white px-4 py-2.5 sm:px-5 sm:py-3 rounded-2xl shadow-sm border border-teal-800/40 relative overflow-hidden">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2.5 relative z-10">
+          <div className="flex items-center gap-2.5">
+            <span className="p-2 rounded-xl bg-teal-500/20 text-teal-300 border border-teal-400/30">
+              <FolderTree className="w-4 h-4 sm:w-5 sm:h-5" />
+            </span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-sm sm:text-base font-black uppercase tracking-wide text-white">
+                Kiện toàn Hệ thống Đo đếm
+              </h1>
+              {lastSyncTime && (
+                <span className="text-[11px] text-teal-200/90 bg-white/10 px-2 py-0.5 rounded-full border border-white/10">
+                  Đồng bộ: <b>{lastSyncTime}</b>
+                </span>
+              )}
             </div>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap self-stretch md:self-auto justify-end">
-            {/* Quick Collapse / Expand All Buttons (Requirement 2) */}
-            <div className="flex items-center bg-white/10 backdrop-blur-md rounded-xl p-0.5 border border-white/20">
+          <div className="flex items-center gap-2 flex-wrap self-end md:self-center">
+            {/* Quick Collapse / Expand All Buttons */}
+            <div className="flex items-center bg-white/10 rounded-lg p-0.5 border border-white/10">
               <button
                 type="button"
                 onClick={collapseAllSections}
-                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold text-white hover:bg-white/20 rounded-lg transition-colors"
+                className="flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-white/90 hover:text-white hover:bg-white/15 rounded transition-colors cursor-pointer"
                 title="Thu gọn tất cả các phần"
               >
-                <ChevronUp className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Thu gọn hết</span>
+                <ChevronUp className="w-3 h-3" />
+                <span>Thu gọn</span>
               </button>
               <button
                 type="button"
                 onClick={expandAllSections}
-                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold text-white hover:bg-white/20 rounded-lg transition-colors"
+                className="flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-white/90 hover:text-white hover:bg-white/15 rounded transition-colors cursor-pointer"
                 title="Mở rộng tất cả các phần"
               >
-                <ChevronDown className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Mở rộng hết</span>
+                <ChevronDown className="w-3 h-3" />
+                <span>Mở rộng</span>
               </button>
             </div>
 
-            {lastSyncTime && (
-              <span className="text-[11px] text-teal-200 bg-white/10 px-2.5 py-1.5 rounded-lg border border-white/15">
-                Đồng bộ: <b>{lastSyncTime}</b>
-              </span>
-            )}
             <button
               onClick={() => handleSyncFromSheet(false)}
               disabled={syncing}
-              className="flex items-center gap-2 px-3.5 py-2 bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-700/60 text-white text-xs md:text-sm font-bold rounded-xl shadow-md transition-all active:scale-95 cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-500 hover:bg-teal-400 disabled:bg-teal-700/60 text-slate-950 text-xs font-bold rounded-lg shadow-xs transition-all active:scale-95 cursor-pointer"
               title="Tải lại dữ liệu mới nhất từ Google Sheets"
             >
-              <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-              <span>{syncing ? 'Đang đồng bộ...' : 'Đồng bộ Google Sheets'}</span>
+              <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
+              <span>{syncing ? 'Đang đồng bộ...' : 'Đồng bộ Sheet'}</span>
             </button>
           </div>
         </div>
 
         {/* Sync Progress Bar */}
         {syncing && (
-          <div className="mt-3 bg-white/20 rounded-lg p-2 flex items-center gap-2 text-xs font-semibold text-teal-100 animate-pulse">
-            <RefreshCw className="w-4 h-4 animate-spin text-teal-300" />
+          <div className="mt-2.5 bg-white/10 rounded-lg px-2.5 py-1.5 flex items-center gap-2 text-xs font-semibold text-teal-200 animate-pulse border border-teal-500/30">
+            <RefreshCw className="w-3.5 h-3.5 animate-spin text-teal-300" />
             <span>{syncProgress || 'Đang tải dữ liệu...'}</span>
           </div>
         )}
 
-        {/* Global Summary KPI Bar */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-4 pt-4 border-t border-white/15">
-          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-2.5 text-center border border-white/10">
-            <span className="text-[10px] text-teal-200 uppercase font-bold block">Tổng công tơ / KH</span>
-            <span className="text-lg md:text-xl font-black text-white">{globalKpi.total.toLocaleString('vi-VN')}</span>
+        {/* Sleek 1-line KPI Strip */}
+        <div className="mt-2.5 pt-2.5 border-t border-white/10 flex flex-wrap items-center justify-between gap-2 text-xs bg-white/5 rounded-xl px-3 py-1.5">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] text-teal-200 uppercase font-semibold">Tổng KH:</span>
+            <span className="font-black text-white">{globalKpi.total.toLocaleString('vi-VN')}</span>
           </div>
-          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-2.5 text-center border border-white/10">
-            <span className="text-[10px] text-emerald-300 uppercase font-bold block">Đã kiện toàn</span>
-            <span className="text-lg md:text-xl font-black text-emerald-300">
-              {globalKpi.done.toLocaleString('vi-VN')}{' '}
-              <span className="text-xs font-normal opacity-90">({globalKpi.percent}%)</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] text-emerald-300 uppercase font-semibold">Đã KT:</span>
+            <span className="font-black text-emerald-300">
+              {globalKpi.done.toLocaleString('vi-VN')} <span className="text-[10px] opacity-80 font-normal">({globalKpi.percent}%)</span>
             </span>
           </div>
-          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-2.5 text-center border border-white/10">
-            <span className="text-[10px] text-amber-300 uppercase font-bold block">Chưa kiện toàn</span>
-            <span className="text-lg md:text-xl font-black text-amber-300">
-              {globalKpi.pending.toLocaleString('vi-VN')}{' '}
-              <span className="text-xs font-normal opacity-90">({globalKpi.total > 0 ? (100 - globalKpi.percent) : 0}%)</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] text-amber-300 uppercase font-semibold">Chưa KT:</span>
+            <span className="font-black text-amber-300">
+              {globalKpi.pending.toLocaleString('vi-VN')} <span className="text-[10px] opacity-80 font-normal">({globalKpi.total > 0 ? (100 - globalKpi.percent) : 0}%)</span>
             </span>
           </div>
-          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-2.5 text-center border border-white/10">
-            <span className="text-[10px] text-teal-200 uppercase font-bold block">Trạm đã phân công</span>
-            <span className="text-lg md:text-xl font-black text-cyan-200">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] text-cyan-200 uppercase font-semibold">Trạm đã phân công:</span>
+            <span className="font-black text-cyan-200">
               {globalKpi.assignedStationsCount.toLocaleString('vi-VN')}
             </span>
           </div>

@@ -359,11 +359,22 @@ export default function XuLyDoXaView({ xuLyList, refreshData, setXuLyList }: { x
 
   return (
     <div className="space-y-6">
-      <div className="bg-white border border-[#141414] shadow-[4px_4px_0_#141414] p-4 sm:p-5">
-         <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-black uppercase text-[#141414]">Nhập thông tin xử lý điểm đo {editingItem ? `(Cập nhật)` : ''}</h2>
-            {editingItem && <button type="button" onClick={() => { setEditingItem(null); setFormData({ loaiXl: 'Trạm', nguoiXl: currentUserName, thoiGianXl: defaultThoiGian, maDd: '', cachXl: '', ketQua: 'Xong', ghiChu: '' }); }} className="text-sm font-bold text-red-600 hover:underline">Hủy cập nhật</button>}
+      <div className="bg-white rounded-2xl shadow-xs border border-slate-200/90 overflow-hidden">
+         <div className="px-4 py-2.5 bg-slate-50/80 border-b border-slate-200/80 flex justify-between items-center">
+            <h2 className="text-xs font-bold uppercase text-slate-800 tracking-wide">
+              Nhập thông tin xử lý điểm đo {editingItem ? `(Cập nhật)` : ''}
+            </h2>
+            {editingItem && (
+              <button 
+                type="button" 
+                onClick={() => { setEditingItem(null); setFormData({ loaiXl: 'Trạm', nguoiXl: currentUserName, thoiGianXl: defaultThoiGian, maDd: '', cachXl: '', ketQua: 'Xong', ghiChu: '' }); }} 
+                className="text-xs font-bold text-rose-600 hover:underline cursor-pointer"
+              >
+                Hủy cập nhật
+              </button>
+            )}
          </div>
+         <div className="p-3.5 sm:p-4">
          <form onSubmit={handleSubmit} className="space-y-3">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
                 <div className="lg:col-span-1">
@@ -434,18 +445,18 @@ export default function XuLyDoXaView({ xuLyList, refreshData, setXuLyList }: { x
                 {saveError && <span className="text-red-600 font-bold text-sm bg-red-100 px-2 py-1">{saveError}</span>}
             </div>
          </form>
+         </div>
       </div>
 
-      <div className="bg-white border border-[#141414] shadow-[4px_4px_0_#141414] flex flex-col">
-
-          <div className="p-4 border-b border-[#141414] flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-[#F5F4F2]">
-             <div className="flex items-center gap-4">
-                 <h3 className="font-black uppercase text-[#141414]">Danh sách</h3>
-                 <div className="flex bg-slate-200 p-1 rounded-lg">
-                     <button onClick={() => { setListMode('pending'); setSelectedIds([]); }} className={`px-3 py-1 text-sm font-bold rounded-md transition-all ${listMode === 'pending' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600'}`}>Đang phân công</button>
-                     <button onClick={() => { setListMode('processed'); setSelectedIds([]); }} className={`px-3 py-1 text-sm font-bold rounded-md transition-all ${listMode === 'processed' ? 'bg-white text-green-600 shadow-sm' : 'text-slate-600'}`}>Đã xử lý</button>
+      <div className="bg-white rounded-2xl shadow-xs border border-slate-200/90 overflow-hidden flex flex-col">
+          <div className="px-3.5 py-2 border-b border-slate-200/80 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2.5 bg-slate-50/80">
+             <div className="flex items-center gap-3">
+                 <h3 className="text-xs font-bold uppercase text-slate-800 tracking-wide">Danh sách</h3>
+                 <div className="flex bg-slate-200/80 p-0.5 rounded-lg border border-slate-300/60">
+                     <button onClick={() => { setListMode('pending'); setSelectedIds([]); }} className={`px-2.5 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${listMode === 'pending' ? 'bg-white text-blue-700 shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}>Đang phân công</button>
+                     <button onClick={() => { setListMode('processed'); setSelectedIds([]); }} className={`px-2.5 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${listMode === 'processed' ? 'bg-white text-emerald-700 shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}>Đã xử lý</button>
                  </div>
-                 <span className="font-bold text-[#141414]">({sortedAndFiltered.length})</span>
+                 <span className="text-xs font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full font-mono">({sortedAndFiltered.length})</span>
              </div>
              
              <div className="flex items-center gap-3">
