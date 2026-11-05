@@ -136,6 +136,8 @@ export interface Entry963 {
   phien?: string; // PHIEN
   loaiCto?: string; // LOAICTO_TTIEP_GTIEP
   dot: string; // Dot (1, 2, v.v.)
+  sdt?: string; // SDT / SĐT / Số điện thoại khách hàng
+  chungLoaiCanThay?: string; // ChungLoaiCanThay / Chủng loại cần thay
   kSuDung?: string; // KSuDung ("Thu hồi" hoặc rỗng)
   kqRaSoat?: string; // KQRaSoat (Kết quả rà soát: Thu hồi, Sử dụng lại, Khác: ...)
   nv?: string; // NV (Người thực hiện / Nhân viên đăng nhập)
@@ -6701,6 +6703,8 @@ export const DataStore = {
           phien: getV(['PHIEN', 'Phiên']),
           loaiCto: getV(['LOAICTO_TTIEP_GTIEP', 'Loại công tơ']),
           dot,
+          sdt: getV(['SDT', 'SĐT', 'SoDienThoai', 'Số điện thoại', 'SO_DIEN_THOAI', 'DTHOAI', 'DIEN_THOAI', 'TEL', 'PHONE', 'SDT_KH', 'SĐT_KH']),
+          chungLoaiCanThay: getV(['ChungLoaiCanThay', 'Chủng loại cần thay', 'CHUNGLOAICAN_THAY', 'CHUNGLOAI_CANTHAY', 'CLOAI_CAN_THAY', 'CLOAI_THAY', 'Chủng loại thay', 'ChungLoaiThay', 'CL_CAN_THAY']),
           kSuDung,
           kqRaSoat,
           nv,
@@ -7013,6 +7017,10 @@ export const DataStore = {
         return {
           maKh: item.maKh,
           MA_KHANG: item.maKh,
+          sdt: item.sdt || '',
+          SDT: item.sdt || '',
+          chungLoaiCanThay: item.chungLoaiCanThay || '',
+          ChungLoaiCanThay: item.chungLoaiCanThay || '',
           nv: item.nv || '',
           ngayGio: item.ngayGio || '',
           ketQua: item.ketQua !== undefined ? item.ketQua : '',

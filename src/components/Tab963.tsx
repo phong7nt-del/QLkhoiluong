@@ -7,7 +7,7 @@ import {
   Layers, Check, Sparkles, AlertCircle, Zap, ChevronLeft,
   ChevronsLeft, ChevronsRight, ChevronsDown, ChevronsUp, ShieldAlert, BarChart3, ListFilter, X,
   Calculator, Info, HelpCircle, ArrowRight, Eye, EyeOff, Code2, Copy,
-  Sun, ClipboardCheck, CheckCheck
+  Sun, ClipboardCheck, CheckCheck, Phone
 } from 'lucide-react';
 import { SCRIPT_TEMPLATE } from './ConfigModal';
 import { 
@@ -32,7 +32,7 @@ interface SectionCollapseState {
   reportRaSoat: boolean;
 }
 
-const SECTION_COLLAPSE_STORAGE_KEY = 'tab963_sections_collapse_v2';
+const SECTION_COLLAPSE_STORAGE_KEY = 'tab963_sections_collapse_v3';
 
 interface Tab963Props {
   sessionUser: SheetMember | null;
@@ -45,7 +45,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
   const [isLoading, setIsLoading] = useState(false);
   const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
-  // Section collapse/expand state with localStorage persistence
+  // Section collapse/expand state with localStorage persistence (calculation collapses by default)
   const [collapsedSections, setCollapsedSections] = useState<SectionCollapseState>(() => {
     try {
       const saved = localStorage.getItem(SECTION_COLLAPSE_STORAGE_KEY);
@@ -54,7 +54,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
         return {
           tree: parsed.tree ?? true,
           customerDetail: parsed.customerDetail ?? true,
-          calculation: parsed.calculation ?? true,
+          calculation: parsed.calculation ?? false,
           completedList: parsed.completedList ?? true,
           reportKpi: parsed.reportKpi ?? true,
           reportTable: parsed.reportTable ?? true,
@@ -66,7 +66,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
     return {
       tree: true,
       customerDetail: true,
-      calculation: true,
+      calculation: false, // Mặc định thu gọn phần tính sản lượng cao điểm vượt
       completedList: true,
       reportKpi: true,
       reportTable: true,
@@ -464,7 +464,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       .trim();
   };
 
-  // Filtered entries based on Search Query
+  // Filtered entries based on Search Query (includes maKh, tenKh, diaChi, chungLoaiCanThay, sdt)
   const filteredEntries = useMemo(() => {
     if (!searchQuery.trim()) return entries;
     const q = searchQuery.trim();
@@ -473,20 +473,30 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
     return entries.filter(item => {
       const maKh = item.maKh || '';
       const tenKh = item.tenKh || '';
+      const diaChi = item.diaChi || '';
+      const cl = item.chungLoaiCanThay || '';
+      const sdt = item.sdt || '';
 
       if (searchMode === 'exact') {
         return (
           maKh.toLowerCase() === q.toLowerCase() ||
           tenKh.toLowerCase() === q.toLowerCase() ||
+          cl.toLowerCase() === q.toLowerCase() ||
+          sdt.toLowerCase() === q.toLowerCase() ||
           normalize(maKh) === qNorm ||
-          normalize(tenKh) === qNorm
+          normalize(tenKh) === qNorm ||
+          normalize(cl) === qNorm ||
+          normalize(sdt) === qNorm
         );
       }
 
       // Fuzzy / Partial match
       return (
         normalize(maKh).includes(qNorm) ||
-        normalize(tenKh).includes(qNorm)
+        normalize(tenKh).includes(qNorm) ||
+        normalize(diaChi).includes(qNorm) ||
+        normalize(cl).includes(qNorm) ||
+        normalize(sdt).includes(qNorm)
       );
     });
   }, [entries, searchQuery, searchMode]);
@@ -559,7 +569,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
     });
   }, [treeData]);
 
-  // Completed customers list for the bottom table based on left tree selection
+  // Completed customers list for the bottom table based on left tree selection and search query
   const completedCustomersList = useMemo(() => {
     return entries.filter(item => {
       const isDone = item.ketQua && item.ketQua.trim().toLowerCase().includes('xong');
@@ -567,14 +577,55 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
 
       if (selectedDot && item.dot !== selectedDot) return false;
       if (selectedKv && item.kv !== selectedKv) return false;
+
+      // Filter by search query if user entered search criteria (ChungLoaiCanThay, MaKH, TenKH, SDT, DiaChi)
+      if (searchQuery.trim()) {
+        const qNorm = normalize(searchQuery.trim());
+        const maKh = normalize(item.maKh || '');
+        const tenKh = normalize(item.tenKh || '');
+        const diaChi = normalize(item.diaChi || '');
+        const cl = normalize(item.chungLoaiCanThay || '');
+        const sdt = normalize(item.sdt || '');
+
+        const matches = (
+          maKh.includes(qNorm) ||
+          tenKh.includes(qNorm) ||
+          diaChi.includes(qNorm) ||
+          cl.includes(qNorm) ||
+          sdt.includes(qNorm)
+        );
+        if (!matches) return false;
+      }
+
       return true;
     });
+  }, [entries, selectedDot, selectedKv, searchQuery]);
+
+  // Unique list and counts of ChungLoaiCanThay in the selected scope (Dot / KV)
+  const completedChungLoaiSummary = useMemo(() => {
+    const inScope = entries.filter(item => {
+      const isDone = item.ketQua && item.ketQua.trim().toLowerCase().includes('xong');
+      if (!isDone) return false;
+      if (selectedDot && item.dot !== selectedDot) return false;
+      if (selectedKv && item.kv !== selectedKv) return false;
+      return true;
+    });
+
+    const map = new Map<string, number>();
+    inScope.forEach(item => {
+      const cl = (item.chungLoaiCanThay || '').trim() || 'Chưa xác định';
+      map.set(cl, (map.get(cl) || 0) + 1);
+    });
+
+    return Array.from(map.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
   }, [entries, selectedDot, selectedKv]);
 
   // Reset completed table page when filter changes
   useEffect(() => {
     setCompletedPage(1);
-  }, [selectedDot, selectedKv]);
+  }, [selectedDot, selectedKv, searchQuery]);
 
   const totalCompletedPages = Math.max(1, Math.ceil(completedCustomersList.length / PAGE_SIZE));
   const currentCompletedPage = Math.min(completedPage, totalCompletedPages);
@@ -718,6 +769,8 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       'STT': idx + 1,
       'Mã Khách Hàng': c.maKh,
       'Tên Khách Hàng': c.tenKh,
+      'Số Điện Thoại (SĐT)': c.sdt || '',
+      'Chủng Loại Cần Thay': c.chungLoaiCanThay || '',
       'Địa Chỉ': c.diaChi,
       'Khu Vực': c.kv,
       'Đợt': c.dot,
@@ -1301,46 +1354,45 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       {/* SUB-TAB 1: THỰC HIỆN THAY CÔNG TƠ (CHIA LÀM 2 PHẦN TRÁI / PHẢI) */}
       {/* ========================================================= */}
       {activeSubTab === 'thuc_hien' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+        <div className="flex flex-col lg:flex-row gap-5 items-start">
           
-          {/* CỘT BÊN TRÁI (COL-4): SƠ ĐỒ CÂY CÁC ĐỢT -> KHU VỰC -> KHÁCH HÀNG & TÌM KIẾM */}
-          <div className="lg:col-span-5 xl:col-span-4 bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-2">
-                <Layers className="w-4 h-4 text-amber-600" />
-                <h3 className="font-black text-slate-800 text-sm uppercase tracking-wide">
-                  Sơ Đồ Cây Thực Hiện
-                </h3>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
-                  {filteredEntries.length} KH
-                </span>
-                <button
-                  type="button"
-                  onClick={() => toggleSection('tree')}
-                  className="p-1 hover:bg-slate-100 text-slate-500 hover:text-slate-800 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
-                  title={collapsedSections.tree ? "Thu gọn sơ đồ cây" : "Bung ra sơ đồ cây"}
-                >
-                  <span className="text-[10px] text-slate-400 font-normal hidden sm:inline">
-                    {collapsedSections.tree ? 'Thu gọn' : 'Bung ra'}
+          {/* CỘT BÊN TRÁI: SƠ ĐỒ CÂY CÁC ĐỢT -> KHU VỰC -> KHÁCH HÀNG & TÌM KIẾM (THU GỌN TỪ PHẢI VỀ TRÁI) */}
+          {collapsedSections.tree ? (
+            <div className="w-full lg:w-[380px] xl:w-[410px] shrink-0 bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-4 transition-all duration-200">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-amber-600" />
+                  <h3 className="font-black text-slate-800 text-sm uppercase tracking-wide">
+                    Sơ Đồ Cây Thực Hiện
+                  </h3>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                    {filteredEntries.length} KH
                   </span>
-                  {collapsedSections.tree ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => toggleSection('tree')}
+                    className="p-1 hover:bg-slate-100 text-slate-500 hover:text-slate-800 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                    title="Thu gọn sơ đồ cây sang trái"
+                  >
+                    <span className="text-[10px] text-slate-500 font-semibold hidden sm:inline">
+                      Thu gọn
+                    </span>
+                    <ChevronsLeft className="w-4 h-4 text-slate-600" />
+                  </button>
+                </div>
               </div>
-            </div>
 
-            {/* Tìm kiếm gần đúng / chính xác và Giọng nói (Cho phép Ẩn/Hiện) */}
-            {collapsedSections.tree ? (
-              <>
-                <div className="space-y-2">
+            {/* Tìm kiếm gần đúng / chính xác và Giọng nói */}
+            <div className="space-y-2">
               <div className="relative flex items-center">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3 pointer-events-none" />
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
-                  placeholder="Tìm Mã KH hoặc Tên khách hàng..."
+                  placeholder="Tìm Mã KH, Tên KH, Địa chỉ, Chủng loại, SĐT..."
                   className="w-full pl-9 pr-20 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white transition-all"
                 />
                 <div className="absolute right-2 flex items-center gap-1">
@@ -1535,10 +1587,18 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                                             : 'hover:bg-amber-50 text-slate-700'
                                         }`}
                                       >
-                                        <div className="truncate flex-1 min-w-0">
-                                          <span className="font-mono font-bold">{cust.maKh}</span>
-                                          <span className="mx-1 text-slate-400">-</span>
+                                        <div className="truncate flex-1 min-w-0 flex items-center gap-1">
+                                          <span className="font-mono font-bold shrink-0">{cust.maKh}</span>
+                                          <span className="text-slate-400">-</span>
                                           <span className="truncate">{cust.tenKh}</span>
+                                          {cust.chungLoaiCanThay && (
+                                            <span 
+                                              className="text-[9px] font-mono font-black text-purple-900 bg-purple-100 border border-purple-300 px-1 py-0.2 rounded shrink-0 shadow-2xs" 
+                                              title={`Chủng loại cần thay: ${cust.chungLoaiCanThay}`}
+                                            >
+                                              {cust.chungLoaiCanThay}
+                                            </span>
+                                          )}
                                         </div>
 
                                         {isThuHoi ? (
@@ -1569,25 +1629,32 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                 );
               })}
             </div>
-          </>
+          </div>
         ) : (
+          /* THANH THU GỌN TỪ PHẢI VỀ TRÁI (TIẾT KIỆM KHÔNG GIAN TỐI ĐA CHO CỘT BÊN PHẢI) */
           <div 
             onClick={() => toggleSection('tree')}
-            className="p-4 bg-slate-50 hover:bg-amber-50/50 rounded-xl border border-dashed border-slate-200 text-center cursor-pointer transition-colors"
+            className="w-full lg:w-12 shrink-0 bg-white rounded-2xl border border-slate-200 shadow-sm hover:border-amber-400 hover:bg-amber-50/50 p-2 lg:py-5 flex lg:flex-col items-center justify-between lg:justify-start gap-4 cursor-pointer transition-all duration-200 group select-none"
+            title="Nhấp để mở rộng sơ đồ cây sang phải"
           >
-            <Layers className="w-5 h-5 mx-auto text-amber-600 mb-1" />
-            <p className="text-xs font-semibold text-slate-700">
-              Sơ đồ cây & Tìm kiếm đang thu gọn ({filteredEntries.length} KH)
-            </p>
-            <span className="text-[11px] text-amber-700 font-bold hover:underline mt-1 inline-block">
-              Nhấp vào đây để bung ra ▾
+            <div className="p-1.5 rounded-xl bg-amber-100 text-amber-900 group-hover:scale-110 group-hover:bg-amber-200 transition-all shadow-2xs">
+              <ChevronsRight className="w-4 h-4 text-amber-800" />
+            </div>
+            <span className="hidden lg:block [writing-mode:vertical-rl] rotate-180 uppercase text-[11px] font-black tracking-widest text-slate-600 group-hover:text-amber-900 transition-colors py-2">
+              SƠ ĐỒ CÂY & TÌM KIẾM
+            </span>
+            <div className="flex lg:hidden items-center gap-2">
+              <Layers className="w-4 h-4 text-amber-600" />
+              <span className="text-xs font-bold text-slate-700">Sơ đồ cây ({filteredEntries.length} KH) - Nhấp để bung ra</span>
+            </div>
+            <span className="text-[10px] font-mono font-black bg-amber-100 text-amber-950 px-2 py-0.5 rounded-full border border-amber-300 group-hover:bg-amber-200 transition-colors">
+              {filteredEntries.length}
             </span>
           </div>
         )}
-      </div>
 
-      {/* CỘT BÊN PHẢI (COL-8): THÔNG TIN FORM NHẬP + TÍNH SẢN LƯỢNG CAO ĐIỂM + DANH SÁCH THAY XONG */}
-          <div className="lg:col-span-7 xl:col-span-8 space-y-5">
+        {/* CỘT BÊN PHẢI: THÔNG TIN KHÁCH HÀNG + TÍNH SẢN LƯỢNG CAO ĐIỂM + DANH SÁCH THAY XONG (MỞ RỘNG TỐI ĐA) */}
+        <div className="flex-1 min-w-0 space-y-5">
             
             {/* 1. KHỐI FORM NHẬP THAY CÔNG TƠ */}
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
@@ -1598,21 +1665,38 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                     Chi Tiết Khách Hàng & Xác Nhận Thay Xong
                   </h3>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   {selectedCustomer && (
-                    <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                      selectedCustomer.kSuDung?.toLowerCase().includes('thu hồi')
-                        ? 'bg-rose-100 text-rose-800 border border-rose-300'
-                        : selectedCustomer.ketQua?.toLowerCase().includes('xong')
-                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                        : 'bg-amber-100 text-amber-800 border border-amber-300'
-                    }`}>
-                      {selectedCustomer.kSuDung?.toLowerCase().includes('thu hồi')
-                        ? 'Trạng thái: Thu hồi (Không được thay)'
-                        : selectedCustomer.ketQua?.toLowerCase().includes('xong')
-                        ? 'Đã thay xong'
-                        : 'Chưa thay'}
-                    </span>
+                    <>
+                      {selectedCustomer.chungLoaiCanThay && (
+                        <span className="px-2.5 py-1 rounded-full text-xs font-black font-mono bg-purple-100 text-purple-900 border border-purple-300 shadow-2xs">
+                          CL Cần thay: {selectedCustomer.chungLoaiCanThay}
+                        </span>
+                      )}
+                      {selectedCustomer.sdt && (
+                        <a
+                          href={`tel:${selectedCustomer.sdt.replace(/[^\d+]/g, '')}`}
+                          className="px-2.5 py-1 rounded-full text-xs font-bold font-mono bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200 transition-colors flex items-center gap-1 shadow-2xs"
+                          title="Bấm để gọi ngay"
+                        >
+                          <Phone className="w-3.5 h-3.5 text-emerald-700" />
+                          <span>{selectedCustomer.sdt}</span>
+                        </a>
+                      )}
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+                        selectedCustomer.kSuDung?.toLowerCase().includes('thu hồi')
+                          ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                          : selectedCustomer.ketQua?.toLowerCase().includes('xong')
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                          : 'bg-amber-100 text-amber-800 border border-amber-300'
+                      }`}>
+                        {selectedCustomer.kSuDung?.toLowerCase().includes('thu hồi')
+                          ? 'Trạng thái: Thu hồi (Không được thay)'
+                          : selectedCustomer.ketQua?.toLowerCase().includes('xong')
+                          ? 'Đã thay xong'
+                          : 'Chưa thay'}
+                      </span>
+                    </>
                   )}
                   <button
                     type="button"
@@ -1777,6 +1861,39 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                     <div>
                       <span className="text-[10px] text-slate-500 font-bold uppercase">Khu Vực & Đợt</span>
                       <div className="font-bold text-slate-900 mt-0.5">KV: {selectedCustomer.kv} | Đợt: {selectedCustomer.dot}</div>
+                    </div>
+                    <div className="bg-purple-50/80 p-2.5 rounded-xl border border-purple-200 shadow-2xs">
+                      <span className="text-[10px] text-purple-900 font-black uppercase tracking-wider block">
+                        Chủng Loại Cần Thay
+                      </span>
+                      <div className="mt-0.5">
+                        {selectedCustomer.chungLoaiCanThay ? (
+                          <span className="font-mono font-black text-sm text-purple-900 bg-purple-200/90 border border-purple-400 px-2.5 py-1 rounded-lg inline-block shadow-2xs">
+                            {selectedCustomer.chungLoaiCanThay}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 font-normal italic text-xs">Chưa có thông tin</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="bg-emerald-50/80 p-2.5 rounded-xl border border-emerald-200 shadow-2xs">
+                      <span className="text-[10px] text-emerald-900 font-black uppercase tracking-wider block">
+                        Số Điện Thoại (SĐT)
+                      </span>
+                      <div className="mt-0.5">
+                        {selectedCustomer.sdt ? (
+                          <a
+                            href={`tel:${selectedCustomer.sdt.replace(/[^\d+]/g, '')}`}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white text-emerald-800 hover:bg-emerald-100 border border-emerald-300 font-mono font-bold text-xs transition-colors shadow-2xs group"
+                            title="Bấm vào đây để gọi trực tiếp cho khách hàng"
+                          >
+                            <Phone className="w-3.5 h-3.5 text-emerald-600 group-hover:scale-110 transition-transform" />
+                            <span className="underline decoration-dotted">{selectedCustomer.sdt}</span>
+                          </a>
+                        ) : (
+                          <span className="text-slate-400 font-normal italic text-xs">Chưa có SĐT</span>
+                        )}
+                      </div>
                     </div>
                     <div className="sm:col-span-2 md:col-span-3">
                       <span className="text-[10px] text-slate-500 font-bold uppercase">Địa Chỉ</span>
@@ -2464,6 +2581,48 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                 </div>
               </div>
 
+              {/* Thống kê các chủng loại cần thay trong phạm vi đợt / khu vực theo tìm kiếm */}
+              {completedChungLoaiSummary.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 p-3 bg-purple-50/70 border border-purple-200 rounded-xl">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-purple-950 mr-1">
+                    <Layers className="w-3.5 h-3.5 text-purple-700" />
+                    <span>Chủng loại cần thay ({selectedKv ? `KV ${selectedKv}` : selectedDot ? `Đợt ${selectedDot}` : 'toàn bộ'}):</span>
+                  </div>
+                  {completedChungLoaiSummary.map(item => {
+                    const isSelected = searchQuery.trim() && normalize(item.name).includes(normalize(searchQuery.trim()));
+                    return (
+                      <button
+                        key={item.name}
+                        type="button"
+                        onClick={() => setSearchQuery(item.name === 'Chưa xác định' ? '' : item.name)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                          isSelected
+                            ? 'bg-purple-700 text-white shadow-xs ring-2 ring-purple-300'
+                            : 'bg-white hover:bg-purple-100 text-purple-900 border border-purple-200 shadow-2xs'
+                        }`}
+                        title={`Lọc danh sách theo chủng loại: ${item.name}`}
+                      >
+                        <span>{item.name}:</span>
+                        <span className={`font-sans font-black px-1.5 py-0.2 rounded-full text-[10px] ${
+                          isSelected ? 'bg-purple-800 text-white' : 'bg-purple-200/70 text-purple-950'
+                        }`}>
+                          {item.count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                  {searchQuery.trim() && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery('')}
+                      className="text-[11px] text-purple-700 hover:text-purple-950 font-bold underline ml-1 cursor-pointer"
+                    >
+                      Xóa lọc ({searchQuery})
+                    </button>
+                  )}
+                </div>
+              )}
+
               {collapsedSections.completedList ? (
                 /* Table */
                 <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
@@ -2474,6 +2633,8 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                         <th className="py-2.5 px-3 w-10 text-center">STT</th>
                         <th className="py-2.5 px-3">Mã KH</th>
                         <th className="py-2.5 px-3">Tên Khách Hàng</th>
+                        <th className="py-2.5 px-3">SĐT</th>
+                        <th className="py-2.5 px-3">Chủng Loại Cần Thay</th>
                         <th className="py-2.5 px-3">Khu Vực</th>
                         <th className="py-2.5 px-3">Đợt</th>
                         <th className="py-2.5 px-3 text-center">HSN</th>
@@ -2502,6 +2663,30 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                               <td className="py-2 px-3 text-center text-slate-400 font-mono text-[11px]">{stt}</td>
                               <td className="py-2 px-3 font-mono font-bold text-amber-900">{item.maKh}</td>
                               <td className="py-2 px-3 font-medium text-slate-800">{item.tenKh}</td>
+                              <td className="py-2 px-3">
+                                {item.sdt ? (
+                                  <a
+                                    href={`tel:${item.sdt.replace(/[^\d+]/g, '')}`}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200 font-mono text-[11px] font-bold transition-colors"
+                                    title="Bấm để gọi ngay cho khách hàng"
+                                  >
+                                    <Phone className="w-3 h-3 text-emerald-600" />
+                                    <span>{item.sdt}</span>
+                                  </a>
+                                ) : (
+                                  <span className="text-slate-400 italic text-[11px]">—</span>
+                                )}
+                              </td>
+                              <td className="py-2 px-3">
+                                {item.chungLoaiCanThay ? (
+                                  <span className="font-mono font-black text-xs text-purple-900 bg-purple-100 border border-purple-300 px-2 py-0.5 rounded-md shadow-2xs inline-block">
+                                    {item.chungLoaiCanThay}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 italic text-[11px]">—</span>
+                                )}
+                              </td>
                               <td className="py-2 px-3 font-semibold text-slate-700">{item.kv}</td>
                               <td className="py-2 px-3 font-mono text-slate-600">{item.dot}</td>
                               <td className="py-2 px-3 text-center font-mono font-bold text-amber-900">{hsnVal}</td>
@@ -2538,7 +2723,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                         })
                       ) : (
                         <tr>
-                          <td colSpan={14} className="py-8 text-center text-slate-400 text-xs">
+                          <td colSpan={16} className="py-8 text-center text-slate-400 text-xs">
                             Chưa có khách hàng nào được thay xong trong phạm vi lựa chọn này.
                           </td>
                         </tr>
