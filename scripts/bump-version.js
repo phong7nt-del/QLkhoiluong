@@ -68,7 +68,7 @@ function bumpVersion() {
     hour12: false,
   });
 
-  const CANONICAL_APP_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzpw3SlqJxXYC29qjPRqH8ehfJp764bNvQFUzqIgMW_rMrpitMKvvRvWbbGrP505Sdi/exec';
+  const CANONICAL_APP_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyFzMY2hA8LOgPix7FoN0n9nB3LAUlhuppc5KopO_ZD0fYU-uj4gpAZn5FnedGWr5vg2A/exec';
   const CANONICAL_SPREADSHEET_ID = '1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ';
 
   const sharedConfigPath = path.join(rootDir, 'shared_config.json');

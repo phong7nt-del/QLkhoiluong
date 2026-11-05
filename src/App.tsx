@@ -844,7 +844,7 @@ export default function App() {
                   <Stations refreshToggle={refreshToggle} />
                 )}
                 {activeTab === "analysis" && (
-                  <AnalysisTab refreshToggle={refreshToggle} />
+                  <AnalysisTab refreshToggle={refreshToggle} sessionUser={sessionUser} />
                 )}
                 {activeTab === "progress" && (
                   <ProgressTab refreshToggle={refreshToggle} sessionUser={sessionUser} theme={theme} />

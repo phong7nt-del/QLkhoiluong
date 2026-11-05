@@ -1747,6 +1747,63 @@ function doPost(e) {
        return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "Không tìm thấy tài khoản để đổi mật khẩu" })).setMimeType(ContentService.MimeType.JSON);
     }
 
+    if (action === 'update_nghibu') {
+      var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
+      var sheet = getSheetFlexibly(ss, ['CongTac', 'Cong Tac', 'Công tác', 'Công Tác', 'Con Tác']);
+      if (!sheet) return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Không tìm thấy sheet CongTac' })).setMimeType(ContentService.MimeType.JSON);
+      var data = payload.data || {};
+      var memberName = String(data.name || '').trim();
+      var totalNghiBu = data.totalNghiBu !== undefined ? data.totalNghiBu : (data.addDays || 0);
+      
+      var sheetData = sheet.getDataRange().getValues();
+      var nameIdx = -1;
+      var headerRowIdx = 0;
+      for (var r = 0; r < 5 && r < sheetData.length; r++) {
+        for (var c = 0; c < sheetData[r].length; c++) {
+          var val = String(sheetData[r][c]).toLowerCase().trim();
+          if (val.includes('họ và tên') || val === 'họ tên') {
+            nameIdx = c;
+            headerRowIdx = r;
+            break;
+          }
+        }
+        if (nameIdx !== -1) break;
+      }
+      if (nameIdx === -1) { nameIdx = 1; headerRowIdx = 1; }
+
+      var nghiBuColIdx = -1;
+      var headers = sheetData[headerRowIdx] || [];
+      for (var c = 0; c < headers.length; c++) {
+        var hVal = String(headers[c] || '').toLowerCase().trim();
+        var cleanH = hVal.replace(/\\s+/g, '');
+        if (cleanH.indexOf('nghibu') !== -1 || cleanH.indexOf('nghỉbù') !== -1) {
+          nghiBuColIdx = c;
+          break;
+        }
+      }
+
+      if (nghiBuColIdx === -1) {
+        nghiBuColIdx = headers.length;
+        sheet.getRange(headerRowIdx + 1, nghiBuColIdx + 1).setValue('NghiBu');
+      }
+
+      var targetRow = -1;
+      var normTarget = memberName.toLowerCase().replace(/\\s+/g, '');
+      for (var r = headerRowIdx + 1; r < sheetData.length; r++) {
+        var rowName = String(sheetData[r][nameIdx] || '').toLowerCase().replace(/\\s+/g, '');
+        if (rowName === normTarget) {
+          targetRow = r + 1;
+          break;
+        }
+      }
+
+      if (targetRow !== -1) {
+        sheet.getRange(targetRow, nghiBuColIdx + 1).setValue(totalNghiBu);
+        return ContentService.createTextOutput(JSON.stringify({ status: 'success', totalNghiBu: totalNghiBu })).setMimeType(ContentService.MimeType.JSON);
+      }
+      return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Không tìm thấy nhân viên ' + memberName })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     if (action === 'add_workload') {
       var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
       var sheet = getSheetFlexibly(ss, ['CongTac', 'Cong Tac', 'Công tác', 'Công Tác', 'Con Tác']);

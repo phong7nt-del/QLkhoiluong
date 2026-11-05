@@ -36,6 +36,7 @@ export const DEFAULT_RBAC: RBACConfig = {
     'kthtdd_all_areas': ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'], // Kiện toàn tất cả khu vực (nếu nhân viên không có quyền này thì chỉ kiện toàn ở khu vực quản lý)
     'import_htdd_data': ['đội trưởng'], // Import dữ liệu Quá hạn / Cuối năm (HTDD) - mặc định Đội trưởng
     'sync_doxa_data': ['đội trưởng'], // Đồng bộ dữ liệu Đo xa (MDIS / HES) - mặc định Đội trưởng
+    'update_nghibu': ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng'], // Cập nhật ngày nghỉ bù nhân viên
   }
 };
 

@@ -1,10 +1,12 @@
 import { useState, useMemo } from 'react';
 import { DataStore } from '../store/DataStore';
 import { format, parseISO, isSameWeek, isSameMonth, isToday } from 'date-fns';
-import { TrendingUp, Trophy, ArrowDown, Award, AlignLeft, BarChart3, Download } from 'lucide-react';
+import { TrendingUp, Trophy, ArrowDown, Award, AlignLeft, BarChart3, Download, CalendarCheck2 } from 'lucide-react';
 import * as XLSX from 'xlsx-js-style';
+import NgayLamThemSubTab from './NgayLamThemSubTab';
 
-export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }) {
+export default function AnalysisTab({ refreshToggle, sessionUser }: { refreshToggle: number; sessionUser?: any }) {
+  const [subTab, setSubTab] = useState<'productivity' | 'overtime'>('productivity');
   const [timeFilter, setTimeFilter] = useState<'day' | 'week' | 'month' | 'all'>('all');
   const [selectedDay, setSelectedDay] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
   const [selectedWeekDate, setSelectedWeekDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
@@ -682,6 +684,47 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
 
   return (
     <div className="space-y-6">
+      {/* Sub-tab Switcher Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-200/90 shadow-xs">
+        <div className="flex items-center gap-2 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+          <button
+            type="button"
+            onClick={() => setSubTab('productivity')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              subTab === 'productivity'
+                ? 'bg-[#141414] text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+            }`}
+          >
+            <BarChart3 className="w-4 h-4" />
+            <span>Năng Suất & So Sánh</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSubTab('overtime')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              subTab === 'overtime'
+                ? 'bg-purple-700 text-white shadow-xs'
+                : 'text-slate-600 hover:text-purple-900 hover:bg-white/60'
+            }`}
+          >
+            <CalendarCheck2 className="w-4 h-4" />
+            <span>Ngày Làm Thêm</span>
+          </button>
+        </div>
+
+        <div className="text-xs text-slate-500 font-semibold px-2">
+          {subTab === 'productivity' ? 'Xếp hạng năng suất theo định mức' : 'Quản lý làm thêm Thứ 7 - Chủ Nhật & Nghỉ bù'}
+        </div>
+      </div>
+
+      {subTab === 'overtime' ? (
+        <NgayLamThemSubTab 
+          refreshToggle={refreshToggle} 
+          sessionUser={sessionUser} 
+        />
+      ) : (
       <div className="border border-[#141414] bg-white p-6 shadow-[4px_4px_0_#141414] lg:py-8 lg:px-10">
         <h2 className="font-serif italic text-2xl lg:text-3xl mb-8 flex items-center gap-3">
           <BarChart3 className="w-8 h-8" />
@@ -937,6 +980,7 @@ export default function AnalysisTab({ refreshToggle }: { refreshToggle: number }
            </div>
         )}
       </div>
+      )}
     </div>
   );
 }

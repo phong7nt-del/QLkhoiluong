@@ -52,7 +52,19 @@ export interface SheetMember {
   sinhNhat?: string;
   boPhanCongTac?: string;
   boPhan?: string;
+  nghiBu?: number;
   [key: string]: any;
+}
+
+export interface NghiBuLog {
+  id: string;
+  memberName: string;
+  addDays: number;
+  totalNghiBu: number;
+  date: string;
+  note?: string;
+  updatedBy: string;
+  timestamp: number;
 }
 
 export interface KthtddEntry {
@@ -494,7 +506,7 @@ export interface TiSheetEntry {
 
 const STORAGE_KEY = 'workload_data_v1';
 export const DEFAULT_SPREADSHEET_ID = '1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ';
-export const DEFAULT_APP_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzpw3SlqJxXYC29qjPRqH8ehfJp764bNvQFUzqIgMW_rMrpitMKvvRvWbbGrP505Sdi/exec';
+export const DEFAULT_APP_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyFzMY2hA8LOgPix7FoN0n9nB3LAUlhuppc5KopO_ZD0fYU-uj4gpAZn5FnedGWr5vg2A/exec';
 const SCRIPT_URL_KEY = 'app_script_url_v1';
 const SPREADSHEET_ID_KEY = 'SPREADSHEET_ID';
 const TEAMS_KEY = 'sheet_teams_v1';
@@ -875,6 +887,100 @@ export const DataStore = {
       }
     } catch (e) {}
     return false;
+  },
+  getLocalNghiBuMap: (): Record<string, number> => {
+    try {
+      const raw = localStorage.getItem("app_nghibu_map_v1");
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  },
+  setLocalNghiBuMap: (map: Record<string, number>) => {
+    try {
+      localStorage.setItem("app_nghibu_map_v1", JSON.stringify(map));
+    } catch {}
+  },
+  getNghiBuLogs: (): NghiBuLog[] => {
+    try {
+      const raw = localStorage.getItem("app_nghibu_logs_v1");
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  },
+  updateMemberNghiBu: async (memberName: string, addDays: number, note?: string, updatedBy?: string): Promise<{ success: boolean; newTotal: number; error?: string }> => {
+    try {
+      const members = DataStore.getMembers();
+      const found = members.find(m => m.name.toLowerCase().trim() === memberName.toLowerCase().trim());
+      const currentTotal = (found && typeof found.nghiBu === "number") ? found.nghiBu : 0;
+      const newTotal = Number((currentTotal + addDays).toFixed(2));
+
+      // Update in-memory members
+      if (found) {
+        found.nghiBu = newTotal;
+        safeSetItem(MEMBERS_KEY, JSON.stringify(members));
+      }
+
+      // Update local map
+      const map = DataStore.getLocalNghiBuMap();
+      map[memberName] = newTotal;
+      DataStore.setLocalNghiBuMap(map);
+
+      // Add log
+      const logs = DataStore.getNghiBuLogs();
+      const logItem: NghiBuLog = {
+        id: Math.random().toString(36).substring(2, 9),
+        memberName,
+        addDays,
+        totalNghiBu: newTotal,
+        date: new Date().toISOString().split("T")[0],
+        note: note || "",
+        updatedBy: updatedBy || "Quản lý",
+        timestamp: Date.now()
+      };
+      logs.unshift(logItem);
+      try {
+        localStorage.setItem("app_nghibu_logs_v1", JSON.stringify(logs.slice(0, 500)));
+      } catch {}
+
+      // Send update to Google Apps Script / Server proxy
+      const payload = {
+        sheetName: "CongTac",
+        action: "update_nghibu",
+        data: {
+          name: memberName,
+          addDays,
+          totalNghiBu: newTotal,
+          note: note || "",
+          updatedBy: updatedBy || "",
+          date: new Date().toISOString().split("T")[0]
+        }
+      };
+
+      try {
+        await fetch("/api/proxy/apps-script", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+      } catch (e) {}
+
+      try {
+        const scriptUrl = DataStore.getAppScriptUrl();
+        if (scriptUrl && scriptUrl.startsWith("http")) {
+          fetch(scriptUrl, {
+            method: "POST",
+            headers: { "Content-Type": "text/plain;charset=utf-8" },
+            body: JSON.stringify(payload)
+          }).catch(() => {});
+        }
+      } catch (e) {}
+
+      return { success: true, newTotal };
+    } catch (err: any) {
+      return { success: false, newTotal: 0, error: err?.message || "Lỗi cập nhật nghỉ bù" };
+    }
   },
   getAppScriptUrl: () => { 
       const url = safeGetItem(SCRIPT_URL_KEY);
@@ -2303,6 +2409,7 @@ export const DataStore = {
                    let sinhNhatColIdx = -1;
                    let boPhanColIdx = -1;
                    let boPhanColScore = 0;
+                    let nghiBuColIdx = -1;
                    
                    for(let r=0; r<5; r++) {
                        if(ctData[r]) {
