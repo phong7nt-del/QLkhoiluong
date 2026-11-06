@@ -7,7 +7,8 @@ import {
   Search, RefreshCw, X, Calendar, User, ChevronDown, ChevronUp,
   Download, Sparkles, Shield, AlertCircle, Eye, EyeOff, Layers, Headphones,
   Upload, FileSpreadsheet, HelpCircle, Camera, Image as ImageIcon, ExternalLink, Maximize2,
-  MapPin, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Trash2, UploadCloud
+  MapPin, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Trash2, UploadCloud,
+  BarChart3, PieChart, Phone, RotateCcw
 } from 'lucide-react';
 import { DataStore, SheetMember, DvkhEntry } from '../store/DataStore';
 import { PermissionStore, normalizeRoleStr } from '../store/PermissionStore';
@@ -100,6 +101,15 @@ export const filterRecordByAreaAndWard = (
     ...area.wards.flatMap(w => w.keywords.map(kw => normalizeAddressText(kw)))
   ];
   return areaKeywords.some(kw => normAddr.includes(kw));
+};
+
+export const getDvkhItemArea = (address: string): { id: string; name: string } => {
+  for (const a of DVKH_AREAS) {
+    if (filterRecordByAreaAndWard(address, a.id, 'ALL')) {
+      return { id: a.id, name: a.name };
+    }
+  }
+  return { id: 'khac', name: 'Khu vực khác' };
 };
 
 // Helper nén ảnh siêu nhẹ (~30-50KB) cực nhanh, tối ưu dung lượng nhỏ nhất và lưu nhanh nhất lên Google Drive
@@ -305,7 +315,7 @@ interface DvkhTabProps {
 
 export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps) {
   const [dvkhList, setDvkhList] = useState<DvkhEntry[]>(() => DataStore.getDvkhEntries());
-  const [activeSubTab, setActiveSubTab] = useState<'tab1' | 'tab2' | 'tab3'>('tab1');
+  const [activeSubTab, setActiveSubTab] = useState<'tab1' | 'tab2' | 'tab3' | 'report'>('tab1');
   const [isLoading, setIsLoading] = useState(false);
   const [syncStatusMsg, setSyncStatusMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
@@ -1091,6 +1101,60 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     }
   };
 
+  // Trả DVKH: chuyển hồ sơ đã nhận về trạng thái 'Chờ nhận', NguoiNhan = '', NgayGiao = '', NgayNhan = ''
+  const handleReturnBatchToDvkh = async () => {
+    if (tab2SelectedMaKhs.length === 0) {
+      alert('Vui lòng chọn ít nhất 1 hồ sơ đã nhận để trả về DVKH!');
+      return;
+    }
+    const count = tab2SelectedMaKhs.length;
+    if (!window.confirm(`Bạn có chắc chắn muốn trả ${count} hồ sơ đã nhận về lại cho bộ phận DVKH (chuyển về trạng thái "Chờ nhận", xóa Người nhận và Ngày giao)?`)) {
+      return;
+    }
+
+    showToast('info', `Đang trả ${count} hồ sơ về DVKH và đồng bộ lên Google Sheet...`);
+    const ok = await DataStore.batchUpdateDvkh(tab2SelectedMaKhs, {
+      trangThai: 'Chờ nhận',
+      nguoiNhan: '',
+      ngayGiao: '',
+      ngayNhan: '',
+      nguoiGiao: '',
+      nguoiThucHien: ''
+    });
+
+    setDvkhList(DataStore.getDvkhEntries());
+    setTab2SelectedMaKhs([]);
+    if (ok) {
+      showToast('success', `Đã trả thành công ${count} hồ sơ về DVKH (chuyển về trạng thái Chờ nhận)!`);
+    } else {
+      showToast('error', `Đã ghi nhận trả trên máy, đồng bộ Google Sheet có thể trễ. Đang tự động thử lại...`);
+    }
+  };
+
+  const handleReturnSingleToDvkh = async (maKh: string) => {
+    if (!window.confirm(`Bạn có chắc chắn muốn trả hồ sơ "${maKh}" về lại cho bộ phận DVKH (chuyển về trạng thái "Chờ nhận", xóa Người nhận và Ngày giao)?`)) {
+      return;
+    }
+
+    showToast('info', `Đang trả hồ sơ ${maKh} về DVKH...`);
+    const res = await DataStore.updateDvkhEntry(maKh, {
+      trangThai: 'Chờ nhận',
+      nguoiNhan: '',
+      ngayGiao: '',
+      ngayNhan: '',
+      nguoiGiao: '',
+      nguoiThucHien: ''
+    });
+
+    setDvkhList(DataStore.getDvkhEntries());
+    setTab2SelectedMaKhs(prev => prev.filter(k => k !== maKh));
+    if (res.success) {
+      showToast('success', `Đã trả thành công hồ sơ ${maKh} về DVKH!`);
+    } else {
+      showToast('info', `Đã cập nhật trạng thái Chờ nhận trên ứng dụng!`);
+    }
+  };
+
   // ==============================================================
   // TAB 3: THỰC HIỆN & BÁO CÁO KẾT QUẢ
   // ==============================================================
@@ -1341,6 +1405,17 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
   const [filterAssignee, setFilterAssignee] = useState('ALL');
   const [filterArea, setFilterArea] = useState('ALL');
   const [filterWard, setFilterWard] = useState('ALL');
+  // Option Ẩn hồ sơ hoàn tất (mặc định là true: ẩn hs hoàn tất)
+  const [hideCompletedBottomList, setHideCompletedBottomList] = useState<boolean>(true);
+
+  // Tổng số hồ sơ hoàn tất trong hệ thống
+  const countCompletedRecords = useMemo(() => {
+    return dvkhList.filter(e => {
+      const st = String(e.trangThai || '').trim().toLowerCase();
+      const kq = String(e.ketQua || '').trim().toLowerCase();
+      return st === 'xong' || kq === 'xong';
+    }).length;
+  }, [dvkhList]);
 
   // Phân trang danh sách toàn bộ hồ sơ: 10 khách hàng trên trang theo yêu cầu
   const BOTTOM_PAGE_SIZE = 10;
@@ -1348,6 +1423,15 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
 
   const bottomFilteredList = useMemo(() => {
     return dvkhList.filter(item => {
+      // Ẩn hồ sơ hoàn tất nếu option được bật (mặc định bật)
+      if (hideCompletedBottomList) {
+        const st = String(item.trangThai || '').trim().toLowerCase();
+        const kq = String(item.ketQua || '').trim().toLowerCase();
+        if (st === 'xong' || kq === 'xong') {
+          return false;
+        }
+      }
+
       // Search text
       if (filterSearch.trim()) {
         const q = filterSearch.trim().toLowerCase();
@@ -1404,12 +1488,12 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
 
       return true;
     });
-  }, [dvkhList, filterSearch, filterTrangThai, filterAssignee, filterArea, filterWard, filterFromDate, filterToDate]);
+  }, [dvkhList, filterSearch, filterTrangThai, filterAssignee, filterArea, filterWard, filterFromDate, filterToDate, hideCompletedBottomList]);
 
   // Tự động chuyển về trang 1 khi thay đổi điều kiện lọc
   useEffect(() => {
     setBottomPage(1);
-  }, [filterSearch, filterTrangThai, filterAssignee, filterArea, filterWard, filterFromDate, filterToDate]);
+  }, [filterSearch, filterTrangThai, filterAssignee, filterArea, filterWard, filterFromDate, filterToDate, hideCompletedBottomList]);
 
   const totalBottomPages = Math.max(1, Math.ceil(bottomFilteredList.length / BOTTOM_PAGE_SIZE));
   const currentBottomPage = Math.min(bottomPage, totalBottomPages);
@@ -1417,6 +1501,198 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     const start = (currentBottomPage - 1) * BOTTOM_PAGE_SIZE;
     return bottomFilteredList.slice(start, start + BOTTOM_PAGE_SIZE);
   }, [bottomFilteredList, currentBottomPage]);
+
+  // ==============================================================
+  // TAB CON BÁO CÁO THỐNG KÊ (THEO KHU VỰC VÀ CẢ ĐỘI)
+  // ==============================================================
+  const [reportFromDate, setReportFromDate] = useState('');
+  const [reportToDate, setReportToDate] = useState('');
+  const [reportDetailSearch, setReportDetailSearch] = useState('');
+  const [reportDetailPage, setReportDetailPage] = useState(1);
+  const REPORT_DETAIL_PAGE_SIZE = 10;
+
+  // Tiêu chí người dùng đang chọn để xem danh sách chi tiết bên dưới
+  const [reportSelection, setReportSelection] = useState<{
+    areaId: string; // 'ALL' hoặc 'vung-tau', 'ba-ria', 'phu-my', 'con-dao', 'khac'
+    areaName: string;
+    metric: 'all' | 'da_nhan' | 'da_giao' | 'hoan_tat' | 'tro_ngai' | 'chua_hoan_tat';
+    metricLabel: string;
+  }>({
+    areaId: 'ALL',
+    areaName: 'Cả Đội',
+    metric: 'all',
+    metricLabel: 'Tất cả hồ sơ'
+  });
+
+  // Dữ liệu gốc báo cáo (có thể lọc theo thời gian)
+  const reportBaseList = useMemo(() => {
+    if (!reportFromDate && !reportToDate) return dvkhList;
+
+    const parseDate = (dStr?: string) => {
+      if (!dStr) return null;
+      const parts = dStr.split(' ')[0].split('/');
+      if (parts.length >= 3) {
+        return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0])).getTime();
+      }
+      return null;
+    };
+
+    return dvkhList.filter(item => {
+      const recordDate = parseDate(item.ngayNhan || item.ngayTao || item.ngayGiao);
+      if (recordDate) {
+        if (reportFromDate) {
+          const fromTime = new Date(reportFromDate).getTime();
+          if (recordDate < fromTime) return false;
+        }
+        if (reportToDate) {
+          const toTime = new Date(reportToDate).getTime() + 24 * 60 * 60 * 1000;
+          if (recordDate > toTime) return false;
+        }
+      }
+      return true;
+    });
+  }, [dvkhList, reportFromDate, reportToDate]);
+
+  // Ma trận thống kê từng khu vực và Cả Đội
+  interface AreaReportRow {
+    areaId: string;
+    areaName: string;
+    total: number;
+    daNhan: number;
+    daNhanPct: number;
+    daGiao: number;
+    daGiaoPct: number;
+    hoanTat: number;
+    hoanTatPct: number;
+    troNgai: number;
+    troNgaiPct: number;
+    chuaHoanTat: number;
+    chuaHoanTatPct: number;
+  }
+
+  const reportMatrix = useMemo(() => {
+    const calcRow = (areaId: string, areaName: string, items: DvkhEntry[]): AreaReportRow => {
+      const total = items.length;
+      let daNhan = 0;
+      let daGiao = 0;
+      let hoanTat = 0;
+      let troNgai = 0;
+
+      items.forEach(item => {
+        const st = String(item.trangThai || '').trim().toLowerCase();
+        const kq = String(item.ketQua || '').trim().toLowerCase();
+        if (st === 'xong' || kq === 'xong') {
+          hoanTat++;
+        } else if (st === 'trở ngại' || st === 'tro ngai') {
+          troNgai++;
+        } else if (st === 'đã giao thi công' || st === 'da giao thi cong') {
+          daGiao++;
+        } else if (st === 'đã nhận' || st === 'da nhan') {
+          daNhan++;
+        }
+      });
+
+      // Chưa hoàn tất (đã nhận và đã giao thi công) theo đúng chỉ đạo yêu cầu
+      const chuaHoanTat = daNhan + daGiao;
+
+      const calcPct = (val: number) => (total > 0 ? Math.round((val / total) * 1000) / 10 : 0);
+
+      return {
+        areaId,
+        areaName,
+        total,
+        daNhan,
+        daNhanPct: calcPct(daNhan),
+        daGiao,
+        daGiaoPct: calcPct(daGiao),
+        hoanTat,
+        hoanTatPct: calcPct(hoanTat),
+        troNgai,
+        troNgaiPct: calcPct(troNgai),
+        chuaHoanTat,
+        chuaHoanTatPct: calcPct(chuaHoanTat)
+      };
+    };
+
+    // Các khu vực chính
+    const areaRows: AreaReportRow[] = DVKH_AREAS.map(area => {
+      const areaItems = reportBaseList.filter(item => filterRecordByAreaAndWard(item.diaChi, area.id, 'ALL'));
+      return calcRow(area.id, area.name, areaItems);
+    });
+
+    // Khu vực khác (nếu có)
+    const otherItems = reportBaseList.filter(item => {
+      return !DVKH_AREAS.some(a => filterRecordByAreaAndWard(item.diaChi, a.id, 'ALL'));
+    });
+    if (otherItems.length > 0) {
+      areaRows.push(calcRow('khac', 'Khu vực khác', otherItems));
+    }
+
+    // Dòng tổng cộng: CẢ ĐỘI
+    const totalRow = calcRow('ALL', 'CẢ ĐỘI (TỔNG CỘNG)', reportBaseList);
+
+    return { areaRows, totalRow };
+  }, [reportBaseList]);
+
+  // Danh sách hồ sơ chi tiết khi người dùng bấm vào chỉ tiêu thống kê
+  const filteredReportDetailList = useMemo(() => {
+    return reportBaseList.filter(item => {
+      // 1. Lọc theo khu vực
+      if (reportSelection.areaId !== 'ALL') {
+        if (reportSelection.areaId === 'khac') {
+          const isKnownArea = DVKH_AREAS.some(a => filterRecordByAreaAndWard(item.diaChi, a.id, 'ALL'));
+          if (isKnownArea) return false;
+        } else {
+          if (!filterRecordByAreaAndWard(item.diaChi, reportSelection.areaId, 'ALL')) {
+            return false;
+          }
+        }
+      }
+
+      // 2. Lọc theo chỉ tiêu trạng thái
+      const st = String(item.trangThai || '').trim().toLowerCase();
+      const kq = String(item.ketQua || '').trim().toLowerCase();
+      const isHoanTat = st === 'xong' || kq === 'xong';
+      const isTroNgai = st === 'trở ngại' || st === 'tro ngai';
+      const isDaNhan = st === 'đã nhận' || st === 'da nhan';
+      const isDaGiao = st === 'đã giao thi công' || st === 'da giao thi cong';
+      const isChuaHoanTat = isDaNhan || isDaGiao;
+
+      if (reportSelection.metric === 'hoan_tat' && !isHoanTat) return false;
+      if (reportSelection.metric === 'tro_ngai' && !isTroNgai) return false;
+      if (reportSelection.metric === 'da_nhan' && !isDaNhan) return false;
+      if (reportSelection.metric === 'da_giao' && !isDaGiao) return false;
+      if (reportSelection.metric === 'chua_hoan_tat' && !isChuaHoanTat) return false;
+
+      // 3. Tìm kiếm trong danh sách chi tiết
+      if (reportDetailSearch.trim()) {
+        const q = reportDetailSearch.trim().toLowerCase();
+        const matchName = (item.tenKh || '').toLowerCase().includes(q);
+        const matchMa = (item.maKh || '').toLowerCase().includes(q);
+        const matchAddr = (item.diaChi || '').toLowerCase().includes(q);
+        const matchNote = (item.ghiChu || '').toLowerCase().includes(q);
+        const matchSdt = (item.sdt || '').toLowerCase().includes(q);
+        const matchAssignee = (item.nguoiThucHien || item.nguoiNhan || '').toLowerCase().includes(q);
+        if (!matchName && !matchMa && !matchAddr && !matchNote && !matchSdt && !matchAssignee) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [reportBaseList, reportSelection, reportDetailSearch]);
+
+  // Reset trang danh sách chi tiết khi thay đổi lựa chọn
+  useEffect(() => {
+    setReportDetailPage(1);
+  }, [reportSelection, reportDetailSearch]);
+
+  const totalReportDetailPages = Math.max(1, Math.ceil(filteredReportDetailList.length / REPORT_DETAIL_PAGE_SIZE));
+  const currentReportDetailPage = Math.min(reportDetailPage, totalReportDetailPages);
+  const paginatedReportDetailList = useMemo(() => {
+    const start = (currentReportDetailPage - 1) * REPORT_DETAIL_PAGE_SIZE;
+    return filteredReportDetailList.slice(start, start + REPORT_DETAIL_PAGE_SIZE);
+  }, [filteredReportDetailList, currentReportDetailPage]);
 
   // Toast feedback helper
   const showToast = (type: 'success' | 'error' | 'info', text: string) => {
@@ -1741,6 +2017,226 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     handleExportExcelBottomList();
   };
 
+  // Xuất Excel Báo cáo tổng hợp theo khu vực & Cả Đội
+  const handleExportExcelReportSummary = () => {
+    const { areaRows, totalRow } = reportMatrix;
+    const timeStr = getCurrentDateTimeStr();
+
+    const headers = [
+      'STT',
+      'Khu Vực',
+      'Tổng Hồ Sơ',
+      'Đã Nhận (SL)',
+      'Đã Nhận (%)',
+      'Đã Giao Thi Công (SL)',
+      'Đã Giao Thi Công (%)',
+      'Hoàn Tất (SL)',
+      'Hoàn Tất (%)',
+      'Trở Ngại (SL)',
+      'Trở Ngại (%)',
+      'Chưa Hoàn Tất (SL)',
+      'Chưa Hoàn Tất (%)'
+    ];
+
+    const dataRows = areaRows.map((row, idx) => [
+      idx + 1,
+      row.areaName,
+      row.total,
+      row.daNhan,
+      `${row.daNhanPct}%`,
+      row.daGiao,
+      `${row.daGiaoPct}%`,
+      row.hoanTat,
+      `${row.hoanTatPct}%`,
+      row.troNgai,
+      `${row.troNgaiPct}%`,
+      row.chuaHoanTat,
+      `${row.chuaHoanTatPct}%`
+    ]);
+
+    const summaryRow = [
+      '',
+      totalRow.areaName,
+      totalRow.total,
+      totalRow.daNhan,
+      `${totalRow.daNhanPct}%`,
+      totalRow.daGiao,
+      `${totalRow.daGiaoPct}%`,
+      totalRow.hoanTat,
+      `${totalRow.hoanTatPct}%`,
+      totalRow.troNgai,
+      `${totalRow.troNgaiPct}%`,
+      totalRow.chuaHoanTat,
+      `${totalRow.chuaHoanTatPct}%`
+    ];
+
+    const wsData = [
+      ['BÁO CÁO THỐNG KÊ TIẾN ĐỘ HỒ SƠ DVKH THEO KHU VỰC VÀ CẢ ĐỘI'],
+      [`Thời gian xuất: ${timeStr} | Tổng số hồ sơ: ${totalRow.total}`],
+      [],
+      headers,
+      ...dataRows,
+      summaryRow
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+    // Merge title
+    ws['!merges'] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: headers.length - 1 } }
+    ];
+
+    // Style Title & Subtitle
+    const titleCell = XLSX.utils.encode_cell({ r: 0, c: 0 });
+    if (ws[titleCell]) {
+      ws[titleCell].s = {
+        font: { bold: true, sz: 14, color: { rgb: "3B0764" } },
+        alignment: { vertical: "center", horizontal: "center" }
+      };
+    }
+    const subCell = XLSX.utils.encode_cell({ r: 1, c: 0 });
+    if (ws[subCell]) {
+      ws[subCell].s = {
+        font: { italic: true, sz: 10, color: { rgb: "475569" } },
+        alignment: { vertical: "center", horizontal: "center" }
+      };
+    }
+
+    // Set Column Widths
+    ws['!cols'] = [
+      { wch: 6 },
+      { wch: 18 },
+      { wch: 14 },
+      { wch: 13 },
+      { wch: 12 },
+      { wch: 18 },
+      { wch: 14 },
+      { wch: 13 },
+      { wch: 12 },
+      { wch: 13 },
+      { wch: 12 },
+      { wch: 16 },
+      { wch: 14 }
+    ];
+
+    // Style Headers (Row 3)
+    for (let c = 0; c < headers.length; c++) {
+      const cellRef = XLSX.utils.encode_cell({ r: 3, c });
+      if (ws[cellRef]) {
+        ws[cellRef].s = {
+          font: { bold: true, color: { rgb: "FFFFFF" }, sz: 10 },
+          fill: { fgColor: { rgb: "581C87" } },
+          alignment: { vertical: "center", horizontal: "center", wrapText: true },
+          border: {
+            top: { style: 'thin', color: { rgb: 'D8B4FE' } },
+            bottom: { style: 'medium', color: { rgb: '3B0764' } },
+            left: { style: 'thin', color: { rgb: 'D8B4FE' } },
+            right: { style: 'thin', color: { rgb: 'D8B4FE' } }
+          }
+        };
+      }
+    }
+
+    // Style Area Rows
+    for (let r = 0; r < dataRows.length; r++) {
+      const isEven = r % 2 === 0;
+      for (let c = 0; c < headers.length; c++) {
+        const cellRef = XLSX.utils.encode_cell({ r: r + 4, c });
+        if (ws[cellRef]) {
+          const isCenter = c === 0 || c >= 2;
+          ws[cellRef].s = {
+            font: { sz: 10, bold: c === 1 || c === 2, color: { rgb: "0F172A" } },
+            fill: isEven ? { fgColor: { rgb: "FFFFFF" } } : { fgColor: { rgb: "FAF5FF" } },
+            alignment: { vertical: "center", horizontal: isCenter ? "center" : "left" },
+            border: {
+              top: { style: 'thin', color: { rgb: 'E2E8F0' } },
+              bottom: { style: 'thin', color: { rgb: 'E2E8F0' } },
+              left: { style: 'thin', color: { rgb: 'E2E8F0' } },
+              right: { style: 'thin', color: { rgb: 'E2E8F0' } }
+            }
+          };
+        }
+      }
+    }
+
+    // Style Summary Row (CẢ ĐỘI)
+    const summaryRowIdx = dataRows.length + 4;
+    for (let c = 0; c < headers.length; c++) {
+      const cellRef = XLSX.utils.encode_cell({ r: summaryRowIdx, c });
+      if (ws[cellRef]) {
+        ws[cellRef].s = {
+          font: { bold: true, sz: 11, color: { rgb: "3B0764" } },
+          fill: { fgColor: { rgb: "F3E8FF" } },
+          alignment: { vertical: "center", horizontal: c === 1 ? "left" : "center" },
+          border: {
+            top: { style: 'medium', color: { rgb: '7E22CE' } },
+            bottom: { style: 'double', color: { rgb: '7E22CE' } },
+            left: { style: 'thin', color: { rgb: 'D8B4FE' } },
+            right: { style: 'thin', color: { rgb: 'D8B4FE' } }
+          }
+        };
+      }
+    }
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "BaoCaoThongKe");
+    const dateStamp = getCurrentDateStr().replace(/\//g, '_');
+    XLSX.writeFile(wb, `BaoCao_ThongKe_DVKH_KhuVuc_CaDoi_${dateStamp}.xlsx`);
+    showToast('success', 'Đã xuất file Excel tổng hợp báo cáo thành công!');
+  };
+
+  // Xuất Excel Danh sách chi tiết của Báo cáo thống kê
+  const handleExportExcelReportDetailList = () => {
+    if (filteredReportDetailList.length === 0) {
+      showToast('error', 'Không có hồ sơ nào để xuất Excel!');
+      return;
+    }
+
+    const headers = [
+      'STT',
+      'Mã Khách Hàng',
+      'Tên Khách Hàng',
+      'Số Điện Thoại',
+      'Địa Chỉ',
+      'Khu Vực',
+      'Trạng Thái',
+      'Ngày Nhận',
+      'Người Nhận',
+      'Ngày Giao Thi Công',
+      'Người Thi Công',
+      'Ngày Hoàn Tất',
+      'Kết Quả',
+      'Ghi Chú',
+      'Link Ảnh Trở Ngại'
+    ];
+
+    const rows = filteredReportDetailList.map((item, idx) => {
+      const area = getDvkhItemArea(item.diaChi).name;
+      return [
+        idx + 1,
+        item.maKh || '',
+        item.tenKh || '',
+        item.sdt || '',
+        item.diaChi || '',
+        area,
+        item.trangThai || '',
+        item.ngayNhan || '',
+        item.nguoiNhan || '',
+        item.ngayGiao || '',
+        item.nguoiThucHien || '',
+        item.ngayHoanTat || '',
+        item.ketQua || '',
+        item.ghiChu || '',
+        item.pic ? (item.pic.startsWith('data:') ? '[Đã đính kèm ảnh]' : item.pic) : ''
+      ];
+    });
+
+    const sheetTitle = `BÁO CÁO CHI TIẾT HỒ SƠ DVKH - ${reportSelection.areaName.toUpperCase()} - ${reportSelection.metricLabel.toUpperCase()}`;
+    const filePrefix = `DS_DVKH_${reportSelection.areaId}_${reportSelection.metric}`;
+    exportDvkhToExcelFile(sheetTitle, filePrefix, headers, rows);
+  };
+
   // Status badge styling
   const renderStatusBadge = (status: string) => {
     switch (status) {
@@ -1941,6 +2437,24 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
               {countTab3Pending}
             </span>
           )}
+        </button>
+
+        {/* Sub-tab 4: Báo Cáo Thống Kê */}
+        <button
+          onClick={() => setActiveSubTab('report')}
+          className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold transition-all relative cursor-pointer ${
+            activeSubTab === 'report'
+              ? 'bg-purple-700 text-white shadow-md'
+              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+          }`}
+        >
+          <BarChart3 className="w-4 h-4" />
+          <span>Báo Cáo Thống Kê</span>
+          <span className={`px-2 py-0.5 rounded-full text-[11px] font-black ${
+            activeSubTab === 'report' ? 'bg-purple-300 text-purple-950' : 'bg-purple-100 text-purple-800 border border-purple-300'
+          }`}>
+            {dvkhList.length}
+          </span>
         </button>
       </div>
 
@@ -2699,6 +3213,18 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                   <span>Giao thi công {tab2SelectedMaKhs.length > 0 ? `(${tab2SelectedMaKhs.length})` : ''}</span>
                 </button>
 
+                {/* Nút Trả DVKH cho hồ sơ đã nhận */}
+                <button
+                  type="button"
+                  onClick={handleReturnBatchToDvkh}
+                  disabled={tab2SelectedMaKhs.length === 0}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  title="Trả hồ sơ đã chọn về cho DVKH (chuyển về trạng thái Chờ nhận, xóa Người nhận và Ngày giao)"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Trả DVKH {tab2SelectedMaKhs.length > 0 ? `(${tab2SelectedMaKhs.length})` : ''}</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={handleExportExcelTab2}
@@ -2756,6 +3282,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                           <th className="px-3 py-2.5 border-b border-slate-200">Ngày Tiếp Nhận</th>
                           <th className="px-3 py-2.5 border-b border-slate-200">Người Tiếp Nhận</th>
                           <th className="px-3 py-2.5 border-b border-slate-200 text-center">Trạng Thái</th>
+                          <th className="px-3 py-2.5 border-b border-slate-200 text-center">Thao Tác</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -2802,6 +3329,17 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                               </td>
                               <td className="px-3 py-2 text-center">
                                 {renderStatusBadge(item.trangThai)}
+                              </td>
+                              <td className="px-3 py-2 text-center whitespace-nowrap">
+                                <button
+                                  type="button"
+                                  onClick={() => handleReturnSingleToDvkh(item.maKh)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-[11px] font-bold shadow-2xs active:scale-95 transition-all cursor-pointer"
+                                  title="Trả hồ sơ này về cho DVKH (chuyển về trạng thái Chờ nhận)"
+                                >
+                                  <RotateCcw className="w-3 h-3 text-amber-600" />
+                                  <span>Trả DVKH</span>
+                                </button>
                               </td>
                             </tr>
                           );
@@ -3299,8 +3837,642 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
       )}
 
       {/* ========================================================= */}
+      {/* SUB-TAB 4 CONTENT: BÁO CÁO THỐNG KÊ (KHU VỰC & CẢ ĐỘI)    */}
+      {/* ========================================================= */}
+      {activeSubTab === 'report' && (
+        <div className="space-y-6 animate-fade-in">
+          {/* Header & Bộ lọc thời gian */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+              <div>
+                <h3 className="text-base font-bold text-slate-800 uppercase flex items-center gap-2">
+                  <span className="p-2 rounded-xl bg-purple-100 text-purple-700">
+                    <BarChart3 className="w-5 h-5" />
+                  </span>
+                  <span>Báo Cáo Thống Kê Tiến Độ DVKH Theo Khu Vực & Cả Đội</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Thống kê số lượng & tỷ lệ (%) từng chỉ tiêu: Đã nhận, Đã giao, Hoàn tất, Trở ngại, Chưa hoàn tất (Đã nhận & Đã giao).
+                  Bấm vào từng ô số liệu để xem danh sách chi tiết bên dưới.
+                </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleExportExcelReportSummary}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer"
+                  title="Xuất bảng tổng hợp số lượng và % của từng khu vực và cả Đội ra file Excel"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  <span>Xuất Excel Báo Cáo Tổng Hợp</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Time Range Filter */}
+            <div className="flex flex-wrap items-center gap-3 pt-1 text-xs">
+              <span className="font-bold text-slate-700 flex items-center gap-1.5">
+                <Calendar className="w-4 h-4 text-purple-600" />
+                <span>Khoảng thời gian:</span>
+              </span>
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={reportFromDate}
+                  onChange={(e) => setReportFromDate(e.target.value)}
+                  className="px-2.5 py-1.5 border border-slate-300 rounded-xl text-xs outline-none focus:ring-2 focus:ring-purple-500 bg-white"
+                  title="Từ ngày"
+                />
+                <span className="text-slate-400">→</span>
+                <input
+                  type="date"
+                  value={reportToDate}
+                  onChange={(e) => setReportToDate(e.target.value)}
+                  className="px-2.5 py-1.5 border border-slate-300 rounded-xl text-xs outline-none focus:ring-2 focus:ring-purple-500 bg-white"
+                  title="Đến ngày"
+                />
+              </div>
+
+              {/* Quick filter chips */}
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => { setReportFromDate(''); setReportToDate(''); }}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    !reportFromDate && !reportToDate
+                      ? 'bg-purple-700 text-white shadow-2xs'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  Tất cả thời gian
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const today = new Date().toISOString().split('T')[0];
+                    setReportFromDate(today);
+                    setReportToDate(today);
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 text-xs font-semibold transition-all cursor-pointer"
+                >
+                  Hôm nay
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const now = new Date();
+                    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+                    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+                    setReportFromDate(firstDay);
+                    setReportToDate(lastDay);
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 text-xs font-semibold transition-all cursor-pointer"
+                >
+                  Tháng này
+                </button>
+              </div>
+
+              {(reportFromDate || reportToDate) && (
+                <button
+                  type="button"
+                  onClick={() => { setReportFromDate(''); setReportToDate(''); }}
+                  className="text-xs text-rose-600 hover:text-rose-800 underline font-semibold cursor-pointer ml-auto"
+                >
+                  Xóa lọc ngày
+                </button>
+              )}
+            </div>
+
+            {/* Quick KPI summary cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setReportSelection({ areaId: 'ALL', areaName: 'Cả Đội', metric: 'all', metricLabel: 'Tất cả hồ sơ' })}
+                className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                  reportSelection.areaId === 'ALL' && reportSelection.metric === 'all'
+                    ? 'border-purple-600 bg-purple-50 ring-2 ring-purple-300'
+                    : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
+                }`}
+              >
+                <div className="text-[11px] font-semibold text-slate-500 uppercase">Tổng hồ sơ</div>
+                <div className="text-xl font-black text-slate-900 mt-0.5">{reportMatrix.totalRow.total}</div>
+                <div className="text-[10px] text-slate-500 mt-0.5">100% toàn Đội</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setReportSelection({ areaId: 'ALL', areaName: 'Cả Đội', metric: 'da_nhan', metricLabel: 'Đã nhận (chưa giao)' })}
+                className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                  reportSelection.areaId === 'ALL' && reportSelection.metric === 'da_nhan'
+                    ? 'border-sky-600 bg-sky-50 ring-2 ring-sky-300'
+                    : 'border-slate-200 bg-sky-50/40 hover:bg-sky-100/60'
+                }`}
+              >
+                <div className="text-[11px] font-semibold text-sky-800 uppercase">Đã nhận</div>
+                <div className="text-xl font-black text-sky-900 mt-0.5">{reportMatrix.totalRow.daNhan}</div>
+                <div className="text-[10px] text-sky-700 font-semibold mt-0.5">{reportMatrix.totalRow.daNhanPct}% tổng số</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setReportSelection({ areaId: 'ALL', areaName: 'Cả Đội', metric: 'da_giao', metricLabel: 'Đã giao thi công' })}
+                className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                  reportSelection.areaId === 'ALL' && reportSelection.metric === 'da_giao'
+                    ? 'border-indigo-600 bg-indigo-50 ring-2 ring-indigo-300'
+                    : 'border-slate-200 bg-indigo-50/40 hover:bg-indigo-100/60'
+                }`}
+              >
+                <div className="text-[11px] font-semibold text-indigo-800 uppercase">Đã giao thi công</div>
+                <div className="text-xl font-black text-indigo-900 mt-0.5">{reportMatrix.totalRow.daGiao}</div>
+                <div className="text-[10px] text-indigo-700 font-semibold mt-0.5">{reportMatrix.totalRow.daGiaoPct}% tổng số</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setReportSelection({ areaId: 'ALL', areaName: 'Cả Đội', metric: 'hoan_tat', metricLabel: 'Hoàn tất' })}
+                className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                  reportSelection.areaId === 'ALL' && reportSelection.metric === 'hoan_tat'
+                    ? 'border-emerald-600 bg-emerald-50 ring-2 ring-emerald-300'
+                    : 'border-slate-200 bg-emerald-50/40 hover:bg-emerald-100/60'
+                }`}
+              >
+                <div className="text-[11px] font-semibold text-emerald-800 uppercase">Hoàn tất</div>
+                <div className="text-xl font-black text-emerald-900 mt-0.5">{reportMatrix.totalRow.hoanTat}</div>
+                <div className="text-[10px] text-emerald-700 font-semibold mt-0.5">{reportMatrix.totalRow.hoanTatPct}% tổng số</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setReportSelection({ areaId: 'ALL', areaName: 'Cả Đội', metric: 'tro_ngai', metricLabel: 'Trở ngại' })}
+                className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                  reportSelection.areaId === 'ALL' && reportSelection.metric === 'tro_ngai'
+                    ? 'border-rose-600 bg-rose-50 ring-2 ring-rose-300'
+                    : 'border-slate-200 bg-rose-50/40 hover:bg-rose-100/60'
+                }`}
+              >
+                <div className="text-[11px] font-semibold text-rose-800 uppercase">Trở ngại</div>
+                <div className="text-xl font-black text-rose-900 mt-0.5">{reportMatrix.totalRow.troNgai}</div>
+                <div className="text-[10px] text-rose-700 font-semibold mt-0.5">{reportMatrix.totalRow.troNgaiPct}% tổng số</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setReportSelection({ areaId: 'ALL', areaName: 'Cả Đội', metric: 'chua_hoan_tat', metricLabel: 'Chưa hoàn tất (Đã nhận + Đã giao)' })}
+                className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                  reportSelection.areaId === 'ALL' && reportSelection.metric === 'chua_hoan_tat'
+                    ? 'border-amber-600 bg-amber-50 ring-2 ring-amber-300'
+                    : 'border-slate-200 bg-amber-50/40 hover:bg-amber-100/60'
+                }`}
+              >
+                <div className="text-[11px] font-semibold text-amber-900 uppercase">Chưa hoàn tất</div>
+                <div className="text-xl font-black text-amber-950 mt-0.5">{reportMatrix.totalRow.chuaHoanTat}</div>
+                <div className="text-[10px] text-amber-800 font-semibold mt-0.5">{reportMatrix.totalRow.chuaHoanTatPct}% tổng số</div>
+              </button>
+            </div>
+          </div>
+
+          {/* BẢNG MA TRẬN BÁO CÁO TỔNG HỢP (TỪNG KHU VỰC VÀ CẢ ĐỘI) */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2">
+              <h4 className="text-sm font-bold text-slate-800 uppercase flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-purple-600"></span>
+                <span>Bảng Thống Kê Chi Tiết Từng Khu Vực & Cả Đội</span>
+              </h4>
+              <span className="text-[11px] text-slate-500 italic">
+                * Click vào bất kỳ ô số lượng nào để lọc danh sách hồ sơ tương ứng ở bảng phía dưới
+              </span>
+            </div>
+
+            <div className="overflow-x-auto rounded-xl border border-slate-200">
+              <table className="w-full text-xs text-left border-collapse">
+                <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px]">
+                  <tr>
+                    <th rowSpan={2} className="px-3 py-3 border-b border-r border-slate-200 w-12 text-center bg-slate-100">STT</th>
+                    <th rowSpan={2} className="px-4 py-3 border-b border-r border-slate-200 min-w-36 bg-slate-100">Khu Vực</th>
+                    <th rowSpan={2} className="px-3 py-3 border-b border-r border-slate-200 text-center bg-slate-100">Tổng HS</th>
+                    <th colSpan={2} className="px-3 py-2 border-b border-r border-slate-200 text-center bg-sky-50 text-sky-900">Đã Nhận</th>
+                    <th colSpan={2} className="px-3 py-2 border-b border-r border-slate-200 text-center bg-indigo-50 text-indigo-900">Đã Giao Thi Công</th>
+                    <th colSpan={2} className="px-3 py-2 border-b border-r border-slate-200 text-center bg-emerald-50 text-emerald-900">Hoàn Tất (Xong)</th>
+                    <th colSpan={2} className="px-3 py-2 border-b border-r border-slate-200 text-center bg-rose-50 text-rose-900">Trở Ngại</th>
+                    <th colSpan={2} className="px-3 py-2 border-b border-slate-200 text-center bg-amber-50 text-amber-950 font-black">Chưa Hoàn Tất (Nhận + Giao)</th>
+                  </tr>
+                  <tr className="border-b border-slate-200">
+                    <th className="px-2 py-1.5 text-center bg-sky-50/70 border-r border-slate-200 text-[10px] text-sky-800">SL</th>
+                    <th className="px-2 py-1.5 text-center bg-sky-50/70 border-r border-slate-200 text-[10px] text-sky-800">%</th>
+                    <th className="px-2 py-1.5 text-center bg-indigo-50/70 border-r border-slate-200 text-[10px] text-indigo-800">SL</th>
+                    <th className="px-2 py-1.5 text-center bg-indigo-50/70 border-r border-slate-200 text-[10px] text-indigo-800">%</th>
+                    <th className="px-2 py-1.5 text-center bg-emerald-50/70 border-r border-slate-200 text-[10px] text-emerald-800">SL</th>
+                    <th className="px-2 py-1.5 text-center bg-emerald-50/70 border-r border-slate-200 text-[10px] text-emerald-800">%</th>
+                    <th className="px-2 py-1.5 text-center bg-rose-50/70 border-r border-slate-200 text-[10px] text-rose-800">SL</th>
+                    <th className="px-2 py-1.5 text-center bg-rose-50/70 border-r border-slate-200 text-[10px] text-rose-800">%</th>
+                    <th className="px-2 py-1.5 text-center bg-amber-50/70 border-r border-slate-200 text-[10px] text-amber-900 font-bold">SL</th>
+                    <th className="px-2 py-1.5 text-center bg-amber-50/70 text-[10px] text-amber-900 font-bold">%</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {reportMatrix.areaRows.map((row, idx) => {
+                    const isAreaSelected = reportSelection.areaId === row.areaId;
+                    return (
+                      <tr key={row.areaId} className={`hover:bg-slate-50 transition-colors ${isAreaSelected ? 'bg-purple-50/40' : ''}`}>
+                        <td className="px-3 py-2.5 text-center text-slate-500 font-mono border-r border-slate-200">{idx + 1}</td>
+                        <td className="px-4 py-2.5 font-bold text-slate-800 border-r border-slate-200">
+                          <button
+                            type="button"
+                            onClick={() => setReportSelection({ areaId: row.areaId, areaName: row.areaName, metric: 'all', metricLabel: 'Tất cả' })}
+                            className="hover:text-purple-700 hover:underline cursor-pointer text-left font-bold"
+                            title={`Xem tất cả hồ sơ khu vực ${row.areaName}`}
+                          >
+                            {row.areaName}
+                          </button>
+                        </td>
+                        <td className="px-3 py-2.5 text-center font-bold font-mono text-slate-800 border-r border-slate-200">
+                          <button
+                            type="button"
+                            onClick={() => setReportSelection({ areaId: row.areaId, areaName: row.areaName, metric: 'all', metricLabel: 'Tất cả' })}
+                            className="px-2 py-0.5 rounded-lg hover:bg-slate-200 transition-colors cursor-pointer"
+                          >
+                            {row.total}
+                          </button>
+                        </td>
+                        {/* Đã nhận */}
+                        <td className="px-2 py-2.5 text-center font-mono border-r border-slate-200">
+                          <button
+                            type="button"
+                            onClick={() => setReportSelection({ areaId: row.areaId, areaName: row.areaName, metric: 'da_nhan', metricLabel: 'Đã nhận' })}
+                            className={`px-2 py-0.5 rounded-md font-bold transition-all cursor-pointer ${
+                              isAreaSelected && reportSelection.metric === 'da_nhan'
+                                ? 'bg-sky-600 text-white shadow-xs'
+                                : 'text-sky-800 hover:bg-sky-100'
+                            }`}
+                          >
+                            {row.daNhan}
+                          </button>
+                        </td>
+                        <td className="px-2 py-2.5 text-center font-mono text-[11px] text-slate-600 border-r border-slate-200">{row.daNhanPct}%</td>
+                        {/* Đã giao thi công */}
+                        <td className="px-2 py-2.5 text-center font-mono border-r border-slate-200">
+                          <button
+                            type="button"
+                            onClick={() => setReportSelection({ areaId: row.areaId, areaName: row.areaName, metric: 'da_giao', metricLabel: 'Đã giao thi công' })}
+                            className={`px-2 py-0.5 rounded-md font-bold transition-all cursor-pointer ${
+                              isAreaSelected && reportSelection.metric === 'da_giao'
+                                ? 'bg-indigo-600 text-white shadow-xs'
+                                : 'text-indigo-800 hover:bg-indigo-100'
+                            }`}
+                          >
+                            {row.daGiao}
+                          </button>
+                        </td>
+                        <td className="px-2 py-2.5 text-center font-mono text-[11px] text-slate-600 border-r border-slate-200">{row.daGiaoPct}%</td>
+                        {/* Hoàn tất */}
+                        <td className="px-2 py-2.5 text-center font-mono border-r border-slate-200">
+                          <button
+                            type="button"
+                            onClick={() => setReportSelection({ areaId: row.areaId, areaName: row.areaName, metric: 'hoan_tat', metricLabel: 'Hoàn tất' })}
+                            className={`px-2 py-0.5 rounded-md font-bold transition-all cursor-pointer ${
+                              isAreaSelected && reportSelection.metric === 'hoan_tat'
+                                ? 'bg-emerald-600 text-white shadow-xs'
+                                : 'text-emerald-800 hover:bg-emerald-100'
+                            }`}
+                          >
+                            {row.hoanTat}
+                          </button>
+                        </td>
+                        <td className="px-2 py-2.5 text-center font-mono text-[11px] text-slate-600 border-r border-slate-200">{row.hoanTatPct}%</td>
+                        {/* Trở ngại */}
+                        <td className="px-2 py-2.5 text-center font-mono border-r border-slate-200">
+                          <button
+                            type="button"
+                            onClick={() => setReportSelection({ areaId: row.areaId, areaName: row.areaName, metric: 'tro_ngai', metricLabel: 'Trở ngại' })}
+                            className={`px-2 py-0.5 rounded-md font-bold transition-all cursor-pointer ${
+                              isAreaSelected && reportSelection.metric === 'tro_ngai'
+                                ? 'bg-rose-600 text-white shadow-xs'
+                                : 'text-rose-800 hover:bg-rose-100'
+                            }`}
+                          >
+                            {row.troNgai}
+                          </button>
+                        </td>
+                        <td className="px-2 py-2.5 text-center font-mono text-[11px] text-slate-600 border-r border-slate-200">{row.troNgaiPct}%</td>
+                        {/* Chưa hoàn tất */}
+                        <td className="px-2 py-2.5 text-center font-mono border-r border-slate-200">
+                          <button
+                            type="button"
+                            onClick={() => setReportSelection({ areaId: row.areaId, areaName: row.areaName, metric: 'chua_hoan_tat', metricLabel: 'Chưa hoàn tất' })}
+                            className={`px-2 py-0.5 rounded-md font-black transition-all cursor-pointer ${
+                              isAreaSelected && reportSelection.metric === 'chua_hoan_tat'
+                                ? 'bg-amber-600 text-white shadow-xs'
+                                : 'text-amber-900 bg-amber-50 hover:bg-amber-100'
+                            }`}
+                          >
+                            {row.chuaHoanTat}
+                          </button>
+                        </td>
+                        <td className="px-2 py-2.5 text-center font-mono text-[11px] font-bold text-amber-900">{row.chuaHoanTatPct}%</td>
+                      </tr>
+                    );
+                  })}
+
+                  {/* DÒNG TỔNG CỘNG: CẢ ĐỘI */}
+                  <tr className="bg-purple-100/70 border-t-2 border-purple-400 font-bold">
+                    <td className="px-3 py-3 text-center text-purple-900 font-black border-r border-purple-200">∑</td>
+                    <td className="px-4 py-3 font-black text-purple-950 uppercase border-r border-purple-200">
+                      <button
+                        type="button"
+                        onClick={() => setReportSelection({ areaId: 'ALL', areaName: 'Cả Đội', metric: 'all', metricLabel: 'Tất cả cả Đội' })}
+                        className="hover:underline cursor-pointer text-left font-black"
+                      >
+                        {reportMatrix.totalRow.areaName}
+                      </button>
+                    </td>
+                    <td className="px-3 py-3 text-center font-mono font-black text-purple-950 border-r border-purple-200">
+                      <button
+                        type="button"
+                        onClick={() => setReportSelection({ areaId: 'ALL', areaName: 'Cả Đội', metric: 'all', metricLabel: 'Tất cả cả Đội' })}
+                        className="px-2.5 py-0.5 rounded-lg bg-purple-200/80 hover:bg-purple-300 transition-colors cursor-pointer"
+                      >
+                        {reportMatrix.totalRow.total}
+                      </button>
+                    </td>
+                    {/* Đã nhận */}
+                    <td className="px-2 py-3 text-center font-mono border-r border-purple-200">
+                      <button
+                        type="button"
+                        onClick={() => setReportSelection({ areaId: 'ALL', areaName: 'Cả Đội', metric: 'da_nhan', metricLabel: 'Đã nhận' })}
+                        className={`px-2.5 py-0.5 rounded-lg font-black transition-all cursor-pointer ${
+                          reportSelection.areaId === 'ALL' && reportSelection.metric === 'da_nhan'
+                            ? 'bg-sky-600 text-white shadow-xs'
+                            : 'text-sky-900 bg-sky-100 hover:bg-sky-200'
+                        }`}
+                      >
+                        {reportMatrix.totalRow.daNhan}
+                      </button>
+                    </td>
+                    <td className="px-2 py-3 text-center font-mono text-[11px] text-purple-900 border-r border-purple-200">{reportMatrix.totalRow.daNhanPct}%</td>
+                    {/* Đã giao */}
+                    <td className="px-2 py-3 text-center font-mono border-r border-purple-200">
+                      <button
+                        type="button"
+                        onClick={() => setReportSelection({ areaId: 'ALL', areaName: 'Cả Đội', metric: 'da_giao', metricLabel: 'Đã giao thi công' })}
+                        className={`px-2.5 py-0.5 rounded-lg font-black transition-all cursor-pointer ${
+                          reportSelection.areaId === 'ALL' && reportSelection.metric === 'da_giao'
+                            ? 'bg-indigo-600 text-white shadow-xs'
+                            : 'text-indigo-900 bg-indigo-100 hover:bg-indigo-200'
+                        }`}
+                      >
+                        {reportMatrix.totalRow.daGiao}
+                      </button>
+                    </td>
+                    <td className="px-2 py-3 text-center font-mono text-[11px] text-purple-900 border-r border-purple-200">{reportMatrix.totalRow.daGiaoPct}%</td>
+                    {/* Hoàn tất */}
+                    <td className="px-2 py-3 text-center font-mono border-r border-purple-200">
+                      <button
+                        type="button"
+                        onClick={() => setReportSelection({ areaId: 'ALL', areaName: 'Cả Đội', metric: 'hoan_tat', metricLabel: 'Hoàn tất' })}
+                        className={`px-2.5 py-0.5 rounded-lg font-black transition-all cursor-pointer ${
+                          reportSelection.areaId === 'ALL' && reportSelection.metric === 'hoan_tat'
+                            ? 'bg-emerald-600 text-white shadow-xs'
+                            : 'text-emerald-900 bg-emerald-100 hover:bg-emerald-200'
+                        }`}
+                      >
+                        {reportMatrix.totalRow.hoanTat}
+                      </button>
+                    </td>
+                    <td className="px-2 py-3 text-center font-mono text-[11px] text-purple-900 border-r border-purple-200">{reportMatrix.totalRow.hoanTatPct}%</td>
+                    {/* Trở ngại */}
+                    <td className="px-2 py-3 text-center font-mono border-r border-purple-200">
+                      <button
+                        type="button"
+                        onClick={() => setReportSelection({ areaId: 'ALL', areaName: 'Cả Đội', metric: 'tro_ngai', metricLabel: 'Trở ngại' })}
+                        className={`px-2.5 py-0.5 rounded-lg font-black transition-all cursor-pointer ${
+                          reportSelection.areaId === 'ALL' && reportSelection.metric === 'tro_ngai'
+                            ? 'bg-rose-600 text-white shadow-xs'
+                            : 'text-rose-900 bg-rose-100 hover:bg-rose-200'
+                        }`}
+                      >
+                        {reportMatrix.totalRow.troNgai}
+                      </button>
+                    </td>
+                    <td className="px-2 py-3 text-center font-mono text-[11px] text-purple-900 border-r border-purple-200">{reportMatrix.totalRow.troNgaiPct}%</td>
+                    {/* Chưa hoàn tất */}
+                    <td className="px-2 py-3 text-center font-mono border-r border-purple-200">
+                      <button
+                        type="button"
+                        onClick={() => setReportSelection({ areaId: 'ALL', areaName: 'Cả Đội', metric: 'chua_hoan_tat', metricLabel: 'Chưa hoàn tất' })}
+                        className={`px-2.5 py-0.5 rounded-lg font-black transition-all cursor-pointer ${
+                          reportSelection.areaId === 'ALL' && reportSelection.metric === 'chua_hoan_tat'
+                            ? 'bg-amber-600 text-white shadow-xs'
+                            : 'text-amber-950 bg-amber-200 hover:bg-amber-300'
+                        }`}
+                      >
+                        {reportMatrix.totalRow.chuaHoanTat}
+                      </button>
+                    </td>
+                    <td className="px-2 py-3 text-center font-mono text-[11px] font-black text-amber-950">{reportMatrix.totalRow.chuaHoanTatPct}%</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* BẢNG DANH SÁCH CHI TIẾT TƯƠNG ỨNG KHI NGƯỜI DÙNG BẤM VÀO NỘI DUNG THỐNG KÊ */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <span className="p-2 rounded-xl bg-purple-100 text-purple-700 font-bold">
+                  <Layers className="w-5 h-5" />
+                </span>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-800 uppercase flex items-center gap-2">
+                    <span>Danh Sách Hồ Sơ:</span>
+                    <span className="px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-800 text-xs font-black">
+                      {reportSelection.areaName}
+                    </span>
+                    <span className="text-slate-400">•</span>
+                    <span className="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 text-xs font-bold">
+                      {reportSelection.metricLabel}
+                    </span>
+                    <span className="text-slate-400 font-mono text-xs">
+                      ({filteredReportDetailList.length} hồ sơ)
+                    </span>
+                  </h4>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Hiển thị thông tin chi tiết các hồ sơ theo chỉ tiêu thống kê đang được chọn.
+                  </p>
+                </div>
+              </div>
+
+              {/* Toolbar controls for drill-down list */}
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Search in drill-down list */}
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={reportDetailSearch}
+                    onChange={(e) => setReportDetailSearch(e.target.value)}
+                    placeholder="Tìm tên, mã, số ĐT, địa chỉ..."
+                    className="pl-8 pr-3 py-1.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none w-48 sm:w-60"
+                  />
+                  {reportDetailSearch && (
+                    <button onClick={() => setReportDetailSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Reset button if filtered */}
+                {(reportSelection.areaId !== 'ALL' || reportSelection.metric !== 'all') && (
+                  <button
+                    type="button"
+                    onClick={() => setReportSelection({ areaId: 'ALL', areaName: 'Cả Đội', metric: 'all', metricLabel: 'Tất cả hồ sơ' })}
+                    className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-all cursor-pointer"
+                  >
+                    Xem tất cả cả Đội
+                  </button>
+                )}
+
+                {/* Export Excel Detail */}
+                <button
+                  type="button"
+                  onClick={handleExportExcelReportDetailList}
+                  disabled={filteredReportDetailList.length === 0}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-2xs active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  title="Xuất file Excel (.xlsx) danh sách hồ sơ chi tiết đang hiển thị"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  <span>Xuất Excel DS ({filteredReportDetailList.length})</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Drill-down Table */}
+            {filteredReportDetailList.length === 0 ? (
+              <div className="py-12 text-center text-slate-400 text-xs italic">
+                Không tìm thấy hồ sơ nào phù hợp với điều kiện thống kê đã chọn.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="overflow-x-auto rounded-xl border border-slate-200">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px]">
+                      <tr>
+                        <th className="px-3 py-2.5 border-b border-slate-200 w-12 text-center">STT</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200">Mã KH</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200">Tên Khách Hàng</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200">SĐT</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200">Địa Chỉ & Khu Vực</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200 text-center">Trạng Thái</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200">Người Nhận / Ngày</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200">Thi Công / Ngày Giao</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200 text-center">Kết Quả</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200 text-center">Thao Tác</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {paginatedReportDetailList.map((item, idx) => {
+                        const areaName = getDvkhItemArea(item.diaChi).name;
+                        const isDaNhan = item.trangThai === 'Đã Nhận';
+                        return (
+                          <tr key={`report_${item.maKh}_${idx}`} className="hover:bg-slate-50 transition-colors">
+                            <td className="px-3 py-2 text-center text-slate-500 font-mono">
+                              {(currentReportDetailPage - 1) * REPORT_DETAIL_PAGE_SIZE + idx + 1}
+                            </td>
+                            <td className="px-3 py-2 font-mono font-bold text-purple-900">
+                              {item.maKh}
+                            </td>
+                            <td className="px-3 py-2 font-semibold text-slate-800">
+                              {item.tenKh}
+                            </td>
+                            <td className="px-3 py-2">
+                              {item.sdt ? (
+                                <a
+                                  href={`tel:${item.sdt.replace(/[^0-9]/g, '')}`}
+                                  className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 hover:underline font-mono text-[11px]"
+                                  title={`Gọi số điện thoại khách hàng: ${item.sdt}`}
+                                >
+                                  <Phone className="w-3 h-3 text-blue-500" />
+                                  <span>{item.sdt}</span>
+                                </a>
+                              ) : (
+                                <span className="text-slate-400 font-mono text-[11px]">-</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-slate-600 max-w-xs truncate" title={item.diaChi}>
+                              <div>{item.diaChi}</div>
+                              <span className="inline-block mt-0.5 px-1.5 py-0.2 rounded text-[10px] bg-slate-100 text-slate-600 font-semibold border border-slate-200">
+                                {areaName}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              {renderStatusBadge(item.trangThai)}
+                            </td>
+                            <td className="px-3 py-2 text-slate-700">
+                              <div className="font-semibold">{item.nguoiNhan || '-'}</div>
+                              {item.ngayNhan && <div className="text-[10px] text-slate-500 font-mono">{item.ngayNhan}</div>}
+                            </td>
+                            <td className="px-3 py-2 text-slate-700">
+                              <div className="font-semibold text-indigo-900">{item.nguoiThucHien || '-'}</div>
+                              {item.ngayGiao && <div className="text-[10px] text-slate-500 font-mono">{item.ngayGiao}</div>}
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              {item.ketQua === 'Xong' ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                  <span>Xong</span>
+                                </span>
+                              ) : item.trangThai === 'Trở ngại' ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
+                                  <AlertTriangle className="w-3 h-3 text-rose-600" />
+                                  <span>Trở ngại</span>
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 text-[11px]">-</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-center whitespace-nowrap">
+                              {isDaNhan ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleReturnSingleToDvkh(item.maKh)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-[11px] font-bold shadow-2xs active:scale-95 transition-all cursor-pointer"
+                                  title="Trả hồ sơ này về cho DVKH (chuyển về trạng thái Chờ nhận)"
+                                >
+                                  <RotateCcw className="w-3 h-3 text-amber-600" />
+                                  <span>Trả DVKH</span>
+                                </button>
+                              ) : (
+                                <span className="text-slate-300 text-xs">-</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <DvkhPagination
+                  currentPage={currentReportDetailPage}
+                  totalPages={totalReportDetailPages}
+                  totalItems={filteredReportDetailList.length}
+                  pageSize={REPORT_DETAIL_PAGE_SIZE}
+                  onPageChange={setReportDetailPage}
+                  accentColor="purple"
+                  itemLabel="hồ sơ"
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
       {/* 2. PHẦN DƯỚI TAB DVKH: DANH SÁCH TỔNG HỢP & BỘ LỌC HÌNH PHỄU */}
       {/* ========================================================= */}
+      {activeSubTab !== 'report' && (
       <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
         {/* Header of bottom list */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-slate-100">
@@ -3384,6 +4556,22 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
               <Filter className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Bộ lọc</span>
             </button>
+
+            {/* Option Ẩn hồ sơ hoàn tất (mặc định là true) */}
+            <label className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-slate-300 bg-slate-50 hover:bg-slate-100 text-xs font-semibold text-slate-700 cursor-pointer select-none transition-all shadow-2xs">
+              <input
+                type="checkbox"
+                checked={hideCompletedBottomList}
+                onChange={(e) => setHideCompletedBottomList(e.target.checked)}
+                className="w-3.5 h-3.5 rounded text-purple-600 focus:ring-purple-500 border-slate-300 cursor-pointer"
+              />
+              <span className="whitespace-nowrap">Ẩn hs hoàn tất</span>
+              {countCompletedRecords > 0 && (
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-200 text-slate-600 font-mono font-bold">
+                  {countCompletedRecords}
+                </span>
+              )}
+            </label>
 
             {/* Export Excel */}
             <button
@@ -3652,6 +4840,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
           </div>
         )}
       </div>
+      )}
 
       {/* LIGHTBOX MODAL ĐỂ XEM ẢNH CHỨNG MINH KÍCH THƯỚC ĐẦY ĐỦ */}
       {viewingImageModal && (
