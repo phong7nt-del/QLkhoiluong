@@ -7,7 +7,7 @@ import {
   Layers, Check, Sparkles, AlertCircle, Zap, ChevronLeft,
   ChevronsLeft, ChevronsRight, ChevronsDown, ChevronsUp, ShieldAlert, BarChart3, ListFilter, X,
   Calculator, Info, HelpCircle, ArrowRight, Eye, EyeOff, Code2, Copy,
-  Sun, ClipboardCheck, CheckCheck, Phone
+  Sun, ClipboardCheck, CheckCheck, Phone, Download
 } from 'lucide-react';
 import { SCRIPT_TEMPLATE } from './ConfigModal';
 import { 
@@ -33,6 +33,15 @@ interface SectionCollapseState {
 }
 
 const SECTION_COLLAPSE_STORAGE_KEY = 'tab963_sections_collapse_v3';
+
+export interface ActiveReportSelection {
+  source: 'none' | 'ra_soat' | 'tien_do';
+  dot?: string;
+  kv?: string;
+  metric?: string;
+  label: string;
+  badgeColor?: 'indigo' | 'amber' | 'emerald' | 'rose' | 'slate';
+}
 
 interface Tab963Props {
   sessionUser: SheetMember | null;
@@ -151,7 +160,37 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
   const [raSoatFilter, setRaSoatFilter] = useState<'all' | 'chua' | 'su_dung_lai' | 'thu_hoi' | 'khac'>('all');
   const [raSoatPage, setRaSoatPage] = useState(1);
   const [raSoatSearch, setRaSoatSearch] = useState('');
-  const [showRaSoatDetails, setShowRaSoatDetails] = useState(false);
+  const [showRaSoatDetails, setShowRaSoatDetails] = useState(true);
+
+  // Drill-down selection from either Báo cáo tiến độ thay OR Báo cáo kết quả rà soát thu hồi
+  const [activeReportSelection, setActiveReportSelection] = useState<ActiveReportSelection>({
+    source: 'none',
+    label: 'Tất cả khách hàng diện thu hồi & rà soát',
+    badgeColor: 'indigo'
+  });
+  const detailTableRef = useRef<HTMLDivElement>(null);
+
+  const handleDrillDown = (selection: ActiveReportSelection) => {
+    setActiveReportSelection(selection);
+    setShowRaSoatDetails(true);
+    setCollapsedSections(prev => ({ ...prev, reportRaSoat: true }));
+    setRaSoatFilter('all');
+    setRaSoatPage(1);
+    setTimeout(() => {
+      detailTableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 120);
+  };
+
+  const handleClearDrillDown = () => {
+    setActiveReportSelection({
+      source: 'none',
+      label: 'Tất cả khách hàng diện thu hồi & rà soát',
+      badgeColor: 'indigo'
+    });
+    setRaSoatFilter('all');
+    setRaSoatSearch('');
+    setRaSoatPage(1);
+  };
 
   // Script modal state
   const [showScriptModal, setShowScriptModal] = useState(false);
@@ -1065,9 +1104,104 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
     });
   }, [nlmtCustomerList, nlmtFilter, nlmtSearch]);
 
-  // Bộ lọc danh sách chi tiết Rà soát thu hồi
+  // Bộ lọc danh sách chi tiết (hỗ trợ drill-down từ Báo cáo tiến độ thay & Báo cáo rà soát thu hồi)
   const filteredRaSoatCustomers = useMemo(() => {
-    return thuHoiReviewCustomerList.filter(item => {
+    let baseList: Entry963[] = [];
+
+    if (activeReportSelection.source === 'tien_do') {
+      baseList = entries.filter(item => {
+        // Lọc theo đợt nếu có
+        if (activeReportSelection.dot && activeReportSelection.dot !== 'all') {
+          const itemDot = item.dot || '1';
+          if (String(itemDot) !== String(activeReportSelection.dot)) return false;
+        }
+        // Lọc theo khu vực nếu có
+        if (activeReportSelection.kv && activeReportSelection.kv !== 'all') {
+          const itemKv = item.kv || 'Khác';
+          if (itemKv !== activeReportSelection.kv) return false;
+        }
+
+        const isDone = Boolean(item.ketQua && item.ketQua.trim().toLowerCase().includes('xong'));
+        const isThuHoi = Boolean(item.kSuDung && item.kSuDung.trim().toLowerCase().includes('thu hồi'));
+        const isNlmt = Boolean(item.nlmt && (item.nlmt.trim().toLowerCase() === 'x' || item.nlmt.trim().toLowerCase().includes('x')));
+        const slv = typeof item.slVuot === 'number' ? item.slVuot : (parseFloat(String(item.slVuot || 0)) || 0);
+        const hasKq = Boolean(item.kqRaSoat && item.kqRaSoat.trim());
+        const kqNorm = (item.kqRaSoat || '').trim().toLowerCase();
+        const isThuHoiScope = isThuHoi || hasKq;
+
+        switch (activeReportSelection.metric) {
+          case 'tong_kh':
+            return true;
+          case 'thu_hoi':
+            return isThuHoi;
+          case 'can_thay':
+            return !isThuHoi;
+          case 'da_thay':
+            return isDone;
+          case 'chua_thay':
+            return !isThuHoi && !isDone;
+          case 'nlmt_all':
+            return isNlmt;
+          case 'nlmt_da_thay':
+            return isNlmt && isDone;
+          case 'nlmt_chua_thay':
+            return isNlmt && !isDone;
+          case 'sl_vuot':
+            return slv > 0;
+          case 'da_ra_soat':
+            return isThuHoiScope && hasKq;
+          case 'su_dung_lai':
+            return isThuHoiScope && kqNorm.includes('sử dụng lại');
+          case 'thu_hoi_rs':
+            return isThuHoiScope && (kqNorm.includes('thu hồi') || kqNorm === 'thu hồi');
+          case 'khac':
+            return isThuHoiScope && hasKq && !kqNorm.includes('sử dụng lại') && !kqNorm.includes('thu hồi');
+          case 'chua_ra_soat':
+            return isThuHoiScope && !hasKq;
+          default:
+            return true;
+        }
+      });
+    } else if (activeReportSelection.source === 'ra_soat') {
+      baseList = entries.filter(item => {
+        const isThuHoi = Boolean(item.kSuDung && item.kSuDung.trim().toLowerCase().includes('thu hồi'));
+        const hasKq = Boolean(item.kqRaSoat && item.kqRaSoat.trim());
+        const isThuHoiScope = isThuHoi || hasKq;
+        if (!isThuHoiScope) return false;
+
+        if (activeReportSelection.dot && activeReportSelection.dot !== 'all') {
+          const itemDot = item.dot || '1';
+          if (String(itemDot) !== String(activeReportSelection.dot)) return false;
+        }
+        if (activeReportSelection.kv && activeReportSelection.kv !== 'all') {
+          const itemKv = item.kv || 'Khác';
+          if (itemKv !== activeReportSelection.kv) return false;
+        }
+
+        const kqNorm = (item.kqRaSoat || '').trim().toLowerCase();
+
+        switch (activeReportSelection.metric) {
+          case 'tong_thu_hoi':
+            return true;
+          case 'da_ra_soat':
+            return hasKq;
+          case 'su_dung_lai':
+            return kqNorm.includes('sử dụng lại');
+          case 'thu_hoi':
+            return kqNorm.includes('thu hồi') || kqNorm === 'thu hồi';
+          case 'khac':
+            return hasKq && !kqNorm.includes('sử dụng lại') && !kqNorm.includes('thu hồi');
+          case 'chua_ra_soat':
+            return !hasKq;
+          default:
+            return true;
+        }
+      });
+    } else {
+      baseList = thuHoiReviewCustomerList;
+    }
+
+    return baseList.filter(item => {
       const hasKq = Boolean(item.kqRaSoat && item.kqRaSoat.trim());
       const kqNorm = (item.kqRaSoat || '').trim().toLowerCase();
 
@@ -1081,15 +1215,84 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
         const match = 
           (item.maKh && item.maKh.toLowerCase().includes(q)) ||
           (item.tenKh && item.tenKh.toLowerCase().includes(q)) ||
+          (item.sdt && item.sdt.toLowerCase().includes(q)) ||
           (item.diaChi && item.diaChi.toLowerCase().includes(q)) ||
           (item.kv && item.kv.toLowerCase().includes(q)) ||
+          (item.chungLoaiCanThay && item.chungLoaiCanThay.toLowerCase().includes(q)) ||
           (item.kqRaSoat && item.kqRaSoat.toLowerCase().includes(q)) ||
+          (item.kSuDung && item.kSuDung.toLowerCase().includes(q)) ||
           (item.dot && String(item.dot).toLowerCase().includes(q));
         if (!match) return false;
       }
       return true;
     });
-  }, [thuHoiReviewCustomerList, raSoatFilter, raSoatSearch]);
+  }, [entries, thuHoiReviewCustomerList, activeReportSelection, raSoatFilter, raSoatSearch]);
+
+  // Xuất file Excel danh sách chi tiết sau bảng báo cáo thu hồi
+  const handleExportDetailTableExcel = () => {
+    if (filteredRaSoatCustomers.length === 0) {
+      alert('Không có dữ liệu trong danh sách chi tiết để xuất Excel!');
+      return;
+    }
+
+    const exportRows = filteredRaSoatCustomers.map((c, idx) => {
+      const isDone = Boolean(c.ketQua && c.ketQua.toLowerCase().includes('xong'));
+      const isThuHoiBlocked = Boolean(c.kSuDung && c.kSuDung.toLowerCase().includes('thu hồi'));
+      return {
+        'STT': idx + 1,
+        'Mã Khách Hàng': c.maKh || '',
+        'Tên Khách Hàng': c.tenKh || '',
+        'Số Điện Thoại': c.sdt || '',
+        'Địa Chỉ': c.diaChi || '',
+        'Đợt': c.dot ? `Đợt ${c.dot}` : '',
+        'Khu Vực': c.kv || '',
+        'Chủng Loại Cần Thay': c.chungLoaiCanThay || '',
+        'Cột KSuDung': c.kSuDung || '',
+        'Kết Quả Rà Soát (KQRaSoat)': c.kqRaSoat || 'Chưa rà soát',
+        'Quy Định Thay': isThuHoiBlocked ? 'Không được thay' : 'Được phép thay',
+        'Trạng Thái Thay': isDone ? 'Đã thay xong' : 'Chưa thay',
+        'NV Thực Hiện': c.nv || '',
+        'Ngày Giờ Thay': c.ngayGio || '',
+        'Chỉ Số Cao Điểm Tháo': c.cscdThao || '',
+        'Chỉ Số 930': c.cs930 || c.cs9h30 || '',
+        'Sản Lượng Vượt (kWh)': c.slVuot || '',
+        'Khách Hàng NLMT': c.nlmt || ''
+      };
+    });
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(exportRows);
+
+    ws['!cols'] = [
+      { wch: 6 },  // STT
+      { wch: 16 }, // Mã KH
+      { wch: 28 }, // Tên KH
+      { wch: 14 }, // SĐT
+      { wch: 35 }, // Địa chỉ
+      { wch: 10 }, // Đợt
+      { wch: 12 }, // Khu vực
+      { wch: 22 }, // Chủng loại cần thay
+      { wch: 14 }, // KSuDung
+      { wch: 25 }, // KQRaSoat
+      { wch: 16 }, // Quy định thay
+      { wch: 16 }, // Trạng thái thay
+      { wch: 18 }, // NV thực hiện
+      { wch: 18 }, // Ngày giờ thay
+      { wch: 14 }, // CSCD tháo
+      { wch: 14 }, // CS 930
+      { wch: 18 }, // SL vượt
+      { wch: 12 }, // NLMT
+    ];
+
+    const titlePrefix = activeReportSelection.source !== 'none' 
+      ? activeReportSelection.label.replace(/[^a-zA-Z0-9_\u00C0-\u024F\u1E00-\u1EFF]/g, '_').substring(0, 30)
+      : 'RaSoat_ThuHoi';
+    const fileName = `DS_ChiTiet_963_${titlePrefix}_${getCurrentDateTimeStr().replace(/[/ :]/g, '_')}.xlsx`;
+
+    XLSX.utils.book_append_sheet(wb, ws, 'DanhSachChiTiet');
+    XLSX.writeFile(wb, fileName);
+    showToast('success', `Đã xuất ${filteredRaSoatCustomers.length} khách hàng ra file Excel thành công!`);
+  };
 
   // Chuyển nhanh sang Tab 1 để thao tác với khách hàng được chọn từ báo cáo
   const handleSelectCustomerFromReport = (item: Entry963) => {
@@ -2997,37 +3200,119 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                       reportData.map((row, idx) => (
                         <tr key={`${row.dot}_${row.kv}`} className="hover:bg-amber-50/50 transition-colors">
                           <td className="py-2.5 px-3 text-center text-slate-400 font-mono text-[11px]">{idx + 1}</td>
-                          <td className="py-2.5 px-3 font-bold text-slate-900">Đợt {row.dot}</td>
-                          <td className="py-2.5 px-3 font-bold text-amber-900">{row.kv}</td>
-                          <td className="py-2.5 px-3 text-right font-mono">{row.tongKh}</td>
-                          <td className="py-2.5 px-3 text-right font-mono text-rose-600">{row.thuHoi}</td>
-                          <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-900">{row.canThay}</td>
-                          <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-700">{row.daThay}</td>
-                          <td className="py-2.5 px-3 text-center">
-                            <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                              row.tyLe === 100
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : row.tyLe >= 50
-                                ? 'bg-amber-100 text-amber-800'
-                                : 'bg-slate-100 text-slate-700'
-                            }`}>
-                              {row.tyLe}%
-                            </span>
+                          <td className="py-2.5 px-3">
+                            <button
+                              type="button"
+                              onClick={() => handleDrillDown({ source: 'tien_do', dot: row.dot, kv: row.kv, metric: 'tong_kh', label: `Đợt ${row.dot} - ${row.kv} • Tất cả KH`, badgeColor: 'amber' })}
+                              className="font-bold text-slate-900 hover:text-indigo-600 hover:underline cursor-pointer text-left"
+                              title="Bấm để xem danh sách khách hàng đợt này"
+                            >
+                              Đợt {row.dot}
+                            </button>
                           </td>
-                          <td className="py-2.5 px-3 text-right font-mono text-slate-600">{row.chuaThay}</td>
+                          <td className="py-2.5 px-3">
+                            <button
+                              type="button"
+                              onClick={() => handleDrillDown({ source: 'tien_do', dot: row.dot, kv: row.kv, metric: 'tong_kh', label: `Đợt ${row.dot} - ${row.kv} • Tất cả KH`, badgeColor: 'amber' })}
+                              className="font-bold text-amber-900 hover:text-indigo-600 hover:underline cursor-pointer text-left"
+                              title="Bấm để xem danh sách khách hàng khu vực này"
+                            >
+                              {row.kv}
+                            </button>
+                          </td>
+                          <td className="py-2.5 px-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleDrillDown({ source: 'tien_do', dot: row.dot, kv: row.kv, metric: 'tong_kh', label: `Đợt ${row.dot} - ${row.kv} • Tổng ${row.tongKh} KH`, badgeColor: 'amber' })}
+                              className="font-mono text-slate-800 hover:text-indigo-600 hover:underline cursor-pointer font-semibold"
+                              title="Xem toàn bộ khách hàng"
+                            >
+                              {row.tongKh}
+                            </button>
+                          </td>
+                          <td className="py-2.5 px-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleDrillDown({ source: 'tien_do', dot: row.dot, kv: row.kv, metric: 'thu_hoi', label: `Đợt ${row.dot} - ${row.kv} • ${row.thuHoi} KH Thu Hồi`, badgeColor: 'rose' })}
+                              className="font-mono text-rose-600 hover:text-rose-800 hover:underline cursor-pointer font-semibold"
+                              title="Xem danh sách khách hàng thu hồi"
+                            >
+                              {row.thuHoi}
+                            </button>
+                          </td>
+                          <td className="py-2.5 px-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleDrillDown({ source: 'tien_do', dot: row.dot, kv: row.kv, metric: 'can_thay', label: `Đợt ${row.dot} - ${row.kv} • ${row.canThay} KH Cần Thay`, badgeColor: 'amber' })}
+                              className="font-mono font-bold text-amber-900 hover:text-amber-700 hover:underline cursor-pointer"
+                              title="Xem danh sách khách hàng cần thay"
+                            >
+                              {row.canThay}
+                            </button>
+                          </td>
+                          <td className="py-2.5 px-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleDrillDown({ source: 'tien_do', dot: row.dot, kv: row.kv, metric: 'da_thay', label: `Đợt ${row.dot} - ${row.kv} • ${row.daThay} KH Đã Thay Xong`, badgeColor: 'emerald' })}
+                              className="font-mono font-bold text-emerald-700 hover:text-emerald-900 hover:underline cursor-pointer"
+                              title="Xem danh sách khách hàng đã thay xong"
+                            >
+                              {row.daThay}
+                            </button>
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <button
+                              type="button"
+                              onClick={() => handleDrillDown({ source: 'tien_do', dot: row.dot, kv: row.kv, metric: 'da_thay', label: `Đợt ${row.dot} - ${row.kv} • ${row.daThay} KH Đã Thay (${row.tyLe}%)`, badgeColor: 'emerald' })}
+                              className="cursor-pointer transition-transform hover:scale-105"
+                              title="Bấm để xem danh sách khách hàng đã thay xong"
+                            >
+                              <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                                row.tyLe === 100
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : row.tyLe >= 50
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-slate-100 text-slate-700'
+                              }`}>
+                                {row.tyLe}%
+                              </span>
+                            </button>
+                          </td>
+                          <td className="py-2.5 px-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleDrillDown({ source: 'tien_do', dot: row.dot, kv: row.kv, metric: 'chua_thay', label: `Đợt ${row.dot} - ${row.kv} • ${row.chuaThay} KH Chưa Thay`, badgeColor: 'slate' })}
+                              className="font-mono text-slate-600 hover:text-slate-900 hover:underline cursor-pointer font-semibold"
+                              title="Xem danh sách khách hàng chưa thay"
+                            >
+                              {row.chuaThay}
+                            </button>
+                          </td>
 
                           {/* Dữ liệu KH NLMT */}
                           <td className="py-2.5 px-3 text-center bg-amber-50/40 border-x border-amber-200/50">
                             {row.nlmtTong > 0 ? (
                               <div className="inline-flex flex-col items-center">
-                                <span className="font-mono font-bold text-amber-950">
+                                <button
+                                  type="button"
+                                  onClick={() => handleDrillDown({ source: 'tien_do', dot: row.dot, kv: row.kv, metric: 'nlmt_all', label: `Đợt ${row.dot} - ${row.kv} • ${row.nlmtTong} KH Năng Lượng Mặt Trời`, badgeColor: 'amber' })}
+                                  className="font-mono font-bold text-amber-950 hover:text-amber-700 hover:underline cursor-pointer"
+                                  title="Xem danh sách KH năng lượng mặt trời"
+                                >
                                   {row.nlmtDaThay} / {row.nlmtTong}
-                                </span>
-                                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                                  row.nlmtTyLe === 100 ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'
-                                }`}>
-                                  {row.nlmtTyLe}% (còn {row.nlmtChuaThay})
-                                </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDrillDown({ source: 'tien_do', dot: row.dot, kv: row.kv, metric: 'nlmt_chua_thay', label: `Đợt ${row.dot} - ${row.kv} • ${row.nlmtChuaThay} KH NLMT Chưa Thay`, badgeColor: 'amber' })}
+                                  className="cursor-pointer hover:opacity-85"
+                                  title="Xem danh sách KH NLMT chưa thay"
+                                >
+                                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                                    row.nlmtTyLe === 100 ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'
+                                  }`}>
+                                    {row.nlmtTyLe}% (còn {row.nlmtChuaThay})
+                                  </span>
+                                </button>
                               </div>
                             ) : (
                               <span className="text-slate-400 font-mono text-[11px]">—</span>
@@ -3039,33 +3324,63 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                             {row.thuHoiScopeTong > 0 ? (
                               <div className="space-y-1">
                                 <div className="flex items-center justify-between text-[11px]">
-                                  <span className="font-semibold text-slate-700">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDrillDown({ source: 'ra_soat', dot: row.dot, kv: row.kv, metric: 'tong_thu_hoi', label: `Đợt ${row.dot} - ${row.kv} • ${row.thuHoiScopeTong} KH Rà Soát Thu Hồi`, badgeColor: 'indigo' })}
+                                    className="font-semibold text-slate-700 hover:underline cursor-pointer text-left"
+                                    title="Xem tất cả KH diện rà soát thu hồi đợt này"
+                                  >
                                     Đã RS: <b className="text-indigo-900">{row.rsDaRaSoat}/{row.thuHoiScopeTong}</b>
-                                  </span>
-                                  <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100 px-1.5 rounded">
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDrillDown({ source: 'ra_soat', dot: row.dot, kv: row.kv, metric: 'da_ra_soat', label: `Đợt ${row.dot} - ${row.kv} • ${row.rsDaRaSoat} KH Đã Rà Soát`, badgeColor: 'indigo' })}
+                                    className="text-[10px] font-bold text-indigo-700 bg-indigo-100 px-1.5 rounded hover:bg-indigo-200 cursor-pointer"
+                                    title="Xem KH đã rà soát"
+                                  >
                                     {row.rsTyLe}%
-                                  </span>
+                                  </button>
                                 </div>
                                 <div className="flex flex-wrap items-center gap-1 text-[10px]">
                                   {row.rsSuDungLai > 0 && (
-                                    <span className="bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-semibold" title="Được mở khóa để thay">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDrillDown({ source: 'ra_soat', dot: row.dot, kv: row.kv, metric: 'su_dung_lai', label: `Đợt ${row.dot} - ${row.kv} • ${row.rsSuDungLai} KH Sử Dụng Lại`, badgeColor: 'emerald' })}
+                                      className="bg-emerald-100 hover:bg-emerald-200 text-emerald-800 px-1.5 py-0.2 rounded font-semibold cursor-pointer"
+                                      title="Được mở khóa để thay - Bấm để xem"
+                                    >
                                       Dùng lại: {row.rsSuDungLai}
-                                    </span>
+                                    </button>
                                   )}
                                   {row.rsThuHoi > 0 && (
-                                    <span className="bg-rose-100 text-rose-800 px-1.5 py-0.2 rounded font-semibold" title="Giữ nguyên thu hồi">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDrillDown({ source: 'ra_soat', dot: row.dot, kv: row.kv, metric: 'thu_hoi', label: `Đợt ${row.dot} - ${row.kv} • ${row.rsThuHoi} KH Thu Hồi`, badgeColor: 'rose' })}
+                                      className="bg-rose-100 hover:bg-rose-200 text-rose-800 px-1.5 py-0.2 rounded font-semibold cursor-pointer"
+                                      title="Giữ nguyên thu hồi - Bấm để xem"
+                                    >
                                       Thu hồi: {row.rsThuHoi}
-                                    </span>
+                                    </button>
                                   )}
                                   {row.rsKhac > 0 && (
-                                    <span className="bg-slate-100 text-slate-700 px-1.5 py-0.2 rounded font-semibold" title="Trường hợp khác">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDrillDown({ source: 'ra_soat', dot: row.dot, kv: row.kv, metric: 'khac', label: `Đợt ${row.dot} - ${row.kv} • ${row.rsKhac} KH Khác`, badgeColor: 'slate' })}
+                                      className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-1.5 py-0.2 rounded font-semibold cursor-pointer"
+                                      title="Trường hợp khác - Bấm để xem"
+                                    >
                                       Khác: {row.rsKhac}
-                                    </span>
+                                    </button>
                                   )}
                                   {row.rsChuaRaSoat > 0 && (
-                                    <span className="bg-amber-100 text-amber-800 px-1.5 py-0.2 rounded font-semibold" title="Chưa có kết quả rà soát">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDrillDown({ source: 'ra_soat', dot: row.dot, kv: row.kv, metric: 'chua_ra_soat', label: `Đợt ${row.dot} - ${row.kv} • ${row.rsChuaRaSoat} KH Chưa Rà Soát`, badgeColor: 'amber' })}
+                                      className="bg-amber-100 hover:bg-amber-200 text-amber-800 px-1.5 py-0.2 rounded font-semibold cursor-pointer"
+                                      title="Chưa rà soát - Bấm để xem"
+                                    >
                                       Chưa RS: {row.rsChuaRaSoat}
-                                    </span>
+                                    </button>
                                   )}
                                 </div>
                               </div>
@@ -3074,9 +3389,25 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                             )}
                           </td>
 
-                          <td className="py-2.5 px-3 text-right font-mono font-bold text-indigo-700">{row.tongGioVuot}h</td>
-                          <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-900">
-                            {row.tongSlVuot} kWh
+                          <td className="py-2.5 px-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleDrillDown({ source: 'tien_do', dot: row.dot, kv: row.kv, metric: 'sl_vuot', label: `Đợt ${row.dot} - ${row.kv} • KH Có Giờ Vượt (${row.tongGioVuot}h)`, badgeColor: 'indigo' })}
+                              className="font-mono font-bold text-indigo-700 hover:text-indigo-900 hover:underline cursor-pointer"
+                              title="Xem danh sách KH có giờ vượt"
+                            >
+                              {row.tongGioVuot}h
+                            </button>
+                          </td>
+                          <td className="py-2.5 px-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleDrillDown({ source: 'tien_do', dot: row.dot, kv: row.kv, metric: 'sl_vuot', label: `Đợt ${row.dot} - ${row.kv} • KH Có SL Vượt (${row.tongSlVuot} kWh)`, badgeColor: 'amber' })}
+                              className="font-mono font-bold text-amber-900 hover:text-amber-700 hover:underline cursor-pointer"
+                              title="Xem danh sách KH có sản lượng vượt"
+                            >
+                              {row.tongSlVuot} kWh
+                            </button>
                           </td>
                         </tr>
                       ))
@@ -3092,36 +3423,162 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                     <tfoot>
                       <tr className="bg-amber-100/70 border-t-2 border-amber-300 font-bold text-amber-950 text-xs uppercase">
                         <td colSpan={3} className="py-3 px-3 text-right">
-                          TỔNG CỘNG TOÀN CÔNG TY:
+                          <button
+                            type="button"
+                            onClick={() => handleDrillDown({ source: 'tien_do', dot: 'all', kv: 'all', metric: 'tong_kh', label: 'Toàn Đội • Tất Cả Khách Hàng', badgeColor: 'amber' })}
+                            className="hover:underline cursor-pointer font-bold uppercase text-amber-950"
+                            title="Bấm để xem toàn bộ khách hàng toàn công ty"
+                          >
+                            TỔNG CỘNG TOÀN CÔNG TY:
+                          </button>
                         </td>
-                        <td className="py-3 px-3 text-right font-mono">{reportTotals.tongKh}</td>
-                        <td className="py-3 px-3 text-right font-mono text-rose-700">{reportTotals.thuHoi}</td>
-                        <td className="py-3 px-3 text-right font-mono">{reportTotals.canThay}</td>
-                        <td className="py-3 px-3 text-right font-mono text-emerald-800">{reportTotals.daThay}</td>
-                        <td className="py-3 px-3 text-center font-mono text-emerald-800">
-                          {reportTotals.tyLeChung}%
+                        <td className="py-3 px-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleDrillDown({ source: 'tien_do', dot: 'all', kv: 'all', metric: 'tong_kh', label: `Toàn Đội • Tổng ${reportTotals.tongKh} KH`, badgeColor: 'amber' })}
+                            className="font-mono hover:text-indigo-700 hover:underline cursor-pointer font-bold"
+                            title="Xem toàn bộ khách hàng"
+                          >
+                            {reportTotals.tongKh}
+                          </button>
                         </td>
-                        <td className="py-3 px-3 text-right font-mono">{reportTotals.chuaThay}</td>
+                        <td className="py-3 px-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleDrillDown({ source: 'tien_do', dot: 'all', kv: 'all', metric: 'thu_hoi', label: `Toàn Đội • ${reportTotals.thuHoi} KH Thu Hồi`, badgeColor: 'rose' })}
+                            className="font-mono text-rose-700 hover:text-rose-900 hover:underline cursor-pointer font-bold"
+                            title="Xem tất cả KH thu hồi toàn công ty"
+                          >
+                            {reportTotals.thuHoi}
+                          </button>
+                        </td>
+                        <td className="py-3 px-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleDrillDown({ source: 'tien_do', dot: 'all', kv: 'all', metric: 'can_thay', label: `Toàn Đội • ${reportTotals.canThay} KH Cần Thay`, badgeColor: 'amber' })}
+                            className="font-mono hover:text-amber-700 hover:underline cursor-pointer font-bold"
+                            title="Xem tất cả KH cần thay toàn công ty"
+                          >
+                            {reportTotals.canThay}
+                          </button>
+                        </td>
+                        <td className="py-3 px-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleDrillDown({ source: 'tien_do', dot: 'all', kv: 'all', metric: 'da_thay', label: `Toàn Đội • ${reportTotals.daThay} KH Đã Thay Xong`, badgeColor: 'emerald' })}
+                            className="font-mono text-emerald-800 hover:text-emerald-950 hover:underline cursor-pointer font-bold"
+                            title="Xem tất cả KH đã thay xong toàn công ty"
+                          >
+                            {reportTotals.daThay}
+                          </button>
+                        </td>
+                        <td className="py-3 px-3 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleDrillDown({ source: 'tien_do', dot: 'all', kv: 'all', metric: 'da_thay', label: `Toàn Đội • Đã Thay ${reportTotals.daThay} KH (${reportTotals.tyLeChung}%)`, badgeColor: 'emerald' })}
+                            className="font-mono text-emerald-800 hover:text-emerald-950 hover:underline cursor-pointer font-bold"
+                            title="Xem danh sách KH đã hoàn tất"
+                          >
+                            {reportTotals.tyLeChung}%
+                          </button>
+                        </td>
+                        <td className="py-3 px-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleDrillDown({ source: 'tien_do', dot: 'all', kv: 'all', metric: 'chua_thay', label: `Toàn Đội • ${reportTotals.chuaThay} KH Chưa Thay`, badgeColor: 'slate' })}
+                            className="font-mono hover:text-slate-900 hover:underline cursor-pointer font-bold"
+                            title="Xem tất cả KH chưa thay toàn công ty"
+                          >
+                            {reportTotals.chuaThay}
+                          </button>
+                        </td>
                         {/* Tổng NLMT */}
                         <td className="py-3 px-3 text-center font-mono text-amber-950 bg-amber-100 border-x border-amber-300">
-                          <div className="font-bold">{reportTotals.nlmtDaThay} / {reportTotals.nlmtTong} ({reportTotals.nlmtTyLeChung}%)</div>
-                          <div className="text-[10px] normal-case text-amber-800 font-normal">Còn lại: {reportTotals.nlmtChuaThay} KH</div>
+                          <button
+                            type="button"
+                            onClick={() => handleDrillDown({ source: 'tien_do', dot: 'all', kv: 'all', metric: 'nlmt_all', label: `Toàn Đội • ${reportTotals.nlmtTong} KH Năng Lượng Mặt Trời`, badgeColor: 'amber' })}
+                            className="font-bold hover:underline cursor-pointer block w-full"
+                            title="Xem tất cả KH NLMT toàn công ty"
+                          >
+                            {reportTotals.nlmtDaThay} / {reportTotals.nlmtTong} ({reportTotals.nlmtTyLeChung}%)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDrillDown({ source: 'tien_do', dot: 'all', kv: 'all', metric: 'nlmt_chua_thay', label: `Toàn Đội • ${reportTotals.nlmtChuaThay} KH NLMT Chưa Thay`, badgeColor: 'amber' })}
+                            className="text-[10px] normal-case text-amber-800 font-normal hover:underline cursor-pointer"
+                            title="Xem KH NLMT chưa thay toàn công ty"
+                          >
+                            Còn lại: {reportTotals.nlmtChuaThay} KH
+                          </button>
                         </td>
                         {/* Tổng Rà Soát */}
                         <td className="py-3 px-3 text-left font-mono text-indigo-950 bg-indigo-100 border-r border-indigo-300">
-                          <div className="font-bold">Đã RS: {reportTotals.rsDaRaSoat} / {reportTotals.thuHoiScopeTong} ({reportTotals.rsTyLeChung}%)</div>
+                          <button
+                            type="button"
+                            onClick={() => handleDrillDown({ source: 'ra_soat', dot: 'all', kv: 'all', metric: 'tong_thu_hoi', label: `Toàn Đội • ${reportTotals.thuHoiScopeTong} KH Diện Thu Hồi & Rà Soát`, badgeColor: 'indigo' })}
+                            className="font-bold hover:underline cursor-pointer text-left block"
+                            title="Xem toàn bộ KH diện thu hồi toàn công ty"
+                          >
+                            Đã RS: {reportTotals.rsDaRaSoat} / {reportTotals.thuHoiScopeTong} ({reportTotals.rsTyLeChung}%)
+                          </button>
                           <div className="text-[10px] normal-case text-indigo-800 font-normal flex flex-wrap gap-1 mt-0.5">
-                            <span>Dùng lại: <b>{reportTotals.rsSuDungLai}</b></span>
+                            <button
+                              type="button"
+                              onClick={() => handleDrillDown({ source: 'ra_soat', dot: 'all', kv: 'all', metric: 'su_dung_lai', label: `Toàn Đội • ${reportTotals.rsSuDungLai} KH Sử Dụng Lại`, badgeColor: 'emerald' })}
+                              className="hover:underline cursor-pointer"
+                              title="Xem KH sử dụng lại toàn công ty"
+                            >
+                              Dùng lại: <b>{reportTotals.rsSuDungLai}</b>
+                            </button>
                             <span>•</span>
-                            <span>Thu hồi: <b>{reportTotals.rsThuHoi}</b></span>
+                            <button
+                              type="button"
+                              onClick={() => handleDrillDown({ source: 'ra_soat', dot: 'all', kv: 'all', metric: 'thu_hoi', label: `Toàn Đội • ${reportTotals.rsThuHoi} KH Thu Hồi`, badgeColor: 'rose' })}
+                              className="hover:underline cursor-pointer"
+                              title="Xem KH giữ nguyên thu hồi toàn công ty"
+                            >
+                              Thu hồi: <b>{reportTotals.rsThuHoi}</b>
+                            </button>
                             <span>•</span>
-                            <span>Khác: <b>{reportTotals.rsKhac}</b></span>
+                            <button
+                              type="button"
+                              onClick={() => handleDrillDown({ source: 'ra_soat', dot: 'all', kv: 'all', metric: 'khac', label: `Toàn Đội • ${reportTotals.rsKhac} KH Khác`, badgeColor: 'slate' })}
+                              className="hover:underline cursor-pointer"
+                              title="Xem KH khác toàn công ty"
+                            >
+                              Khác: <b>{reportTotals.rsKhac}</b>
+                            </button>
                             <span>•</span>
-                            <span>Chưa: <b>{reportTotals.rsChuaRaSoat}</b></span>
+                            <button
+                              type="button"
+                              onClick={() => handleDrillDown({ source: 'ra_soat', dot: 'all', kv: 'all', metric: 'chua_ra_soat', label: `Toàn Đội • ${reportTotals.rsChuaRaSoat} KH Chưa Rà Soát`, badgeColor: 'amber' })}
+                              className="hover:underline cursor-pointer"
+                              title="Xem KH chưa rà soát toàn công ty"
+                            >
+                              Chưa: <b>{reportTotals.rsChuaRaSoat}</b>
+                            </button>
                           </div>
                         </td>
-                        <td className="py-3 px-3 text-right font-mono text-indigo-900">{reportTotals.tongGioVuot}h</td>
-                        <td className="py-3 px-3 text-right font-mono text-amber-950 font-black">{reportTotals.tongSlVuot} kWh</td>
+                        <td className="py-3 px-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleDrillDown({ source: 'tien_do', dot: 'all', kv: 'all', metric: 'sl_vuot', label: 'Toàn Đội • KH Có Giờ Vượt', badgeColor: 'indigo' })}
+                            className="font-mono text-indigo-900 hover:underline cursor-pointer font-bold"
+                            title="Xem tất cả KH có giờ vượt toàn công ty"
+                          >
+                            {reportTotals.tongGioVuot}h
+                          </button>
+                        </td>
+                        <td className="py-3 px-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleDrillDown({ source: 'tien_do', dot: 'all', kv: 'all', metric: 'sl_vuot', label: 'Toàn Đội • KH Có Sản Lượng Vượt', badgeColor: 'amber' })}
+                            className="font-mono text-amber-950 font-black hover:underline cursor-pointer"
+                            title="Xem tất cả KH có sản lượng vượt toàn công ty"
+                          >
+                            {reportTotals.tongSlVuot} kWh
+                          </button>
+                        </td>
                       </tr>
                     </tfoot>
                   )}
@@ -3512,43 +3969,67 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
               <div className="space-y-4">
                 {/* Cards tóm tắt Rà Soát */}
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
-                    <span className="text-[10px] font-bold uppercase text-slate-600">Tổng Diện Thu Hồi</span>
+                  <div
+                    onClick={() => handleDrillDown({ source: 'ra_soat', dot: 'all', kv: 'all', metric: 'tong_thu_hoi', label: 'Toàn Đội • Tổng Diện Thu Hồi & Rà Soát', badgeColor: 'indigo' })}
+                    className="p-3 rounded-xl bg-slate-50 hover:bg-slate-100/80 border border-slate-200 hover:border-slate-300 cursor-pointer transition-all hover:shadow-2xs group"
+                    title="Bấm để xem danh sách toàn bộ khách hàng diện thu hồi"
+                  >
+                    <span className="text-[10px] font-bold uppercase text-slate-600 group-hover:text-slate-900">Tổng Diện Thu Hồi</span>
                     <div className="text-xl font-black text-slate-900 mt-1">{reportTotals.thuHoiScopeTong}</div>
-                    <span className="text-[10px] text-slate-400">KH không sử dụng / có KQ</span>
+                    <span className="text-[10px] text-slate-400 group-hover:text-slate-600">KH không sử dụng / có KQ</span>
                   </div>
 
-                  <div className="p-3 rounded-xl bg-indigo-50/60 border border-indigo-200/80">
-                    <span className="text-[10px] font-bold uppercase text-indigo-700">Đã Rà Soát</span>
+                  <div
+                    onClick={() => handleDrillDown({ source: 'ra_soat', dot: 'all', kv: 'all', metric: 'da_ra_soat', label: 'Toàn Đội • Khách Hàng Đã Rà Soát', badgeColor: 'indigo' })}
+                    className="p-3 rounded-xl bg-indigo-50/60 hover:bg-indigo-100/60 border border-indigo-200/80 hover:border-indigo-300 cursor-pointer transition-all hover:shadow-2xs group"
+                    title="Bấm để xem danh sách khách hàng đã rà soát"
+                  >
+                    <span className="text-[10px] font-bold uppercase text-indigo-700 group-hover:text-indigo-900">Đã Rà Soát</span>
                     <div className="text-xl font-black text-indigo-900 mt-1 flex items-baseline gap-1">
                       <span>{reportTotals.rsDaRaSoat}</span>
                       <span className="text-xs font-bold text-indigo-600">({reportTotals.rsTyLeChung}%)</span>
                     </div>
-                    <span className="text-[10px] text-indigo-600">Đã cập nhật KQRaSoat</span>
+                    <span className="text-[10px] text-indigo-600 group-hover:text-indigo-800">Đã cập nhật KQRaSoat</span>
                   </div>
 
-                  <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200">
-                    <span className="text-[10px] font-bold uppercase text-emerald-800">Sử Dụng Lại</span>
+                  <div
+                    onClick={() => handleDrillDown({ source: 'ra_soat', dot: 'all', kv: 'all', metric: 'su_dung_lai', label: 'Toàn Đội • Rà Soát Sử Dụng Lại (Được Phép Thay)', badgeColor: 'emerald' })}
+                    className="p-3 rounded-xl bg-emerald-50/70 hover:bg-emerald-100/70 border border-emerald-200 hover:border-emerald-300 cursor-pointer transition-all hover:shadow-2xs group"
+                    title="Bấm để xem danh sách KH sử dụng lại"
+                  >
+                    <span className="text-[10px] font-bold uppercase text-emerald-800 group-hover:text-emerald-900">Sử Dụng Lại</span>
                     <div className="text-xl font-black text-emerald-900 mt-1">{reportTotals.rsSuDungLai}</div>
-                    <span className="text-[10px] text-emerald-700">Đã mở khóa, được phép thay</span>
+                    <span className="text-[10px] text-emerald-700 group-hover:text-emerald-900">Đã mở khóa, được phép thay</span>
                   </div>
 
-                  <div className="p-3 rounded-xl bg-rose-50/60 border border-rose-200/80">
-                    <span className="text-[10px] font-bold uppercase text-rose-700">Thu Hồi (Giữ Nguyên)</span>
+                  <div
+                    onClick={() => handleDrillDown({ source: 'ra_soat', dot: 'all', kv: 'all', metric: 'thu_hoi', label: 'Toàn Đội • Rà Soát Xác Nhận Thu Hồi (Giữ Nguyên)', badgeColor: 'rose' })}
+                    className="p-3 rounded-xl bg-rose-50/60 hover:bg-rose-100/60 border border-rose-200/80 hover:border-rose-300 cursor-pointer transition-all hover:shadow-2xs group"
+                    title="Bấm để xem danh sách KH xác nhận thu hồi"
+                  >
+                    <span className="text-[10px] font-bold uppercase text-rose-700 group-hover:text-rose-900">Thu Hồi (Giữ Nguyên)</span>
                     <div className="text-xl font-black text-rose-800 mt-1">{reportTotals.rsThuHoi}</div>
-                    <span className="text-[10px] text-rose-600">Xác nhận không sử dụng</span>
+                    <span className="text-[10px] text-rose-600 group-hover:text-rose-800">Xác nhận không sử dụng</span>
                   </div>
 
-                  <div className="p-3 rounded-xl bg-amber-50/50 border border-amber-200/60">
-                    <span className="text-[10px] font-bold uppercase text-amber-800">Khác</span>
+                  <div
+                    onClick={() => handleDrillDown({ source: 'ra_soat', dot: 'all', kv: 'all', metric: 'khac', label: 'Toàn Đội • Rà Soát Trường Hợp Khác', badgeColor: 'slate' })}
+                    className="p-3 rounded-xl bg-amber-50/50 hover:bg-amber-100/60 border border-amber-200/60 hover:border-amber-300 cursor-pointer transition-all hover:shadow-2xs group"
+                    title="Bấm để xem danh sách KH rà soát trường hợp khác"
+                  >
+                    <span className="text-[10px] font-bold uppercase text-amber-800 group-hover:text-amber-950">Khác</span>
                     <div className="text-xl font-black text-amber-900 mt-1">{reportTotals.rsKhac}</div>
-                    <span className="text-[10px] text-amber-700">Có kèm nội dung diễn giải</span>
+                    <span className="text-[10px] text-amber-700 group-hover:text-amber-900">Có kèm nội dung diễn giải</span>
                   </div>
 
-                  <div className="p-3 rounded-xl bg-amber-50/80 border border-amber-300">
-                    <span className="text-[10px] font-bold uppercase text-amber-900">Chưa Rà Soát</span>
+                  <div
+                    onClick={() => handleDrillDown({ source: 'ra_soat', dot: 'all', kv: 'all', metric: 'chua_ra_soat', label: 'Toàn Đội • Khách Hàng Chưa Rà Soát', badgeColor: 'amber' })}
+                    className="p-3 rounded-xl bg-amber-50/80 hover:bg-amber-100/90 border border-amber-300 hover:border-amber-400 cursor-pointer transition-all hover:shadow-2xs group"
+                    title="Bấm để xem danh sách KH chưa rà soát"
+                  >
+                    <span className="text-[10px] font-bold uppercase text-amber-900 group-hover:text-amber-950">Chưa Rà Soát</span>
                     <div className="text-xl font-black text-amber-950 mt-1">{reportTotals.rsChuaRaSoat}</div>
-                    <span className="text-[10px] text-amber-800 font-medium">Cần hoàn tất rà soát</span>
+                    <span className="text-[10px] text-amber-800 group-hover:text-amber-950 font-medium">Cần hoàn tất rà soát</span>
                   </div>
                 </div>
 
@@ -3574,25 +4055,104 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                         reportData.filter(r => r.thuHoiScopeTong > 0).map((r, idx) => (
                           <tr key={`rs_${r.dot}_${r.kv}`} className="hover:bg-indigo-50/40 transition-colors">
                             <td className="py-2.5 px-3 text-center text-slate-400 font-mono text-[11px]">{idx + 1}</td>
-                            <td className="py-2.5 px-3 font-bold text-slate-900">Đợt {r.dot}</td>
-                            <td className="py-2.5 px-3 font-bold text-amber-900">{r.kv}</td>
-                            <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-800">{r.thuHoiScopeTong}</td>
-                            <td className="py-2.5 px-3 text-right font-mono font-bold text-indigo-800">{r.rsDaRaSoat}</td>
-                            <td className="py-2.5 px-3 text-center">
-                              <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                                r.rsTyLe === 100
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : r.rsTyLe >= 50
-                                  ? 'bg-indigo-100 text-indigo-800'
-                                  : 'bg-slate-100 text-slate-700'
-                              }`}>
-                                {r.rsTyLe}%
-                              </span>
+                            <td className="py-2.5 px-3">
+                              <button
+                                type="button"
+                                onClick={() => handleDrillDown({ source: 'ra_soat', dot: r.dot, kv: r.kv, metric: 'tong_thu_hoi', label: `Đợt ${r.dot} - ${r.kv} • Tổng ${r.thuHoiScopeTong} Thu Hồi`, badgeColor: 'indigo' })}
+                                className="font-bold text-slate-900 hover:text-indigo-600 hover:underline cursor-pointer text-left"
+                                title="Bấm để xem danh sách diện thu hồi của đợt này"
+                              >
+                                Đợt {r.dot}
+                              </button>
                             </td>
-                            <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-700">{r.rsSuDungLai}</td>
-                            <td className="py-2.5 px-3 text-right font-mono font-bold text-rose-600">{r.rsThuHoi}</td>
-                            <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-700">{r.rsKhac}</td>
-                            <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-900">{r.rsChuaRaSoat}</td>
+                            <td className="py-2.5 px-3">
+                              <button
+                                type="button"
+                                onClick={() => handleDrillDown({ source: 'ra_soat', dot: r.dot, kv: r.kv, metric: 'tong_thu_hoi', label: `Đợt ${r.dot} - ${r.kv} • Tổng ${r.thuHoiScopeTong} Thu Hồi`, badgeColor: 'indigo' })}
+                                className="font-bold text-amber-900 hover:text-indigo-600 hover:underline cursor-pointer text-left"
+                                title="Bấm để xem danh sách diện thu hồi của khu vực này"
+                              >
+                                {r.kv}
+                              </button>
+                            </td>
+                            <td className="py-2.5 px-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => handleDrillDown({ source: 'ra_soat', dot: r.dot, kv: r.kv, metric: 'tong_thu_hoi', label: `Đợt ${r.dot} - ${r.kv} • Tổng ${r.thuHoiScopeTong} Thu Hồi`, badgeColor: 'indigo' })}
+                                className="font-mono font-bold text-slate-800 hover:text-indigo-600 hover:underline cursor-pointer"
+                                title="Xem tất cả KH diện thu hồi"
+                              >
+                                {r.thuHoiScopeTong}
+                              </button>
+                            </td>
+                            <td className="py-2.5 px-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => handleDrillDown({ source: 'ra_soat', dot: r.dot, kv: r.kv, metric: 'da_ra_soat', label: `Đợt ${r.dot} - ${r.kv} • ${r.rsDaRaSoat} Đã Rà Soát`, badgeColor: 'indigo' })}
+                                className="font-mono font-bold text-indigo-800 hover:text-indigo-950 hover:underline cursor-pointer"
+                                title="Xem danh sách KH đã rà soát"
+                              >
+                                {r.rsDaRaSoat}
+                              </button>
+                            </td>
+                            <td className="py-2.5 px-3 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleDrillDown({ source: 'ra_soat', dot: r.dot, kv: r.kv, metric: 'da_ra_soat', label: `Đợt ${r.dot} - ${r.kv} • Đã Rà Soát (${r.rsTyLe}%)`, badgeColor: 'indigo' })}
+                                className="cursor-pointer transition-transform hover:scale-105"
+                                title="Xem danh sách KH đã rà soát"
+                              >
+                                <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                                  r.rsTyLe === 100
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : r.rsTyLe >= 50
+                                    ? 'bg-indigo-100 text-indigo-800'
+                                    : 'bg-slate-100 text-slate-700'
+                                }`}>
+                                  {r.rsTyLe}%
+                                </span>
+                              </button>
+                            </td>
+                            <td className="py-2.5 px-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => handleDrillDown({ source: 'ra_soat', dot: r.dot, kv: r.kv, metric: 'su_dung_lai', label: `Đợt ${r.dot} - ${r.kv} • ${r.rsSuDungLai} KH Sử Dụng Lại`, badgeColor: 'emerald' })}
+                                className="font-mono font-bold text-emerald-700 hover:text-emerald-900 hover:underline cursor-pointer"
+                                title="Xem danh sách KH sử dụng lại"
+                              >
+                                {r.rsSuDungLai}
+                              </button>
+                            </td>
+                            <td className="py-2.5 px-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => handleDrillDown({ source: 'ra_soat', dot: r.dot, kv: r.kv, metric: 'thu_hoi', label: `Đợt ${r.dot} - ${r.kv} • ${r.rsThuHoi} KH Thu Hồi`, badgeColor: 'rose' })}
+                                className="font-mono font-bold text-rose-600 hover:text-rose-800 hover:underline cursor-pointer"
+                                title="Xem danh sách KH thu hồi"
+                              >
+                                {r.rsThuHoi}
+                              </button>
+                            </td>
+                            <td className="py-2.5 px-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => handleDrillDown({ source: 'ra_soat', dot: r.dot, kv: r.kv, metric: 'khac', label: `Đợt ${r.dot} - ${r.kv} • ${r.rsKhac} KH Khác`, badgeColor: 'slate' })}
+                                className="font-mono font-bold text-slate-700 hover:text-slate-900 hover:underline cursor-pointer"
+                                title="Xem danh sách KH khác"
+                              >
+                                {r.rsKhac}
+                              </button>
+                            </td>
+                            <td className="py-2.5 px-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => handleDrillDown({ source: 'ra_soat', dot: r.dot, kv: r.kv, metric: 'chua_ra_soat', label: `Đợt ${r.dot} - ${r.kv} • ${r.rsChuaRaSoat} KH Chưa Rà Soát`, badgeColor: 'amber' })}
+                                className="font-mono font-bold text-amber-900 hover:text-amber-700 hover:underline cursor-pointer"
+                                title="Xem danh sách KH chưa rà soát"
+                              >
+                                {r.rsChuaRaSoat}
+                              </button>
+                            </td>
                           </tr>
                         ))
                       ) : (
@@ -3606,14 +4166,86 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                     {reportData.filter(r => r.thuHoiScopeTong > 0).length > 0 && (
                       <tfoot>
                         <tr className="bg-indigo-100/90 border-t-2 border-indigo-300 font-bold text-indigo-950 text-xs uppercase">
-                          <td colSpan={3} className="py-2.5 px-3 text-right">TỔNG CỘNG DIỆN THU HỒI:</td>
-                          <td className="py-2.5 px-3 text-right font-mono">{reportTotals.thuHoiScopeTong}</td>
-                          <td className="py-2.5 px-3 text-right font-mono text-indigo-900">{reportTotals.rsDaRaSoat}</td>
-                          <td className="py-2.5 px-3 text-center font-mono text-indigo-900">{reportTotals.rsTyLeChung}%</td>
-                          <td className="py-2.5 px-3 text-right font-mono text-emerald-800">{reportTotals.rsSuDungLai}</td>
-                          <td className="py-2.5 px-3 text-right font-mono text-rose-700">{reportTotals.rsThuHoi}</td>
-                          <td className="py-2.5 px-3 text-right font-mono text-slate-800">{reportTotals.rsKhac}</td>
-                          <td className="py-2.5 px-3 text-right font-mono text-amber-950 font-black">{reportTotals.rsChuaRaSoat}</td>
+                          <td colSpan={3} className="py-2.5 px-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleDrillDown({ source: 'ra_soat', dot: 'all', kv: 'all', metric: 'tong_thu_hoi', label: 'Toàn Đội • Tổng Cộng Diện Thu Hồi', badgeColor: 'indigo' })}
+                              className="hover:underline cursor-pointer uppercase font-bold"
+                              title="Bấm để xem toàn bộ KH diện thu hồi toàn công ty"
+                            >
+                              TỔNG CỘNG DIỆN THU HỒI:
+                            </button>
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono">
+                            <button
+                              type="button"
+                              onClick={() => handleDrillDown({ source: 'ra_soat', dot: 'all', kv: 'all', metric: 'tong_thu_hoi', label: `Toàn Đội • ${reportTotals.thuHoiScopeTong} KH Diện Thu Hồi`, badgeColor: 'indigo' })}
+                              className="font-mono hover:underline cursor-pointer font-bold"
+                              title="Xem toàn bộ KH diện thu hồi"
+                            >
+                              {reportTotals.thuHoiScopeTong}
+                            </button>
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono text-indigo-900">
+                            <button
+                              type="button"
+                              onClick={() => handleDrillDown({ source: 'ra_soat', dot: 'all', kv: 'all', metric: 'da_ra_soat', label: `Toàn Đội • ${reportTotals.rsDaRaSoat} KH Đã Rà Soát`, badgeColor: 'indigo' })}
+                              className="font-mono text-indigo-900 hover:underline cursor-pointer font-bold"
+                              title="Xem toàn bộ KH đã rà soát"
+                            >
+                              {reportTotals.rsDaRaSoat}
+                            </button>
+                          </td>
+                          <td className="py-2.5 px-3 text-center font-mono text-indigo-900">
+                            <button
+                              type="button"
+                              onClick={() => handleDrillDown({ source: 'ra_soat', dot: 'all', kv: 'all', metric: 'da_ra_soat', label: `Toàn Đội • Đã Rà Soát (${reportTotals.rsTyLeChung}%)`, badgeColor: 'indigo' })}
+                              className="font-mono text-indigo-900 hover:underline cursor-pointer font-bold"
+                              title="Xem KH đã rà soát"
+                            >
+                              {reportTotals.rsTyLeChung}%
+                            </button>
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono text-emerald-800">
+                            <button
+                              type="button"
+                              onClick={() => handleDrillDown({ source: 'ra_soat', dot: 'all', kv: 'all', metric: 'su_dung_lai', label: `Toàn Đội • ${reportTotals.rsSuDungLai} KH Sử Dụng Lại`, badgeColor: 'emerald' })}
+                              className="font-mono text-emerald-800 hover:underline cursor-pointer font-bold"
+                              title="Xem KH sử dụng lại"
+                            >
+                              {reportTotals.rsSuDungLai}
+                            </button>
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono text-rose-700">
+                            <button
+                              type="button"
+                              onClick={() => handleDrillDown({ source: 'ra_soat', dot: 'all', kv: 'all', metric: 'thu_hoi', label: `Toàn Đội • ${reportTotals.rsThuHoi} KH Thu Hồi`, badgeColor: 'rose' })}
+                              className="font-mono text-rose-700 hover:underline cursor-pointer font-bold"
+                              title="Xem KH thu hồi"
+                            >
+                              {reportTotals.rsThuHoi}
+                            </button>
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono text-slate-800">
+                            <button
+                              type="button"
+                              onClick={() => handleDrillDown({ source: 'ra_soat', dot: 'all', kv: 'all', metric: 'khac', label: `Toàn Đội • ${reportTotals.rsKhac} KH Khác`, badgeColor: 'slate' })}
+                              className="font-mono text-slate-800 hover:underline cursor-pointer font-bold"
+                              title="Xem KH khác"
+                            >
+                              {reportTotals.rsKhac}
+                            </button>
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono text-amber-950 font-black">
+                            <button
+                              type="button"
+                              onClick={() => handleDrillDown({ source: 'ra_soat', dot: 'all', kv: 'all', metric: 'chua_ra_soat', label: `Toàn Đội • ${reportTotals.rsChuaRaSoat} KH Chưa Rà Soát`, badgeColor: 'amber' })}
+                              className="font-mono text-amber-950 font-black hover:underline cursor-pointer"
+                              title="Xem KH chưa rà soát"
+                            >
+                              {reportTotals.rsChuaRaSoat}
+                            </button>
+                          </td>
                         </tr>
                       </tfoot>
                     )}
@@ -3622,8 +4254,40 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
 
                 {/* Danh sách chi tiết từng khách hàng diện thu hồi & KQ rà soát (Bật/Tắt) */}
                 {showRaSoatDetails && (
-                  <div className="mt-4 p-4 rounded-xl border border-indigo-200 bg-indigo-50/20 space-y-3 animate-in fade-in duration-200">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                  <div
+                    ref={detailTableRef}
+                    className="mt-4 p-4 rounded-xl border border-indigo-200 bg-indigo-50/20 space-y-3 animate-in fade-in duration-200 scroll-mt-6"
+                  >
+                    {/* Banner hiển thị khi người dùng click vào phần tử từ bảng báo cáo để drill-down */}
+                    {activeReportSelection.source !== 'none' && (
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 p-3 rounded-xl bg-indigo-100/70 border border-indigo-300 text-xs shadow-2xs">
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                          <span className="p-1.5 rounded-lg bg-indigo-700 text-white shadow-2xs">
+                            <Filter className="w-4 h-4" />
+                          </span>
+                          <div>
+                            <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Đang lọc danh sách chi tiết:</div>
+                            <div className="font-bold text-indigo-950 text-sm flex items-center gap-2 mt-0.5">
+                              <span>{activeReportSelection.label}</span>
+                              <span className="bg-white text-indigo-900 border border-indigo-300 px-2 py-0.5 rounded-full text-xs font-black shadow-2xs">
+                                {filteredRaSoatCustomers.length} khách hàng
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleClearDrillDown}
+                          className="px-3 py-1.5 text-xs font-bold text-rose-700 hover:text-rose-900 bg-white hover:bg-rose-50 border border-rose-300 rounded-lg shadow-2xs transition-all flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+                          title="Bỏ lọc và quay về danh sách mặc định"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                          <span>Bỏ lọc / Về mặc định</span>
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="text-xs font-bold text-indigo-900 mr-1">Lọc kết quả:</span>
                         <button
@@ -3633,7 +4297,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                             raSoatFilter === 'all' ? 'bg-indigo-700 text-white shadow-xs' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
                           }`}
                         >
-                          Tất cả ({thuHoiReviewCustomerList.length})
+                          Tất cả ({activeReportSelection.source === 'none' ? thuHoiReviewCustomerList.length : filteredRaSoatCustomers.length})
                         </button>
                         <button
                           type="button"
@@ -3673,16 +4337,34 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                         </button>
                       </div>
 
-                      {/* Ô tìm kiếm khách hàng diện thu hồi */}
-                      <div className="relative w-full sm:w-64">
-                        <input
-                          type="text"
-                          value={raSoatSearch}
-                          onChange={(e) => { setRaSoatSearch(e.target.value); setRaSoatPage(1); }}
-                          placeholder="Tìm Mã KH, Tên KH, Diễn giải..."
-                          className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 bg-white"
-                        />
-                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                      <div className="flex items-center gap-2 w-full lg:w-auto">
+                        {/* Ô tìm kiếm khách hàng */}
+                        <div className="relative flex-1 sm:w-64">
+                          <input
+                            type="text"
+                            value={raSoatSearch}
+                            onChange={(e) => { setRaSoatSearch(e.target.value); setRaSoatPage(1); }}
+                            placeholder="Tìm Mã KH, Tên, SĐT, Chủng loại..."
+                            className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 bg-white"
+                          />
+                          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                        </div>
+
+                        {/* Nút Kết xuất Excel cho Bảng danh sách chi tiết */}
+                        <button
+                          type="button"
+                          onClick={handleExportDetailTableExcel}
+                          disabled={filteredRaSoatCustomers.length === 0}
+                          className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 text-white rounded-lg text-xs font-bold shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+                          title="Xuất file Excel cho toàn bộ danh sách khách hàng đang hiển thị ở bảng này"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">Xuất Excel Chi Tiết</span>
+                          <span className="sm:hidden">Xuất Excel</span>
+                          <span className="bg-emerald-800 px-1.5 py-0.2 rounded text-[10px]">
+                            {filteredRaSoatCustomers.length}
+                          </span>
+                        </button>
                       </div>
                     </div>
 
@@ -3695,8 +4377,10 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                               <th className="py-2 px-3 w-10 text-center">STT</th>
                               <th className="py-2 px-3">Mã KH</th>
                               <th className="py-2 px-3">Tên Khách Hàng</th>
+                              <th className="py-2 px-3">Số Điện Thoại</th>
                               <th className="py-2 px-3">Khu Vực</th>
                               <th className="py-2 px-3">Đợt</th>
+                              <th className="py-2 px-3">Chủng Loại Cần Thay</th>
                               <th className="py-2 px-3">Cột KSuDung</th>
                               <th className="py-2 px-3">Kết Quả Rà Soát (KQRaSoat)</th>
                               <th className="py-2 px-3 text-center">Quy Định Thay</th>
@@ -3716,8 +4400,31 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                                     <td className="py-2 px-3 text-center text-slate-400 font-mono text-[11px]">{stt}</td>
                                     <td className="py-2 px-3 font-mono font-bold text-amber-900">{c.maKh}</td>
                                     <td className="py-2 px-3 font-medium text-slate-800">{c.tenKh}</td>
+                                    <td className="py-2 px-3 font-mono">
+                                      {c.sdt ? (
+                                        <a
+                                          href={`tel:${c.sdt}`}
+                                          className="inline-flex items-center gap-1 text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded-full font-bold text-[11px] transition-colors"
+                                          title={`Bấm để gọi điện: ${c.sdt}`}
+                                        >
+                                          <Phone className="w-3 h-3 text-emerald-600" />
+                                          <span>{c.sdt}</span>
+                                        </a>
+                                      ) : (
+                                        <span className="text-slate-300 font-mono text-[11px]">—</span>
+                                      )}
+                                    </td>
                                     <td className="py-2 px-3 font-semibold text-slate-700">{c.kv}</td>
                                     <td className="py-2 px-3 font-mono text-slate-600">Đợt {c.dot}</td>
+                                    <td className="py-2 px-3">
+                                      {c.chungLoaiCanThay ? (
+                                        <span className="font-bold text-amber-950 bg-amber-100/80 px-2 py-0.5 rounded text-[11px] border border-amber-300/80 inline-block">
+                                          {c.chungLoaiCanThay}
+                                        </span>
+                                      ) : (
+                                        <span className="text-slate-300 text-[11px] font-mono">—</span>
+                                      )}
+                                    </td>
                                     <td className="py-2 px-3">
                                       {c.kSuDung ? (
                                         <span className="bg-rose-100 text-rose-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
@@ -3779,7 +4486,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                               })
                             ) : (
                               <tr>
-                                <td colSpan={10} className="py-6 text-center text-slate-400 text-xs">
+                                <td colSpan={12} className="py-6 text-center text-slate-400 text-xs">
                                   Không tìm thấy khách hàng nào phù hợp với bộ lọc rà soát.
                                 </td>
                               </tr>
