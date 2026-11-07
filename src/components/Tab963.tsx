@@ -127,11 +127,16 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
   const [expandedDots, setExpandedDots] = useState<Record<string, boolean>>({});
   const [expandedKvs, setExpandedKvs] = useState<Record<string, boolean>>({});
 
-  // Search state
+  // Search state - 5 criteria: Mã KH, Tên KH, TI, TU, Chủng loại cần thay (ChungLoaiCanThay)
+  type SearchTargetField = 'all' | 'maKh' | 'tenKh' | 'ti' | 'tu' | 'cl';
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchTarget, setSearchTarget] = useState<SearchTargetField>('all');
   const [searchMode, setSearchMode] = useState<'fuzzy' | 'exact'>('fuzzy');
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<any>(null);
+  // Bottom table view mode: 'completed' (Đã thay xong) vs 'search' (Kết quả tìm kiếm)
+  const [bottomTableTab, setBottomTableTab] = useState<'completed' | 'search'>('completed');
+  const bottomTableRef = useRef<HTMLDivElement>(null);
 
   // Form input state
   const [formNv, setFormNv] = useState<string>(sessionUser?.name || '');
@@ -406,7 +411,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
 
       recognition.onstart = () => {
         setIsListening(true);
-        showToast('info', 'Đang lắng nghe... Hãy nói Mã khách hàng hoặc Tên khách hàng');
+        showToast('info', 'Đang lắng nghe... Hãy nói Mã KH, Tên KH, TI, TU hoặc Chủng loại cần thay');
       };
 
       recognition.onresult = (event: any) => {
@@ -552,42 +557,56 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       .trim();
   };
 
-  // Filtered entries based on Search Query (includes maKh, tenKh, diaChi, chungLoaiCanThay, sdt)
-  const filteredEntries = useMemo(() => {
-    if (!searchQuery.trim()) return entries;
-    const q = searchQuery.trim();
+  // Helper to extract TI and TU values with multiple fallbacks
+  const getTiValue = (item: Entry963): string => {
+    return String(item.tySoTi || item.raw?.['ty0so0_TI'] || item.raw?.['TI'] || item.raw?.['TSO_TI'] || item.raw?.['TYSO_TI'] || item.raw?.['ty_so_ti'] || '').trim();
+  };
+
+  const getTuValue = (item: Entry963): string => {
+    return String(item.tySoTu || item.raw?.['ty so_TU'] || item.raw?.['TU'] || item.raw?.['TSO_TU'] || item.raw?.['TYSO_TU'] || item.raw?.['ty_so_tu'] || '').trim();
+  };
+
+  // Matcher for the 5 criteria: Mã KH, Tên KH, TI, TU, Chủng loại cần thay
+  const matchesSearchCriteria = (
+    item: Entry963,
+    query: string,
+    mode: 'fuzzy' | 'exact',
+    target: SearchTargetField
+  ): boolean => {
+    if (!query.trim()) return true;
+    const q = query.trim();
+    const qLower = q.toLowerCase();
     const qNorm = normalize(q);
 
-    return entries.filter(item => {
-      const maKh = item.maKh || '';
-      const tenKh = item.tenKh || '';
-      const diaChi = item.diaChi || '';
-      const cl = item.chungLoaiCanThay || '';
-      const sdt = item.sdt || '';
+    const maKh = item.maKh || '';
+    const tenKh = item.tenKh || '';
+    const ti = getTiValue(item);
+    const tu = getTuValue(item);
+    const cl = item.chungLoaiCanThay || '';
 
-      if (searchMode === 'exact') {
-        return (
-          maKh.toLowerCase() === q.toLowerCase() ||
-          tenKh.toLowerCase() === q.toLowerCase() ||
-          cl.toLowerCase() === q.toLowerCase() ||
-          sdt.toLowerCase() === q.toLowerCase() ||
-          normalize(maKh) === qNorm ||
-          normalize(tenKh) === qNorm ||
-          normalize(cl) === qNorm ||
-          normalize(sdt) === qNorm
-        );
+    const checkField = (val: string): boolean => {
+      if (!val) return false;
+      if (mode === 'exact') {
+        return val.toLowerCase() === qLower || normalize(val) === qNorm;
       }
+      return normalize(val).includes(qNorm);
+    };
 
-      // Fuzzy / Partial match
-      return (
-        normalize(maKh).includes(qNorm) ||
-        normalize(tenKh).includes(qNorm) ||
-        normalize(diaChi).includes(qNorm) ||
-        normalize(cl).includes(qNorm) ||
-        normalize(sdt).includes(qNorm)
-      );
-    });
-  }, [entries, searchQuery, searchMode]);
+    if (target === 'maKh') return checkField(maKh);
+    if (target === 'tenKh') return checkField(tenKh);
+    if (target === 'ti') return checkField(ti);
+    if (target === 'tu') return checkField(tu);
+    if (target === 'cl') return checkField(cl);
+
+    // 'all': matches any of the 5 criteria
+    return checkField(maKh) || checkField(tenKh) || checkField(ti) || checkField(tu) || checkField(cl);
+  };
+
+  // Filtered entries based on Search Query (5 criteria: Mã KH, Tên KH, TI, TU, Chủng loại cần thay)
+  const filteredEntries = useMemo(() => {
+    if (!searchQuery.trim()) return entries;
+    return entries.filter(item => matchesSearchCriteria(item, searchQuery, searchMode, searchTarget));
+  }, [entries, searchQuery, searchMode, searchTarget]);
 
   // Tree structure: Dot -> KV -> Khách hàng
   interface TreeKvNode {
@@ -666,28 +685,16 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       if (selectedDot && item.dot !== selectedDot) return false;
       if (selectedKv && item.kv !== selectedKv) return false;
 
-      // Filter by search query if user entered search criteria (ChungLoaiCanThay, MaKH, TenKH, SDT, DiaChi)
+      // Filter by search query if user entered search criteria (Mã KH, Tên KH, TI, TU, Chủng loại cần thay)
       if (searchQuery.trim()) {
-        const qNorm = normalize(searchQuery.trim());
-        const maKh = normalize(item.maKh || '');
-        const tenKh = normalize(item.tenKh || '');
-        const diaChi = normalize(item.diaChi || '');
-        const cl = normalize(item.chungLoaiCanThay || '');
-        const sdt = normalize(item.sdt || '');
-
-        const matches = (
-          maKh.includes(qNorm) ||
-          tenKh.includes(qNorm) ||
-          diaChi.includes(qNorm) ||
-          cl.includes(qNorm) ||
-          sdt.includes(qNorm)
-        );
-        if (!matches) return false;
+        if (!matchesSearchCriteria(item, searchQuery, searchMode, searchTarget)) {
+          return false;
+        }
       }
 
       return true;
     });
-  }, [entries, selectedDot, selectedKv, searchQuery]);
+  }, [entries, selectedDot, selectedKv, searchQuery, searchMode, searchTarget]);
 
   // Unique list and counts of ChungLoaiCanThay in the selected scope (Dot / KV)
   const completedChungLoaiSummary = useMemo(() => {
@@ -710,17 +717,35 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       .sort((a, b) => b.count - a.count);
   }, [entries, selectedDot, selectedKv]);
 
-  // Reset completed table page when filter changes
+  // Active list for bottom table (Completed customers vs Search results)
+  const activeBottomList = useMemo(() => {
+    if (bottomTableTab === 'search') {
+      return filteredEntries;
+    }
+    return completedCustomersList;
+  }, [bottomTableTab, filteredEntries, completedCustomersList]);
+
+  // Reset bottom table page when filter or tab changes
   useEffect(() => {
     setCompletedPage(1);
-  }, [selectedDot, selectedKv, searchQuery]);
+  }, [selectedDot, selectedKv, searchQuery, searchTarget, searchMode, bottomTableTab]);
 
-  const totalCompletedPages = Math.max(1, Math.ceil(completedCustomersList.length / PAGE_SIZE));
+  const totalCompletedPages = Math.max(1, Math.ceil(activeBottomList.length / PAGE_SIZE));
   const currentCompletedPage = Math.min(completedPage, totalCompletedPages);
   const paginatedCompletedList = useMemo(() => {
     const start = (currentCompletedPage - 1) * PAGE_SIZE;
-    return completedCustomersList.slice(start, start + PAGE_SIZE);
-  }, [completedCustomersList, currentCompletedPage]);
+    return activeBottomList.slice(start, start + PAGE_SIZE);
+  }, [activeBottomList, currentCompletedPage]);
+
+  // Handler to show search results in the bottom table and scroll down smoothly
+  const handleShowSearchResultsInTable = () => {
+    setBottomTableTab('search');
+    setCollapsedSections(prev => ({ ...prev, completedList: true }));
+    if (bottomTableRef.current) {
+      bottomTableRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+    showToast('info', `Đang hiển thị danh sách ${filteredEntries.length} khách hàng tìm kiếm ở bảng phía dưới`);
+  };
 
   // Handle confirming meter replacement and saving peak excess indicators into Sheet 963
   const handleConfirmReplacement = async (source: 'confirm' | 'calculation' = 'confirm') => {
@@ -846,46 +871,56 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
     }
   };
 
-  // Export Tab 1 completed customers to Excel
+  // Export Tab 1 bottom table (Completed customers or Search results) to Excel
   const handleExportCompletedExcel = () => {
-    if (completedCustomersList.length === 0) {
-      alert('Không có dữ liệu đã thay xong để xuất file Excel!');
+    if (activeBottomList.length === 0) {
+      alert(`Không có dữ liệu ${bottomTableTab === 'search' ? 'kết quả tìm kiếm' : 'đã thay xong'} để xuất file Excel!`);
       return;
     }
 
-    const exportRows = completedCustomersList.map((c, idx) => ({
-      'STT': idx + 1,
-      'Mã Khách Hàng': c.maKh,
-      'Tên Khách Hàng': c.tenKh,
-      'Số Điện Thoại (SĐT)': c.sdt || '',
-      'Chủng Loại Cần Thay': c.chungLoaiCanThay || '',
-      'Địa Chỉ': c.diaChi,
-      'Khu Vực': c.kv,
-      'Đợt': c.dot,
-      'Loại Công Tơ': c.loaiCto || '',
-      'Số Pha': c.soPha || '',
-      'Tỷ Số TU': c.tySoTu || '',
-      'Tỷ Số TI': c.tySoTi || '',
-      'Hệ Số Nhân (HSN)': c.hsn !== undefined && c.hsn !== '' ? c.hsn : resolveHsn(c),
-      'Công Nghệ': c.congNghe || '',
-      'Đo Xa': c.doXa || '',
-      'NV Thực Hiện': c.nv || '',
-      'Ngày Giờ Thay': c.ngayGio || '',
-      'Kết Quả': c.ketQua || 'Xong',
-      'Kết Quả Rà Soát (KQRaSoat)': c.kqRaSoat || '',
-      'Giờ Vượt (h)': c.gioVuot !== undefined ? c.gioVuot : 0,
-      'CS CĐ Lúc Tháo': c.cscdThao || '',
-      'CS CĐ Lúc 9h30': c.cs930 || c.cs9h30 || '',
-      'CS CĐ Kỳ Trước': c.cscdKyTruoc || '',
-      'Sản Lượng Vượt (kWh)': c.slVuot !== undefined && c.slVuot !== '' ? c.slVuot : 0
-    }));
+    const exportRows = activeBottomList.map((c, idx) => {
+      const isDone = c.ketQua && c.ketQua.trim().toLowerCase().includes('xong');
+      const isThuHoi = c.kSuDung && c.kSuDung.trim().toLowerCase().includes('thu hồi');
+      const statusStr = isThuHoi ? 'Thu hồi' : isDone ? 'Đã thay xong' : 'Chưa thay';
+
+      return {
+        'STT': idx + 1,
+        'Trạng Thái': statusStr,
+        'Mã Khách Hàng': c.maKh,
+        'Tên Khách Hàng': c.tenKh,
+        'Số Điện Thoại (SĐT)': c.sdt || '',
+        'Chủng Loại Cần Thay': c.chungLoaiCanThay || '',
+        'Tỷ Số TU': c.tySoTu || '',
+        'Tỷ Số TI': c.tySoTi || '',
+        'Khu Vực': c.kv,
+        'Đợt': c.dot,
+        'Địa Chỉ': c.diaChi || '',
+        'Loại Công Tơ': c.loaiCto || '',
+        'Số Pha': c.soPha || '',
+        'Hệ Số Nhân (HSN)': c.hsn !== undefined && c.hsn !== '' ? c.hsn : resolveHsn(c),
+        'Công Nghệ': c.congNghe || '',
+        'Đo Xa': c.doXa || '',
+        'NV Thực Hiện': c.nv || '',
+        'Ngày Giờ Thay': c.ngayGio || '',
+        'Kết Quả': c.ketQua || (isDone ? 'Xong' : ''),
+        'Kết Quả Rà Soát (KQRaSoat)': c.kqRaSoat || '',
+        'Giờ Vượt (h)': c.gioVuot !== undefined ? c.gioVuot : 0,
+        'CS CĐ Lúc Tháo': c.cscdThao || '',
+        'CS CĐ Lúc 9h30': c.cs930 || c.cs9h30 || '',
+        'CS CĐ Kỳ Trước': c.cscdKyTruoc || '',
+        'Sản Lượng Vượt (kWh)': c.slVuot !== undefined && c.slVuot !== '' ? c.slVuot : 0
+      };
+    });
 
     const ws = XLSX.utils.json_to_sheet(exportRows);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'DanhSachThayXong');
-    const filterInfo = selectedKv ? `_KV_${selectedKv}` : selectedDot ? `_Dot_${selectedDot}` : '_TatCa';
-    XLSX.writeFile(wb, `DS_ThayCongTo_QD963${filterInfo}_${getCurrentDateTimeStr().replace(/[/ :]/g, '_')}.xlsx`);
-    showToast('success', 'Đã xuất file Excel danh sách thay xong thành công!');
+    const sheetName = bottomTableTab === 'search' ? 'KetQuaTimKiem' : 'DanhSachThayXong';
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    const filterInfo = bottomTableTab === 'search'
+      ? (searchQuery ? `_Tim_${normalize(searchQuery)}` : '_TimKiem_TatCa')
+      : (selectedKv ? `_KV_${selectedKv}` : selectedDot ? `_Dot_${selectedDot}` : '_TatCa');
+    XLSX.writeFile(wb, `DS_${sheetName}_QD963${filterInfo}_${getCurrentDateTimeStr().replace(/[/ :]/g, '_')}.xlsx`);
+    showToast('success', `Đã xuất file Excel ${bottomTableTab === 'search' ? 'kết quả tìm kiếm' : 'danh sách thay xong'} (${activeBottomList.length} KH) thành công!`);
   };
 
   // ==============================================================
@@ -1774,7 +1809,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                 </div>
               </div>
 
-            {/* Tìm kiếm gần đúng / chính xác và Giọng nói */}
+            {/* Tìm kiếm 5 tiêu chí: Mã KH, Tên KH, TI, TU, Chủng loại cần thay & Giọng nói */}
             <div className="space-y-2">
               <div className="relative flex items-center">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3 pointer-events-none" />
@@ -1782,7 +1817,19 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                   type="text"
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
-                  placeholder="Tìm Mã KH, Tên KH, Địa chỉ, Chủng loại, SĐT..."
+                  placeholder={
+                    searchTarget === 'maKh'
+                      ? 'Tìm theo Mã KH...'
+                      : searchTarget === 'tenKh'
+                      ? 'Tìm theo Tên KH...'
+                      : searchTarget === 'ti'
+                      ? 'Tìm theo Tỷ số TI...'
+                      : searchTarget === 'tu'
+                      ? 'Tìm theo Tỷ số TU...'
+                      : searchTarget === 'cl'
+                      ? 'Tìm theo Chủng loại cần thay...'
+                      : 'Tìm Mã KH, Tên KH, TI, TU, Chủng loại...'
+                  }
                   className="w-full pl-9 pr-20 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white transition-all"
                 />
                 <div className="absolute right-2 flex items-center gap-1">
@@ -1790,7 +1837,8 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                     <button
                       type="button"
                       onClick={() => setSearchQuery('')}
-                      className="p-1 text-slate-400 hover:text-slate-600 rounded-full"
+                      className="p-1 text-slate-400 hover:text-slate-600 rounded-full cursor-pointer"
+                      title="Xóa tìm kiếm"
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>
@@ -1810,41 +1858,95 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                 </div>
               </div>
 
-              {/* Toggle Search Mode: Gần đúng (Fuzzy - Mặc định) vs Chính xác (Exact) */}
-              <div className="flex items-center justify-between text-[11px] px-1">
-                <span className="text-slate-500">Chế độ tìm kiếm:</span>
-                <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
-                  <button
-                    type="button"
-                    onClick={() => setSearchMode('fuzzy')}
-                    className={`px-2.5 py-1 rounded-md font-bold transition-all cursor-pointer ${
-                      searchMode === 'fuzzy'
-                        ? 'bg-white text-amber-700 shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    Gần đúng
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSearchMode('exact')}
-                    className={`px-2.5 py-1 rounded-md font-bold transition-all cursor-pointer ${
-                      searchMode === 'exact'
-                        ? 'bg-white text-amber-700 shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    Chính xác
-                  </button>
+              {/* Tiêu chí tìm kiếm: Mã KH, Tên KH, TI, TU, Chủng loại cần thay */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[11px] px-1 text-slate-500">
+                  <span className="font-semibold text-slate-600">Tiêu chí:</span>
+                  <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() => setSearchMode('fuzzy')}
+                      className={`px-2 py-0.5 rounded font-bold transition-all cursor-pointer ${
+                        searchMode === 'fuzzy'
+                          ? 'bg-white text-amber-700 shadow-2xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Gần đúng
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSearchMode('exact')}
+                      className={`px-2 py-0.5 rounded font-bold transition-all cursor-pointer ${
+                        searchMode === 'exact'
+                          ? 'bg-white text-amber-700 shadow-2xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Chính xác
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-1">
+                  {[
+                    { id: 'all', label: 'Tất cả' },
+                    { id: 'maKh', label: 'Mã KH' },
+                    { id: 'tenKh', label: 'Tên KH' },
+                    { id: 'ti', label: 'TI' },
+                    { id: 'tu', label: 'TU' },
+                    { id: 'cl', label: 'Chủng loại' },
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setSearchTarget(tab.id as SearchTargetField)}
+                      className={`px-1.5 py-1 rounded-lg text-center font-bold text-[10.5px] transition-all cursor-pointer border truncate ${
+                        searchTarget === tab.id
+                          ? 'bg-amber-600 text-white border-amber-600 shadow-2xs'
+                          : 'bg-white hover:bg-amber-50/60 text-slate-700 border-slate-200'
+                      }`}
+                      title={tab.id === 'all' ? 'Tìm trên cả 5 tiêu chí: Mã KH, Tên KH, TI, TU, Chủng loại cần thay' : `Chỉ tìm theo ${tab.label}`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
               {isListening && (
                 <div className="text-[11px] text-rose-600 bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-lg flex items-center gap-2 animate-pulse">
                   <span className="w-2 h-2 rounded-full bg-rose-600"></span>
-                  <span>Đang lắng nghe... Nói Mã KH hoặc Tên KH (khi bạn dừng nói, tìm kiếm sẽ tự thực hiện).</span>
+                  <span>Đang lắng nghe... Nói Mã KH, Tên KH, TI, TU hoặc Chủng loại cần thay (khi bạn dừng nói, tìm kiếm sẽ tự thực hiện).</span>
                 </div>
               )}
+            </div>
+
+            {/* Chức năng: Hiển thị danh sách kết quả tìm kiếm ở bảng chi tiết phía dưới */}
+            <div className="bg-gradient-to-r from-purple-50 via-indigo-50 to-amber-50 border border-purple-200 rounded-xl p-2.5 space-y-1.5 shadow-2xs">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-purple-950 flex items-center gap-1.5">
+                  <Search className="w-3.5 h-3.5 text-purple-700" />
+                  <span>Danh sách tìm kiếm:</span>
+                </span>
+                <span className="font-mono font-black text-purple-800 bg-purple-200/80 px-2 py-0.5 rounded-full text-[11px]">
+                  {filteredEntries.length} KH
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleShowSearchResultsInTable}
+                className="w-full py-2 px-3 bg-purple-700 hover:bg-purple-800 active:scale-98 text-white rounded-lg font-bold text-xs shadow-xs transition-all flex items-center justify-between cursor-pointer group"
+                title="Bấm để hiển thị toàn bộ danh sách kết quả tìm kiếm ở bảng phía dưới và kết xuất Excel"
+              >
+                <div className="flex items-center gap-1.5 truncate">
+                  <FileSpreadsheet className="w-4 h-4 text-purple-200 group-hover:text-white shrink-0" />
+                  <span className="truncate">Xem ở bảng kết quả & Xuất Excel</span>
+                </div>
+                <span className="text-[10px] text-purple-200 group-hover:text-white font-mono shrink-0 flex items-center gap-0.5">
+                  Xem bảng ▾
+                </span>
+              </button>
             </div>
 
             {/* Tree Navigation Root */}
@@ -1987,6 +2089,14 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                                               title={`Chủng loại cần thay: ${cust.chungLoaiCanThay}`}
                                             >
                                               {cust.chungLoaiCanThay}
+                                            </span>
+                                          )}
+                                          {(cust.tySoTi || cust.tySoTu) && (
+                                            <span 
+                                              className="text-[9px] font-mono text-slate-600 bg-slate-100 border border-slate-200 px-1 py-0.2 rounded shrink-0" 
+                                              title={`TI: ${cust.tySoTi || '—'} / TU: ${cust.tySoTu || '—'}`}
+                                            >
+                                              {cust.tySoTi ? `TI:${cust.tySoTi}` : ''}{cust.tySoTi && cust.tySoTu ? ' ' : ''}{cust.tySoTu ? `TU:${cust.tySoTu}` : ''}
                                             </span>
                                           )}
                                         </div>
@@ -2932,18 +3042,43 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
           )}
             </div>
 
-            {/* 3. KHỐI DANH SÁCH KHÁCH HÀNG ĐÃ THAY XONG (10 KHÁCH HÀNG TRÊN TRANG, CHO PHÉP KẾT XUẤT EXCEL) */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
+            {/* 3. KHỐI DANH SÁCH KHÁCH HÀNG ĐÃ THAY XONG / KẾT QUẢ TÌM KIẾM (CHO PHÉP KẾT XUẤT EXCEL) */}
+            <div ref={bottomTableRef} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
                 <div>
-                  <h4 className="font-black text-slate-800 text-sm uppercase flex items-center gap-2">
-                    <span>Kết Quả Đã Thay Xong</span>
-                    <span className="text-xs font-normal text-slate-500 font-mono">
-                      ({completedCustomersList.length} KH {selectedKv ? `- KV ${selectedKv}` : selectedDot ? `- Đợt ${selectedDot}` : ''})
-                    </span>
-                  </h4>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    Hiển thị danh sách khách hàng đã thay xong kèm các chỉ số và sản lượng vượt (10 KH/trang).
+                  {/* Chuyển đổi chế độ xem: Đã Thay Xong vs Kết Quả Tìm Kiếm */}
+                  <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setBottomTableTab('completed')}
+                      className={`px-3 py-1.5 rounded-xl font-black text-xs transition-all cursor-pointer flex items-center gap-1.5 ${
+                        bottomTableTab === 'completed'
+                          ? 'bg-amber-600 text-white shadow-xs'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                      }`}
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Đã Thay Xong ({completedCustomersList.length} KH)</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setBottomTableTab('search')}
+                      className={`px-3 py-1.5 rounded-xl font-black text-xs transition-all cursor-pointer flex items-center gap-1.5 ${
+                        bottomTableTab === 'search'
+                          ? 'bg-purple-700 text-white shadow-xs ring-2 ring-purple-300'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                      }`}
+                    >
+                      <Search className="w-3.5 h-3.5" />
+                      <span>Kết Quả Tìm Kiếm ({filteredEntries.length} KH)</span>
+                    </button>
+                  </div>
+
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    {bottomTableTab === 'search'
+                      ? `Hiển thị danh sách ${filteredEntries.length} khách hàng tìm kiếm theo 5 tiêu chí (Mã KH, Tên KH, TI, TU, Chủng loại). Có thể xem và kết xuất Excel.`
+                      : `Hiển thị danh sách khách hàng đã thay xong kèm các chỉ số và sản lượng vượt (10 KH/trang).`}
                   </p>
                 </div>
 
@@ -2952,16 +3087,17 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                     type="button"
                     onClick={handleExportCompletedExcel}
                     className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+                    title={`Xuất Excel ${bottomTableTab === 'search' ? 'kết quả tìm kiếm' : 'danh sách thay xong'}`}
                   >
                     <FileSpreadsheet className="w-4 h-4" />
-                    <span>Xuất Excel</span>
+                    <span>Xuất Excel ({activeBottomList.length})</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => toggleSection('completedList')}
                     className="p-1.5 hover:bg-slate-100 text-slate-500 hover:text-slate-800 rounded-lg transition-colors flex items-center gap-1 cursor-pointer shrink-0"
-                    title={collapsedSections.completedList ? "Thu gọn danh sách đã thay xong" : "Bung ra danh sách đã thay xong"}
+                    title={collapsedSections.completedList ? "Thu gọn danh sách" : "Bung ra danh sách"}
                   >
                     <span className="text-[10px] text-slate-400 font-normal hidden sm:inline">
                       {collapsedSections.completedList ? 'Thu gọn' : 'Bung ra'}
@@ -2984,7 +3120,16 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                       <button
                         key={item.name}
                         type="button"
-                        onClick={() => setSearchQuery(item.name === 'Chưa xác định' ? '' : item.name)}
+                        onClick={() => {
+                          const val = item.name === 'Chưa xác định' ? '' : item.name;
+                          if (searchQuery === val && searchTarget === 'cl') {
+                            setSearchQuery('');
+                            setSearchTarget('all');
+                          } else {
+                            setSearchQuery(val);
+                            setSearchTarget('cl');
+                          }
+                        }}
                         className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                           isSelected
                             ? 'bg-purple-700 text-white shadow-xs ring-2 ring-purple-300'
@@ -3004,7 +3149,10 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                   {searchQuery.trim() && (
                     <button
                       type="button"
-                      onClick={() => setSearchQuery('')}
+                      onClick={() => {
+                        setSearchQuery('');
+                        setSearchTarget('all');
+                      }}
                       className="text-[11px] text-purple-700 hover:text-purple-950 font-bold underline ml-1 cursor-pointer"
                     >
                       Xóa lọc ({searchQuery})
@@ -3021,10 +3169,12 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                     <thead>
                       <tr className="bg-slate-100/90 text-slate-700 font-bold border-b border-slate-200 uppercase text-[10px]">
                         <th className="py-2.5 px-3 w-10 text-center">STT</th>
+                        <th className="py-2.5 px-3 text-center">Trạng Thái</th>
                         <th className="py-2.5 px-3">Mã KH</th>
                         <th className="py-2.5 px-3">Tên Khách Hàng</th>
                         <th className="py-2.5 px-3">SĐT</th>
                         <th className="py-2.5 px-3">Chủng Loại Cần Thay</th>
+                        <th className="py-2.5 px-3 text-center">TI / TU</th>
                         <th className="py-2.5 px-3">Khu Vực</th>
                         <th className="py-2.5 px-3">Đợt</th>
                         <th className="py-2.5 px-3 text-center">HSN</th>
@@ -3044,13 +3194,35 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                           const stt = (currentCompletedPage - 1) * PAGE_SIZE + idx + 1;
                           const slv = item.slVuot !== undefined && item.slVuot !== '' ? item.slVuot : '0';
                           const hsnVal = item.hsn !== undefined && item.hsn !== '' ? item.hsn : resolveHsn(item);
+                          const tiVal = item.tySoTi || item.raw?.['ty0so0_TI'] || item.raw?.['TI'] || item.raw?.['TSO_TI'] || '';
+                          const tuVal = item.tySoTu || item.raw?.['ty so_TU'] || item.raw?.['TU'] || item.raw?.['TSO_TU'] || '';
+                          const isDone = item.ketQua && item.ketQua.trim().toLowerCase().includes('xong');
+                          const isThuHoi = item.kSuDung && item.kSuDung.trim().toLowerCase().includes('thu hồi');
                           return (
                             <tr
                               key={item.maKh}
                               onClick={() => setSelectedCustomer(item)}
-                              className="hover:bg-amber-50/60 cursor-pointer transition-colors"
+                              className={`hover:bg-amber-50/60 cursor-pointer transition-colors ${
+                                selectedCustomer?.maKh === item.maKh ? 'bg-amber-100/80 font-semibold' : ''
+                              }`}
                             >
                               <td className="py-2 px-3 text-center text-slate-400 font-mono text-[11px]">{stt}</td>
+                              <td className="py-2 px-3 text-center whitespace-nowrap">
+                                {isThuHoi ? (
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800">
+                                    Thu hồi
+                                  </span>
+                                ) : isDone ? (
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                    <Check className="w-2.5 h-2.5" />
+                                    Đã xong
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-800">
+                                    Chưa thay
+                                  </span>
+                                )}
+                              </td>
                               <td className="py-2 px-3 font-mono font-bold text-amber-900">{item.maKh}</td>
                               <td className="py-2 px-3 font-medium text-slate-800">{item.tenKh}</td>
                               <td className="py-2 px-3">
@@ -3076,6 +3248,9 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                                 ) : (
                                   <span className="text-slate-400 italic text-[11px]">—</span>
                                 )}
+                              </td>
+                              <td className="py-2 px-3 text-center font-mono text-[11px] text-slate-700 whitespace-nowrap">
+                                {tiVal || tuVal ? `${tiVal || '—'} / ${tuVal || '—'}` : '—'}
                               </td>
                               <td className="py-2 px-3 font-semibold text-slate-700">{item.kv}</td>
                               <td className="py-2 px-3 font-mono text-slate-600">{item.dot}</td>
@@ -3113,8 +3288,10 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                         })
                       ) : (
                         <tr>
-                          <td colSpan={16} className="py-8 text-center text-slate-400 text-xs">
-                            Chưa có khách hàng nào được thay xong trong phạm vi lựa chọn này.
+                          <td colSpan={18} className="py-8 text-center text-slate-400 text-xs">
+                            {bottomTableTab === 'search'
+                              ? 'Không tìm thấy khách hàng nào khớp với điều kiện tìm kiếm hiện tại.'
+                              : 'Chưa có khách hàng nào được thay xong trong phạm vi lựa chọn này.'}
                           </td>
                         </tr>
                       )}
@@ -3126,7 +3303,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                 {totalCompletedPages > 1 && (
                   <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-t border-slate-200 text-xs">
                     <span className="text-slate-500 text-[11px]">
-                      Trang <b>{currentCompletedPage}</b> / <b>{totalCompletedPages}</b> ({completedCustomersList.length} khách hàng)
+                      Trang <b>{currentCompletedPage}</b> / <b>{totalCompletedPages}</b> ({activeBottomList.length} khách hàng)
                     </span>
                     <div className="flex items-center gap-1">
                       <button
