@@ -911,32 +911,51 @@ export const DataStore = {
       return [];
     }
   },
-  updateMemberNghiBu: async (memberName: string, addDays: number, note?: string, updatedBy?: string): Promise<{ success: boolean; newTotal: number; error?: string }> => {
+  updateMemberNghiBu: async (memberName: string, addDays: number, note?: string, updatedBy?: string, leaveDate?: string): Promise<{ success: boolean; newTotal: number; error?: string }> => {
     try {
       const members = DataStore.getMembers();
-      const found = members.find(m => m.name.toLowerCase().trim() === memberName.toLowerCase().trim());
-      const currentTotal = (found && typeof found.nghiBu === "number") ? found.nghiBu : 0;
+      const normTarget = memberName.toLowerCase().trim();
+      const found = members.find(m => m.name.toLowerCase().trim() === normTarget);
+      const map = DataStore.getLocalNghiBuMap();
+      
+      let currentTotal = 0;
+      if (typeof map[memberName] === "number") {
+        currentTotal = map[memberName];
+      } else {
+        const key = Object.keys(map).find(k => k.toLowerCase().trim() === normTarget);
+        if (key && typeof map[key] === "number") {
+          currentTotal = map[key];
+        } else if (found && typeof found.nghiBu === "number") {
+          currentTotal = found.nghiBu;
+        }
+      }
+
       const newTotal = Number((currentTotal + addDays).toFixed(2));
 
       // Update in-memory members
       if (found) {
         found.nghiBu = newTotal;
-        safeSetItem(MEMBERS_KEY, JSON.stringify(members));
       }
+      members.forEach(m => {
+        if (m.name.toLowerCase().trim() === normTarget) {
+          m.nghiBu = newTotal;
+        }
+      });
+      safeSetItem(MEMBERS_KEY, JSON.stringify(members));
 
       // Update local map
-      const map = DataStore.getLocalNghiBuMap();
       map[memberName] = newTotal;
       DataStore.setLocalNghiBuMap(map);
 
       // Add log
       const logs = DataStore.getNghiBuLogs();
+      const effectiveDate = leaveDate || new Date().toISOString().split("T")[0];
       const logItem: NghiBuLog = {
         id: Math.random().toString(36).substring(2, 9),
         memberName,
         addDays,
         totalNghiBu: newTotal,
-        date: new Date().toISOString().split("T")[0],
+        date: effectiveDate,
         note: note || "",
         updatedBy: updatedBy || "Quản lý",
         timestamp: Date.now()
@@ -956,7 +975,7 @@ export const DataStore = {
           totalNghiBu: newTotal,
           note: note || "",
           updatedBy: updatedBy || "",
-          date: new Date().toISOString().split("T")[0]
+          date: effectiveDate
         }
       };
 
@@ -2230,7 +2249,7 @@ export const DataStore = {
       let newTeams = new Set<string>();
       if (ctText && !ctText.includes('<html')) {
         const ctData = Papa.parse(ctText, { header: false }).data;
-        let headerRowIdx = -1, nameColIdx = -1, msnvColIdx = -1, roleColIdx = -1, teamColIdx = 5, boPhanColIdx = -1;
+        let headerRowIdx = -1, nameColIdx = -1, msnvColIdx = -1, roleColIdx = -1, teamColIdx = 5, boPhanColIdx = -1, nghiBuColIdx = -1;
         for (let r = 0; r < Math.min(5, ctData.length); r++) {
           const rowData = ctData[r] as string[];
           if (!rowData) continue;
@@ -2253,12 +2272,16 @@ export const DataStore = {
             if (val.includes('bộ phận') || val.includes('bo phan')) {
               boPhanColIdx = c;
             }
+            if (val.includes('nghỉ bù') || val.includes('nghibu') || cleanVal.includes('nghỉbù') || cleanVal.includes('nghibu') || cleanVal.includes('đãnghỉbù')) {
+              nghiBuColIdx = c;
+            }
           }
           if (headerRowIdx !== -1) break;
         }
 
         if (headerRowIdx !== -1 && nameColIdx !== -1) {
           let currentTeam = '';
+          const localNghiBuMap = DataStore.getLocalNghiBuMap();
           for (let i = headerRowIdx + 1; i < ctData.length; i++) {
             const row = ctData[i] as string[];
             if (!row || !row[nameColIdx]) continue;
@@ -2296,6 +2319,20 @@ export const DataStore = {
               finalTeam = 'DVKH';
             }
 
+            let memberNghiBu = 0;
+            if (nghiBuColIdx !== -1 && row[nghiBuColIdx]) {
+              const parsed = parseFloat(String(row[nghiBuColIdx]).replace(',', '.').trim());
+              if (!isNaN(parsed) && parsed >= 0) memberNghiBu = parsed;
+            }
+            if (localNghiBuMap && typeof localNghiBuMap[rawName] === 'number') {
+              memberNghiBu = Math.max(memberNghiBu, localNghiBuMap[rawName]);
+            } else if (localNghiBuMap) {
+              const k = Object.keys(localNghiBuMap).find(x => x.toLowerCase().trim() === rawName.toLowerCase().trim());
+              if (k && typeof localNghiBuMap[k] === 'number') {
+                memberNghiBu = Math.max(memberNghiBu, localNghiBuMap[k]);
+              }
+            }
+
             newMembers.push({
               name: rawName,
               team: finalTeam,
@@ -2303,7 +2340,8 @@ export const DataStore = {
               role: memberRole,
               sinhNhat: '',
               boPhanCongTac: memberBoPhan,
-              boPhan: memberBoPhan
+              boPhan: memberBoPhan,
+              nghiBu: memberNghiBu
             });
           }
         }
@@ -2479,6 +2517,10 @@ export const DataStore = {
                                        boPhanColScore = 80;
                                    }
                                }
+
+                               if (val.includes('nghỉ bù') || val.includes('nghibu') || cleanVal.includes('nghỉbù') || cleanVal.includes('nghibu') || cleanVal.includes('đãnghỉbù')) {
+                                   nghiBuColIdx = c;
+                               }
                            }
                        }
                        if(headerRowIdx !== -1) break;
@@ -2563,6 +2605,24 @@ export const DataStore = {
                               finalTeam = 'DVKH';
                           }
 
+                          let memberNghiBu = 0;
+                          if (nghiBuColIdx !== -1 && row[nghiBuColIdx]) {
+                              const parsed = parseFloat(String(row[nghiBuColIdx]).replace(',', '.').trim());
+                              if (!isNaN(parsed) && parsed >= 0) memberNghiBu = parsed;
+                          }
+                          const localNghiBuMap = DataStore.getLocalNghiBuMap();
+                          if (localNghiBuMap && typeof localNghiBuMap[rawName] === 'number') {
+                              memberNghiBu = Math.max(memberNghiBu, localNghiBuMap[rawName]);
+                          } else if (localNghiBuMap) {
+                              const k = Object.keys(localNghiBuMap).find(x => x.toLowerCase().trim() === rawName.toLowerCase().trim());
+                              if (k && typeof localNghiBuMap[k] === 'number') {
+                                  memberNghiBu = Math.max(memberNghiBu, localNghiBuMap[k]);
+                              }
+                          }
+                          if (existingMember && typeof existingMember.nghiBu === 'number') {
+                              memberNghiBu = Math.max(memberNghiBu, existingMember.nghiBu);
+                          }
+
                           newMembers.push({
                               name: rawName,
                               team: finalTeam,
@@ -2570,7 +2630,8 @@ export const DataStore = {
                               role: memberRole,
                               sinhNhat: sinhNhat,
                               boPhanCongTac: memberBoPhan,
-                              boPhan: memberBoPhan
+                              boPhan: memberBoPhan,
+                              nghiBu: memberNghiBu
                           });
                        }
                    }
@@ -3379,7 +3440,24 @@ export const DataStore = {
   getMembers: (): SheetMember[] => {
      try {
        const cached = safeGetItem(MEMBERS_KEY);
-       return cached ? JSON.parse(cached) : [];
+       const list: SheetMember[] = cached ? JSON.parse(cached) : [];
+       const localMap = DataStore.getLocalNghiBuMap();
+       if (localMap && Object.keys(localMap).length > 0) {
+         list.forEach(m => {
+           if (m && m.name) {
+             const normName = m.name.toLowerCase().trim();
+             let val = localMap[m.name];
+             if (typeof val !== 'number') {
+               const k = Object.keys(localMap).find(x => x.toLowerCase().trim() === normName);
+               if (k && typeof localMap[k] === 'number') val = localMap[k];
+             }
+             if (typeof val === 'number') {
+               m.nghiBu = Math.max(typeof m.nghiBu === 'number' ? m.nghiBu : 0, val);
+             }
+           }
+         });
+       }
+       return list;
      } catch { return []; }
   },
 

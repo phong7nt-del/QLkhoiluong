@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { DataStore, SheetMember, WorkloadEntry } from '../store/DataStore';
+import { DataStore, SheetMember, WorkloadEntry, NghiBuLog } from '../store/DataStore';
 import { PermissionStore, normalizeRoleStr } from '../store/PermissionStore';
 import { 
   CalendarDays, 
@@ -39,10 +39,15 @@ interface MemberOvertimeStat {
   overtimeDates: { date: string; dayOfWeek: number; content: string }[];
   overtimeDaysCount: number;
   daNghiBu: number;
+  totalDaNghiBuAllTime: number;
   conLai: number;
+  conLaiTotal: number;
+  totalOvertimeAllTime: number;
+  nghiBuLogs: NghiBuLog[];
 }
 
 export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefresh }: Props) {
+  const [localRefresh, setLocalRefresh] = useState<number>(0);
   const [selectedYear, setSelectedYear] = useState<string>(String(new Date().getFullYear()));
   const [selectedMonth, setSelectedMonth] = useState<string>('all'); // 'all' or '01', '02', ...
   const [selectedTeam, setSelectedTeam] = useState<string>('all');
@@ -64,8 +69,8 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
   // History log modal
   const [showHistoryModal, setShowHistoryModal] = useState<boolean>(false);
 
-  const rawEntries = useMemo(() => DataStore.getEntries(), [refreshToggle]);
-  const allMembers = useMemo(() => DataStore.getMembers(), [refreshToggle]);
+  const rawEntries = useMemo(() => DataStore.getEntries(), [refreshToggle, localRefresh]);
+  const allMembers = useMemo(() => DataStore.getMembers(), [refreshToggle, localRefresh]);
   const allTeams = useMemo(() => {
     const list = DataStore.getTeams();
     const set = new Set<string>();
@@ -187,6 +192,8 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
     // 2. Iterate through all members in master list
     const results: MemberOvertimeStat[] = [];
     const processedNormNames = new Set<string>();
+    const localNghiBuMap = DataStore.getLocalNghiBuMap();
+    const allNghiBuLogs = DataStore.getNghiBuLogs();
 
     allMembers.forEach(mem => {
       const cleanName = (mem.name || '').trim();
@@ -198,8 +205,15 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
       const userDateMap = weekendWorkedMap.get(normKey);
       const overtimeDates = userDateMap ? Array.from(userDateMap.values()).sort((a, b) => b.date.localeCompare(a.date)) : [];
       const overtimeDaysCount = overtimeDates.length;
-      const daNghiBu = typeof mem.nghiBu === 'number' ? mem.nghiBu : (parseFloat(String(mem.nghiBu || 0)) || 0);
+      const memNghiBu = typeof mem.nghiBu === 'number' ? mem.nghiBu : (parseFloat(String(mem.nghiBu || 0)) || 0);
+      const localVal = localNghiBuMap[cleanName] ?? localNghiBuMap[normKey] ?? 0;
+      const daNghiBu = Math.max(memNghiBu, localVal);
       const conLai = Math.max(0, Number((overtimeDaysCount - daNghiBu).toFixed(2)));
+
+      const memberLogs = allNghiBuLogs.filter(l => {
+        const lName = normalizeRoleStr(l.memberName || '');
+        return lName === normKey || lName.includes(normKey) || normKey.includes(lName);
+      });
 
       results.push({
         member: mem,
@@ -210,18 +224,26 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
         overtimeDates,
         overtimeDaysCount,
         daNghiBu,
-        conLai
+        totalDaNghiBuAllTime: daNghiBu,
+        conLai,
+        conLaiTotal: conLai,
+        totalOvertimeAllTime: overtimeDaysCount,
+        nghiBuLogs: memberLogs
       });
     });
 
     // Also include any reporting member from CongTac who might not be in members master list
     weekendWorkedMap.forEach((userDateMap, normKey) => {
       if (!processedNormNames.has(normKey)) {
-        const firstDateItem = Array.from(userDateMap.values())[0];
         const overtimeDates = Array.from(userDateMap.values()).sort((a, b) => b.date.localeCompare(a.date));
         const overtimeDaysCount = overtimeDates.length;
-        const daNghiBu = 0;
-        const conLai = overtimeDaysCount;
+        const localVal = localNghiBuMap[normKey] ?? 0;
+        const daNghiBu = localVal;
+        const conLai = Math.max(0, Number((overtimeDaysCount - daNghiBu).toFixed(2)));
+        const memberLogs = allNghiBuLogs.filter(l => {
+          const lName = normalizeRoleStr(l.memberName || '');
+          return lName === normKey || lName.includes(normKey) || normKey.includes(lName);
+        });
 
         results.push({
           member: { name: normKey, team: 'Khác' },
@@ -232,13 +254,17 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
           overtimeDates,
           overtimeDaysCount,
           daNghiBu,
-          conLai
+          totalDaNghiBuAllTime: daNghiBu,
+          conLai,
+          conLaiTotal: conLai,
+          totalOvertimeAllTime: overtimeDaysCount,
+          nghiBuLogs: memberLogs
         });
       }
     });
 
     return results;
-  }, [rawEntries, allMembers, selectedYear, selectedMonth]);
+  }, [rawEntries, allMembers, selectedYear, selectedMonth, localRefresh]);
 
   // Filtered members list based on UI filters
   const filteredMembers = useMemo(() => {
@@ -375,11 +401,13 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
         updatingMember.name,
         addVal,
         fullNote,
-        updaterName
+        updaterName,
+        leaveDateInput
       );
 
       if (res.success) {
         setModalSuccess(`Đã cập nhật thành công! Tổng ngày nghỉ bù hiện tại: ${res.newTotal} ngày.`);
+        setLocalRefresh(p => p + 1);
         if (onRefresh) onRefresh();
         setTimeout(() => {
           setUpdatingMember(null);

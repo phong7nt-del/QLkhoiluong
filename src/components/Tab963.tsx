@@ -18,7 +18,8 @@ import {
   parseHsn,
   resolveHsn,
   calculateSlVuotKhongDoXa,
-  calculateSlVuotCoDoXa 
+  calculateSlVuotCoDoXa,
+  QuaHanEntry 
 } from '../store/DataStore';
 
 interface SectionCollapseState {
@@ -30,6 +31,7 @@ interface SectionCollapseState {
   reportTable: boolean;
   reportNlmt: boolean;
   reportRaSoat: boolean;
+  reportQuaHan: boolean;
 }
 
 const SECTION_COLLAPSE_STORAGE_KEY = 'tab963_sections_collapse_v3';
@@ -69,6 +71,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
           reportTable: parsed.reportTable ?? true,
           reportNlmt: parsed.reportNlmt ?? true,
           reportRaSoat: parsed.reportRaSoat ?? true,
+          reportQuaHan: parsed.reportQuaHan ?? true,
         };
       }
     } catch {}
@@ -81,6 +84,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       reportTable: true,
       reportNlmt: true,
       reportRaSoat: true,
+      reportQuaHan: true,
     };
   });
 
@@ -104,6 +108,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       reportTable: expand,
       reportNlmt: expand,
       reportRaSoat: expand,
+      reportQuaHan: expand,
     };
     setCollapsedSections(next);
     try {
@@ -161,6 +166,50 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
   const [raSoatPage, setRaSoatPage] = useState(1);
   const [raSoatSearch, setRaSoatSearch] = useState('');
   const [showRaSoatDetails, setShowRaSoatDetails] = useState(true);
+
+  // Sub-report Quá Hạn (so khớp sheet QuaHan_Nam)
+  const [quaHanFilter, setQuaHanFilter] = useState<'all' | 'completed' | 'pending'>('all');
+  const [quaHanPage, setQuaHanPage] = useState(1);
+  const [quaHanSearch, setQuaHanSearch] = useState('');
+  const [showQuaHanDetails, setShowQuaHanDetails] = useState(true);
+  const [quaHanNamEntries, setQuaHanNamEntries] = useState<QuaHanEntry[]>(() => DataStore.getQuaHanNamEntries());
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadQuaHan = async () => {
+      try {
+        const cached = DataStore.getQuaHanNamEntries();
+        if (cached && cached.length > 0) {
+          if (isMounted) setQuaHanNamEntries(cached);
+        } else {
+          const fresh = await DataStore.fetchQuaHanNamData();
+          if (isMounted && fresh && fresh.length > 0) {
+            setQuaHanNamEntries(fresh);
+          }
+        }
+      } catch (e) {
+        console.warn('Could not load QuaHan_Nam for Tab963', e);
+      }
+    };
+    loadQuaHan();
+    return () => { isMounted = false; };
+  }, [refreshToggle]);
+
+  // Set các Mã Khách Hàng (MA_KHANG) từ sheet QuaHan_Nam
+  const quaHanMaKhSet = useMemo(() => {
+    const set = new Set<string>();
+    quaHanNamEntries.forEach(q => {
+      const code = String(q.MA_KHANG || '').trim().toUpperCase();
+      if (code) set.add(code);
+    });
+    return set;
+  }, [quaHanNamEntries]);
+
+  // Hàm kiểm tra khách hàng có thuộc danh sách quá hạn hay không (so khớp MA_KHANG ở sheet 963 và QuaHan_Nam)
+  const isEntryQuaHan = (e: Entry963) => {
+    const code = String(e.maKh || '').trim().toUpperCase();
+    return Boolean(code && quaHanMaKhSet.has(code));
+  };
 
   // Drill-down selection from either Báo cáo tiến độ thay OR Báo cáo kết quả rà soát thu hồi
   const [activeReportSelection, setActiveReportSelection] = useState<ActiveReportSelection>({
@@ -867,6 +916,11 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
     rsChuaRaSoat: number;
     rsDaRaSoat: number;
     rsTyLe: number;
+    // Bổ sung Quá Hạn (Sheet QuaHan_Nam)
+    quaHanTong: number;
+    quaHanDaThay: number;
+    quaHanChuaThay: number;
+    quaHanTyLe: number;
   }
 
   const reportData = useMemo(() => {
@@ -884,6 +938,8 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       rsSuDungLai: number;
       rsKhac: number;
       rsChuaRaSoat: number;
+      quaHanTong: number;
+      quaHanDaThay: number;
     }>> = {};
 
     entries.forEach(e => {
@@ -898,6 +954,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       // Phạm vi rà soát thu hồi: bất kỳ KH nào có kSuDung === 'Thu hồi' HOẶC có giá trị KQRaSoat
       const hasKq = Boolean(e.kqRaSoat && e.kqRaSoat.trim());
       const isThuHoiScope = isThuHoi || hasKq;
+      const isQh = isEntryQuaHan(e);
 
       if (!dotsMap[dot]) dotsMap[dot] = {};
       if (!dotsMap[dot][kv]) {
@@ -913,7 +970,9 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
           rsThuHoi: 0,
           rsSuDungLai: 0,
           rsKhac: 0,
-          rsChuaRaSoat: 0
+          rsChuaRaSoat: 0,
+          quaHanTong: 0,
+          quaHanDaThay: 0
         };
       }
 
@@ -929,6 +988,11 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       if (isNlmt) {
         item.nlmtTong++;
         if (isDone) item.nlmtDaThay++;
+      }
+
+      if (isQh) {
+        item.quaHanTong++;
+        if (isDone) item.quaHanDaThay++;
       }
 
       if (isThuHoiScope) {
@@ -969,6 +1033,9 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
         const rsDaRaSoat = item.rsThuHoi + item.rsSuDungLai + item.rsKhac;
         const rsTyLe = item.thuHoiScopeTong > 0 ? Math.round((rsDaRaSoat / item.thuHoiScopeTong) * 1000) / 10 : 0;
 
+        const quaHanChuaThay = Math.max(0, item.quaHanTong - item.quaHanDaThay);
+        const quaHanTyLe = item.quaHanTong > 0 ? Math.round((item.quaHanDaThay / item.quaHanTong) * 1000) / 10 : 0;
+
         rows.push({
           dot,
           kv,
@@ -990,13 +1057,17 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
           rsKhac: item.rsKhac,
           rsChuaRaSoat: item.rsChuaRaSoat,
           rsDaRaSoat,
-          rsTyLe
+          rsTyLe,
+          quaHanTong: item.quaHanTong,
+          quaHanDaThay: item.quaHanDaThay,
+          quaHanChuaThay,
+          quaHanTyLe
         });
       });
     });
 
     return rows;
-  }, [entries]);
+  }, [entries, quaHanMaKhSet]);
 
   // Overall totals for Tab 2
   const reportTotals = useMemo(() => {
@@ -1019,6 +1090,10 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
     let rsChuaRaSoat = 0;
     let rsDaRaSoat = 0;
 
+    let quaHanTong = 0;
+    let quaHanDaThay = 0;
+    let quaHanChuaThay = 0;
+
     reportData.forEach(r => {
       tongKh += r.tongKh;
       thuHoi += r.thuHoi;
@@ -1038,11 +1113,16 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       rsKhac += r.rsKhac;
       rsChuaRaSoat += r.rsChuaRaSoat;
       rsDaRaSoat += r.rsDaRaSoat;
+
+      quaHanTong += r.quaHanTong;
+      quaHanDaThay += r.quaHanDaThay;
+      quaHanChuaThay += r.quaHanChuaThay;
     });
 
     const tyLeChung = canThay > 0 ? Math.round((daThay / canThay) * 1000) / 10 : 0;
     const nlmtTyLeChung = nlmtTong > 0 ? Math.round((nlmtDaThay / nlmtTong) * 1000) / 10 : 0;
     const rsTyLeChung = thuHoiScopeTong > 0 ? Math.round((rsDaRaSoat / thuHoiScopeTong) * 1000) / 10 : 0;
+    const quaHanTyLeChung = quaHanTong > 0 ? Math.round((quaHanDaThay / quaHanTong) * 1000) / 10 : 0;
 
     return {
       tongKh,
@@ -1065,7 +1145,12 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       rsKhac,
       rsChuaRaSoat,
       rsDaRaSoat,
-      rsTyLeChung
+      rsTyLeChung,
+      // Quá hạn Totals
+      quaHanTong,
+      quaHanDaThay,
+      quaHanChuaThay,
+      quaHanTyLeChung
     };
   }, [reportData]);
 
@@ -1082,6 +1167,34 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       return isThuHoi || hasKq;
     });
   }, [entries]);
+
+  // Danh sách toàn bộ khách hàng quá hạn (so khớp MA_KHANG ở sheet 963 và sheet QuaHan_Nam)
+  const quaHanCustomerList = useMemo(() => {
+    return entries.filter(e => isEntryQuaHan(e));
+  }, [entries, quaHanMaKhSet]);
+
+  // Danh sách khách hàng quá hạn đã lọc theo bộ lọc & tìm kiếm
+  const filteredQuaHanCustomers = useMemo(() => {
+    return quaHanCustomerList.filter(item => {
+      const isDone = Boolean(item.ketQua && item.ketQua.trim().toLowerCase().includes('xong'));
+      if (quaHanFilter === 'completed' && !isDone) return false;
+      if (quaHanFilter === 'pending' && isDone) return false;
+
+      if (quaHanSearch.trim()) {
+        const q = quaHanSearch.trim().toLowerCase();
+        const match =
+          (item.maKh && item.maKh.toLowerCase().includes(q)) ||
+          (item.tenKh && item.tenKh.toLowerCase().includes(q)) ||
+          (item.sdt && item.sdt.toLowerCase().includes(q)) ||
+          (item.diaChi && item.diaChi.toLowerCase().includes(q)) ||
+          (item.kv && item.kv.toLowerCase().includes(q)) ||
+          (item.chungLoaiCanThay && item.chungLoaiCanThay.toLowerCase().includes(q)) ||
+          (item.dot && String(item.dot).toLowerCase().includes(q));
+        if (!match) return false;
+      }
+      return true;
+    });
+  }, [quaHanCustomerList, quaHanFilter, quaHanSearch]);
 
   // Bộ lọc danh sách chi tiết NLMT
   const filteredNlmtCustomers = useMemo(() => {
@@ -1158,6 +1271,12 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
             return isThuHoiScope && hasKq && !kqNorm.includes('sử dụng lại') && !kqNorm.includes('thu hồi');
           case 'chua_ra_soat':
             return isThuHoiScope && !hasKq;
+          case 'qua_han_all':
+            return isEntryQuaHan(item);
+          case 'qua_han_da_thay':
+            return isEntryQuaHan(item) && isDone;
+          case 'qua_han_chua_thay':
+            return isEntryQuaHan(item) && !isDone;
           default:
             return true;
         }
@@ -1333,6 +1452,11 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       'RS: Thu Hồi': r.rsThuHoi,
       'RS: Khác': r.rsKhac,
       'Chưa Rà Soát': r.rsChuaRaSoat,
+      // Bổ sung Quá Hạn (Sheet QuaHan_Nam)
+      'Tổng KH Quá Hạn': r.quaHanTong,
+      'Quá Hạn Đã Thay': r.quaHanDaThay,
+      'Tỷ Lệ Quá Hạn (%)': `${r.quaHanTyLe}%`,
+      'Quá Hạn Còn Lại': r.quaHanChuaThay,
       // Giờ vượt & Sản lượng
       'Tổng Giờ Vượt (h)': r.tongGioVuot,
       'Tổng Sản Lượng Vượt (kWh)': r.tongSlVuot
@@ -1362,6 +1486,11 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       'RS: Thu Hồi': reportTotals.rsThuHoi,
       'RS: Khác': reportTotals.rsKhac,
       'Chưa Rà Soát': reportTotals.rsChuaRaSoat,
+      // Tổng Quá Hạn
+      'Tổng KH Quá Hạn': reportTotals.quaHanTong,
+      'Quá Hạn Đã Thay': reportTotals.quaHanDaThay,
+      'Tỷ Lệ Quá Hạn (%)': `${reportTotals.quaHanTyLeChung}%`,
+      'Quá Hạn Còn Lại': reportTotals.quaHanChuaThay,
       // Tổng Giờ & Sản lượng
       'Tổng Giờ Vượt (h)': reportTotals.tongGioVuot,
       'Tổng Sản Lượng Vượt (kWh)': reportTotals.tongSlVuot
@@ -1433,8 +1562,66 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       XLSX.utils.book_append_sheet(wb, ws3, 'DS_RaSoat_ThuHoi');
     }
 
+    // Sheet 4: Danh sách Khách Hàng Quá Hạn (Sheet QuaHan_Nam)
+    if (quaHanCustomerList.length > 0) {
+      const qhRows = quaHanCustomerList.map((c, idx) => ({
+        'STT': idx + 1,
+        'Mã Khách Hàng': c.maKh,
+        'Tên Khách Hàng': c.tenKh,
+        'Số Điện Thoại': c.sdt || '',
+        'Địa Chỉ': c.diaChi,
+        'Khu Vực': c.kv,
+        'Đợt': c.dot ? `Đợt ${c.dot}` : '',
+        'Chủng Loại Cần Thay': c.chungLoaiCanThay || '',
+        'Hệ Số Nhân (HSN)': c.hsn !== undefined && c.hsn !== '' ? c.hsn : resolveHsn(c),
+        'Đang Quá Hạn': 'Quá hạn (QuaHan_Nam)',
+        'Trạng Thái Thay': (c.ketQua && c.ketQua.toLowerCase().includes('xong')) ? 'Đã thay xong' : 'Chưa thay',
+        'NV Thực Hiện': c.nv || '',
+        'Ngày Giờ Thay': c.ngayGio || '',
+        'Giờ Vượt (h)': c.gioVuot !== undefined ? c.gioVuot : 0,
+        'SL Vượt (kWh)': c.slVuot || 0,
+        'Cột KSuDung': c.kSuDung || '',
+        'KQ Rà Soát': c.kqRaSoat || ''
+      }));
+      const ws4 = XLSX.utils.json_to_sheet(qhRows);
+      XLSX.utils.book_append_sheet(wb, ws4, 'DS_KhachHang_QuaHan');
+    }
+
     XLSX.writeFile(wb, `BaoCao_ToanDien_ThayCongTo_QD963_${getCurrentDateTimeStr().replace(/[/ :]/g, '_')}.xlsx`);
-    showToast('success', 'Đã xuất file Excel báo cáo QĐ 963 toàn diện (gồm Tổng hợp, NLMT và Rà soát thu hồi)!');
+    showToast('success', 'Đã xuất file Excel báo cáo QĐ 963 toàn diện (gồm Tổng hợp, NLMT, Quá hạn và Rà soát thu hồi)!');
+  };
+
+  // Xuất file Excel riêng cho danh sách Khách hàng Quá hạn đã thay / chưa thay
+  const handleExportQuaHanExcel = () => {
+    if (filteredQuaHanCustomers.length === 0) {
+      alert('Không có dữ liệu khách hàng quá hạn để xuất!');
+      return;
+    }
+    const exportRows = filteredQuaHanCustomers.map((c, idx) => ({
+      'STT': idx + 1,
+      'Mã Khách Hàng': c.maKh,
+      'Tên Khách Hàng': c.tenKh,
+      'Số Điện Thoại': c.sdt || '',
+      'Địa Chỉ': c.diaChi,
+      'Khu Vực': c.kv,
+      'Đợt': c.dot ? `Đợt ${c.dot}` : '',
+      'Chủng Loại Cần Thay': c.chungLoaiCanThay || '',
+      'Hệ Số Nhân (HSN)': c.hsn !== undefined && c.hsn !== '' ? c.hsn : resolveHsn(c),
+      'Đang Quá Hạn': 'Quá hạn (QuaHan_Nam)',
+      'Trạng Thái Thay': (c.ketQua && c.ketQua.toLowerCase().includes('xong')) ? 'Đã thay xong' : 'Chưa thay',
+      'NV Thực Hiện': c.nv || '',
+      'Ngày Giờ Thay': c.ngayGio || '',
+      'Giờ Vượt (h)': c.gioVuot !== undefined ? c.gioVuot : 0,
+      'SL Vượt (kWh)': c.slVuot || 0,
+      'Cột KSuDung': c.kSuDung || '',
+      'KQ Rà Soát': c.kqRaSoat || ''
+    }));
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(exportRows);
+    XLSX.utils.book_append_sheet(wb, ws, 'DS_KhachHang_QuaHan');
+    XLSX.writeFile(wb, `DS_KH_QuaHan_DaThay_QD963_${getCurrentDateTimeStr().replace(/[/ :]/g, '_')}.xlsx`);
+    showToast('success', `Đã xuất ${filteredQuaHanCustomers.length} khách hàng quá hạn ra file Excel thành công!`);
   };
 
   return (
@@ -3030,7 +3217,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
             </div>
 
             {collapsedSections.reportKpi ? (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 pt-1">
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 pt-1">
                 {/* 1. Tổng khách hàng */}
                 <div className="bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80 shadow-2xs">
                   <span className="text-[10px] uppercase font-bold text-slate-500">Tổng khách hàng</span>
@@ -3108,6 +3295,28 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                   <div className="text-xl font-black text-amber-900 mt-1">{reportTotals.tongSlVuot} <span className="text-xs font-semibold">kWh</span></div>
                   <span className="text-[10px] text-slate-400">Sản lượng bù trừ</span>
                 </div>
+
+                {/* 8. Khách hàng Quá hạn đã thay (So khớp QuaHan_Nam) */}
+                <div 
+                  onClick={() => handleDrillDown({ source: 'tien_do', dot: 'all', kv: 'all', metric: 'qua_han_da_thay', label: `Toàn Đội • ${reportTotals.quaHanDaThay} KH Quá Hạn Đã Thay`, badgeColor: 'rose' })}
+                  className="bg-rose-50/70 p-3.5 rounded-xl border border-rose-200 shadow-2xs hover:border-rose-300 hover:shadow-xs cursor-pointer transition-all"
+                  title="So khớp MA_KHANG với sheet QuaHan_Nam - Bấm để xem chi tiết"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] uppercase font-bold text-rose-800 flex items-center gap-1">
+                      <ShieldAlert className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                      <span>Quá Hạn Thay</span>
+                    </span>
+                    <span className="bg-rose-200 text-rose-950 text-[9px] font-black px-1.5 py-0.2 rounded">
+                      {reportTotals.quaHanTyLeChung}%
+                    </span>
+                  </div>
+                  <div className="text-xl font-black text-rose-900 mt-1 flex items-baseline gap-1">
+                    <span>{reportTotals.quaHanDaThay}</span>
+                    <span className="text-xs text-slate-500 font-semibold">/ {reportTotals.quaHanTong} KH</span>
+                  </div>
+                  <span className="text-[10px] text-rose-700">Còn lại: {reportTotals.quaHanChuaThay} KH</span>
+                </div>
               </div>
             ) : (
               <div
@@ -3115,7 +3324,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                 className="p-3 bg-slate-50 hover:bg-amber-50/50 rounded-xl border border-dashed border-slate-200 flex items-center justify-between cursor-pointer transition-colors text-xs"
               >
                 <span className="text-slate-600 font-medium">
-                  Đã thay: <b className="text-emerald-700">{reportTotals.daThay}</b>/{reportTotals.canThay} ({reportTotals.tyLeChung}%) | NLMT: <b className="text-amber-800">{reportTotals.nlmtDaThay}/{reportTotals.nlmtTong} ({reportTotals.nlmtTyLeChung}%)</b> | Rà soát thu hồi: <b className="text-indigo-800">{reportTotals.rsDaRaSoat}/{reportTotals.thuHoiScopeTong} ({reportTotals.rsTyLeChung}%)</b> | Tổng SL Vượt: <b className="text-amber-900">{reportTotals.tongSlVuot} kWh</b>
+                  Đã thay: <b className="text-emerald-700">{reportTotals.daThay}</b>/{reportTotals.canThay} ({reportTotals.tyLeChung}%) | Quá hạn: <b className="text-rose-800">{reportTotals.quaHanDaThay}/{reportTotals.quaHanTong} ({reportTotals.quaHanTyLeChung}%)</b> | NLMT: <b className="text-amber-800">{reportTotals.nlmtDaThay}/{reportTotals.nlmtTong} ({reportTotals.nlmtTyLeChung}%)</b> | Rà soát thu hồi: <b className="text-indigo-800">{reportTotals.rsDaRaSoat}/{reportTotals.thuHoiScopeTong} ({reportTotals.rsTyLeChung}%)</b> | Tổng SL Vượt: <b className="text-amber-900">{reportTotals.tongSlVuot} kWh</b>
                 </span>
                 <span className="text-[11px] text-amber-700 font-bold hover:underline shrink-0 ml-2">
                   Bung ra ▾
@@ -3182,6 +3391,13 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                         <div className="flex items-center justify-center gap-1">
                           <Sun className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                           <span>KH NLMT (Xong/Tổng)</span>
+                        </div>
+                      </th>
+                      {/* Cột KH Quá Hạn */}
+                      <th className="py-2.5 px-3 text-center bg-rose-50/70 text-rose-900 border-x border-rose-200/60">
+                        <div className="flex items-center justify-center gap-1">
+                          <ShieldAlert className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                          <span>KH Quá Hạn (Xong/Tổng)</span>
                         </div>
                       </th>
                       {/* Cột Rà Soát Thu Hồi */}
@@ -3311,6 +3527,36 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                                     row.nlmtTyLe === 100 ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'
                                   }`}>
                                     {row.nlmtTyLe}% (còn {row.nlmtChuaThay})
+                                  </span>
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 font-mono text-[11px]">—</span>
+                            )}
+                          </td>
+
+                          {/* Dữ liệu KH Quá Hạn */}
+                          <td className="py-2.5 px-3 bg-rose-50/40 text-center border-x border-rose-200/50">
+                            {row.quaHanTong > 0 ? (
+                              <div className="flex flex-col items-center gap-0.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleDrillDown({ source: 'tien_do', dot: row.dot, kv: row.kv, metric: 'qua_han_all', label: `Đợt ${row.dot} - ${row.kv} • ${row.quaHanTong} KH Quá Hạn (QuaHan_Nam)`, badgeColor: 'rose' })}
+                                  className="font-mono font-bold text-rose-900 hover:text-rose-700 hover:underline cursor-pointer"
+                                  title="Xem danh sách KH quá hạn đợt này"
+                                >
+                                  {row.quaHanDaThay} / {row.quaHanTong}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDrillDown({ source: 'tien_do', dot: row.dot, kv: row.kv, metric: 'qua_han_da_thay', label: `Đợt ${row.dot} - ${row.kv} • ${row.quaHanDaThay} KH Quá Hạn Đã Thay`, badgeColor: 'rose' })}
+                                  className="cursor-pointer hover:opacity-85"
+                                  title="Xem danh sách KH quá hạn đã thay"
+                                >
+                                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                                    row.quaHanTyLe === 100 ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-900'
+                                  }`}>
+                                    {row.quaHanTyLe}% (còn {row.quaHanChuaThay})
                                   </span>
                                 </button>
                               </div>
@@ -3509,6 +3755,25 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                             title="Xem KH NLMT chưa thay toàn công ty"
                           >
                             Còn lại: {reportTotals.nlmtChuaThay} KH
+                          </button>
+                        </td>
+                        {/* Tổng Quá Hạn */}
+                        <td className="py-3 px-3 text-center font-mono text-rose-950 bg-rose-100/80 border-x border-rose-300">
+                          <button
+                            type="button"
+                            onClick={() => handleDrillDown({ source: 'tien_do', dot: 'all', kv: 'all', metric: 'qua_han_all', label: `Toàn Đội • ${reportTotals.quaHanTong} KH Quá Hạn (QuaHan_Nam)`, badgeColor: 'rose' })}
+                            className="font-bold hover:underline cursor-pointer block w-full text-rose-950"
+                            title="Xem tất cả KH quá hạn toàn công ty"
+                          >
+                            {reportTotals.quaHanDaThay} / {reportTotals.quaHanTong} ({reportTotals.quaHanTyLeChung}%)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDrillDown({ source: 'tien_do', dot: 'all', kv: 'all', metric: 'qua_han_chua_thay', label: `Toàn Đội • ${reportTotals.quaHanChuaThay} KH Quá Hạn Chưa Thay`, badgeColor: 'rose' })}
+                            className="text-[10px] normal-case text-rose-800 font-normal hover:underline cursor-pointer"
+                            title="Xem KH quá hạn chưa thay toàn công ty"
+                          >
+                            Còn lại: {reportTotals.quaHanChuaThay} KH
                           </button>
                         </td>
                         {/* Tổng Rà Soát */}
@@ -3916,7 +4181,298 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
           </div>
 
           {/* ========================================================= */}
-          {/* 3. KHỐI BÁO CÁO CHUYÊN ĐỀ: KẾT QUẢ RÀ SOÁT KHÁCH HÀNG THU HỒI (CỘT KQRASOAT) */}
+          {/* 3. KHỐI BÁO CÁO CHUYÊN ĐỀ: KHÁCH HÀNG QUÁ HẠN ĐÃ THAY (SO KHỚP SHEET QUAHAN_NAM) */}
+          {/* ========================================================= */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <span className="p-2 rounded-xl bg-rose-100 text-rose-800">
+                  <ShieldAlert className="w-5 h-5 text-rose-600" />
+                </span>
+                <div>
+                  <h3 className="font-black text-slate-800 text-base uppercase flex items-center gap-2 flex-wrap">
+                    <span>Báo Cáo Khách Hàng Quá Hạn Đã Thay (So Khớp Sheet QuaHan_Nam)</span>
+                    <span className="bg-rose-100 text-rose-900 font-bold text-xs px-2 py-0.5 rounded-full normal-case">
+                      {quaHanCustomerList.length} khách hàng quá hạn
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Thống kê danh sách khách hàng đang quá hạn kiểm định định kỳ theo dõi trong sheet QuaHan_Nam có trong kế hoạch thay QĐ 963.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                <button
+                  type="button"
+                  onClick={handleExportQuaHanExcel}
+                  disabled={filteredQuaHanCustomers.length === 0}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+                  title="Xuất file Excel cho danh sách khách hàng quá hạn"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Xuất Excel Quá Hạn</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowQuaHanDetails(prev => !prev)}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-xl border transition-all cursor-pointer flex items-center gap-1.5 ${
+                    showQuaHanDetails 
+                      ? 'bg-rose-100 text-rose-900 border-rose-300' 
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>{showQuaHanDetails ? 'Ẩn danh sách từng KH' : 'Xem danh sách từng KH'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => toggleSection('reportQuaHan')}
+                  className="p-1.5 hover:bg-slate-100 text-slate-500 hover:text-slate-800 rounded-lg transition-colors flex items-center gap-1 cursor-pointer shrink-0"
+                  title={collapsedSections.reportQuaHan ? "Thu gọn báo cáo Quá Hạn" : "Bung ra báo cáo Quá Hạn"}
+                >
+                  <span className="text-[10px] text-slate-400 font-normal hidden sm:inline">
+                    {collapsedSections.reportQuaHan ? 'Thu gọn' : 'Bung ra'}
+                  </span>
+                  {collapsedSections.reportQuaHan ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            {collapsedSections.reportQuaHan ? (
+              <div className="space-y-4">
+                {/* 3 Thẻ thống kê nhanh */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="bg-rose-50/60 p-3.5 rounded-xl border border-rose-200/80">
+                    <span className="text-[10px] uppercase font-bold text-rose-800">Tổng KH Quá Hạn (Sheet QuaHan_Nam)</span>
+                    <div className="text-xl font-black text-rose-950 mt-1 flex items-baseline gap-1.5">
+                      <span>{reportTotals.quaHanTong}</span>
+                      <span className="text-xs font-normal text-slate-500">khách hàng</span>
+                    </div>
+                    <span className="text-[10px] text-rose-700">Khớp mã MA_KHANG giữa 963 & QuaHan_Nam</span>
+                  </div>
+
+                  <div className="bg-emerald-50/60 p-3.5 rounded-xl border border-emerald-200/80">
+                    <span className="text-[10px] uppercase font-bold text-emerald-800">Đã Thay Xong</span>
+                    <div className="text-xl font-black text-emerald-950 mt-1 flex items-baseline gap-1.5">
+                      <span>{reportTotals.quaHanDaThay}</span>
+                      <span className="text-xs font-bold text-emerald-700">({reportTotals.quaHanTyLeChung}%)</span>
+                    </div>
+                    <span className="text-[10px] text-emerald-700">Tỷ lệ xử lý KH quá hạn</span>
+                  </div>
+
+                  <div className="bg-amber-50/60 p-3.5 rounded-xl border border-amber-200/80">
+                    <span className="text-[10px] uppercase font-bold text-amber-800">Còn Lại Chưa Thay</span>
+                    <div className="text-xl font-black text-amber-950 mt-1 flex items-baseline gap-1.5">
+                      <span>{reportTotals.quaHanChuaThay}</span>
+                      <span className="text-xs font-normal text-slate-500">khách hàng</span>
+                    </div>
+                    <span className="text-[10px] text-amber-700">Cần tiếp tục đôn đốc thực hiện</span>
+                  </div>
+                </div>
+
+                {/* Danh sách chi tiết từng khách hàng quá hạn */}
+                {showQuaHanDetails && (
+                  <div className="space-y-3 pt-1">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-xs font-bold text-rose-900 mr-1">Lọc trạng thái:</span>
+                        <button
+                          type="button"
+                          onClick={() => { setQuaHanFilter('all'); setQuaHanPage(1); }}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            quaHanFilter === 'all' ? 'bg-rose-700 text-white shadow-xs' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                          }`}
+                        >
+                          Tất cả ({quaHanCustomerList.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setQuaHanFilter('completed'); setQuaHanPage(1); }}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            quaHanFilter === 'completed' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50'
+                          }`}
+                        >
+                          Đã thay xong ({reportTotals.quaHanDaThay})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setQuaHanFilter('pending'); setQuaHanPage(1); }}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            quaHanFilter === 'pending' ? 'bg-amber-600 text-white shadow-xs' : 'bg-white text-amber-800 border border-amber-200 hover:bg-amber-50'
+                          }`}
+                        >
+                          Chưa thay ({reportTotals.quaHanChuaThay})
+                        </button>
+                      </div>
+
+                      {/* Ô tìm kiếm khách hàng quá hạn */}
+                      <div className="relative w-full sm:w-64">
+                        <input
+                          type="text"
+                          value={quaHanSearch}
+                          onChange={(e) => { setQuaHanSearch(e.target.value); setQuaHanPage(1); }}
+                          placeholder="Tìm Mã KH, Tên, SĐT, KV..."
+                          className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-rose-500 bg-white"
+                        />
+                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                      </div>
+                    </div>
+
+                    {/* Bảng chi tiết Quá Hạn */}
+                    <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-2xs">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200 text-[10px] uppercase">
+                              <th className="py-2 px-3 w-10 text-center">STT</th>
+                              <th className="py-2 px-3">Mã KH</th>
+                              <th className="py-2 px-3">Tên Khách Hàng</th>
+                              <th className="py-2 px-3">Số Điện Thoại</th>
+                              <th className="py-2 px-3">Địa Chỉ</th>
+                              <th className="py-2 px-3">Khu Vực</th>
+                              <th className="py-2 px-3">Đợt</th>
+                              <th className="py-2 px-3">Chủng Loại Cần Thay</th>
+                              <th className="py-2 px-3 text-center">HSN</th>
+                              <th className="py-2 px-3 text-center">Quá Hạn</th>
+                              <th className="py-2 px-3 text-center">Trạng Thái</th>
+                              <th className="py-2 px-3">NV / Ngày giờ</th>
+                              <th className="py-2 px-3 text-center">Thao Tác</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {filteredQuaHanCustomers.length > 0 ? (
+                              filteredQuaHanCustomers.slice((quaHanPage - 1) * PAGE_SIZE, quaHanPage * PAGE_SIZE).map((c, idx) => {
+                                const stt = (quaHanPage - 1) * PAGE_SIZE + idx + 1;
+                                const isDone = Boolean(c.ketQua && c.ketQua.toLowerCase().includes('xong'));
+                                const hsnVal = c.hsn !== undefined && c.hsn !== '' ? c.hsn : resolveHsn(c);
+                                return (
+                                  <tr key={c.maKh} className="hover:bg-rose-50/40 transition-colors">
+                                    <td className="py-2 px-3 text-center text-slate-400 font-mono text-[11px]">{stt}</td>
+                                    <td className="py-2 px-3 font-mono font-bold text-rose-900">{c.maKh}</td>
+                                    <td className="py-2 px-3 font-medium text-slate-800">{c.tenKh}</td>
+                                    <td className="py-2 px-3 font-mono">
+                                      {c.sdt ? (
+                                        <a
+                                          href={`tel:${c.sdt}`}
+                                          className="inline-flex items-center gap-1 text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded-full font-bold text-[11px] transition-colors"
+                                          title={`Bấm để gọi điện: ${c.sdt}`}
+                                        >
+                                          <Phone className="w-3 h-3 text-emerald-600" />
+                                          <span>{c.sdt}</span>
+                                        </a>
+                                      ) : (
+                                        <span className="text-slate-300 font-mono text-[11px]">—</span>
+                                      )}
+                                    </td>
+                                    <td className="py-2 px-3 text-slate-600 truncate max-w-xs" title={c.diaChi}>{c.diaChi}</td>
+                                    <td className="py-2 px-3 font-semibold text-slate-700">{c.kv}</td>
+                                    <td className="py-2 px-3 font-mono text-slate-600">Đợt {c.dot}</td>
+                                    <td className="py-2 px-3">
+                                      {c.chungLoaiCanThay ? (
+                                        <span className="font-bold text-amber-950 bg-amber-100/80 px-2 py-0.5 rounded text-[11px] border border-amber-300/80 inline-block">
+                                          {c.chungLoaiCanThay}
+                                        </span>
+                                      ) : (
+                                        <span className="text-slate-300 text-[11px] font-mono">—</span>
+                                      )}
+                                    </td>
+                                    <td className="py-2 px-3 text-center font-mono font-bold text-amber-900">{hsnVal}</td>
+                                    <td className="py-2 px-3 text-center">
+                                      <span className="bg-rose-100 text-rose-900 text-[10px] font-black px-2 py-0.5 rounded-full inline-flex items-center gap-1 border border-rose-300">
+                                        <ShieldAlert className="w-3 h-3 text-rose-600" /> Quá hạn
+                                      </span>
+                                    </td>
+                                    <td className="py-2 px-3 text-center">
+                                      {isDone ? (
+                                        <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                                          <Check className="w-3 h-3" /> Đã thay
+                                        </span>
+                                      ) : (
+                                        <span className="bg-amber-100 text-amber-900 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                                          Chưa thay
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td className="py-2 px-3 text-[11px] text-slate-600">
+                                      {isDone ? `${c.nv || '—'} (${c.ngayGio || '—'})` : '—'}
+                                    </td>
+                                    <td className="py-2 px-3 text-center">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSelectCustomerFromReport(c)}
+                                        className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white text-[11px] font-bold rounded-lg shadow-2xs transition-all cursor-pointer"
+                                        title="Chuyển sang Tab 1 để cập nhật / thay công tơ cho khách hàng quá hạn này"
+                                      >
+                                        Chọn xử lý ➔
+                                      </button>
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            ) : (
+                              <tr>
+                                <td colSpan={13} className="py-6 text-center text-slate-400 text-xs">
+                                  Không tìm thấy khách hàng quá hạn nào phù hợp với bộ lọc.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Phân trang Quá Hạn */}
+                      {Math.ceil(filteredQuaHanCustomers.length / PAGE_SIZE) > 1 && (
+                        <div className="flex items-center justify-between px-4 py-2 bg-slate-50 border-t border-slate-200 text-xs">
+                          <span className="text-slate-500 text-[11px]">
+                            Trang <b>{quaHanPage}</b> / <b>{Math.ceil(filteredQuaHanCustomers.length / PAGE_SIZE)}</b> ({filteredQuaHanCustomers.length} khách hàng quá hạn)
+                          </span>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setQuaHanPage(p => Math.max(1, p - 1))}
+                              disabled={quaHanPage <= 1}
+                              className="px-2 py-1 rounded bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed text-[11px] font-bold"
+                            >
+                              Trước
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setQuaHanPage(p => Math.min(Math.ceil(filteredQuaHanCustomers.length / PAGE_SIZE), p + 1))}
+                              disabled={quaHanPage >= Math.ceil(filteredQuaHanCustomers.length / PAGE_SIZE)}
+                              className="px-2 py-1 rounded bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed text-[11px] font-bold"
+                            >
+                              Sau
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div
+                onClick={() => toggleSection('reportQuaHan')}
+                className="p-3 bg-slate-50 hover:bg-rose-50/50 rounded-xl border border-dashed border-slate-200 flex items-center justify-between cursor-pointer transition-colors text-xs"
+              >
+                <div className="flex items-center gap-2 truncate">
+                  <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span className="font-semibold text-slate-700 truncate">
+                    Báo cáo tiến độ khách hàng Quá hạn đang thu gọn ({reportTotals.quaHanDaThay}/{reportTotals.quaHanTong} KH - {reportTotals.quaHanTyLeChung}%)
+                  </span>
+                </div>
+                <span className="text-[11px] text-rose-700 font-bold hover:underline shrink-0 ml-2">
+                  Bung ra ▾
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* ========================================================= */}
+          {/* 4. KHỐI BÁO CÁO CHUYÊN ĐỀ: KẾT QUẢ RÀ SOÁT KHÁCH HÀNG THU HỒI (CỘT KQRASOAT) */}
           {/* ========================================================= */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">

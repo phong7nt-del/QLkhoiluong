@@ -722,7 +722,8 @@ export default function AnalysisTab({ refreshToggle, sessionUser }: { refreshTog
       {subTab === 'overtime' ? (
         <NgayLamThemSubTab 
           refreshToggle={refreshToggle} 
-          sessionUser={sessionUser} 
+          sessionUser={sessionUser}
+          onRefresh={() => {}}
         />
       ) : (
       <div className="border border-[#141414] bg-white p-6 shadow-[4px_4px_0_#141414] lg:py-8 lg:px-10">
