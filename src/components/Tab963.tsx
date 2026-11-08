@@ -7,7 +7,7 @@ import {
   Layers, Check, Sparkles, AlertCircle, Zap, ChevronLeft,
   ChevronsLeft, ChevronsRight, ChevronsDown, ChevronsUp, ShieldAlert, BarChart3, ListFilter, X,
   Calculator, Info, HelpCircle, ArrowRight, Eye, EyeOff, Code2, Copy,
-  Sun, ClipboardCheck, CheckCheck, Phone, Download
+  Sun, ClipboardCheck, CheckCheck, Phone, Download, Upload, FileUp
 } from 'lucide-react';
 import { SCRIPT_TEMPLATE } from './ConfigModal';
 import { 
@@ -137,6 +137,18 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
   // Bottom table view mode: 'completed' (Đã thay xong) vs 'search' (Kết quả tìm kiếm)
   const [bottomTableTab, setBottomTableTab] = useState<'completed' | 'search'>('completed');
   const bottomTableRef = useRef<HTMLDivElement>(null);
+
+  // HSN Audit State (Rà soát hệ số nhân khi treo tháo)
+  interface HsnAuditEntry {
+    hsnFile: string;
+    rawRow?: any;
+  }
+  const [hsnAuditMap, setHsnAuditMap] = useState<Map<string, HsnAuditEntry> | null>(null);
+  const [hsnAuditFileName, setHsnAuditFileName] = useState<string>('');
+  const [hsnAuditTotalRows, setHsnAuditTotalRows] = useState<number>(0);
+  const [showHsnAuditModal, setShowHsnAuditModal] = useState<boolean>(false);
+  const [hsnAuditFilter, setHsnAuditFilter] = useState<'all' | 'diff' | 'missing' | 'match'>('all');
+  const hsnFileInputRef = useRef<HTMLInputElement>(null);
 
   // Form input state
   const [formNv, setFormNv] = useState<string>(sessionUser?.name || '');
@@ -717,18 +729,109 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       .sort((a, b) => b.count - a.count);
   }, [entries, selectedDot, selectedKv]);
 
-  // Active list for bottom table (Completed customers vs Search results)
-  const activeBottomList = useMemo(() => {
-    if (bottomTableTab === 'search') {
-      return filteredEntries;
+  // Helper to normalize HSN for numerical comparison (e.g. "1.0" -> "1", "020" -> "20")
+  const normalizeHsnVal = (val: string | number | undefined | null): string => {
+    if (val === undefined || val === null || val === '') return '';
+    const cleaned = String(val).trim().replace(',', '.');
+    const num = parseFloat(cleaned);
+    if (!isNaN(num)) {
+      return String(num);
     }
-    return completedCustomersList;
-  }, [bottomTableTab, filteredEntries, completedCustomersList]);
+    return cleaned.toLowerCase();
+  };
+
+  // Evaluate HSN Audit status for a given customer
+  const getHsnAuditResult = (item: Entry963) => {
+    if (!hsnAuditMap) return null;
+
+    const maKhRaw = (item.maKh || '').trim();
+    const maKhNorm = normalize(maKhRaw).toUpperCase();
+    const hsn963 = String(item.hsn !== undefined && item.hsn !== '' ? item.hsn : resolveHsn(item)).trim();
+
+    // Look up in audit map (exact or normalized)
+    const entry = hsnAuditMap.get(maKhNorm) || hsnAuditMap.get(maKhRaw.toUpperCase());
+
+    if (!entry) {
+      return {
+        status: 'missing' as const,
+        hsn963,
+        hsnFile: '—',
+        label: 'Thiếu trong file đối soát',
+        shortLabel: 'Thiếu trong file',
+        color: 'rose'
+      };
+    }
+
+    const hsnFile = String(entry.hsnFile || '').trim();
+    const norm963 = normalizeHsnVal(hsn963);
+    const normFile = normalizeHsnVal(hsnFile);
+
+    if (norm963 === normFile) {
+      return {
+        status: 'match' as const,
+        hsn963,
+        hsnFile,
+        label: `Khớp HSN (${hsn963 || norm963})`,
+        shortLabel: `Khớp (${hsn963 || norm963})`,
+        color: 'emerald'
+      };
+    } else {
+      return {
+        status: 'diff' as const,
+        hsn963,
+        hsnFile,
+        label: `Sai HSN (HT: ${hsn963 || 'Trống'} ≠ File: ${hsnFile || 'Trống'})`,
+        shortLabel: `Sai: ${hsn963 || '?'} ≠ ${hsnFile || '?'}`,
+        color: 'amber'
+      };
+    }
+  };
+
+  // Compute HSN audit statistics for completed list
+  const hsnAuditStats = useMemo(() => {
+    if (!hsnAuditMap) return null;
+    let matchCount = 0;
+    let diffCount = 0;
+    let missingCount = 0;
+
+    completedCustomersList.forEach(c => {
+      const res = getHsnAuditResult(c);
+      if (res?.status === 'match') matchCount++;
+      else if (res?.status === 'diff') diffCount++;
+      else if (res?.status === 'missing') missingCount++;
+    });
+
+    const total = completedCustomersList.length;
+    return {
+      total,
+      matchCount,
+      diffCount,
+      missingCount,
+      matchPercent: total > 0 ? Math.round((matchCount / total) * 100) : 0,
+      diffPercent: total > 0 ? Math.round((diffCount / total) * 100) : 0,
+      missingPercent: total > 0 ? Math.round((missingCount / total) * 100) : 0
+    };
+  }, [hsnAuditMap, completedCustomersList]);
+
+  // Active list for bottom table (Completed customers vs Search results), filtered by HSN audit if selected
+  const activeBottomList = useMemo(() => {
+    let list = bottomTableTab === 'search' ? filteredEntries : completedCustomersList;
+
+    if (hsnAuditMap && hsnAuditFilter !== 'all') {
+      list = list.filter(item => {
+        const res = getHsnAuditResult(item);
+        if (!res) return false;
+        return res.status === hsnAuditFilter;
+      });
+    }
+
+    return list;
+  }, [bottomTableTab, filteredEntries, completedCustomersList, hsnAuditMap, hsnAuditFilter]);
 
   // Reset bottom table page when filter or tab changes
   useEffect(() => {
     setCompletedPage(1);
-  }, [selectedDot, selectedKv, searchQuery, searchTarget, searchMode, bottomTableTab]);
+  }, [selectedDot, selectedKv, searchQuery, searchTarget, searchMode, bottomTableTab, hsnAuditFilter]);
 
   const totalCompletedPages = Math.max(1, Math.ceil(activeBottomList.length / PAGE_SIZE));
   const currentCompletedPage = Math.min(completedPage, totalCompletedPages);
@@ -747,6 +850,95 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
     showToast('info', `Đang hiển thị danh sách ${filteredEntries.length} khách hàng tìm kiếm ở bảng phía dưới`);
   };
 
+  // Handle HSN audit file upload (.xlsx, .xls, .csv)
+  const handleHsnAuditFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = evt.target?.result;
+        const wb = XLSX.read(data, { type: 'binary' });
+        const firstSheetName = wb.SheetNames[0];
+        const ws = wb.Sheets[firstSheetName];
+        const json: any[] = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+        if (!json || json.length === 0) {
+          alert('File Excel không có dữ liệu để đối soát!');
+          return;
+        }
+
+        const sampleRow = json[0];
+        const keys = Object.keys(sampleRow);
+
+        // Aliases for MaKH: MA_KHANG, MA_KH, Mã KH, etc.
+        const maKhAliases = ['ma_khang', 'makhang', 'ma_kh', 'makh', 'mã kh', 'mã khách hàng', 'mã_kh', 'ma kh', 'customer_id'];
+        // Aliases for HSN: HSN, HSNHAN_TREO, HSNHAN, etc.
+        const hsnAliases = ['hsnhan_treo', 'hsn_treo', 'hsnhan', 'hsn', 'hệ số nhân', 'he_so_nhan', 'hsn_cto', 'hsn treo', 'hsnhan treo'];
+
+        const findKey = (rowKeys: string[], aliases: string[]) => {
+          return rowKeys.find(k => {
+            const normKey = normalize(k).replace(/[\s_-]+/g, '');
+            return aliases.some(a => {
+              const normA = normalize(a).replace(/[\s_-]+/g, '');
+              return normKey === normA || normKey.includes(normA);
+            });
+          });
+        };
+
+        const foundMaKhCol = findKey(keys, maKhAliases);
+        const foundHsnCol = findKey(keys, hsnAliases);
+
+        if (!foundMaKhCol) {
+          alert('Không tìm thấy cột Mã khách hàng (MA_KHANG hoặc MA_KH) trong file! Các cột hiện có: ' + keys.join(', '));
+          return;
+        }
+
+        if (!foundHsnCol) {
+          alert('Không tìm thấy cột Hệ số nhân (HSN, HSNHAN_TREO hoặc HSNHAN) trong file! Các cột hiện có: ' + keys.join(', '));
+          return;
+        }
+
+        const auditMap = new Map<string, HsnAuditEntry>();
+        json.forEach(row => {
+          const rawMaKh = String(row[foundMaKhCol] || '').trim();
+          const rawHsn = String(row[foundHsnCol] !== undefined ? row[foundHsnCol] : '').trim();
+          if (rawMaKh) {
+            auditMap.set(rawMaKh.toUpperCase(), { hsnFile: rawHsn, rawRow: row });
+            auditMap.set(normalize(rawMaKh).toUpperCase(), { hsnFile: rawHsn, rawRow: row });
+          }
+        });
+
+        setHsnAuditMap(auditMap);
+        setHsnAuditFileName(file.name);
+        setHsnAuditTotalRows(json.length);
+        setShowHsnAuditModal(false);
+        setHsnAuditFilter('all');
+        showToast('success', `Đã tải ${json.length} dòng từ file "${file.name}". Hoàn tất so khớp HSN!`);
+      } catch (err: any) {
+        console.error('Lỗi khi đọc file rà soát HSN:', err);
+        alert('Lỗi đọc file: ' + (err.message || String(err)));
+      }
+    };
+    reader.readAsBinaryString(file);
+    if (e.target) e.target.value = '';
+  };
+
+  // Download template for HSN audit
+  const handleDownloadHsnTemplate = () => {
+    const sampleRows = [
+      { 'MA_KHANG': 'PK01000123456', 'HSNHAN_TREO': 1, 'GHI_CHU': 'Ví dụ công tơ 1 pha trực tiếp' },
+      { 'MA_KHANG': 'BR02000654321', 'HSNHAN_TREO': 20, 'GHI_CHU': 'Ví dụ công tơ 3 pha gián tiếp qua TI 100/5' },
+      { 'MA_KHANG': 'PM03000987654', 'HSNHAN_TREO': 40, 'GHI_CHU': 'Ví dụ công tơ 3 pha gián tiếp qua TI 200/5' }
+    ];
+    const ws = XLSX.utils.json_to_sheet(sampleRows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Mau_DoiSoat_HSN');
+    XLSX.writeFile(wb, 'Mau_File_DoiSoat_HSN_Treo.xlsx');
+    showToast('info', 'Đã tải xuống file mẫu đối soát HSN!');
+  };
+
   // Handle confirming meter replacement and saving peak excess indicators into Sheet 963
   const handleConfirmReplacement = async (source: 'confirm' | 'calculation' = 'confirm') => {
     if (!selectedCustomer) {
@@ -754,7 +946,13 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       return;
     }
 
-    // Constraint: Customers with KSuDung === 'Thu hồi' CANNOT be replaced
+    // Constraint 1: Customers already completed (ketQua === 'Xong') CANNOT be updated anymore
+    if (selectedCustomer.ketQua && selectedCustomer.ketQua.trim().toLowerCase().includes('xong')) {
+      alert('LƯU Ý: Khách hàng này đã thay công tơ xong (Kết quả: Xong), không cho phép cập nhật lại!');
+      return;
+    }
+
+    // Constraint 2: Customers with KSuDung === 'Thu hồi' CANNOT be replaced
     if (selectedCustomer.kSuDung && selectedCustomer.kSuDung.trim().toLowerCase().includes('thu hồi')) {
       alert('LƯU Ý: Khách hàng không sử dụng (Thu hồi) thì không được thay công tơ và không cập nhật theo quy định QĐ 963!');
       return;
@@ -882,34 +1080,43 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       const isDone = c.ketQua && c.ketQua.trim().toLowerCase().includes('xong');
       const isThuHoi = c.kSuDung && c.kSuDung.trim().toLowerCase().includes('thu hồi');
       const statusStr = isThuHoi ? 'Thu hồi' : isDone ? 'Đã thay xong' : 'Chưa thay';
+      const auditRes = hsnAuditMap ? getHsnAuditResult(c) : null;
 
-      return {
+      const rowData: Record<string, any> = {
         'STT': idx + 1,
         'Trạng Thái': statusStr,
-        'Mã Khách Hàng': c.maKh,
-        'Tên Khách Hàng': c.tenKh,
-        'Số Điện Thoại (SĐT)': c.sdt || '',
-        'Chủng Loại Cần Thay': c.chungLoaiCanThay || '',
-        'Tỷ Số TU': c.tySoTu || '',
-        'Tỷ Số TI': c.tySoTi || '',
-        'Khu Vực': c.kv,
-        'Đợt': c.dot,
-        'Địa Chỉ': c.diaChi || '',
-        'Loại Công Tơ': c.loaiCto || '',
-        'Số Pha': c.soPha || '',
-        'Hệ Số Nhân (HSN)': c.hsn !== undefined && c.hsn !== '' ? c.hsn : resolveHsn(c),
-        'Công Nghệ': c.congNghe || '',
-        'Đo Xa': c.doXa || '',
-        'NV Thực Hiện': c.nv || '',
-        'Ngày Giờ Thay': c.ngayGio || '',
-        'Kết Quả': c.ketQua || (isDone ? 'Xong' : ''),
-        'Kết Quả Rà Soát (KQRaSoat)': c.kqRaSoat || '',
-        'Giờ Vượt (h)': c.gioVuot !== undefined ? c.gioVuot : 0,
-        'CS CĐ Lúc Tháo': c.cscdThao || '',
-        'CS CĐ Lúc 9h30': c.cs930 || c.cs9h30 || '',
-        'CS CĐ Kỳ Trước': c.cscdKyTruoc || '',
-        'Sản Lượng Vượt (kWh)': c.slVuot !== undefined && c.slVuot !== '' ? c.slVuot : 0
       };
+
+      if (hsnAuditMap) {
+        rowData['Cảnh Báo Rà Soát HSN'] = auditRes ? auditRes.label : 'Chưa rõ';
+        rowData['HSN Trong File Đối Soát'] = auditRes ? auditRes.hsnFile : '';
+      }
+
+      rowData['Mã Khách Hàng'] = c.maKh;
+      rowData['Tên Khách Hàng'] = c.tenKh;
+      rowData['Số Điện Thoại (SĐT)'] = c.sdt || '';
+      rowData['Chủng Loại Cần Thay'] = c.chungLoaiCanThay || '';
+      rowData['Hệ Số Nhân (HSN Hiện Tại)'] = c.hsn !== undefined && c.hsn !== '' ? c.hsn : resolveHsn(c);
+      rowData['Tỷ Số TU'] = c.tySoTu || '';
+      rowData['Tỷ Số TI'] = c.tySoTi || '';
+      rowData['Khu Vực'] = c.kv;
+      rowData['Đợt'] = c.dot;
+      rowData['Địa Chỉ'] = c.diaChi || '';
+      rowData['Loại Công Tơ'] = c.loaiCto || '';
+      rowData['Số Pha'] = c.soPha || '';
+      rowData['Công Nghệ'] = c.congNghe || '';
+      rowData['Đo Xa'] = c.doXa || '';
+      rowData['NV Thực Hiện'] = c.nv || '';
+      rowData['Ngày Giờ Thay'] = c.ngayGio || '';
+      rowData['Kết Quả'] = c.ketQua || (isDone ? 'Xong' : '');
+      rowData['Kết Quả Rà Soát (KQRaSoat)'] = c.kqRaSoat || '';
+      rowData['Giờ Vượt (h)'] = c.gioVuot !== undefined ? c.gioVuot : 0;
+      rowData['CS CĐ Lúc Tháo'] = c.cscdThao || '';
+      rowData['CS CĐ Lúc 9h30'] = c.cs930 || c.cs9h30 || '';
+      rowData['CS CĐ Kỳ Trước'] = c.cscdKyTruoc || '';
+      rowData['Sản Lượng Vượt (kWh)'] = c.slVuot !== undefined && c.slVuot !== '' ? c.slVuot : 0;
+
+      return rowData;
     });
 
     const ws = XLSX.utils.json_to_sheet(exportRows);
@@ -2215,6 +2422,29 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
               {collapsedSections.customerDetail ? (
                 selectedCustomer ? (
                 <div className="space-y-4">
+                  {/* CẢNH BÁO: KHÁCH HÀNG ĐÃ THAY XONG - KHÔNG CHO PHÉP CẬP NHẬT LẠI */}
+                  {selectedCustomer.ketQua && selectedCustomer.ketQua.trim().toLowerCase().includes('xong') && (
+                    <div className="p-3.5 bg-emerald-50 border-2 border-emerald-400 rounded-xl flex items-center justify-between gap-3 text-emerald-950 shadow-xs">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center shrink-0 border border-emerald-300">
+                          <CheckCircle2 className="w-5 h-5 text-emerald-700" />
+                        </div>
+                        <div>
+                          <div className="font-bold text-xs uppercase text-emerald-900 flex items-center gap-1.5">
+                            <span>Khách hàng đã hoàn tất thay công tơ</span>
+                            <span className="text-[10px] px-2 py-0.5 bg-emerald-200 text-emerald-900 rounded-full font-black">ĐÃ KHÓA CẬP NHẬT</span>
+                          </div>
+                          <div className="text-[11px] text-emerald-800 mt-0.5">
+                            Ngày giờ thay: <b>{selectedCustomer.ngayGio || '—'}</b> | NV: <b>{selectedCustomer.nv || '—'}</b> | Kết quả: <b>{selectedCustomer.ketQua}</b> | SL Vượt: <b>{selectedCustomer.slVuot || '0'} kWh</b>. Không cho phép cập nhật lại!
+                          </div>
+                        </div>
+                      </div>
+                      <span className="px-2.5 py-1 bg-emerald-600 text-white font-bold rounded-lg text-[11px] shrink-0 shadow-2xs">
+                        Đã Thay Xong
+                      </span>
+                    </div>
+                  )}
+
                   {/* KHỐI CẢNH BÁO & CẬP NHẬT KẾT QUẢ RÀ SOÁT / XỬ LÝ KHÁCH HÀNG THU HỒI */}
                   {(selectedCustomer.kSuDung?.toLowerCase().includes('thu hồi') || selectedCustomer.kqRaSoat) && (
                     <div className={`p-4 rounded-xl border-2 space-y-3 transition-colors ${
@@ -2508,8 +2738,9 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                           type="text"
                           value={formNv}
                           onChange={e => setFormNv(e.target.value)}
+                          disabled={Boolean(selectedCustomer.ketQua?.toLowerCase().includes('xong'))}
                           placeholder="Họ và tên nhân viên..."
-                          className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                          className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         />
                       </div>
 
@@ -2521,8 +2752,9 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                           type="text"
                           value={formNgayGio}
                           onChange={e => setFormNgayGio(e.target.value)}
+                          disabled={Boolean(selectedCustomer.ketQua?.toLowerCase().includes('xong'))}
                           placeholder="dd/mm/yyyy hh:mm"
-                          className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                          className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         />
                       </div>
 
@@ -2571,11 +2803,17 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                       <button
                         type="button"
                         onClick={() => handleConfirmReplacement('confirm')}
-                        disabled={isSubmitting || Boolean(selectedCustomer.kSuDung?.toLowerCase().includes('thu hồi'))}
+                        disabled={isSubmitting || Boolean(selectedCustomer.kSuDung?.toLowerCase().includes('thu hồi')) || Boolean(selectedCustomer.ketQua?.toLowerCase().includes('xong'))}
                         className="w-full sm:w-auto px-5 py-2.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <CheckCircle2 className="w-4 h-4" />
-                        <span>{isSubmitting ? 'Đang ghi nhận...' : 'Xác nhận Đã Thay Xong'}</span>
+                        <span>
+                          {selectedCustomer.ketQua?.toLowerCase().includes('xong')
+                            ? 'Đã Thay Xong (Đã Khóa Cập Nhật)'
+                            : isSubmitting
+                            ? 'Đang ghi nhận...'
+                            : 'Xác nhận Đã Thay Xong'}
+                        </span>
                       </button>
                     </div>
                   </div>
@@ -3010,11 +3248,17 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                 <button
                   type="button"
                   onClick={() => handleConfirmReplacement('calculation')}
-                  disabled={isSubmitting || Boolean(selectedCustomer?.kSuDung?.toLowerCase().includes('thu hồi')) || !selectedCustomer}
+                  disabled={isSubmitting || Boolean(selectedCustomer?.kSuDung?.toLowerCase().includes('thu hồi')) || Boolean(selectedCustomer?.ketQua?.toLowerCase().includes('xong')) || !selectedCustomer}
                   className="w-full sm:w-auto px-5 py-3 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-black text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>{isSubmitting ? 'Đang lưu vào Sheet...' : 'Lưu & Cập Nhật Vào Sheet 963'}</span>
+                  <span>
+                    {selectedCustomer?.ketQua?.toLowerCase().includes('xong')
+                      ? 'Khách hàng đã thay xong (Đã khóa)'
+                      : isSubmitting
+                      ? 'Đang lưu vào Sheet...'
+                      : 'Lưu & Cập Nhật Vào Sheet 963'}
+                  </span>
                 </button>
               </div>
             </>
@@ -3082,7 +3326,22 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                   </p>
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                  {/* Nút chức năng Rà Soát HSN Treo */}
+                  <button
+                    type="button"
+                    onClick={() => setShowHsnAuditModal(true)}
+                    className={`px-3.5 py-2 font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                      hsnAuditMap
+                        ? 'bg-indigo-700 hover:bg-indigo-800 text-white ring-2 ring-indigo-300'
+                        : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-200'
+                    }`}
+                    title="Import file đối soát hệ số nhân (HSN / HSNHAN_TREO) khi treo công tơ"
+                  >
+                    <ClipboardCheck className={`w-4 h-4 ${hsnAuditMap ? 'text-white' : 'text-indigo-600'}`} />
+                    <span>{hsnAuditMap ? `Rà Soát HSN (${hsnAuditStats?.diffCount || 0} Sai)` : 'Rà Soát HSN Treo'}</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={handleExportCompletedExcel}
@@ -3106,6 +3365,106 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                   </button>
                 </div>
               </div>
+
+              {/* KHỐI KẾT QUẢ RÀ SOÁT HSN KHI TREO (HIỂN THỊ KHI ĐÃ IMPORT FILE ĐỐI SOÁT) */}
+              {hsnAuditMap && hsnAuditStats && (
+                <div className="p-3.5 bg-gradient-to-r from-indigo-50 via-purple-50 to-amber-50 border border-indigo-200 rounded-xl space-y-2.5 shadow-2xs">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-indigo-200/60 pb-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center shrink-0 border border-indigo-300">
+                        <ClipboardCheck className="w-4 h-4 text-indigo-700" />
+                      </div>
+                      <div>
+                        <span className="font-black text-xs text-indigo-950 uppercase">
+                          Kết Quả Rà Soát Hệ Số Nhân (HSN) Khi Treo
+                        </span>
+                        <span className="text-[11px] text-slate-600 ml-2">
+                          (File: <b>{hsnAuditFileName}</b> — {hsnAuditTotalRows} dòng)
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setShowHsnAuditModal(true)}
+                        className="px-2.5 py-1 bg-white hover:bg-indigo-50 text-indigo-800 border border-indigo-300 rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span>Tải file khác</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setHsnAuditMap(null);
+                          setHsnAuditFileName('');
+                          setHsnAuditFilter('all');
+                          showToast('info', 'Đã hủy kết quả rà soát HSN');
+                        }}
+                        className="px-2.5 py-1 bg-white hover:bg-rose-50 text-rose-700 border border-rose-200 rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                        <span>Hủy rà soát</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Filter Buttons / KPI badges */}
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="text-slate-600 font-bold text-[11px]">Lọc theo kết quả rà soát:</span>
+                    <button
+                      type="button"
+                      onClick={() => setHsnAuditFilter('all')}
+                      className={`px-2.5 py-1 rounded-lg font-bold border transition-all cursor-pointer ${
+                        hsnAuditFilter === 'all'
+                          ? 'bg-slate-800 text-white border-slate-900 shadow-2xs'
+                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      Tất cả ({hsnAuditStats.total} KH)
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setHsnAuditFilter('diff')}
+                      className={`px-2.5 py-1 rounded-lg font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
+                        hsnAuditFilter === 'diff'
+                          ? 'bg-amber-600 text-white border-amber-700 shadow-2xs ring-2 ring-amber-300'
+                          : 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
+                      }`}
+                    >
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Sai HSN: <b>{hsnAuditStats.diffCount} KH</b> ({hsnAuditStats.diffPercent}%)</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setHsnAuditFilter('missing')}
+                      className={`px-2.5 py-1 rounded-lg font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
+                        hsnAuditFilter === 'missing'
+                          ? 'bg-rose-600 text-white border-rose-700 shadow-2xs ring-2 ring-rose-300'
+                          : 'bg-rose-50 text-rose-900 border-rose-300 hover:bg-rose-100'
+                      }`}
+                    >
+                      <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
+                      <span>Thiếu trong file: <b>{hsnAuditStats.missingCount} KH</b> ({hsnAuditStats.missingPercent}%)</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setHsnAuditFilter('match')}
+                      className={`px-2.5 py-1 rounded-lg font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
+                        hsnAuditFilter === 'match'
+                          ? 'bg-emerald-600 text-white border-emerald-700 shadow-2xs ring-2 ring-emerald-300'
+                          : 'bg-emerald-50 text-emerald-900 border-emerald-300 hover:bg-emerald-100'
+                      }`}
+                    >
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Khớp HSN: <b>{hsnAuditStats.matchCount} KH</b> ({hsnAuditStats.matchPercent}%)</span>
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Thống kê các chủng loại cần thay trong phạm vi đợt / khu vực theo tìm kiếm */}
               {completedChungLoaiSummary.length > 0 && (
@@ -3178,6 +3537,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                         <th className="py-2.5 px-3">Khu Vực</th>
                         <th className="py-2.5 px-3">Đợt</th>
                         <th className="py-2.5 px-3 text-center">HSN</th>
+                        <th className="py-2.5 px-3 text-center">Rà Soát HSN</th>
                         <th className="py-2.5 px-3">NV Thay</th>
                         <th className="py-2.5 px-3">Ngày Giờ</th>
                         <th className="py-2.5 px-3">KQ Rà Soát</th>
@@ -3198,6 +3558,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                           const tuVal = item.tySoTu || item.raw?.['ty so_TU'] || item.raw?.['TU'] || item.raw?.['TSO_TU'] || '';
                           const isDone = item.ketQua && item.ketQua.trim().toLowerCase().includes('xong');
                           const isThuHoi = item.kSuDung && item.kSuDung.trim().toLowerCase().includes('thu hồi');
+                          const audit = getHsnAuditResult(item);
                           return (
                             <tr
                               key={item.maKh}
@@ -3255,6 +3616,38 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                               <td className="py-2 px-3 font-semibold text-slate-700">{item.kv}</td>
                               <td className="py-2 px-3 font-mono text-slate-600">{item.dot}</td>
                               <td className="py-2 px-3 text-center font-mono font-bold text-amber-900">{hsnVal}</td>
+                              <td className="py-2 px-3 text-center whitespace-nowrap">
+                                {audit ? (
+                                  audit.status === 'match' ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300" title={audit.label}>
+                                      <Check className="w-3 h-3 text-emerald-700" />
+                                      <span>{audit.shortLabel}</span>
+                                    </span>
+                                  ) : audit.status === 'diff' ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono text-[10px] font-bold bg-amber-100 text-amber-950 border border-amber-400 shadow-2xs animate-pulse" title={audit.label}>
+                                      <AlertTriangle className="w-3 h-3 text-amber-700" />
+                                      <span>{audit.shortLabel}</span>
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono text-[10px] font-bold bg-rose-100 text-rose-900 border border-rose-300" title={audit.label}>
+                                      <AlertCircle className="w-3 h-3 text-rose-600" />
+                                      <span>{audit.shortLabel}</span>
+                                    </span>
+                                  )
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setShowHsnAuditModal(true);
+                                    }}
+                                    className="text-[10px] text-indigo-700 hover:text-indigo-950 hover:underline font-medium cursor-pointer"
+                                    title="Bấm để tải file rà soát HSN treo"
+                                  >
+                                    + Rà soát
+                                  </button>
+                                )}
+                              </td>
                               <td className="py-2 px-3 text-slate-700">{item.nv || '—'}</td>
                               <td className="py-2 px-3 font-mono text-[11px] text-slate-600">{item.ngayGio || '—'}</td>
                               <td className="py-2 px-3 text-[11px]">
@@ -3288,7 +3681,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                         })
                       ) : (
                         <tr>
-                          <td colSpan={18} className="py-8 text-center text-slate-400 text-xs">
+                          <td colSpan={19} className="py-8 text-center text-slate-400 text-xs">
                             {bottomTableTab === 'search'
                               ? 'Không tìm thấy khách hàng nào khớp với điều kiện tìm kiếm hiện tại.'
                               : 'Chưa có khách hàng nào được thay xong trong phạm vi lựa chọn này.'}
@@ -5354,6 +5747,181 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                 <button
                   type="button"
                   onClick={() => setShowScriptModal(false)}
+                  className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs rounded-xl transition-all cursor-pointer"
+                >
+                  Đóng
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Hidden File Input for HSN Audit */}
+      <input
+        type="file"
+        ref={hsnFileInputRef}
+        accept=".xlsx, .xls, .csv"
+        onChange={handleHsnAuditFileUpload}
+        className="hidden"
+      />
+
+      {/* MODAL RÀ SOÁT HỆ SỐ NHÂN (HSN / HSNHAN) KHI TREO CÔNG TƠ */}
+      {showHsnAuditModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border-2 border-slate-900 shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
+            {/* Modal Header */}
+            <div className="p-4 bg-gradient-to-r from-indigo-700 via-indigo-800 to-purple-800 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center border border-white/20">
+                  <ClipboardCheck className="w-5 h-5 text-indigo-200" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm uppercase tracking-wide">
+                    Rà Soát Hệ Số Nhân (HSN) Khi Treo Công Tơ
+                  </h3>
+                  <p className="text-[11px] text-indigo-200 font-medium">
+                    Đối soát HSN giữa dữ liệu Sheet 963 và file thực tế treo tháo
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowHsnAuditModal(false)}
+                className="p-1 hover:bg-white/20 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-5 overflow-y-auto space-y-4 text-xs text-slate-700">
+              {/* Giới thiệu tính năng */}
+              <div className="bg-indigo-50 border border-indigo-200 p-3.5 rounded-xl space-y-2 text-indigo-950">
+                <div className="font-bold flex items-center gap-1.5 text-xs text-indigo-900">
+                  <Sparkles className="w-4 h-4 text-indigo-600" />
+                  <span>Mục đích & Cách thức hoạt động:</span>
+                </div>
+                <ul className="list-disc pl-5 space-y-1 text-[11px] leading-relaxed text-indigo-900/90">
+                  <li>
+                    So sánh <b>Hệ Số Nhân (HSN)</b> của các khách hàng <b>đã thay xong</b> trong Sheet 963 với file biên bản / số liệu treo từ CMIS.
+                  </li>
+                  <li>
+                    Tự động nhận diện cột Mã KH (<code>MA_KHANG</code>, <code>MA_KH</code>, <code>Mã KH</code>...) và cột HSN (<code>HSNHAN_TREO</code>, <code>HSN_TREO</code>, <code>HSNHAN</code>, <code>HSN</code>...).
+                  </li>
+                  <li>
+                    Cảnh báo <b>Sai HSN</b> nếu HSN đã nhập khác với file đưa vào; cảnh báo <b>Thiếu trong file</b> nếu khách hàng đã thay xong nhưng không có trong file đối soát.
+                  </li>
+                </ul>
+              </div>
+
+              {/* Trạng thái file hiện tại nếu đã tải */}
+              {hsnAuditMap && hsnAuditStats && (
+                <div className="bg-amber-50 border border-amber-300 p-3.5 rounded-xl space-y-2 text-amber-950">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-xs text-amber-900 flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      File đối soát hiện tại: <u>{hsnAuditFileName}</u> ({hsnAuditTotalRows} dòng)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setHsnAuditMap(null);
+                        setHsnAuditFileName('');
+                        setHsnAuditFilter('all');
+                        showToast('info', 'Đã xóa file đối soát HSN');
+                      }}
+                      className="text-[11px] text-rose-700 font-bold hover:underline cursor-pointer"
+                    >
+                      Xóa file này
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-center pt-1">
+                    <div className="p-2 bg-white rounded-lg border border-amber-200">
+                      <div className="text-[10px] text-slate-500 font-medium">Khớp HSN</div>
+                      <div className="text-sm font-black text-emerald-600">{hsnAuditStats.matchCount}</div>
+                    </div>
+                    <div className="p-2 bg-white rounded-lg border border-rose-300">
+                      <div className="text-[10px] text-rose-700 font-medium">Sai HSN</div>
+                      <div className="text-sm font-black text-rose-600">{hsnAuditStats.diffCount}</div>
+                    </div>
+                    <div className="p-2 bg-white rounded-lg border border-amber-300">
+                      <div className="text-[10px] text-amber-800 font-medium">Thiếu trong file</div>
+                      <div className="text-sm font-black text-amber-700">{hsnAuditStats.missingCount}</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Khu vực chọn file import */}
+              <div className="border-2 border-dashed border-indigo-300 hover:border-indigo-500 bg-slate-50/70 hover:bg-indigo-50/30 p-6 rounded-2xl flex flex-col items-center justify-center text-center transition-all">
+                <div className="w-12 h-12 rounded-2xl bg-indigo-100 flex items-center justify-center mb-3 text-indigo-700 shadow-inner">
+                  <FileUp className="w-6 h-6" />
+                </div>
+                <h4 className="font-bold text-sm text-slate-800 mb-1">
+                  Chọn file Excel đối soát (.xlsx, .xls, .csv)
+                </h4>
+                <p className="text-[11px] text-slate-500 max-w-md mb-4">
+                  File cần có cột <b>MA_KHANG</b> (hoặc MA_KH) và cột <b>HSNHAN_TREO</b> (hoặc HSNHAN, HSN). Hệ thống sẽ tự động quét và đối chiếu ngay lập tức.
+                </p>
+                <div className="flex flex-wrap items-center justify-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => hsnFileInputRef.current?.click()}
+                    className="px-5 py-2.5 bg-indigo-700 hover:bg-indigo-800 active:scale-95 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer"
+                  >
+                    <Upload className="w-4 h-4" />
+                    <span>{hsnAuditMap ? 'Chọn Tải Lại File Khác...' : 'Chọn File Đối Soát Từ Máy Tính'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleDownloadHsnTemplate}
+                    className="px-4 py-2.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  >
+                    <Download className="w-4 h-4 text-emerald-600" />
+                    <span>Tải file Excel mẫu (.xlsx)</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Hướng dẫn quy chuẩn các cột */}
+              <div className="p-3 bg-slate-100 rounded-xl space-y-1.5 text-[11px] text-slate-600">
+                <div className="font-bold text-slate-700 flex items-center gap-1">
+                  <Info className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Quy định tiêu đề cột được tự động nhận diện:</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px]">
+                  <div className="bg-white p-2 rounded-lg border border-slate-200">
+                    <span className="font-bold text-indigo-700">Cột Mã Khách Hàng:</span>
+                    <p className="text-slate-600 mt-0.5">MA_KHANG, MA_KH, Mã KH, Mã khách hàng, Customer_ID...</p>
+                  </div>
+                  <div className="bg-white p-2 rounded-lg border border-slate-200">
+                    <span className="font-bold text-indigo-700">Cột Hệ Số Nhân:</span>
+                    <p className="text-slate-600 mt-0.5">HSNHAN_TREO, HSN_TREO, HSNHAN, HSN, Hệ số nhân, HSN treo...</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+              <span className="text-[11px] text-slate-500">
+                {hsnAuditMap ? `✓ Đang áp dụng kết quả từ file: ${hsnAuditFileName}` : 'Chưa tải file đối soát'}
+              </span>
+              <div className="flex items-center gap-2">
+                {hsnAuditMap && (
+                  <button
+                    type="button"
+                    onClick={() => setShowHsnAuditModal(false)}
+                    className="px-4 py-2 bg-indigo-700 hover:bg-indigo-800 text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer"
+                  >
+                    Xem kết quả trong bảng
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowHsnAuditModal(false)}
                   className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs rounded-xl transition-all cursor-pointer"
                 >
                   Đóng
