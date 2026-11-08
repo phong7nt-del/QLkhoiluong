@@ -1,0 +1,1501 @@
+import React, { useState, useMemo, useEffect } from 'react';
+import * as XLSX from 'xlsx-js-style';
+import { 
+  Gauge, Calendar, Plus, Trash2, Edit2, Check, X, RefreshCw, 
+  FileSpreadsheet, Download, Filter, Search, ArrowUpRight, 
+  Layers, Package, CheckCircle2, Clock, AlertTriangle, Info,
+  ChevronDown, ChevronUp, ChevronRight, User, Hash, Zap
+} from 'lucide-react';
+import { 
+  DataStore, 
+  Entry963, 
+  NhapDk963Entry, 
+  SheetMember 
+} from '../store/DataStore';
+
+interface Tab963DienKeProps {
+  entries963: Entry963[];
+  sessionUser: SheetMember | null;
+  onRefreshData?: () => void;
+  showToast: (type: 'success' | 'error' | 'info', text: string) => void;
+}
+
+// Helper: Lấy chuỗi ngày hiện tại định dạng dd/mm/yyyy
+export const getTodayFormatted = (): string => {
+  const d = new Date();
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const year = d.getFullYear();
+  return `${day}/${month}/${year}`;
+};
+
+// Helper: Chuẩn hóa ngày về dạng dd/mm/yyyy
+export const normalizeDateStr = (raw: string | undefined): string => {
+  if (!raw) return '';
+  const s = String(raw).trim();
+  if (!s) return '';
+
+  // Dạng ISO: yyyy-mm-dd...
+  if (s.includes('-')) {
+    const parts = s.split('T')[0].split(' ')[0].split('-');
+    if (parts.length === 3 && parts[0].length === 4) {
+      return `${parts[2].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[0]}`;
+    }
+  }
+
+  // Dạng dd/mm/yyyy hh:mm hoặc dd/mm/yyyy
+  if (s.includes('/')) {
+    const datePart = s.split(' ')[0];
+    const parts = datePart.split('/');
+    if (parts.length === 3) {
+      const d = parts[0].padStart(2, '0');
+      const m = parts[1].padStart(2, '0');
+      let y = parts[2];
+      if (y.length === 2) y = '20' + y;
+      return `${d}/${m}/${y}`;
+    }
+  }
+
+  return s;
+};
+
+// Helper: Phân loại chủng loại điện kế của bản ghi 963
+// Dựa trên cột SO_PHA (1 là 1 Pha, 3 là 3 Pha) và loại trực tiếp/gián tiếp
+export const resolvePhaseCategory = (c: Entry963): {
+  soPhaGroup: '1 Pha' | '3 Pha';
+  chiTiet: '1 Pha' | '3 Pha Trực Tiếp' | '3 Pha Gián Tiếp';
+} => {
+  const spRaw = String(c.soPha || '').trim();
+  const is1P = spRaw === '1' || spRaw.toLowerCase().includes('1 pha') || spRaw.toLowerCase() === '1p';
+  const is3P = spRaw === '3' || spRaw.toLowerCase().includes('3 pha') || spRaw.toLowerCase() === '3p';
+
+  if (is1P || (!is3P && spRaw.includes('1'))) {
+    return { soPhaGroup: '1 Pha', chiTiet: '1 Pha' };
+  }
+
+  // Nếu là 3 Pha, phân định Trực tiếp hay Gián tiếp
+  const loai = (c.loaiCto || '').toLowerCase();
+  const cloai = (c.chungLoaiCanThay || '').toLowerCase();
+  const hasTiTu = Boolean((c.tySoTi && c.tySoTi.trim() !== '') || (c.tySoTu && c.tySoTu.trim() !== ''));
+  const hsnVal = parseFloat(String(c.hsn || '1'));
+
+  const isGianTiep = 
+    loai.includes('gián tiếp') || 
+    loai.includes('gian tiep') || 
+    loai.includes('gt') || 
+    cloai.includes('gián tiếp') || 
+    cloai.includes('gt') || 
+    hasTiTu || 
+    hsnVal > 1;
+
+  return {
+    soPhaGroup: '3 Pha',
+    chiTiet: isGianTiep ? '3 Pha Gián Tiếp' : '3 Pha Trực Tiếp'
+  };
+};
+
+export default function Tab963DienKe({
+  entries963,
+  sessionUser,
+  onRefreshData,
+  showToast
+}: Tab963DienKeProps) {
+  // Danh sách các đợt nhập từ Sheet NhapDK963
+  const [nhapList, setNhapList] = useState<NhapDk963Entry[]>(() => DataStore.getNhapDk963Entries());
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Form state nhập mới
+  const [formNgay, setFormNgay] = useState<string>(getTodayFormatted());
+  const [formChungLoai, setFormChungLoai] = useState<'1 Pha' | '3 Pha Trực Tiếp' | '3 Pha Gián Tiếp' | '3 Pha'>('1 Pha');
+  const [formSl, setFormSl] = useState<string>('');
+  const [formGhiChu, setFormGhiChu] = useState<string>('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Collapse sections
+  const [showInputSection, setShowInputSection] = useState<boolean>(true);
+  const [showNhapListTable, setShowNhapListTable] = useState<boolean>(true);
+
+  // Bộ lọc bảng thống kê theo ngày
+  const [dateRangePreset, setDateRangePreset] = useState<'all' | 'today' | '7days' | '30days'>('all');
+  const [filterStartDate, setFilterStartDate] = useState<string>('');
+  const [filterEndDate, setFilterEndDate] = useState<string>('');
+  const [filterChungLoai, setFilterChungLoai] = useState<'all' | '1 Pha' | '3 Pha' | '3 Pha Trực Tiếp' | '3 Pha Gián Tiếp'>('all');
+  const [searchDailyText, setSearchDailyText] = useState<string>('');
+
+  // Interactive drill-down: Xem danh sách chi tiết khách hàng đã thay theo ngày/chủng loại
+  const [selectedDrillDown, setSelectedDrillDown] = useState<{
+    date?: string;
+    soPha?: 'all' | '1 Pha' | '3 Pha';
+    label: string;
+  } | null>(null);
+
+  // Lắng nghe sự kiện cập nhật NhapDK963
+  useEffect(() => {
+    const handleUpdate = () => {
+      setNhapList(DataStore.getNhapDk963Entries());
+    };
+    window.addEventListener('nhap_dk_963_updated', handleUpdate);
+    return () => window.removeEventListener('nhap_dk_963_updated', handleUpdate);
+  }, []);
+
+  // Tải mới từ Google Sheets
+  const handleReloadFromSheet = async () => {
+    setIsRefreshing(true);
+    showToast('info', 'Đang đồng bộ dữ liệu nhập điện kế từ Google Sheets...');
+    try {
+      const data = await DataStore.fetchNhapDk963Data(true);
+      setNhapList(data);
+      if (onRefreshData) onRefreshData();
+      showToast('success', `Đã đồng bộ ${data.length} đợt nhập từ sheet NhapDK963`);
+    } catch (e: any) {
+      showToast('error', 'Lỗi đồng bộ: ' + (e?.message || 'Có sự cố xảy ra'));
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  // Danh sách các khách hàng đã thay xong trong Sheet 963
+  const completedCustomers = useMemo(() => {
+    return entries963.filter(c => {
+      const kq = (c.ketQua || '').trim().toLowerCase();
+      return kq === 'xong' || kq.includes('xong');
+    });
+  }, [entries963]);
+
+  // Map ngày thay cho từng khách hàng đã thay xong
+  const completedWithNormalizedDate = useMemo(() => {
+    return completedCustomers.map(c => {
+      const normDate = normalizeDateStr(c.ngayGio);
+      const cat = resolvePhaseCategory(c);
+      return {
+        ...c,
+        normDate,
+        phaseGroup: cat.soPhaGroup,
+        phaseDetail: cat.chiTiet
+      };
+    });
+  }, [completedCustomers]);
+
+  // ==========================================
+  // TÍNH TOÁN KPI TỔNG HỢP TOÀN BỘ (ALL-TIME)
+  // ==========================================
+  const kpiTotals = useMemo(() => {
+    // 1. Tổng nhập theo chủng loại
+    let nhapTong = 0;
+    let nhap1P = 0;
+    let nhap3P = 0;
+    let nhap3PTT = 0;
+    let nhap3PGT = 0;
+
+    nhapList.forEach(item => {
+      const qty = Number(item.sl) || 0;
+      nhapTong += qty;
+      const cl = (item.chungLoai || '').toLowerCase();
+      if (cl.includes('1') || cl.includes('1 pha') || cl === '1p') {
+        nhap1P += qty;
+      } else if (cl.includes('gián tiếp') || cl.includes('gt')) {
+        nhap3PGT += qty;
+        nhap3P += qty;
+      } else if (cl.includes('trực tiếp') || cl.includes('tt')) {
+        nhap3PTT += qty;
+        nhap3P += qty;
+      } else {
+        nhap3P += qty;
+      }
+    });
+
+    // 2. Tổng đã thay theo chủng loại từ sheet 963
+    let thayTong = 0;
+    let thay1P = 0;
+    let thay3P = 0;
+    let thay3PTT = 0;
+    let thay3PGT = 0;
+
+    completedWithNormalizedDate.forEach(c => {
+      thayTong++;
+      if (c.phaseGroup === '1 Pha') {
+        thay1P++;
+      } else {
+        thay3P++;
+        if (c.phaseDetail === '3 Pha Trực Tiếp') thay3PTT++;
+        else if (c.phaseDetail === '3 Pha Gián Tiếp') thay3PGT++;
+      }
+    });
+
+    // 3. Tỷ lệ % thay / nhập
+    const tyLeTong = nhapTong > 0 ? ((thayTong / nhapTong) * 100).toFixed(1) : '0.0';
+    const tyLe1P = nhap1P > 0 ? ((thay1P / nhap1P) * 100).toFixed(1) : '0.0';
+    const tyLe3P = nhap3P > 0 ? ((thay3P / nhap3P) * 100).toFixed(1) : '0.0';
+
+    // 4. Tồn kho chưa thay
+    const tonTong = nhapTong - thayTong;
+    const ton1P = nhap1P - thay1P;
+    const ton3P = nhap3P - thay3P;
+
+    return {
+      nhapTong,
+      nhap1P,
+      nhap3P,
+      nhap3PTT,
+      nhap3PGT,
+      thayTong,
+      thay1P,
+      thay3P,
+      thay3PTT,
+      thay3PGT,
+      tyLeTong,
+      tyLe1P,
+      tyLe3P,
+      tonTong,
+      ton1P,
+      ton3P
+    };
+  }, [nhapList, completedWithNormalizedDate]);
+
+  // ==========================================
+  // THỐNG KÊ CHI TIẾT THEO NGÀY
+  // ==========================================
+  const dailyStats = useMemo(() => {
+    // Thu thập tất cả các ngày xuất hiện ở cả NhapDK963 và Sheet 963
+    const dateMap = new Map<string, {
+      date: string;
+      rawDateSort: number; // để sắp xếp
+      // Nhập
+      nhap1P: number;
+      nhap3PTT: number;
+      nhap3PGT: number;
+      nhap3P: number;
+      nhapTong: number;
+      // Thay xong
+      thay1P: number;
+      thay3PTT: number;
+      thay3PGT: number;
+      thay3P: number;
+      thayTong: number;
+      // Danh sách KH đã thay trong ngày
+      customersReplaced: typeof completedWithNormalizedDate;
+    }>();
+
+    const getOrCreateDateEntry = (dStr: string) => {
+      if (!dStr) return null;
+      if (!dateMap.has(dStr)) {
+        // Parse dd/mm/yyyy thành timestamp để sort
+        let sortVal = 0;
+        const p = dStr.split('/');
+        if (p.length === 3) {
+          sortVal = new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0])).getTime();
+        }
+        dateMap.set(dStr, {
+          date: dStr,
+          rawDateSort: isNaN(sortVal) ? 0 : sortVal,
+          nhap1P: 0,
+          nhap3PTT: 0,
+          nhap3PGT: 0,
+          nhap3P: 0,
+          nhapTong: 0,
+          thay1P: 0,
+          thay3PTT: 0,
+          thay3PGT: 0,
+          thay3P: 0,
+          thayTong: 0,
+          customersReplaced: []
+        });
+      }
+      return dateMap.get(dStr)!;
+    };
+
+    // Cộng số lượng nhập
+    nhapList.forEach(item => {
+      const d = normalizeDateStr(item.ngay);
+      if (!d) return;
+      const entry = getOrCreateDateEntry(d);
+      if (!entry) return;
+
+      const qty = Number(item.sl) || 0;
+      entry.nhapTong += qty;
+
+      const cl = (item.chungLoai || '').toLowerCase();
+      if (cl.includes('1') || cl.includes('1 pha') || cl === '1p') {
+        entry.nhap1P += qty;
+      } else if (cl.includes('gián tiếp') || cl.includes('gt')) {
+        entry.nhap3PGT += qty;
+        entry.nhap3P += qty;
+      } else if (cl.includes('trực tiếp') || cl.includes('tt')) {
+        entry.nhap3PTT += qty;
+        entry.nhap3P += qty;
+      } else {
+        entry.nhap3P += qty;
+      }
+    });
+
+    // Cộng số lượng đã thay
+    completedWithNormalizedDate.forEach(c => {
+      const d = c.normDate;
+      if (!d) return;
+      const entry = getOrCreateDateEntry(d);
+      if (!entry) return;
+
+      entry.thayTong++;
+      entry.customersReplaced.push(c);
+
+      if (c.phaseGroup === '1 Pha') {
+        entry.thay1P++;
+      } else {
+        entry.thay3P++;
+        if (c.phaseDetail === '3 Pha Trực Tiếp') entry.thay3PTT++;
+        else if (c.phaseDetail === '3 Pha Gián Tiếp') entry.thay3PGT++;
+      }
+    });
+
+    // Sắp xếp ngày giảm dần (ngày mới nhất lên đầu)
+    const sorted = Array.from(dateMap.values()).sort((a, b) => b.rawDateSort - a.rawDateSort);
+
+    // Tính tồn luỹ kế theo thời gian (tính từ ngày cũ nhất đến mới nhất)
+    let runningCumulativeNhap = 0;
+    let runningCumulativeThay = 0;
+    const chronological = [...sorted].sort((a, b) => a.rawDateSort - b.rawDateSort);
+    const cumulativeMap = new Map<string, number>();
+
+    chronological.forEach(item => {
+      runningCumulativeNhap += item.nhapTong;
+      runningCumulativeThay += item.thayTong;
+      cumulativeMap.set(item.date, runningCumulativeNhap - runningCumulativeThay);
+    });
+
+    return sorted.map(row => {
+      const tyLeTong = row.nhapTong > 0 ? ((row.thayTong / row.nhapTong) * 100).toFixed(1) : '-';
+      const tyLe1P = row.nhap1P > 0 ? ((row.thay1P / row.nhap1P) * 100).toFixed(1) : '-';
+      const tyLe3P = row.nhap3P > 0 ? ((row.thay3P / row.nhap3P) * 100).toFixed(1) : '-';
+      const tonLuyKe = cumulativeMap.get(row.date) ?? (row.nhapTong - row.thayTong);
+
+      return {
+        ...row,
+        tyLeTong,
+        tyLe1P,
+        tyLe3P,
+        tonLuyKe
+      };
+    });
+  }, [nhapList, completedWithNormalizedDate]);
+
+  // Bộ lọc bảng thống kê theo ngày
+  const filteredDailyStats = useMemo(() => {
+    const today = getTodayFormatted();
+    const nowTime = Date.now();
+
+    return dailyStats.filter(item => {
+      // 1. Lọc preset
+      if (dateRangePreset === 'today') {
+        if (item.date !== today) return false;
+      } else if (dateRangePreset === '7days') {
+        const diffDays = (nowTime - item.rawDateSort) / (1000 * 60 * 60 * 24);
+        if (diffDays > 7) return false;
+      } else if (dateRangePreset === '30days') {
+        const diffDays = (nowTime - item.rawDateSort) / (1000 * 60 * 60 * 24);
+        if (diffDays > 30) return false;
+      }
+
+      // 2. Lọc tùy chọn khoảng ngày
+      if (filterStartDate) {
+        const pStart = filterStartDate.split('/');
+        if (pStart.length === 3) {
+          const startT = new Date(parseInt(pStart[2]), parseInt(pStart[1]) - 1, parseInt(pStart[0])).getTime();
+          if (item.rawDateSort < startT) return false;
+        }
+      }
+      if (filterEndDate) {
+        const pEnd = filterEndDate.split('/');
+        if (pEnd.length === 3) {
+          const endT = new Date(parseInt(pEnd[2]), parseInt(pEnd[1]) - 1, parseInt(pEnd[0]), 23, 59, 59).getTime();
+          if (item.rawDateSort > endT) return false;
+        }
+      }
+
+      // 3. Search text
+      if (searchDailyText.trim()) {
+        const q = searchDailyText.trim().toLowerCase();
+        if (!item.date.includes(q)) return false;
+      }
+
+      return true;
+    });
+  }, [dailyStats, dateRangePreset, filterStartDate, filterEndDate, searchDailyText]);
+
+  // Danh sách drill-down chi tiết khách hàng đã thay
+  const drillDownCustomers = useMemo(() => {
+    if (!selectedDrillDown) return [];
+    const { date, soPha } = selectedDrillDown;
+
+    return completedWithNormalizedDate.filter(c => {
+      if (date && c.normDate !== date) return false;
+      if (soPha === '1 Pha' && c.phaseGroup !== '1 Pha') return false;
+      if (soPha === '3 Pha' && c.phaseGroup !== '3 Pha') return false;
+      return true;
+    });
+  }, [selectedDrillDown, completedWithNormalizedDate]);
+
+  // ==========================================
+  // XỬ LÝ LƯU / SỬA / XÓA ĐỢT NHẬP (NhapDK963)
+  // ==========================================
+  const handleSaveNhapEntry = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const dClean = formNgay.trim();
+    if (!dClean) {
+      showToast('error', 'Vui lòng nhập ngày nhận điện kế!');
+      return;
+    }
+
+    const qty = parseInt(formSl.replace(/[^0-9]/g, ''), 10);
+    if (!qty || qty <= 0) {
+      showToast('error', 'Vui lòng nhập số lượng điện kế nhận lớn hơn 0!');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const uName = sessionUser?.name || 'Nhân viên';
+
+      if (editingId) {
+        // Cập nhật
+        const res = await DataStore.updateNhapDk963Entry(editingId, {
+          ngay: dClean,
+          chungLoai: formChungLoai,
+          sl: qty,
+          ghiChu: formGhiChu.trim(),
+          nguoiNhap: uName
+        });
+        if (res.success) {
+          showToast('success', `Đã cập nhật đợt nhập ngày ${dClean} (${formChungLoai}: ${qty} công tơ)`);
+          setEditingId(null);
+          setFormSl('');
+          setFormGhiChu('');
+        } else {
+          showToast('error', res.error || 'Lỗi cập nhật');
+        }
+      } else {
+        // Thêm mới
+        const res = await DataStore.addNhapDk963Entry({
+          ngay: dClean,
+          chungLoai: formChungLoai,
+          sl: qty,
+          ghiChu: formGhiChu.trim(),
+          nguoiNhap: uName
+        });
+        if (res.success) {
+          showToast('success', `Đã lưu đợt nhập ngày ${dClean} (${formChungLoai}: ${qty} công tơ) vào sheet NhapDK963`);
+          setFormSl('');
+          setFormGhiChu('');
+        } else {
+          showToast('error', res.error || 'Lỗi thêm mới');
+        }
+      }
+    } catch (err: any) {
+      showToast('error', 'Lỗi: ' + (err?.message || 'Có sự cố xảy ra'));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleEditEntry = (item: NhapDk963Entry) => {
+    setEditingId(item.id);
+    setFormNgay(item.ngay);
+    setFormChungLoai((item.chungLoai as any) || '1 Pha');
+    setFormSl(String(item.sl));
+    setFormGhiChu(item.ghiChu || '');
+    setShowInputSection(true);
+    window.scrollTo({ top: 200, behavior: 'smooth' });
+  };
+
+  const handleDeleteEntry = async (id: string, date: string, cl: string, sl: number) => {
+    if (!confirm(`Bạn có chắc chắn muốn xóa đợt nhập ngày ${date} (${cl}: ${sl} công tơ)?`)) return;
+
+    try {
+      const res = await DataStore.deleteNhapDk963Entry(id);
+      if (res.success) {
+        showToast('info', `Đã xóa đợt nhập ngày ${date}`);
+        if (editingId === id) {
+          setEditingId(null);
+          setFormSl('');
+          setFormGhiChu('');
+        }
+      } else {
+        showToast('error', res.error || 'Lỗi xóa đợt nhập');
+      }
+    } catch (err: any) {
+      showToast('error', 'Lỗi: ' + (err?.message || 'Có sự cố'));
+    }
+  };
+
+  // ==========================================
+  // XUẤT EXCEL
+  // ==========================================
+  // 1. Xuất Excel bảng thống kê theo ngày
+  const handleExportDailyExcel = () => {
+    try {
+      const exportRows = filteredDailyStats.map((r, idx) => ({
+        'STT': idx + 1,
+        'Ngày': r.date,
+        '1 Pha - Nhập': r.nhap1P,
+        '1 Pha - Đã Thay': r.thay1P,
+        '1 Pha - % Thay/Nhập': r.tyLe1P !== '-' ? `${r.tyLe1P}%` : '-',
+        '3 Pha - Nhập (Tổng)': r.nhap3P,
+        '3 Pha - Nhập (Trực tiếp)': r.nhap3PTT,
+        '3 Pha - Nhập (Gián tiếp)': r.nhap3PGT,
+        '3 Pha - Đã Thay': r.thay3P,
+        '3 Pha - % Thay/Nhập': r.tyLe3P !== '-' ? `${r.tyLe3P}%` : '-',
+        'Tổng Nhập Ngày': r.nhapTong,
+        'Tổng Đã Thay Ngày': r.thayTong,
+        'Tỷ Lệ Hoàn Tất Ngày': r.tyLeTong !== '-' ? `${r.tyLeTong}%` : '-',
+        'Tồn Luỹ Kế Đến Ngày': r.tonLuyKe
+      }));
+
+      // Dòng tổng kết
+      const sumNhap1P = filteredDailyStats.reduce((s, r) => s + r.nhap1P, 0);
+      const sumThay1P = filteredDailyStats.reduce((s, r) => s + r.thay1P, 0);
+      const sumNhap3P = filteredDailyStats.reduce((s, r) => s + r.nhap3P, 0);
+      const sumThay3P = filteredDailyStats.reduce((s, r) => s + r.thay3P, 0);
+      const sumNhapTong = filteredDailyStats.reduce((s, r) => s + r.nhapTong, 0);
+      const sumThayTong = filteredDailyStats.reduce((s, r) => s + r.thayTong, 0);
+
+      exportRows.push({
+        'STT': 'TỔNG CỘNG' as any,
+        'Ngày': '',
+        '1 Pha - Nhập': sumNhap1P,
+        '1 Pha - Đã Thay': sumThay1P,
+        '1 Pha - % Thay/Nhập': sumNhap1P > 0 ? `${((sumThay1P / sumNhap1P) * 100).toFixed(1)}%` : '-',
+        '3 Pha - Nhập (Tổng)': sumNhap3P,
+        '3 Pha - Nhập (Trực tiếp)': filteredDailyStats.reduce((s, r) => s + r.nhap3PTT, 0),
+        '3 Pha - Nhập (Gián tiếp)': filteredDailyStats.reduce((s, r) => s + r.nhap3PGT, 0),
+        '3 Pha - Đã Thay': sumThay3P,
+        '3 Pha - % Thay/Nhập': sumNhap3P > 0 ? `${((sumThay3P / sumNhap3P) * 100).toFixed(1)}%` : '-',
+        'Tổng Nhập Ngày': sumNhapTong,
+        'Tổng Đã Thay Ngày': sumThayTong,
+        'Tỷ Lệ Hoàn Tất Ngày': sumNhapTong > 0 ? `${((sumThayTong / sumNhapTong) * 100).toFixed(1)}%` : '-',
+        'Tồn Luỹ Kế Đến Ngày': sumNhapTong - sumThayTong
+      });
+
+      const ws = XLSX.utils.json_to_sheet(exportRows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'ThongKe_DienKe_TheoNgay');
+      XLSX.writeFile(wb, `BaoCao_ThongKe_DienKe_963_${getTodayFormatted().replace(/\//g, '-')}.xlsx`);
+      showToast('success', 'Đã xuất file Excel thống kê điện kế theo ngày thành công!');
+    } catch (err: any) {
+      showToast('error', 'Lỗi xuất Excel: ' + (err?.message || 'Có sự cố'));
+    }
+  };
+
+  // 2. Xuất Excel danh sách các đợt nhập (Sheet NhapDK963)
+  const handleExportNhapListExcel = () => {
+    try {
+      const rows = nhapList.map((item, idx) => ({
+        'STT': idx + 1,
+        'Ngày Nhận (Ngay)': item.ngay,
+        'Chủng Loại (ChungLoai)': item.chungLoai,
+        'Số Lượng (SL)': item.sl,
+        'Ghi Chú': item.ghiChu || '',
+        'Người Nhập': item.nguoiNhap || ''
+      }));
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'NhapDK963');
+      XLSX.writeFile(wb, `DanhSach_NhapDK963_${getTodayFormatted().replace(/\//g, '-')}.xlsx`);
+      showToast('success', 'Đã xuất file Excel danh sách đợt nhập!');
+    } catch (err: any) {
+      showToast('error', 'Lỗi xuất Excel: ' + (err?.message || 'Có sự cố'));
+    }
+  };
+
+  // 3. Xuất Excel danh sách chi tiết khách hàng drill-down
+  const handleExportDrillDownExcel = () => {
+    if (drillDownCustomers.length === 0) {
+      showToast('info', 'Không có khách hàng nào để xuất');
+      return;
+    }
+    try {
+      const rows = drillDownCustomers.map((c, idx) => ({
+        'STT': idx + 1,
+        'Mã KH': c.maKh,
+        'Tên Khách Hàng': c.tenKh,
+        'Địa Chỉ': c.diaChi,
+        'Khu Vực': c.kv,
+        'Đợt': c.dot,
+        'Số Pha (SO_PHA)': c.soPha || '',
+        'Nhóm Pha': c.phaseGroup,
+        'Chi Tiết': c.phaseDetail,
+        'Loại Công Tơ': c.loaiCto || '',
+        'Chủng Loại Cần Thay': c.chungLoaiCanThay || '',
+        'HSN': c.hsn || '',
+        'NV Thay': c.nv || '',
+        'Ngày Giờ Thay': c.ngayGio || '',
+        'Ngày Chuẩn Hóa': c.normDate,
+        'Kết Quả': c.ketQua || 'Xong'
+      }));
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'ChiTiet_KH_DaThay');
+      XLSX.writeFile(wb, `DS_KH_DaThay_${selectedDrillDown?.label || 'ChiTiet'}.xlsx`);
+      showToast('success', `Đã xuất ${rows.length} khách hàng ra file Excel!`);
+    } catch (err: any) {
+      showToast('error', 'Lỗi xuất Excel: ' + (err?.message || 'Có sự cố'));
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* ========================================================= */}
+      {/* HEADER QUẢN LÝ ĐIỆN KẾ */}
+      {/* ========================================================= */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-amber-600 text-white flex items-center justify-center shadow-sm shrink-0">
+            <Gauge className="w-5 h-5" />
+          </div>
+          <div>
+            <h2 className="text-base font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+              <span>Theo Dõi Nhập & Thay Điện Kế (QĐ 963)</span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-bold border border-amber-200">
+                Sheet: NhapDK963
+              </span>
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Theo dõi số lượng điện kế 1 Pha, 3 Pha đã nhận về kho và tiến độ đã thay xong trên lưới
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={handleReloadFromSheet}
+            disabled={isRefreshing}
+            className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            title="Đồng bộ dữ liệu đợt nhập mới nhất từ Google Sheets"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-amber-600' : ''}`} />
+            <span>{isRefreshing ? 'Đang đồng bộ...' : 'Đồng Bộ Sheet'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleExportDailyExcel}
+            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+            title="Xuất bảng thống kê theo ngày ra file Excel"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            <span>Xuất Báo Cáo Excel</span>
+          </button>
+        </div>
+      </div>
+
+      {/* ========================================================= */}
+      {/* 4 KHỐI KPI TỔNG HỢP TOÀN BỘ */}
+      {/* ========================================================= */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* KPI 1: TỔNG ĐÃ NHẬP */}
+        <div className="bg-gradient-to-br from-indigo-50 to-white rounded-2xl border border-indigo-200/80 p-4 shadow-xs relative overflow-hidden">
+          <div className="flex items-start justify-between">
+            <div>
+              <span className="text-[11px] font-bold text-indigo-700 uppercase tracking-wider block">
+                Tổng Điện Kế Đã Nhập
+              </span>
+              <div className="text-2xl font-black text-indigo-950 mt-1">
+                {kpiTotals.nhapTong.toLocaleString('vi-VN')} <span className="text-xs font-semibold text-slate-500">công tơ</span>
+              </div>
+            </div>
+            <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center">
+              <Package className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-3 pt-2.5 border-t border-indigo-100 text-[11px] space-y-1">
+            <div className="flex justify-between text-slate-600">
+              <span>• 1 Pha:</span>
+              <span className="font-bold text-slate-800">{kpiTotals.nhap1P.toLocaleString('vi-VN')}</span>
+            </div>
+            <div className="flex justify-between text-slate-600">
+              <span>• 3 Pha:</span>
+              <span className="font-bold text-slate-800">
+                {kpiTotals.nhap3P.toLocaleString('vi-VN')}{' '}
+                <span className="font-normal text-[10px] text-slate-500">
+                  (TT: {kpiTotals.nhap3PTT} | GT: {kpiTotals.nhap3PGT})
+                </span>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* KPI 2: TỔNG ĐÃ THAY XONG */}
+        <div className="bg-gradient-to-br from-emerald-50 to-white rounded-2xl border border-emerald-200/80 p-4 shadow-xs relative overflow-hidden">
+          <div className="flex items-start justify-between">
+            <div>
+              <span className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider block">
+                Tổng Đã Thay Xong (963)
+              </span>
+              <div className="text-2xl font-black text-emerald-950 mt-1">
+                {kpiTotals.thayTong.toLocaleString('vi-VN')} <span className="text-xs font-semibold text-slate-500">công tơ</span>
+              </div>
+            </div>
+            <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center">
+              <CheckCircle2 className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-3 pt-2.5 border-t border-emerald-100 text-[11px] space-y-1">
+            <div className="flex justify-between text-slate-600">
+              <span>• 1 Pha:</span>
+              <span className="font-bold text-slate-800">{kpiTotals.thay1P.toLocaleString('vi-VN')}</span>
+            </div>
+            <div className="flex justify-between text-slate-600">
+              <span>• 3 Pha:</span>
+              <span className="font-bold text-slate-800">
+                {kpiTotals.thay3P.toLocaleString('vi-VN')}{' '}
+                <span className="font-normal text-[10px] text-slate-500">
+                  (TT: {kpiTotals.thay3PTT} | GT: {kpiTotals.thay3PGT})
+                </span>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* KPI 3: TỶ LỆ HOÀN TẤT (%) */}
+        <div className="bg-gradient-to-br from-amber-50 to-white rounded-2xl border border-amber-200/80 p-4 shadow-xs relative overflow-hidden">
+          <div className="flex items-start justify-between">
+            <div>
+              <span className="text-[11px] font-bold text-amber-700 uppercase tracking-wider block">
+                Tỷ Lệ Đã Thay / Nhập
+              </span>
+              <div className="text-2xl font-black text-amber-950 mt-1">
+                {kpiTotals.tyLeTong}%
+              </div>
+            </div>
+            <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center">
+              <Zap className="w-4 h-4" />
+            </div>
+          </div>
+          {/* Progress Bar */}
+          <div className="w-full bg-slate-100 rounded-full h-2 mt-2 overflow-hidden border border-slate-200">
+            <div 
+              className="bg-amber-500 h-full rounded-full transition-all duration-500"
+              style={{ width: `${Math.min(100, Math.max(0, parseFloat(kpiTotals.tyLeTong) || 0))}%` }}
+            />
+          </div>
+          <div className="mt-2 text-[10px] flex justify-between text-slate-500 font-medium">
+            <span>1 Pha: <b>{kpiTotals.tyLe1P}%</b></span>
+            <span>3 Pha: <b>{kpiTotals.tyLe3P}%</b></span>
+          </div>
+        </div>
+
+        {/* KPI 4: TỒN CHƯA THAY */}
+        <div className="bg-gradient-to-br from-purple-50 to-white rounded-2xl border border-purple-200/80 p-4 shadow-xs relative overflow-hidden">
+          <div className="flex items-start justify-between">
+            <div>
+              <span className="text-[11px] font-bold text-purple-700 uppercase tracking-wider block">
+                Tồn Kho Chưa Thay
+              </span>
+              <div className="text-2xl font-black text-purple-950 mt-1">
+                {kpiTotals.tonTong.toLocaleString('vi-VN')} <span className="text-xs font-semibold text-slate-500">công tơ</span>
+              </div>
+            </div>
+            <div className="w-8 h-8 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center">
+              <Layers className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-3 pt-2.5 border-t border-purple-100 text-[11px] space-y-1">
+            <div className="flex justify-between text-slate-600">
+              <span>• 1 Pha tồn:</span>
+              <span className={`font-bold ${kpiTotals.ton1P < 0 ? 'text-rose-600' : 'text-slate-800'}`}>
+                {kpiTotals.ton1P.toLocaleString('vi-VN')}
+              </span>
+            </div>
+            <div className="flex justify-between text-slate-600">
+              <span>• 3 Pha tồn:</span>
+              <span className={`font-bold ${kpiTotals.ton3P < 0 ? 'text-rose-600' : 'text-slate-800'}`}>
+                {kpiTotals.ton3P.toLocaleString('vi-VN')}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ========================================================= */}
+      {/* KHỐI 1: FORM NHẬP THÊM SỐ LƯỢNG ĐIỆN KẾ (Sheet NhapDK963) */}
+      {/* ========================================================= */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+        <div className="p-4 bg-gradient-to-r from-amber-50 to-orange-50 border-b border-amber-200 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Plus className="w-4 h-4 text-amber-700" />
+            <h3 className="font-bold text-xs uppercase tracking-wider text-amber-950">
+              {editingId ? 'Chỉnh Sửa Đợt Nhập Điện Kế' : 'Nhập Thêm Số Lượng Điện Kế Đã Nhận (Lưu Sheet NhapDK963)'}
+            </h3>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowInputSection(!showInputSection)}
+            className="text-xs text-amber-900 font-semibold hover:underline flex items-center gap-1 cursor-pointer"
+          >
+            <span>{showInputSection ? 'Thu gọn' : 'Bung ra'}</span>
+            {showInputSection ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+
+        {showInputSection && (
+          <form onSubmit={handleSaveNhapEntry} className="p-4 sm:p-5 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* CỘT 1: NGÀY NHẬN */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                  <span className="flex items-center gap-1">
+                    <Calendar className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Ngày Nhận (dd/mm/yyyy):</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setFormNgay(getTodayFormatted())}
+                    className="text-[10px] text-amber-700 hover:underline font-semibold"
+                  >
+                    Hôm nay
+                  </button>
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={formNgay}
+                    onChange={(e) => setFormNgay(e.target.value)}
+                    placeholder="dd/mm/yyyy (ví dụ: 08/11/2026)"
+                    required
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-amber-500 text-xs font-semibold text-slate-800 bg-white"
+                  />
+                </div>
+                <p className="text-[10px] text-slate-400 italic">
+                  Mặc định là ngày hiện tại, có thể hiệu chỉnh theo ngày thực tế nhận điện kế.
+                </p>
+              </div>
+
+              {/* CỘT 2: CHỦNG LOẠI ĐIỆN KẾ */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                  <Gauge className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Chủng Loại Điện Kế:</span>
+                </label>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {(['1 Pha', '3 Pha Trực Tiếp', '3 Pha Gián Tiếp', '3 Pha'] as const).map((cl) => (
+                    <button
+                      key={cl}
+                      type="button"
+                      onClick={() => setFormChungLoai(cl)}
+                      className={`px-2.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer text-center ${
+                        formChungLoai === cl
+                          ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      {cl}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* CỘT 3: SỐ LƯỢNG (SL) */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                  <span className="flex items-center gap-1">
+                    <Hash className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Số Lượng Nhập (SL):</span>
+                  </span>
+                  <span className="text-[10px] text-slate-400">Đơn vị: công tơ</span>
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={formSl}
+                    onChange={(e) => setFormSl(e.target.value)}
+                    placeholder="Nhập số lượng (vd: 50, 100...)"
+                    required
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm font-black text-slate-900 bg-white"
+                  />
+                  {/* Nút cộng nhanh */}
+                  <div className="flex gap-1 shrink-0">
+                    {[10, 50, 100].map((inc) => (
+                      <button
+                        key={inc}
+                        type="button"
+                        onClick={() => {
+                          const cur = parseInt(formSl || '0', 10);
+                          setFormSl(String(cur + inc));
+                        }}
+                        className="px-2 py-2 bg-slate-100 hover:bg-amber-100 hover:text-amber-900 text-slate-700 rounded-lg text-xs font-bold border border-slate-200 cursor-pointer"
+                        title={`Thêm ${inc}`}
+                      >
+                        +{inc}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* HÀNG GHI CHÚ VÀ NÚT SUBMIT */}
+            <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
+              <input
+                type="text"
+                value={formGhiChu}
+                onChange={(e) => setFormGhiChu(e.target.value)}
+                placeholder="Ghi chú đợt nhận (tùy chọn: Đợt 1 từ kho Công ty, bổ sung thay đợt 2...)"
+                className="w-full sm:flex-1 px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 text-xs text-slate-700 bg-slate-50/50"
+              />
+
+              <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+                {editingId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingId(null);
+                      setFormSl('');
+                      setFormGhiChu('');
+                    }}
+                    className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-colors cursor-pointer"
+                  >
+                    Hủy sửa
+                  </button>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 active:scale-95 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>
+                    {isSubmitting 
+                      ? 'Đang lưu vào Sheet...' 
+                      : (editingId ? 'Cập Nhật Đợt Nhập' : 'Lưu Đợt Nhập Vào Sheet NhapDK963')}
+                  </span>
+                </button>
+              </div>
+            </div>
+          </form>
+        )}
+      </div>
+
+      {/* ========================================================= */}
+      {/* KHỐI 2: BẢNG DANH SÁCH CÁC ĐỢT NHẬP (Lịch Sử NhapDK963) */}
+      {/* ========================================================= */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+        <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+          <div className="flex items-center gap-2">
+            <Package className="w-4 h-4 text-slate-600" />
+            <span className="font-bold text-slate-800 uppercase tracking-tight">
+              Lịch Sử Các Đợt Nhận Điện Kế ({nhapList.length} đợt — Tổng {kpiTotals.nhapTong.toLocaleString('vi-VN')} công tơ)
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleExportNhapListExcel}
+              className="px-2.5 py-1 bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-300 rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+            >
+              <Download className="w-3 h-3" />
+              <span>Xuất Excel Đợt Nhập</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowNhapListTable(!showNhapListTable)}
+              className="text-xs text-slate-500 hover:text-slate-800 font-semibold flex items-center gap-1 cursor-pointer"
+            >
+              <span>{showNhapListTable ? 'Ẩn' : 'Hiện'}</span>
+              {showNhapListTable ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </button>
+          </div>
+        </div>
+
+        {showNhapListTable && (
+          <div className="overflow-x-auto max-h-[300px]">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="bg-slate-100 text-slate-600 font-bold sticky top-0 border-b border-slate-200 z-10 text-[11px]">
+                <tr>
+                  <th className="p-2.5 w-12 text-center">STT</th>
+                  <th className="p-2.5">Ngày Nhận (Ngay)</th>
+                  <th className="p-2.5">Chủng Loại (ChungLoai)</th>
+                  <th className="p-2.5 text-right">Số Lượng (SL)</th>
+                  <th className="p-2.5">Ghi Chú</th>
+                  <th className="p-2.5">Người Nhập</th>
+                  <th className="p-2.5 text-center w-24">Thao Tác</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {nhapList.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="p-6 text-center text-slate-400 italic">
+                      Chưa có dữ liệu đợt nhận điện kế nào trong sheet NhapDK963. Hãy nhập thêm ở biểu mẫu phía trên!
+                    </td>
+                  </tr>
+                ) : (
+                  nhapList.map((item, idx) => (
+                    <tr key={item.id || idx} className="hover:bg-amber-50/40 transition-colors">
+                      <td className="p-2.5 text-center text-slate-400 font-mono text-[11px]">{idx + 1}</td>
+                      <td className="p-2.5 font-bold text-slate-800 flex items-center gap-1.5">
+                        <Calendar className="w-3 h-3 text-amber-600" />
+                        <span>{item.ngay}</span>
+                      </td>
+                      <td className="p-2.5">
+                        <span className={`px-2 py-0.5 rounded-md font-bold text-[11px] border ${
+                          item.chungLoai.includes('1') 
+                            ? 'bg-blue-50 text-blue-700 border-blue-200' 
+                            : 'bg-purple-50 text-purple-700 border-purple-200'
+                        }`}>
+                          {item.chungLoai}
+                        </span>
+                      </td>
+                      <td className="p-2.5 text-right font-black text-slate-900 text-sm">
+                        {Number(item.sl).toLocaleString('vi-VN')}
+                      </td>
+                      <td className="p-2.5 text-slate-500 max-w-xs truncate" title={item.ghiChu}>
+                        {item.ghiChu || '-'}
+                      </td>
+                      <td className="p-2.5 text-slate-600 text-[11px]">
+                        {item.nguoiNhap || '-'}
+                      </td>
+                      <td className="p-2.5 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleEditEntry(item)}
+                            className="p-1 hover:bg-amber-100 rounded text-amber-700 transition-colors cursor-pointer"
+                            title="Sửa đợt nhập"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteEntry(item.id, item.ngay, item.chungLoai, item.sl)}
+                            className="p-1 hover:bg-rose-100 rounded text-rose-600 transition-colors cursor-pointer"
+                            title="Xóa đợt nhập"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ========================================================= */}
+      {/* KHỐI 3: BẢNG BÁO CÁO THỐNG KÊ ĐÃ NHẬP & ĐÃ THAY XONG THEO NGÀY */}
+      {/* ========================================================= */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-4">
+        {/* Tiêu đề & Bộ lọc */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center text-amber-700 font-bold">
+              <Zap className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="font-bold text-sm text-slate-800 uppercase tracking-tight">
+                Bảng Thống Kê Số Lượng & Tỷ Lệ % Đã Nhập & Đã Thay Xong Theo Ngày
+              </h3>
+              <p className="text-[11px] text-slate-500">
+                So khớp số lượng nhập (Sheet NhapDK963) và số lượng đã thay xong (Sheet 963 — cột SO_PHA & NgayGio)
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Presets */}
+            <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs">
+              {(
+                [
+                  { id: 'all', label: 'Tất cả' },
+                  { id: 'today', label: 'Hôm nay' },
+                  { id: '7days', label: '7 ngày qua' },
+                  { id: '30days', label: '30 ngày' }
+                ] as const
+              ).map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setDateRangePreset(p.id)}
+                  className={`px-2.5 py-1 rounded-md font-bold transition-all cursor-pointer ${
+                    dateRangePreset === p.id
+                      ? 'bg-white text-amber-950 shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Tìm kiếm ngày */}
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchDailyText}
+                onChange={(e) => setSearchDailyText(e.target.value)}
+                placeholder="Tìm ngày (vd: 08/11)..."
+                className="pl-8 pr-3 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-amber-500 w-36"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Bảng dữ liệu theo ngày */}
+        <div className="overflow-x-auto rounded-xl border border-slate-200">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              {/* Header Tầng 1: Nhóm cột */}
+              <tr className="bg-slate-800 text-white font-bold text-center text-[11px]">
+                <th rowSpan={2} className="p-2.5 border-r border-slate-700 w-12">STT</th>
+                <th rowSpan={2} className="p-2.5 border-r border-slate-700 min-w-[110px]">Ngày Thực Hiện</th>
+                <th colSpan={3} className="p-2 border-r border-slate-700 bg-blue-950 text-blue-100">
+                  ĐIỆN KẾ 1 PHA (SO_PHA = 1)
+                </th>
+                <th colSpan={3} className="p-2 border-r border-slate-700 bg-purple-950 text-purple-100">
+                  ĐIỆN KẾ 3 PHA (SO_PHA = 3)
+                </th>
+                <th colSpan={3} className="p-2 border-r border-slate-700 bg-amber-950 text-amber-100">
+                  TỔNG CỘNG TRONG NGÀY
+                </th>
+                <th rowSpan={2} className="p-2.5 border-r border-slate-700 min-w-[90px] bg-slate-900">
+                  Tồn Luỹ Kế
+                </th>
+                <th rowSpan={2} className="p-2.5 text-center w-28">
+                  Xem Chi Tiết
+                </th>
+              </tr>
+              {/* Header Tầng 2: Chi tiết từng nhóm */}
+              <tr className="bg-slate-100 text-slate-700 font-bold text-[10px] uppercase tracking-wider text-center border-b border-slate-300">
+                {/* 1 Pha */}
+                <th className="p-2 border-r border-slate-200 text-right bg-blue-50/70">Đã Nhập</th>
+                <th className="p-2 border-r border-slate-200 text-right bg-blue-50/70">Đã Thay</th>
+                <th className="p-2 border-r border-slate-200 bg-blue-50/70">% Hoàn Tất</th>
+                {/* 3 Pha */}
+                <th className="p-2 border-r border-slate-200 text-right bg-purple-50/70">Đã Nhập</th>
+                <th className="p-2 border-r border-slate-200 text-right bg-purple-50/70">Đã Thay</th>
+                <th className="p-2 border-r border-slate-200 bg-purple-50/70">% Hoàn Tất</th>
+                {/* Tổng ngày */}
+                <th className="p-2 border-r border-slate-200 text-right bg-amber-50/70">Tổng Nhập</th>
+                <th className="p-2 border-r border-slate-200 text-right bg-amber-50/70">Tổng Thay</th>
+                <th className="p-2 border-r border-slate-200 bg-amber-50/70">% Ngày</th>
+              </tr>
+            </thead>
+
+            <tbody className="divide-y divide-slate-100 text-slate-700">
+              {filteredDailyStats.length === 0 ? (
+                <tr>
+                  <td colSpan={13} className="p-8 text-center text-slate-400 italic">
+                    Không tìm thấy dữ liệu thống kê nào phù hợp với bộ lọc ngày hiện tại.
+                  </td>
+                </tr>
+              ) : (
+                filteredDailyStats.map((row, idx) => (
+                  <tr 
+                    key={row.date} 
+                    className={`transition-colors hover:bg-amber-50/50 ${
+                      selectedDrillDown?.date === row.date ? 'bg-amber-100/60 font-semibold' : ''
+                    }`}
+                  >
+                    <td className="p-2.5 text-center text-slate-400 font-mono text-[11px] border-r border-slate-100">
+                      {idx + 1}
+                    </td>
+                    <td className="p-2.5 font-bold text-slate-800 border-r border-slate-100 whitespace-nowrap">
+                      {row.date}
+                    </td>
+
+                    {/* 1 Pha */}
+                    <td className="p-2.5 text-right font-semibold text-slate-700 border-r border-slate-100 bg-blue-50/20">
+                      {row.nhap1P > 0 ? row.nhap1P.toLocaleString('vi-VN') : '-'}
+                    </td>
+                    <td className="p-2.5 text-right font-bold text-emerald-700 border-r border-slate-100 bg-blue-50/20">
+                      {row.thay1P > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedDrillDown({
+                            date: row.date,
+                            soPha: '1 Pha',
+                            label: `1 Pha ngày ${row.date}`
+                          })}
+                          className="hover:underline font-black text-emerald-700 cursor-pointer"
+                          title="Bấm để xem danh sách khách hàng 1 Pha đã thay ngày này"
+                        >
+                          {row.thay1P.toLocaleString('vi-VN')}
+                        </button>
+                      ) : '-'}
+                    </td>
+                    <td className="p-2.5 text-center font-bold text-slate-600 border-r border-slate-100 bg-blue-50/20">
+                      {row.tyLe1P !== '-' ? (
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] ${
+                          parseFloat(row.tyLe1P) >= 100 
+                            ? 'bg-emerald-100 text-emerald-800' 
+                            : 'bg-slate-100 text-slate-700'
+                        }`}>
+                          {row.tyLe1P}%
+                        </span>
+                      ) : '-'}
+                    </td>
+
+                    {/* 3 Pha */}
+                    <td className="p-2.5 text-right font-semibold text-slate-700 border-r border-slate-100 bg-purple-50/20">
+                      {row.nhap3P > 0 ? (
+                        <span title={`TT: ${row.nhap3PTT} | GT: ${row.nhap3PGT}`}>
+                          {row.nhap3P.toLocaleString('vi-VN')}
+                        </span>
+                      ) : '-'}
+                    </td>
+                    <td className="p-2.5 text-right font-bold text-emerald-700 border-r border-slate-100 bg-purple-50/20">
+                      {row.thay3P > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedDrillDown({
+                            date: row.date,
+                            soPha: '3 Pha',
+                            label: `3 Pha ngày ${row.date}`
+                          })}
+                          className="hover:underline font-black text-emerald-700 cursor-pointer"
+                          title="Bấm để xem danh sách khách hàng 3 Pha đã thay ngày này"
+                        >
+                          {row.thay3P.toLocaleString('vi-VN')}
+                        </button>
+                      ) : '-'}
+                    </td>
+                    <td className="p-2.5 text-center font-bold text-slate-600 border-r border-slate-100 bg-purple-50/20">
+                      {row.tyLe3P !== '-' ? (
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] ${
+                          parseFloat(row.tyLe3P) >= 100 
+                            ? 'bg-emerald-100 text-emerald-800' 
+                            : 'bg-slate-100 text-slate-700'
+                        }`}>
+                          {row.tyLe3P}%
+                        </span>
+                      ) : '-'}
+                    </td>
+
+                    {/* Tổng ngày */}
+                    <td className="p-2.5 text-right font-black text-slate-800 border-r border-slate-100 bg-amber-50/20">
+                      {row.nhapTong > 0 ? row.nhapTong.toLocaleString('vi-VN') : '-'}
+                    </td>
+                    <td className="p-2.5 text-right font-black text-emerald-800 border-r border-slate-100 bg-amber-50/20">
+                      {row.thayTong > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedDrillDown({
+                            date: row.date,
+                            soPha: 'all',
+                            label: `tất cả công tơ ngày ${row.date}`
+                          })}
+                          className="hover:underline cursor-pointer"
+                          title="Bấm để xem danh sách khách hàng đã thay trong ngày này"
+                        >
+                          {row.thayTong.toLocaleString('vi-VN')}
+                        </button>
+                      ) : '-'}
+                    </td>
+                    <td className="p-2.5 text-center font-black border-r border-slate-100 bg-amber-50/20">
+                      {row.tyLeTong !== '-' ? (
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                          parseFloat(row.tyLeTong) >= 100 
+                            ? 'bg-emerald-100 text-emerald-800' 
+                            : 'bg-amber-100 text-amber-800'
+                        }`}>
+                          {row.tyLeTong}%
+                        </span>
+                      ) : '-'}
+                    </td>
+
+                    {/* Tồn luỹ kế */}
+                    <td className={`p-2.5 text-right font-black border-r border-slate-100 ${
+                      row.tonLuyKe < 0 ? 'text-rose-600' : 'text-slate-800'
+                    }`}>
+                      {row.tonLuyKe.toLocaleString('vi-VN')}
+                    </td>
+
+                    {/* Thao tác xem chi tiết */}
+                    <td className="p-2.5 text-center">
+                      {row.thayTong > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedDrillDown({
+                            date: row.date,
+                            soPha: 'all',
+                            label: `ngày ${row.date}`
+                          })}
+                          className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-[10px] rounded-md transition-colors cursor-pointer border border-indigo-200"
+                        >
+                          Xem {row.thayTong} KH
+                        </button>
+                      ) : (
+                        <span className="text-[10px] text-slate-300">-</span>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+
+            {/* Dòng Tổng Cộng Footer */}
+            {filteredDailyStats.length > 0 && (
+              <tfoot className="bg-slate-900 text-white font-bold text-xs">
+                <tr>
+                  <td colSpan={2} className="p-3 text-center uppercase tracking-wide border-r border-slate-700">
+                    TỔNG CỘNG ({filteredDailyStats.length} Ngày)
+                  </td>
+                  {/* 1 Pha */}
+                  <td className="p-3 text-right border-r border-slate-700 font-black">
+                    {filteredDailyStats.reduce((s, r) => s + r.nhap1P, 0).toLocaleString('vi-VN')}
+                  </td>
+                  <td className="p-3 text-right border-r border-slate-700 font-black text-emerald-400">
+                    {filteredDailyStats.reduce((s, r) => s + r.thay1P, 0).toLocaleString('vi-VN')}
+                  </td>
+                  <td className="p-3 text-center border-r border-slate-700 font-bold text-amber-300">
+                    {kpiTotals.tyLe1P}%
+                  </td>
+                  {/* 3 Pha */}
+                  <td className="p-3 text-right border-r border-slate-700 font-black">
+                    {filteredDailyStats.reduce((s, r) => s + r.nhap3P, 0).toLocaleString('vi-VN')}
+                  </td>
+                  <td className="p-3 text-right border-r border-slate-700 font-black text-emerald-400">
+                    {filteredDailyStats.reduce((s, r) => s + r.thay3P, 0).toLocaleString('vi-VN')}
+                  </td>
+                  <td className="p-3 text-center border-r border-slate-700 font-bold text-amber-300">
+                    {kpiTotals.tyLe3P}%
+                  </td>
+                  {/* Tổng Ngày */}
+                  <td className="p-3 text-right border-r border-slate-700 font-black text-amber-300 text-sm">
+                    {filteredDailyStats.reduce((s, r) => s + r.nhapTong, 0).toLocaleString('vi-VN')}
+                  </td>
+                  <td className="p-3 text-right border-r border-slate-700 font-black text-emerald-300 text-sm">
+                    {filteredDailyStats.reduce((s, r) => s + r.thayTong, 0).toLocaleString('vi-VN')}
+                  </td>
+                  <td className="p-3 text-center border-r border-slate-700 font-black text-amber-300">
+                    {kpiTotals.tyLeTong}%
+                  </td>
+                  {/* Tồn */}
+                  <td className="p-3 text-right border-r border-slate-700 font-black text-purple-300">
+                    {kpiTotals.tonTong.toLocaleString('vi-VN')}
+                  </td>
+                  <td className="p-3 text-center">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedDrillDown({
+                        date: undefined,
+                        soPha: 'all',
+                        label: 'toàn bộ khách hàng đã thay xong'
+                      })}
+                      className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[10px] rounded-md transition-all cursor-pointer"
+                    >
+                      Xem Tất Cả
+                    </button>
+                  </td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      </div>
+
+      {/* ========================================================= */}
+      {/* KHỐI 4: BẢNG DANH SÁCH CHI TIẾT KHÁCH HÀNG ĐÃ THAY XONG (DRILL-DOWN) */}
+      {/* ========================================================= */}
+      {selectedDrillDown && (
+        <div className="bg-white rounded-2xl border-2 border-indigo-300 shadow-md p-4 space-y-3 animate-in fade-in duration-200">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-indigo-100 pb-2">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold">
+                <CheckCircle2 className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="font-bold text-xs uppercase tracking-wide text-indigo-950">
+                  Danh Sách Khách Hàng Đã Thay Xong — {selectedDrillDown.label}
+                </h4>
+                <p className="text-[11px] text-slate-500">
+                  Số lượng: <b>{drillDownCustomers.length}</b> khách hàng
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleExportDrillDownExcel}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs transition-colors flex items-center gap-1 cursor-pointer shadow-xs"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Xuất Excel ({drillDownCustomers.length} KH)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSelectedDrillDown(null)}
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-xs transition-colors flex items-center gap-1 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Đóng bảng</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto max-h-[350px] rounded-xl border border-slate-200">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="bg-slate-100 text-slate-700 font-bold sticky top-0 border-b border-slate-200 z-10 text-[11px]">
+                <tr>
+                  <th className="p-2.5 w-12 text-center">STT</th>
+                  <th className="p-2.5">Mã KH</th>
+                  <th className="p-2.5">Tên Khách Hàng</th>
+                  <th className="p-2.5">Địa Chỉ</th>
+                  <th className="p-2.5 text-center">KV</th>
+                  <th className="p-2.5 text-center">Đợt</th>
+                  <th className="p-2.5 text-center">Số Pha</th>
+                  <th className="p-2.5">Chủng Loại Cần Thay</th>
+                  <th className="p-2.5 text-center">HSN</th>
+                  <th className="p-2.5">Người Thay</th>
+                  <th className="p-2.5">Ngày Giờ Thay</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {drillDownCustomers.length === 0 ? (
+                  <tr>
+                    <td colSpan={11} className="p-6 text-center text-slate-400 italic">
+                      Không có khách hàng nào trong nhóm này.
+                    </td>
+                  </tr>
+                ) : (
+                  drillDownCustomers.map((c, idx) => (
+                    <tr key={c.maKh || idx} className="hover:bg-indigo-50/40 transition-colors">
+                      <td className="p-2 text-center text-slate-400 font-mono text-[11px]">{idx + 1}</td>
+                      <td className="p-2 font-mono font-bold text-indigo-700">{c.maKh}</td>
+                      <td className="p-2 font-bold text-slate-800">{c.tenKh}</td>
+                      <td className="p-2 text-slate-500 max-w-xs truncate" title={c.diaChi}>{c.diaChi}</td>
+                      <td className="p-2 text-center font-bold text-slate-600">{c.kv}</td>
+                      <td className="p-2 text-center font-bold text-amber-700">Đ{c.dot}</td>
+                      <td className="p-2 text-center">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          c.phaseGroup === '1 Pha' 
+                            ? 'bg-blue-100 text-blue-800' 
+                            : 'bg-purple-100 text-purple-800'
+                        }`}>
+                          {c.phaseGroup}
+                        </span>
+                      </td>
+                      <td className="p-2 font-bold text-slate-700">{c.chungLoaiCanThay || c.loaiCto || '-'}</td>
+                      <td className="p-2 text-center font-mono font-semibold">{c.hsn || 1}</td>
+                      <td className="p-2 text-slate-700 font-medium">{c.nv || '-'}</td>
+                      <td className="p-2 text-slate-600 font-mono text-[11px]">{c.ngayGio || '-'}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

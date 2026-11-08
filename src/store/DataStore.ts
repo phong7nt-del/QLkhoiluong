@@ -161,6 +161,17 @@ export interface Local963Update {
   synced: boolean;
 }
 
+export interface NhapDk963Entry {
+  id: string;
+  ngay: string; // dd/mm/yyyy
+  chungLoai: '1 Pha' | '3 Pha Trực Tiếp' | '3 Pha Gián Tiếp' | '3 Pha' | string;
+  sl: number;
+  ghiChu?: string;
+  nguoiNhap?: string;
+  timestamp?: number;
+  isLocal?: boolean;
+}
+
 export const parseHsn = (tySoTi?: string): number => {
   if (!tySoTi) return 1;
   const s = String(tySoTi).trim();
@@ -531,6 +542,7 @@ const TI_NAM_KEY = 'sheet_ti_nam_v1';
 const ALLOW_CUSTOM_NGAY_HOAN_TAT_DVKH_KEY = 'config_allow_custom_ngay_hoan_tat_dvkh_v1';
 const SHEET_963_KEY = 'sheet_963_v1';
 const LOCAL_963_UPDATES_KEY = 'local_963_updates_v1';
+const SHEET_NHAP_DK_963_KEY = 'sheet_nhap_dk_963_v1';
 
 let memCacheQuaHanList: QuaHanEntry[] | null = null;
 let memCacheQuaHanNamList: QuaHanEntry[] | null = null;
@@ -543,6 +555,7 @@ let memCacheDvkhUpdatesMap: Record<string, LocalDvkhUpdate> | null = null;
 let memCacheDeletedDvkhKeys: Set<string> | null = null;
 let memCache963List: Entry963[] | null = null;
 let memCache963UpdatesMap: Record<string, Local963Update> | null = null;
+let memCacheNhapDk963List: NhapDk963Entry[] | null = null;
 let memCacheKhuVucList: any[] | null = null;
 let memCacheMatKetNoiList: any[] | null = null;
 let memCacheChiTietMKNList: any[] | null = null;
@@ -737,6 +750,16 @@ export const initDB = async () => {
     } catch (e) {
       console.warn('Could not preload 963 from IDB', e);
     }
+    try {
+      const ndkVal = await get(SHEET_NHAP_DK_963_KEY);
+      if (ndkVal) {
+        let parsed = typeof ndkVal === 'string' ? JSON.parse(ndkVal) : ndkVal;
+        if (Array.isArray(parsed)) {
+          memCacheNhapDk963List = parsed;
+          safeSetItem(SHEET_NHAP_DK_963_KEY, JSON.stringify(parsed));
+        }
+      }
+    } catch (e) {}
     try {
       const mknVal = await get('sheet_matketnoi_v1');
       if (mknVal) {
@@ -3142,6 +3165,13 @@ export const DataStore = {
                DataStore.fetch963Data().catch(() => {});
             } catch(e) {
                console.warn('Could not fetch 963 sheet:', e);
+            }
+
+            // Fetch NhapDK963 (Số lượng điện kế nhập)
+            try {
+               DataStore.fetchNhapDk963Data().catch(() => {});
+            } catch(e) {
+               console.warn('Could not fetch NhapDK963 sheet:', e);
             }
 
             // Fetch QuaHan
@@ -7211,6 +7241,290 @@ export const DataStore = {
     } catch (e: any) {
       console.warn('Lỗi khi đồng bộ sheet 963:', e);
       return { success: false, error: e?.message || 'Lỗi mạng khi đồng bộ sheet 963' };
+    }
+  },
+
+  // ======== QUẢN LÝ NHẬP ĐIỆN KẾ (SHEET NhapDK963) ========
+  getNhapDk963Entries: (): NhapDk963Entry[] => {
+    if (memCacheNhapDk963List) return memCacheNhapDk963List;
+    try {
+      const local = safeGetItem(SHEET_NHAP_DK_963_KEY);
+      if (local) {
+        const parsed = JSON.parse(local);
+        if (Array.isArray(parsed)) {
+          memCacheNhapDk963List = parsed;
+          return memCacheNhapDk963List;
+        }
+      }
+    } catch (e) {}
+    return [];
+  },
+
+  saveNhapDk963Entries: (entries: NhapDk963Entry[]) => {
+    memCacheNhapDk963List = entries;
+    try {
+      safeSetItem(SHEET_NHAP_DK_963_KEY, JSON.stringify(entries));
+      set(SHEET_NHAP_DK_963_KEY, entries).catch(() => {});
+    } catch (e) {
+      console.warn('Could not persist NhapDK963:', e);
+    }
+  },
+
+  parseNhapDk963CSVData: (input: string | any[]): NhapDk963Entry[] => {
+    try {
+      let rows: any[] = [];
+      if (typeof input === 'string') {
+        const res = Papa.parse(input, { header: true, skipEmptyLines: true });
+        rows = (res.data as any[]) || [];
+      } else if (Array.isArray(input)) {
+        if (input.length > 1 && Array.isArray(input[0])) {
+          const headers = (input[0] as any[]).map(h => String(h || '').trim());
+          for (let r = 1; r < input.length; r++) {
+            const rowObj: Record<string, any> = {};
+            for (let c = 0; c < headers.length; c++) {
+              rowObj[headers[c]] = input[r][c];
+            }
+            rows.push(rowObj);
+          }
+        } else {
+          rows = input;
+        }
+      }
+
+      if (rows.length === 0) return [];
+
+      const normalizeCol = (s: string) =>
+        s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[^a-z0-9]/g, '');
+
+      const sample = rows[0] || {};
+      const keys = Object.keys(sample);
+
+      const findKey = (aliases: string[]) => {
+        return keys.find(k => {
+          const n = normalizeCol(k);
+          return aliases.some(a => {
+            const na = normalizeCol(a);
+            return n === na || n.includes(na);
+          });
+        });
+      };
+
+      const kNgay = findKey(['ngay', 'ngaynhap', 'ngay_nhap', 'ngaynhan', 'ngay_nhan', 'date']);
+      const kChungLoai = findKey(['chungloai', 'chung_loai', 'loaidienke', 'loai_cto', 'loai_dienke', 'cloai', 'chungloaicanthay']);
+      const kSl = findKey(['sl', 'soluong', 'so_luong', 'slnhap', 'soluongnhap', 'quantity', 'count']);
+      const kGhiChu = findKey(['ghichu', 'ghi_chu', 'note', 'noidung']);
+      const kNguoiNhap = findKey(['nguoinhap', 'nguoi_nhap', 'nv', 'nhanvien', 'user']);
+      const kId = findKey(['id', 'stt', 'ma']);
+
+      const result: NhapDk963Entry[] = [];
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        let ngayVal = kNgay ? String(r[kNgay] || '').trim() : '';
+        let chungLoaiVal = kChungLoai ? String(r[kChungLoai] || '').trim() : '';
+        const slRaw = kSl ? r[kSl] : 0;
+        const slVal = Math.max(0, parseInt(String(slRaw).replace(/[^0-9]/g, ''), 10) || 0);
+
+        if (!ngayVal && !chungLoaiVal && slVal === 0) continue;
+
+        // Normalize date to dd/mm/yyyy
+        if (ngayVal.includes('-')) {
+          const parts = ngayVal.split('T')[0].split('-');
+          if (parts.length === 3 && parts[0].length === 4) {
+            ngayVal = `${parts[2].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[0]}`;
+          }
+        }
+
+        // Normalize chungLoai
+        const clNorm = chungLoaiVal.toLowerCase();
+        let normalizedCl = chungLoaiVal || '1 Pha';
+        if (clNorm.includes('1') || clNorm.includes('1 pha') || clNorm === '1p') {
+          normalizedCl = '1 Pha';
+        } else if (clNorm.includes('gián tiếp') || clNorm.includes('gian tiep') || clNorm.includes('gt')) {
+          normalizedCl = '3 Pha Gián Tiếp';
+        } else if (clNorm.includes('trực tiếp') || clNorm.includes('truc tiep') || clNorm.includes('tt')) {
+          normalizedCl = '3 Pha Trực Tiếp';
+        } else if (clNorm.includes('3') || clNorm.includes('3 pha') || clNorm === '3p') {
+          normalizedCl = '3 Pha';
+        }
+
+        const idVal = kId && r[kId] ? String(r[kId]).trim() : `ndk_${Date.now()}_${i}`;
+
+        result.push({
+          id: idVal,
+          ngay: ngayVal,
+          chungLoai: normalizedCl,
+          sl: slVal,
+          ghiChu: kGhiChu ? String(r[kGhiChu] || '').trim() : '',
+          nguoiNhap: kNguoiNhap ? String(r[kNguoiNhap] || '').trim() : '',
+          timestamp: Date.now() - (rows.length - i) * 1000,
+          isLocal: false
+        });
+      }
+
+      return result;
+    } catch (e) {
+      console.warn('Lỗi khi parse NhapDK963 CSV:', e);
+      return [];
+    }
+  },
+
+  fetchNhapDk963Data: async (forceRefresh?: boolean): Promise<NhapDk963Entry[]> => {
+    try {
+      const sheetId = DataStore.getSpreadsheetId() || DEFAULT_SPREADSHEET_ID;
+      const possibleNames = ['NhapDK963', 'nhapdk963', 'Nhap_DK_963', 'NhapDK_963', 'Nhập ĐK 963', 'NhapDK'];
+      let csvText = '';
+      for (const name of possibleNames) {
+        const text = await DataStore.fetchSheetCSV(name, sheetId);
+        if (text && !text.includes('<html') && text.trim().length > 15) {
+          csvText = text;
+          break;
+        }
+      }
+
+      if (csvText) {
+        const parsed = DataStore.parseNhapDk963CSVData(csvText);
+        if (parsed.length > 0) {
+          const current = DataStore.getNhapDk963Entries();
+          const localOnly = current.filter(c => c.isLocal && !parsed.some(p => p.id === c.id));
+          const merged = [...parsed, ...localOnly];
+          DataStore.saveNhapDk963Entries(merged);
+          window.dispatchEvent(new CustomEvent('nhap_dk_963_updated'));
+          return merged;
+        }
+      }
+    } catch (e) {
+      console.warn('Lỗi khi fetch sheet NhapDK963:', e);
+    }
+    return DataStore.getNhapDk963Entries();
+  },
+
+  addNhapDk963Entry: async (
+    entry: Omit<NhapDk963Entry, 'id' | 'timestamp'>
+  ): Promise<{ success: boolean; entry: NhapDk963Entry; error?: string }> => {
+    const list = [...DataStore.getNhapDk963Entries()];
+    const newEntry: NhapDk963Entry = {
+      ...entry,
+      id: 'ndk_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+      timestamp: Date.now(),
+      isLocal: true
+    };
+    list.unshift(newEntry);
+    DataStore.saveNhapDk963Entries(list);
+    window.dispatchEvent(new CustomEvent('nhap_dk_963_updated'));
+
+    // Đồng bộ lên Google Sheets
+    const syncRes = await DataStore.syncNhapDk963ToSheet(list);
+    if (syncRes.success) {
+      newEntry.isLocal = false;
+      DataStore.saveNhapDk963Entries(list);
+    }
+
+    return {
+      success: true,
+      entry: newEntry,
+      error: syncRes.success ? undefined : syncRes.error
+    };
+  },
+
+  updateNhapDk963Entry: async (
+    id: string,
+    updates: Partial<NhapDk963Entry>
+  ): Promise<{ success: boolean; error?: string }> => {
+    const list = [...DataStore.getNhapDk963Entries()];
+    const idx = list.findIndex(e => e.id === id);
+    if (idx === -1) {
+      return { success: false, error: 'Không tìm thấy bản ghi nhập điện kế cần sửa' };
+    }
+    list[idx] = { ...list[idx], ...updates, isLocal: true };
+    DataStore.saveNhapDk963Entries(list);
+    window.dispatchEvent(new CustomEvent('nhap_dk_963_updated'));
+
+    const syncRes = await DataStore.syncNhapDk963ToSheet(list);
+    if (syncRes.success) {
+      list[idx].isLocal = false;
+      DataStore.saveNhapDk963Entries(list);
+    }
+    return { success: true, error: syncRes.success ? undefined : syncRes.error };
+  },
+
+  deleteNhapDk963Entry: async (
+    id: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    let list = [...DataStore.getNhapDk963Entries()];
+    list = list.filter(e => e.id !== id);
+    DataStore.saveNhapDk963Entries(list);
+    window.dispatchEvent(new CustomEvent('nhap_dk_963_updated'));
+
+    const syncRes = await DataStore.syncNhapDk963ToSheet(list);
+    return { success: true, error: syncRes.success ? undefined : syncRes.error };
+  },
+
+  syncNhapDk963ToSheet: async (
+    items: NhapDk963Entry[]
+  ): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const payload = {
+        action: 'save_nhap_dk_963',
+        sheetName: 'NhapDK963',
+        items: items.map(it => ({
+          Ngay: it.ngay,
+          ngay: it.ngay,
+          ChungLoai: it.chungLoai,
+          chungLoai: it.chungLoai,
+          SL: it.sl,
+          sl: it.sl,
+          GhiChu: it.ghiChu || '',
+          ghiChu: it.ghiChu || '',
+          NguoiNhap: it.nguoiNhap || '',
+          nguoiNhap: it.nguoiNhap || '',
+          Id: it.id,
+          id: it.id
+        }))
+      };
+
+      let lastError = '';
+      try {
+        const proxyRes = await fetch('/api/proxy/apps-script', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...payload,
+            _targetUrl: DataStore.getAppScriptUrl()
+          })
+        });
+        if (proxyRes.ok) {
+          const resJson = await proxyRes.json().catch(() => null);
+          if (resJson && resJson.status === 'success') {
+            return { success: true };
+          }
+          if (resJson && resJson.message) lastError = resJson.message;
+        }
+      } catch (err: any) {
+        lastError = err?.message || 'Lỗi proxy';
+      }
+
+      // Fallback direct
+      const url = DataStore.getAppScriptUrl();
+      if (!url || !url.startsWith('http')) {
+        return { success: true };
+      }
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload)
+      });
+      const rawText = await response.text().catch(() => '');
+      try {
+        const directJson = JSON.parse(rawText);
+        if (directJson.status === 'success') return { success: true };
+        return { success: false, error: directJson.message || 'Không thành công' };
+      } catch {
+        if (response.ok && !rawText.includes('Unknown action')) return { success: true };
+        return { success: false, error: rawText || lastError };
+      }
+    } catch (e: any) {
+      console.warn('Lỗi đồng bộ NhapDK963:', e);
+      return { success: false, error: e?.message };
     }
   }
 

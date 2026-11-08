@@ -10,6 +10,7 @@ import {
   Sun, ClipboardCheck, CheckCheck, Phone, Download, Upload, FileUp
 } from 'lucide-react';
 import { SCRIPT_TEMPLATE } from './ConfigModal';
+import Tab963DienKe from './Tab963DienKe';
 import { 
   DataStore, 
   Entry963, 
@@ -51,7 +52,7 @@ interface Tab963Props {
 }
 
 export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) {
-  const [activeSubTab, setActiveSubTab] = useState<'thuc_hien' | 'bao_cao'>('thuc_hien');
+  const [activeSubTab, setActiveSubTab] = useState<'thuc_hien' | 'bao_cao' | 'dien_ke'>('thuc_hien');
   const [entries, setEntries] = useState<Entry963[]>(() => DataStore.get963Entries());
   const [isLoading, setIsLoading] = useState(false);
   const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
@@ -1932,6 +1933,19 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
             >
               <BarChart3 className="w-3.5 h-3.5" />
               <span>Tab 2: Báo Cáo</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('dien_ke')}
+              className={`flex items-center gap-1.5 px-3 sm:px-4 py-1.5 rounded-lg font-bold text-xs transition-all cursor-pointer ${
+                activeSubTab === 'dien_ke'
+                  ? 'bg-amber-400 text-amber-950 shadow-sm'
+                  : 'text-amber-100 hover:text-white hover:bg-white/10'
+              }`}
+            >
+              <Gauge className="w-3.5 h-3.5" />
+              <span>Tab 3: Điện Kế</span>
             </button>
           </div>
 
@@ -5669,6 +5683,18 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
             )}
           </div>
         </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* SUB-TAB 3: ĐIỆN KẾ (THEO DÕI NHẬP & THAY ĐIỆN KẾ QĐ 963) */}
+      {/* ========================================================= */}
+      {activeSubTab === 'dien_ke' && (
+        <Tab963DienKe
+          entries963={entries}
+          sessionUser={sessionUser}
+          onRefreshData={() => refreshData(true)}
+          showToast={showToast}
+        />
       )}
 
       {/* MODAL HƯỚNG DẪN & SAO CHÉP MÃ GOOGLE APPS SCRIPT CHO SHEET 963 */}

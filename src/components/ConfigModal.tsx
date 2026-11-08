@@ -422,6 +422,14 @@ function doGet(e) {
       var all963Vals = sheet963.getDataRange().getValues();
       return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: all963Vals })).setMimeType(ContentService.MimeType.JSON);
     }
+
+    if (e.parameter.action === 'get_nhap_dk_963') {
+      var ssDk = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
+      var sheetDk = getSheetFlexibly(ssDk, ['NhapDK963', 'nhapdk963', 'Nhap_DK_963', 'NhapDK_963', 'Nhập ĐK 963']);
+      if (!sheetDk) return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: [] })).setMimeType(ContentService.MimeType.JSON);
+      var allDkVals = sheetDk.getDataRange().getValues();
+      return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: allDkVals })).setMimeType(ContentService.MimeType.JSON);
+    }
   } catch (err) {
     return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: err.toString() })).setMimeType(ContentService.MimeType.JSON);
   }
@@ -3247,6 +3255,41 @@ function doPost(e) {
         status: "success", 
         updatedCount: updatedCount, 
         message: "Đã cập nhật " + updatedCount + " khách hàng vào sheet 963" 
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // ======== XỬ LÝ LƯU & CẬP NHẬT NHẬP ĐIỆN KẾ (SHEET NhapDK963) ========
+    if (action === 'save_nhap_dk_963') {
+      var data = payload.items || payload.data || payload;
+      var items = Array.isArray(data) ? data : [data];
+      var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
+      var sheet = getSheetFlexibly(ss, ['NhapDK963', 'nhapdk963', 'Nhap_DK_963', 'NhapDK_963', 'Nhập ĐK 963']);
+      if (!sheet) {
+        sheet = ss.insertSheet('NhapDK963');
+        sheet.appendRow(['Ngay', 'ChungLoai', 'SL', 'GhiChu', 'NguoiNhap', 'Id']);
+        sheet.getRange(1, 1, 1, 6).setFontWeight('bold').setBackground('#E2E8F0');
+      }
+      var lastRow = sheet.getLastRow();
+      if (lastRow > 1) {
+        sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).clearContent();
+      }
+      if (items.length > 0) {
+        var rowsToAdd = items.map(function(it) {
+          return [
+            it.Ngay || it.ngay || '',
+            it.ChungLoai || it.chungLoai || '',
+            it.SL !== undefined ? it.SL : (it.sl !== undefined ? it.sl : 0),
+            it.GhiChu || it.ghiChu || '',
+            it.NguoiNhap || it.nguoiNhap || '',
+            it.Id || it.id || ''
+          ];
+        });
+        sheet.getRange(2, 1, rowsToAdd.length, 6).setValues(rowsToAdd);
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "success",
+        updatedCount: items.length,
+        message: "Đã cập nhật " + items.length + " bản ghi vào sheet NhapDK963"
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
