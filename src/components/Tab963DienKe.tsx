@@ -4,8 +4,9 @@ import {
   Gauge, Calendar, Plus, Trash2, Edit2, Check, X, RefreshCw, 
   FileSpreadsheet, Download, Filter, Search, ArrowUpRight, 
   Layers, Package, CheckCircle2, Clock, AlertTriangle, Info,
-  ChevronDown, ChevronUp, ChevronRight, User, Hash, Zap
+  ChevronDown, ChevronUp, ChevronRight, User, Hash, Zap, Lock, ShieldAlert
 } from 'lucide-react';
+import { PermissionStore } from '../store/PermissionStore';
 import { 
   DataStore, 
   Entry963, 
@@ -104,6 +105,11 @@ export default function Tab963DienKe({
   const [nhapList, setNhapList] = useState<NhapDk963Entry[]>(() => DataStore.getNhapDk963Entries());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Quyền truy cập: Chỉ cho phép từ Tổ phó, Tổ trưởng trở lên (cấu hình trong tab Hệ thống)
+  const canAccess = useMemo(() => {
+    return PermissionStore.hasActionAccess('tab963_dien_ke', sessionUser?.role || '', sessionUser);
+  }, [sessionUser]);
 
   // Form state nhập mới
   const [formNgay, setFormNgay] = useState<string>(getTodayFormatted());
@@ -641,6 +647,22 @@ export default function Tab963DienKe({
       showToast('error', 'Lỗi xuất Excel: ' + (err?.message || 'Có sự cố'));
     }
   };
+
+  if (!canAccess) {
+    return (
+      <div className="bg-white rounded-2xl border border-rose-200 shadow-sm p-8 text-center space-y-3">
+        <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto">
+          <ShieldAlert className="w-6 h-6" />
+        </div>
+        <h3 className="text-base font-bold text-slate-800">
+          Không Đủ Quyền Truy Cập Quản Lý Điện Kế
+        </h3>
+        <p className="text-xs text-slate-500 max-w-md mx-auto">
+          Chức năng Quản lý Điện Kế (Tab 3 QĐ 963) không cho phép tài khoản nhân viên sử dụng, chỉ cho phép từ cấp <b>Tổ phó, Tổ trưởng trở lên</b> theo cấu hình phân quyền trong tab <b>Hệ thống</b>.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

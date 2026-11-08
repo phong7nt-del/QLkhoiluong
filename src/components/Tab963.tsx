@@ -7,10 +7,11 @@ import {
   Layers, Check, Sparkles, AlertCircle, Zap, ChevronLeft,
   ChevronsLeft, ChevronsRight, ChevronsDown, ChevronsUp, ShieldAlert, BarChart3, ListFilter, X,
   Calculator, Info, HelpCircle, ArrowRight, Eye, EyeOff, Code2, Copy,
-  Sun, ClipboardCheck, CheckCheck, Phone, Download, Upload, FileUp
+  Sun, ClipboardCheck, CheckCheck, Phone, Download, Upload, FileUp, Lock
 } from 'lucide-react';
 import { SCRIPT_TEMPLATE } from './ConfigModal';
 import Tab963DienKe from './Tab963DienKe';
+import { PermissionStore } from '../store/PermissionStore';
 import { 
   DataStore, 
   Entry963, 
@@ -56,6 +57,18 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
   const [entries, setEntries] = useState<Entry963[]>(() => DataStore.get963Entries());
   const [isLoading, setIsLoading] = useState(false);
   const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+
+  // Phân quyền Tab 3 Điện Kế: Chỉ cho phép từ Tổ phó, Tổ trưởng trở lên (cấu hình trong tab Hệ thống)
+  const canAccessDienKe = useMemo(() => {
+    return PermissionStore.hasActionAccess('tab963_dien_ke', sessionUser?.role || '', sessionUser);
+  }, [sessionUser]);
+
+  // Tự động chuyển về tab Thực Hiện nếu người dùng không đủ quyền truy cập
+  useEffect(() => {
+    if (activeSubTab === 'dien_ke' && !canAccessDienKe) {
+      setActiveSubTab('thuc_hien');
+    }
+  }, [activeSubTab, canAccessDienKe]);
 
   // Section collapse/expand state with localStorage persistence (calculation collapses by default)
   const [collapsedSections, setCollapsedSections] = useState<SectionCollapseState>(() => {
@@ -1937,15 +1950,29 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
 
             <button
               type="button"
-              onClick={() => setActiveSubTab('dien_ke')}
+              onClick={() => {
+                if (canAccessDienKe) {
+                  setActiveSubTab('dien_ke');
+                } else {
+                  showToast('error', 'Chức năng Quản lý Điện Kế chỉ dành cho Tổ phó, Tổ trưởng trở lên theo phân quyền trong tab Hệ thống!');
+                }
+              }}
               className={`flex items-center gap-1.5 px-3 sm:px-4 py-1.5 rounded-lg font-bold text-xs transition-all cursor-pointer ${
                 activeSubTab === 'dien_ke'
                   ? 'bg-amber-400 text-amber-950 shadow-sm'
-                  : 'text-amber-100 hover:text-white hover:bg-white/10'
+                  : canAccessDienKe
+                  ? 'text-amber-100 hover:text-white hover:bg-white/10'
+                  : 'text-amber-200/60 hover:bg-white/5 opacity-80'
               }`}
+              title={canAccessDienKe ? 'Theo dõi nhập và thay điện kế' : 'Khóa: Chỉ cho phép từ Tổ phó, Tổ trưởng trở lên'}
             >
-              <Gauge className="w-3.5 h-3.5" />
+              {canAccessDienKe ? <Gauge className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5 text-amber-300" />}
               <span>Tab 3: Điện Kế</span>
+              {!canAccessDienKe && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-black/40 text-amber-300 border border-amber-400/30">
+                  Khóa
+                </span>
+              )}
             </button>
           </div>
 
@@ -5689,12 +5716,33 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       {/* SUB-TAB 3: ĐIỆN KẾ (THEO DÕI NHẬP & THAY ĐIỆN KẾ QĐ 963) */}
       {/* ========================================================= */}
       {activeSubTab === 'dien_ke' && (
-        <Tab963DienKe
-          entries963={entries}
-          sessionUser={sessionUser}
-          onRefreshData={() => refreshData(true)}
-          showToast={showToast}
-        />
+        canAccessDienKe ? (
+          <Tab963DienKe
+            entries963={entries}
+            sessionUser={sessionUser}
+            onRefreshData={() => refreshData(true)}
+            showToast={showToast}
+          />
+        ) : (
+          <div className="bg-white rounded-2xl border border-rose-200 shadow-sm p-8 text-center space-y-3">
+            <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto">
+              <ShieldAlert className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-bold text-slate-800">
+              Không Đủ Quyền Truy Cập Tab Điện Kế
+            </h3>
+            <p className="text-xs text-slate-500 max-w-md mx-auto">
+              Chức năng Quản lý Điện Kế (Tab 3 QĐ 963) không cho phép tài khoản nhân viên sử dụng, chỉ cho phép từ cấp <b>Tổ phó, Tổ trưởng trở lên</b> theo quy định phân quyền trong tab <b>Hệ thống</b>.
+            </p>
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('thuc_hien')}
+              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors cursor-pointer"
+            >
+              Quay lại Tab Thực Hiện
+            </button>
+          </div>
+        )
       )}
 
       {/* MODAL HƯỚNG DẪN & SAO CHÉP MÃ GOOGLE APPS SCRIPT CHO SHEET 963 */}
