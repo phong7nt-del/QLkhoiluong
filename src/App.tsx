@@ -107,11 +107,36 @@ export default function App() {
     });
 
     // Tự động kiểm tra và đồng bộ cấu hình link Apps Script mới từ máy chủ về máy người dùng
-    DataStore.syncCentralConfig().then(hasUpdate => {
-      if (hasUpdate) {
-        setRefreshToggle(prev => prev + 1);
+    const checkCentralConfig = () => {
+      DataStore.syncCentralConfig().then(hasUpdate => {
+        if (hasUpdate) {
+          DataStore.syncMasterData().then(() => setRefreshToggle(prev => prev + 1));
+        }
+      });
+    };
+
+    checkCentralConfig();
+
+    const handleUrlUpdate = () => {
+      DataStore.syncMasterData().then(() => setRefreshToggle(prev => prev + 1));
+    };
+    window.addEventListener('app_script_url_updated', handleUrlUpdate);
+    window.addEventListener('focus', checkCentralConfig);
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        checkCentralConfig();
       }
-    });
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    const interval = setInterval(checkCentralConfig, 45000);
+
+    return () => {
+      window.removeEventListener('app_script_url_updated', handleUrlUpdate);
+      window.removeEventListener('focus', checkCentralConfig);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      clearInterval(interval);
+    };
   }, []);
 
   const [showConfig, setShowConfig] = useState(false);

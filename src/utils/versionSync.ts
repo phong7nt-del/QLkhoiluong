@@ -1,4 +1,5 @@
-import { APP_VERSION, APP_VERSION_DETAILS } from '../version';
+import { APP_VERSION, APP_VERSION_DETAILS, DEFAULT_APP_SCRIPT_URL, DEFAULT_SPREADSHEET_ID } from '../version';
+import { set as setIDB } from 'idb-keyval';
 
 export interface VersionInfo {
   version: string;
@@ -8,6 +9,8 @@ export interface VersionInfo {
   build?: number;
   appScriptUrl?: string;
   spreadsheetId?: string;
+  canonicalAppScriptUrl?: string;
+  canonicalSpreadsheetId?: string;
   updatedAt?: string;
   formattedTime?: string;
 }
@@ -57,16 +60,32 @@ export function isNewerVersion(latestVersion: string, currentVersion: string): b
  */
 export async function forceRefreshApp(): Promise<void> {
   try {
-    // 0. Trước khi làm mới, đồng bộ URL Apps Script mới nhất từ server vào localStorage
+    // 0. Trước khi làm mới, đồng bộ URL Apps Script mới nhất từ server vào cả localStorage và IndexedDB
     try {
-      const cfgRes = await fetch('/api/config?_t=' + Date.now(), { cache: 'no-store' });
+      const cfgRes = await fetch('/api/config?_t=' + Date.now(), { 
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache, no-store' }
+      });
       if (cfgRes.ok) {
         const cfg = await cfgRes.json();
-        if (cfg.appScriptUrl && cfg.appScriptUrl.startsWith('http')) {
-          localStorage.setItem('app_script_url_v1', cfg.appScriptUrl);
+        const targetUrl = cfg.appScriptUrl || cfg.canonicalAppScriptUrl || DEFAULT_APP_SCRIPT_URL;
+        const targetSheet = cfg.spreadsheetId || cfg.canonicalSpreadsheetId || DEFAULT_SPREADSHEET_ID;
+        if (targetUrl && targetUrl.startsWith('http')) {
+          localStorage.setItem('app_script_url_v1', targetUrl);
+          await setIDB('app_script_url_v1', targetUrl);
+        }
+        if (targetSheet && targetSheet.trim()) {
+          localStorage.setItem('SPREADSHEET_ID', targetSheet.trim());
+          await setIDB('SPREADSHEET_ID', targetSheet.trim());
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      // Fallback về giá trị mặc định của hệ thống
+      try {
+        localStorage.setItem('app_script_url_v1', DEFAULT_APP_SCRIPT_URL);
+        await setIDB('app_script_url_v1', DEFAULT_APP_SCRIPT_URL);
+      } catch (err) {}
+    }
 
     // 1. Xóa Cache Storage của trình duyệt nếu có
     if ('caches' in window) {
@@ -119,9 +138,11 @@ export async function checkLatestVersion(): Promise<CheckVersionResult> {
           details = data;
 
           // Tự động cập nhật Google Apps Script URL vào máy nếu phiên bản mang theo URL mới
-          if (data.appScriptUrl && typeof data.appScriptUrl === 'string' && data.appScriptUrl.startsWith('http')) {
+          const candidateUrl = data.appScriptUrl || data.canonicalAppScriptUrl;
+          if (candidateUrl && typeof candidateUrl === 'string' && candidateUrl.startsWith('http')) {
             try {
-              localStorage.setItem('app_script_url_v1', data.appScriptUrl.trim());
+              localStorage.setItem('app_script_url_v1', candidateUrl.trim());
+              await setIDB('app_script_url_v1', candidateUrl.trim());
             } catch (e) {}
           }
           break;
@@ -133,7 +154,6 @@ export async function checkLatestVersion(): Promise<CheckVersionResult> {
   }
 
   // CHỈ BÁO CÓ BẢN MỚI KHI VÀ CHỈ KHI latestVersion THỰC SỰ LỚN HƠN currentVersion
-  // Tuyệt đối không bao giờ báo cập nhật nếu bản trên server cũ hơn (như 2026.10.05.3 < 2026.10.07.1)
   const hasUpdate = isNewerVersion(latestVersion, currentVersion);
 
   return {

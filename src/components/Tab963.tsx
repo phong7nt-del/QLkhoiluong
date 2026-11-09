@@ -7,7 +7,8 @@ import {
   Layers, Check, Sparkles, AlertCircle, Zap, ChevronLeft,
   ChevronsLeft, ChevronsRight, ChevronsDown, ChevronsUp, ShieldAlert, BarChart3, ListFilter, X,
   Calculator, Info, HelpCircle, ArrowRight, Eye, EyeOff, Code2, Copy,
-  Sun, ClipboardCheck, CheckCheck, Phone, Download, Upload, FileUp, Lock
+  Sun, ClipboardCheck, CheckCheck, Phone, Download, Upload, FileUp, Lock, Save,
+  Camera, Image as ImageIcon, Maximize2, ExternalLink, Trash2
 } from 'lucide-react';
 import { SCRIPT_TEMPLATE } from './ConfigModal';
 import Tab963DienKe from './Tab963DienKe';
@@ -23,6 +24,60 @@ import {
   calculateSlVuotCoDoXa,
   QuaHanEntry 
 } from '../store/DataStore';
+
+/**
+ * Nén tối ưu hóa dung lượng ảnh công tơ trước khi tải lên Google Drive
+ * Giảm dung lượng siêu nhỏ (~70KB - 130KB) để lưu nhanh, đồng thời giữ kích thước 1200px
+ * rõ nét giúp đọc được số hiệu công tơ, chỉ số và sơ đồ đấu dây.
+ */
+const compressImageFile = (
+  file: File,
+  maxWidth = 1200,
+  maxHeight = 1200,
+  quality = 0.7
+): Promise<{ base64: string; sizeKb: number }> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = e => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxWidth || height > maxHeight) {
+          if (width / height > maxWidth / maxHeight) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          } else {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Canvas context not available'));
+          return;
+        }
+
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, width, height);
+
+        const base64 = canvas.toDataURL('image/jpeg', quality);
+        const sizeKb = Math.round((base64.length * 0.75) / 1024);
+        resolve({ base64, sizeKb });
+      };
+      img.src = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+};
 
 interface SectionCollapseState {
   tree: boolean;
@@ -161,13 +216,39 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
   const [hsnAuditFileName, setHsnAuditFileName] = useState<string>('');
   const [hsnAuditTotalRows, setHsnAuditTotalRows] = useState<number>(0);
   const [showHsnAuditModal, setShowHsnAuditModal] = useState<boolean>(false);
-  const [hsnAuditFilter, setHsnAuditFilter] = useState<'all' | 'diff' | 'missing' | 'match'>('all');
+  const [hsnAuditFilter, setHsnAuditFilter] = useState<'all' | 'pending' | 'diff' | 'missing' | 'match' | 'checked'>('all');
+  const [hideCheckedHsn, setHideCheckedHsn] = useState<boolean>(true);
+  const [isSavingHsnAudit, setIsSavingHsnAudit] = useState<boolean>(false);
   const hsnFileInputRef = useRef<HTMLInputElement>(null);
 
   // Form input state
   const [formNv, setFormNv] = useState<string>(sessionUser?.name || '');
   const [formNgayGio, setFormNgayGio] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Meter Photo State (Ảnh công tơ sau khi thay kèm sơ đồ đấu dây)
+  const [meterPicBase64, setMeterPicBase64] = useState<string | null>(null);
+  const [meterPicSizeKb, setMeterPicSizeKb] = useState<number>(0);
+  const [isProcessingPic, setIsProcessingPic] = useState<boolean>(false);
+  const [zoomPicUrl, setZoomPicUrl] = useState<{ url: string; title: string } | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleProcessImageFile = async (file: File) => {
+    if (!file) return;
+    setIsProcessingPic(true);
+    try {
+      const { base64, sizeKb } = await compressImageFile(file, 1200, 1200, 0.7);
+      setMeterPicBase64(base64);
+      setMeterPicSizeKb(sizeKb);
+      showToast('info', `Đã nén tối ưu ảnh công tơ: ${sizeKb} KB (tên sẽ lưu: 963_${selectedCustomer?.maKh || 'KH'}.jpg).`);
+    } catch (e: any) {
+      console.error('Lỗi nén ảnh:', e);
+      showToast('error', 'Không thể xử lý ảnh: ' + (e?.message || 'Có lỗi xảy ra'));
+    } finally {
+      setIsProcessingPic(false);
+    }
+  };
 
   // Review / Rà soát khách hàng thu hồi state (KQRaSoat)
   const [reviewChoice, setReviewChoice] = useState<'Thu hồi' | 'Sử dụng lại' | 'Khác'>('Thu hồi');
@@ -342,6 +423,10 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       setFormNv(selectedCustomer.nv || sessionUser?.name || '');
       const defaultDt = selectedCustomer.ngayGio || getCurrentDateTimeStr();
       setFormNgayGio(defaultDt);
+
+      // Reset ảnh công tơ mới khi chọn hoặc đổi khách hàng
+      setMeterPicBase64(null);
+      setMeterPicSizeKb(0);
 
       // 1. Tự động xác định có đo xa hay không dựa vào trường DoXa (RF, PLC, Modem, Có, v.v.)
       const dx = (selectedCustomer.doXa || '').trim().toLowerCase();
@@ -756,6 +841,19 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
 
   // Evaluate HSN Audit status for a given customer
   const getHsnAuditResult = (item: Entry963) => {
+    // 1. Khách hàng đã được kiểm soát HSN từ trước (cột KiemSoatHSN đã có giá trị)
+    if (item.kiemSoatHsn && item.kiemSoatHsn.trim() !== '') {
+      const hsn963 = String(item.hsn !== undefined && item.hsn !== '' ? item.hsn : resolveHsn(item)).trim();
+      return {
+        status: 'checked' as const,
+        hsn963,
+        hsnFile: '',
+        label: `Đã kiểm soát HSN: ${item.kiemSoatHsn}`,
+        shortLabel: `Đã KS (${item.kiemSoatHsn})`,
+        color: 'blue'
+      };
+    }
+
     if (!hsnAuditMap) return null;
 
     const maKhRaw = (item.maKh || '').trim();
@@ -803,24 +901,36 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
 
   // Compute HSN audit statistics for completed list
   const hsnAuditStats = useMemo(() => {
-    if (!hsnAuditMap) return null;
+    let checkedCount = 0;
+    let pendingCount = 0;
     let matchCount = 0;
     let diffCount = 0;
     let missingCount = 0;
 
     completedCustomersList.forEach(c => {
-      const res = getHsnAuditResult(c);
-      if (res?.status === 'match') matchCount++;
-      else if (res?.status === 'diff') diffCount++;
-      else if (res?.status === 'missing') missingCount++;
+      const isChecked = Boolean(c.kiemSoatHsn && c.kiemSoatHsn.trim() !== '');
+      if (isChecked) {
+        checkedCount++;
+      } else {
+        pendingCount++;
+        if (hsnAuditMap) {
+          const res = getHsnAuditResult(c);
+          if (res?.status === 'match') matchCount++;
+          else if (res?.status === 'diff') diffCount++;
+          else if (res?.status === 'missing') missingCount++;
+        }
+      }
     });
 
     const total = completedCustomersList.length;
     return {
       total,
+      checkedCount,
+      pendingCount,
       matchCount,
       diffCount,
       missingCount,
+      checkedPercent: total > 0 ? Math.round((checkedCount / total) * 100) : 0,
       matchPercent: total > 0 ? Math.round((matchCount / total) * 100) : 0,
       diffPercent: total > 0 ? Math.round((diffCount / total) * 100) : 0,
       missingPercent: total > 0 ? Math.round((missingCount / total) * 100) : 0
@@ -831,16 +941,29 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
   const activeBottomList = useMemo(() => {
     let list = bottomTableTab === 'search' ? filteredEntries : completedCustomersList;
 
-    if (hsnAuditMap && hsnAuditFilter !== 'all') {
-      list = list.filter(item => {
-        const res = getHsnAuditResult(item);
-        if (!res) return false;
-        return res.status === hsnAuditFilter;
-      });
+    // Khi ở tab khách hàng đã thay xong: Nếu bật "Ẩn KH đã kiểm soát HSN"
+    if (bottomTableTab === 'completed' && hideCheckedHsn) {
+      if (hsnAuditFilter !== 'checked' && hsnAuditFilter !== 'all') {
+        list = list.filter(item => !item.kiemSoatHsn || item.kiemSoatHsn.trim() === '');
+      }
+    }
+
+    if (hsnAuditMap) {
+      if (hsnAuditFilter === 'pending') {
+        list = list.filter(item => !item.kiemSoatHsn || item.kiemSoatHsn.trim() === '');
+      } else if (hsnAuditFilter === 'checked') {
+        list = list.filter(item => Boolean(item.kiemSoatHsn && item.kiemSoatHsn.trim() !== ''));
+      } else if (hsnAuditFilter !== 'all') {
+        list = list.filter(item => {
+          const res = getHsnAuditResult(item);
+          if (!res) return false;
+          return res.status === hsnAuditFilter;
+        });
+      }
     }
 
     return list;
-  }, [bottomTableTab, filteredEntries, completedCustomersList, hsnAuditMap, hsnAuditFilter]);
+  }, [bottomTableTab, filteredEntries, completedCustomersList, hsnAuditMap, hsnAuditFilter, hideCheckedHsn]);
 
   // Reset bottom table page when filter or tab changes
   useEffect(() => {
@@ -953,6 +1076,54 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
     showToast('info', 'Đã tải xuống file mẫu đối soát HSN!');
   };
 
+  // Handle saving HSN reconciliation results into column KiemSoatHSN of Sheet 963
+  const handleSaveHsnAudit = async (specificMaKh?: string) => {
+    let targets: Entry963[] = [];
+
+    if (specificMaKh) {
+      const found = completedCustomersList.find(c => c.maKh === specificMaKh);
+      if (found) targets = [found];
+    } else {
+      // Lưu toàn bộ khách hàng khớp HSN chưa được kiểm soát
+      targets = completedCustomersList.filter(c => {
+        if (c.kiemSoatHsn && c.kiemSoatHsn.trim() !== '') return false;
+        const res = getHsnAuditResult(c);
+        return res?.status === 'match';
+      });
+    }
+
+    if (targets.length === 0) {
+      alert('Không có khách hàng nào khớp HSN cần lưu!');
+      return;
+    }
+
+    const confirmMsg = specificMaKh
+      ? `Bạn có chắc muốn lưu kết quả kiểm soát HSN cho khách hàng ${specificMaKh} vào cột "KiemSoatHSN" trên Sheet 963?`
+      : `Hệ thống tìm thấy ${targets.length} khách hàng có HSN khớp với file đối soát.\nBạn có chắc chắn muốn lưu kết quả vào cột "KiemSoatHSN" trên Sheet 963 và loại khỏi danh sách cần đối soát?`;
+
+    if (!confirm(confirmMsg)) return;
+
+    setIsSavingHsnAudit(true);
+    try {
+      const updates = targets.map(t => ({
+        maKh: t.maKh,
+        kiemSoatHsn: 'Khớp HSN'
+      }));
+
+      const res = await DataStore.save963AuditHsn(updates);
+      if (res.success) {
+        setEntries(DataStore.get963Entries());
+        showToast('success', `Đã lưu thành công kết quả đối soát HSN cho ${res.updatedCount} khách hàng vào Sheet 963!`);
+      } else {
+        showToast('error', res.error || 'Lỗi khi lưu đối soát HSN');
+      }
+    } catch (err: any) {
+      showToast('error', 'Lỗi: ' + (err.message || 'Không thể lưu đối soát HSN'));
+    } finally {
+      setIsSavingHsnAudit(false);
+    }
+  };
+
   // Handle confirming meter replacement and saving peak excess indicators into Sheet 963
   const handleConfirmReplacement = async (source: 'confirm' | 'calculation' = 'confirm') => {
     if (!selectedCustomer) {
@@ -1001,6 +1172,30 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
     showToast('info', `Đang lưu & đồng bộ dữ liệu thay công tơ cho KH ${selectedCustomer.maKh}...`);
 
     try {
+      // 1. Tải ảnh công tơ lên Google Drive (Folder ID: 1eze4kVWtdUr0gjKSEAB_BKSfm5CNg3fv) nếu có ảnh mới
+      let uploadedPicUrl = selectedCustomer.pic || '';
+      if (meterPicBase64) {
+        showToast('info', `Đang tải ảnh công tơ (963_${selectedCustomer.maKh}.jpg) lên Google Drive...`);
+        try {
+          uploadedPicUrl = await DataStore.uploadImageToDrive(
+            meterPicBase64,
+            `963_${selectedCustomer.maKh}.jpg`,
+            'image/jpeg',
+            '1eze4kVWtdUr0gjKSEAB_BKSfm5CNg3fv',
+            { maKh: selectedCustomer.maKh }
+          );
+        } catch (uploadErr: any) {
+          console.warn('Lỗi khi tải ảnh công tơ lên Drive:', uploadErr);
+          const proceed = confirm(
+            `Tải ảnh lên Google Drive chưa thành công (${uploadErr?.message || 'Lỗi mạng'}).\n\nBạn có muốn tiếp tục lưu xác nhận thay công tơ vào Sheet 963 không?`
+          );
+          if (!proceed) {
+            setIsSubmitting(false);
+            return;
+          }
+        }
+      }
+
       const gv = calculateGioVuot(dtStr);
       const slVuotStr = String(calculationResult.slVuot);
       const cscdKyTruocClean = calcCscdKyTruoc ? String(calcCscdKyTruoc).trim() : '';
@@ -1017,14 +1212,20 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
         cscdThao: cscdThaoClean,
         cs930: cs930Clean,
         cs9h30: cs930Clean,
-        slVuot: slVuotStr
+        slVuot: slVuotStr,
+        pic: uploadedPicUrl
       });
 
       if (res.error) {
         showToast('error', res.error);
       } else {
+        // Reset local state ảnh sau khi lưu thành công
+        setMeterPicBase64(null);
+        setMeterPicSizeKb(0);
+
         const metricSummary = [
           `HSN: ${calcHsn}`,
+          uploadedPicUrl ? 'Ảnh: Đã lưu Drive' : null,
           cscdThaoClean ? `CS Tháo: ${cscdThaoClean}` : null,
           cs930Clean ? `CS 9h30: ${cs930Clean}` : null,
           cscdKyTruocClean ? `CS Kỳ trước: ${cscdKyTruocClean}` : null,
@@ -1105,6 +1306,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
         rowData['Cảnh Báo Rà Soát HSN'] = auditRes ? auditRes.label : 'Chưa rõ';
         rowData['HSN Trong File Đối Soát'] = auditRes ? auditRes.hsnFile : '';
       }
+      rowData['Kiểm Soát HSN (KiemSoatHSN)'] = c.kiemSoatHsn || '';
 
       rowData['Mã Khách Hàng'] = c.maKh;
       rowData['Tên Khách Hàng'] = c.tenKh;
@@ -1129,6 +1331,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       rowData['CS CĐ Lúc 9h30'] = c.cs930 || c.cs9h30 || '';
       rowData['CS CĐ Kỳ Trước'] = c.cscdKyTruoc || '';
       rowData['Sản Lượng Vượt (kWh)'] = c.slVuot !== undefined && c.slVuot !== '' ? c.slVuot : 0;
+      rowData['Ảnh Công Tơ (Pic)'] = c.pic || '';
 
       return rowData;
     });
@@ -2759,11 +2962,43 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                             <span className={`font-bold ${selectedCustomer.kqRaSoat?.includes('Sử dụng lại') ? 'text-emerald-700' : 'text-amber-900'}`}>{selectedCustomer.kqRaSoat || '—'}</span>
                           </div>
                         </div>
+
+                        {/* Ảnh công tơ đã lưu trên Drive (cột Pic) */}
+                        {selectedCustomer.pic && (
+                          <div className="mt-2.5 pt-2 border-t border-amber-200/80 flex items-center justify-between flex-wrap gap-2">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <Camera className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                              <span className="text-[10px] text-slate-500 font-bold uppercase shrink-0">Ảnh công tơ (Pic):</span>
+                              <span className="font-mono text-emerald-800 text-[11px] font-bold truncate max-w-[200px] sm:max-w-xs">
+                                {selectedCustomer.pic}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => setZoomPicUrl({ url: selectedCustomer.pic!, title: `Ảnh công tơ KH: ${selectedCustomer.maKh} (${selectedCustomer.tenKh})` })}
+                                className="px-2 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-md text-[10px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                              >
+                                <Maximize2 className="w-3 h-3" />
+                                <span>Xem ảnh</span>
+                              </button>
+                              <a
+                                href={selectedCustomer.pic}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-[10px] font-bold flex items-center gap-1 transition-colors shadow-2xs"
+                              >
+                                <ExternalLink className="w-3 h-3" />
+                                <span>Drive</span>
+                              </a>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
 
-                  {/* Form fields: NV, NgayGio, GioVuot, Xác nhận Xong */}
+                  {/* Form fields: NV, NgayGio, GioVuot, Chụp/Tải Ảnh, Xác nhận Xong */}
                   <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/50 space-y-4">
                     <div className="font-black text-xs uppercase text-amber-900 tracking-wide flex items-center gap-1.5">
                       <Sparkles className="w-4 h-4 text-amber-600" />
@@ -2812,6 +3047,189 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                           </span>
                         </div>
                       </div>
+                    </div>
+
+                    {/* Phần Chụp / Tải ảnh công tơ sau khi thay (kèm sơ đồ đấu dây) */}
+                    <div className="p-3.5 bg-white rounded-xl border border-amber-200/90 shadow-2xs space-y-3">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-700 shrink-0">
+                            <Camera className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <div className="font-bold text-xs text-slate-800 flex items-center gap-1.5">
+                              <span>Ảnh Công Tơ Sau Khi Thay (Có Sơ Đồ Đấu Dây)</span>
+                              <span className="text-[10px] px-1.5 py-0.2 bg-amber-100 text-amber-900 font-bold rounded">
+                                Cột Pic
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-slate-500">
+                              Tên lưu: <code className="font-mono text-amber-900 font-bold">963_{selectedCustomer.maKh}.jpg</code> • Tối ưu hóa siêu nhẹ &lt; 150KB, lưu nhanh
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Status badges */}
+                        {meterPicBase64 ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 shrink-0">
+                            <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Ảnh mới ({meterPicSizeKb} KB)</span>
+                          </span>
+                        ) : selectedCustomer.pic ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
+                            <CheckCheck className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Đã có trên Drive</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 shrink-0">
+                            Chưa chụp/tải ảnh
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Display image preview if newly captured or existing on Drive */}
+                      {meterPicBase64 ? (
+                        <div className="flex flex-col sm:flex-row items-center gap-3 p-3 bg-amber-50/60 rounded-xl border border-amber-200">
+                          <div className="relative group shrink-0">
+                            <img
+                              src={meterPicBase64}
+                              alt={`Ảnh công tơ 963_${selectedCustomer.maKh}`}
+                              className="w-24 h-24 sm:w-20 sm:h-20 object-cover rounded-lg border-2 border-amber-400 shadow-sm cursor-pointer hover:opacity-95"
+                              onClick={() => setZoomPicUrl({ url: meterPicBase64, title: `Ảnh công tơ mới KH: ${selectedCustomer.maKh} (${selectedCustomer.tenKh})` })}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setZoomPicUrl({ url: meterPicBase64, title: `Ảnh công tơ mới KH: ${selectedCustomer.maKh} (${selectedCustomer.tenKh})` })}
+                              className="absolute inset-0 bg-black/40 text-white rounded-lg opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer"
+                              title="Bấm để xem ảnh phóng to"
+                            >
+                              <Maximize2 className="w-5 h-5" />
+                            </button>
+                          </div>
+
+                          <div className="flex-1 min-w-0 space-y-1 text-center sm:text-left">
+                            <div className="text-xs font-bold text-slate-800 truncate flex items-center justify-center sm:justify-start gap-1.5">
+                              <span className="font-mono text-amber-900 bg-amber-100 px-1.5 py-0.5 rounded">
+                                963_{selectedCustomer.maKh}.jpg
+                              </span>
+                              <span className="text-[10px] text-emerald-700 font-bold bg-emerald-100 px-1.5 py-0.2 rounded">
+                                Đã nén {meterPicSizeKb} KB
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-600">
+                              Đã tối ưu hóa dung lượng nhỏ nhất, lưu nhanh. Ảnh sẽ được tự động tải lên Google Drive folder và cập nhật link vào cột <b>Pic</b> khi bấm <b>Xác nhận Đã Thay Xong</b>.
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setZoomPicUrl({ url: meterPicBase64, title: `Ảnh công tơ mới KH: ${selectedCustomer.maKh} (${selectedCustomer.tenKh})` })}
+                              className="px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-semibold rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+                            >
+                              <Maximize2 className="w-3.5 h-3.5 text-slate-600" />
+                              <span>Xem</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMeterPicBase64(null);
+                                setMeterPicSizeKb(0);
+                              }}
+                              className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                              <span>Xóa</span>
+                            </button>
+                          </div>
+                        </div>
+                      ) : selectedCustomer.pic ? (
+                        <div className="flex flex-col sm:flex-row items-center gap-3 p-3 bg-emerald-50/60 rounded-xl border border-emerald-200">
+                          <div className="relative group shrink-0">
+                            <img
+                              src={selectedCustomer.pic}
+                              alt={`Ảnh công tơ KH ${selectedCustomer.maKh}`}
+                              className="w-24 h-24 sm:w-20 sm:h-20 object-cover rounded-lg border border-emerald-300 shadow-sm cursor-pointer"
+                              onClick={() => setZoomPicUrl({ url: selectedCustomer.pic!, title: `Ảnh công tơ KH: ${selectedCustomer.maKh} (${selectedCustomer.tenKh})` })}
+                              onError={(e) => {
+                                // Ẩn thẻ img nếu link Google Drive không trực tiếp hiển thị qua img tag
+                                (e.target as HTMLElement).style.display = 'none';
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setZoomPicUrl({ url: selectedCustomer.pic!, title: `Ảnh công tơ KH: ${selectedCustomer.maKh} (${selectedCustomer.tenKh})` })}
+                              className="absolute inset-0 bg-black/40 text-white rounded-lg opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer"
+                            >
+                              <Maximize2 className="w-5 h-5" />
+                            </button>
+                          </div>
+
+                          <div className="flex-1 min-w-0 space-y-1 text-center sm:text-left">
+                            <div className="text-xs font-bold text-emerald-950 flex items-center justify-center sm:justify-start gap-1.5">
+                              <CheckCheck className="w-4 h-4 text-emerald-600" />
+                              <span>Ảnh công tơ đã lưu trên Drive</span>
+                            </div>
+                            <div className="text-[11px] text-slate-600 truncate font-mono">
+                              {selectedCustomer.pic}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setZoomPicUrl({ url: selectedCustomer.pic!, title: `Ảnh công tơ KH: ${selectedCustomer.maKh} (${selectedCustomer.tenKh})` })}
+                              className="px-2.5 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-900 text-xs font-bold rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+                            >
+                              <Maximize2 className="w-3.5 h-3.5" />
+                              <span>Xem</span>
+                            </button>
+                            <a
+                              href={selectedCustomer.pic}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg flex items-center gap-1 transition-colors shadow-2xs"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                              <span>Drive</span>
+                            </a>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {/* Photo Capture / Upload buttons (disabled if already completed/locked) */}
+                      {!Boolean(selectedCustomer.ketQua?.toLowerCase().includes('xong')) && (
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                          {/* Default Action: Chụp ảnh công tơ bằng Camera */}
+                          <button
+                            type="button"
+                            onClick={() => cameraInputRef.current?.click()}
+                            disabled={isProcessingPic}
+                            className="px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 active:scale-95 text-white font-bold text-xs rounded-xl shadow-sm hover:shadow flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+                          >
+                            <Camera className="w-4 h-4" />
+                            <span>{meterPicBase64 ? 'Chụp lại ảnh (Mặc định)' : 'Chụp ảnh công tơ (Mặc định)'}</span>
+                          </button>
+
+                          {/* Secondary Action: Tải ảnh từ thư viện thiết bị */}
+                          <button
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={isProcessingPic}
+                            className="px-3.5 py-2 bg-white hover:bg-slate-100 active:scale-95 text-slate-700 border border-slate-300 font-semibold text-xs rounded-xl shadow-2xs flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+                          >
+                            <Upload className="w-4 h-4 text-slate-600" />
+                            <span>Tải ảnh từ máy</span>
+                          </button>
+
+                          {isProcessingPic && (
+                            <span className="text-xs text-amber-800 font-medium flex items-center gap-1.5 animate-pulse ml-2">
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-600" />
+                              Đang nén tối ưu dung lượng siêu nhẹ...
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     {/* Preview các chỉ số sẽ ghi nhận vào Sheet 963 */}
@@ -3451,58 +3869,127 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                   </div>
 
                   {/* Filter Buttons / KPI badges */}
-                  <div className="flex flex-wrap items-center gap-2 text-xs">
-                    <span className="text-slate-600 font-bold text-[11px]">Lọc theo kết quả rà soát:</span>
-                    <button
-                      type="button"
-                      onClick={() => setHsnAuditFilter('all')}
-                      className={`px-2.5 py-1 rounded-lg font-bold border transition-all cursor-pointer ${
-                        hsnAuditFilter === 'all'
-                          ? 'bg-slate-800 text-white border-slate-900 shadow-2xs'
-                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >
-                      Tất cả ({hsnAuditStats.total} KH)
-                    </button>
+                  <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1">
+                    <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                      <span className="text-slate-600 font-bold text-[11px] mr-1">Bộ lọc rà soát:</span>
 
-                    <button
-                      type="button"
-                      onClick={() => setHsnAuditFilter('diff')}
-                      className={`px-2.5 py-1 rounded-lg font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
-                        hsnAuditFilter === 'diff'
-                          ? 'bg-amber-600 text-white border-amber-700 shadow-2xs ring-2 ring-amber-300'
-                          : 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
-                      }`}
-                    >
-                      <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
-                      <span>Sai HSN: <b>{hsnAuditStats.diffCount} KH</b> ({hsnAuditStats.diffPercent}%)</span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => setHsnAuditFilter('pending')}
+                        className={`px-2.5 py-1 rounded-lg font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
+                          hsnAuditFilter === 'pending'
+                            ? 'bg-indigo-700 text-white border-indigo-800 shadow-2xs ring-2 ring-indigo-300'
+                            : 'bg-indigo-50 text-indigo-900 border-indigo-200 hover:bg-indigo-100'
+                        }`}
+                        title="Khách hàng đã thay xong nhưng chưa kiểm soát HSN"
+                      >
+                        <Clock className="w-3.5 h-3.5 text-indigo-500" />
+                        <span>Cần đối soát: <b>{hsnAuditStats.pendingCount} KH</b></span>
+                      </button>
 
-                    <button
-                      type="button"
-                      onClick={() => setHsnAuditFilter('missing')}
-                      className={`px-2.5 py-1 rounded-lg font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
-                        hsnAuditFilter === 'missing'
-                          ? 'bg-rose-600 text-white border-rose-700 shadow-2xs ring-2 ring-rose-300'
-                          : 'bg-rose-50 text-rose-900 border-rose-300 hover:bg-rose-100'
-                      }`}
-                    >
-                      <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
-                      <span>Thiếu trong file: <b>{hsnAuditStats.missingCount} KH</b> ({hsnAuditStats.missingPercent}%)</span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => setHsnAuditFilter('match')}
+                        className={`px-2.5 py-1 rounded-lg font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
+                          hsnAuditFilter === 'match'
+                            ? 'bg-emerald-600 text-white border-emerald-700 shadow-2xs ring-2 ring-emerald-300'
+                            : 'bg-emerald-50 text-emerald-900 border-emerald-300 hover:bg-emerald-100'
+                        }`}
+                        title="HSN trong Sheet 963 khớp chính xác với file đối soát"
+                      >
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Khớp HSN: <b>{hsnAuditStats.matchCount} KH</b></span>
+                      </button>
 
-                    <button
-                      type="button"
-                      onClick={() => setHsnAuditFilter('match')}
-                      className={`px-2.5 py-1 rounded-lg font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
-                        hsnAuditFilter === 'match'
-                          ? 'bg-emerald-600 text-white border-emerald-700 shadow-2xs ring-2 ring-emerald-300'
-                          : 'bg-emerald-50 text-emerald-900 border-emerald-300 hover:bg-emerald-100'
-                      }`}
-                    >
-                      <Check className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>Khớp HSN: <b>{hsnAuditStats.matchCount} KH</b> ({hsnAuditStats.matchPercent}%)</span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => setHsnAuditFilter('diff')}
+                        className={`px-2.5 py-1 rounded-lg font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
+                          hsnAuditFilter === 'diff'
+                            ? 'bg-amber-600 text-white border-amber-700 shadow-2xs ring-2 ring-amber-300'
+                            : 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
+                        }`}
+                        title="HSN trong Sheet 963 khác với HSN trong file đối soát"
+                      >
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Sai HSN: <b>{hsnAuditStats.diffCount} KH</b></span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setHsnAuditFilter('missing')}
+                        className={`px-2.5 py-1 rounded-lg font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
+                          hsnAuditFilter === 'missing'
+                            ? 'bg-rose-600 text-white border-rose-700 shadow-2xs ring-2 ring-rose-300'
+                            : 'bg-rose-50 text-rose-900 border-rose-300 hover:bg-rose-100'
+                        }`}
+                        title="Khách hàng đã thay xong nhưng không có trong file đối soát"
+                      >
+                        <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
+                        <span>Thiếu trong file: <b>{hsnAuditStats.missingCount} KH</b></span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setHsnAuditFilter('checked')}
+                        className={`px-2.5 py-1 rounded-lg font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
+                          hsnAuditFilter === 'checked'
+                            ? 'bg-blue-600 text-white border-blue-700 shadow-2xs ring-2 ring-blue-300'
+                            : 'bg-blue-50 text-blue-900 border-blue-200 hover:bg-blue-100'
+                        }`}
+                        title="Khách hàng đã đối soát đúng và lưu vào cột KiemSoatHSN"
+                      >
+                        <CheckCheck className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Đã kiểm soát: <b>{hsnAuditStats.checkedCount} KH</b></span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setHsnAuditFilter('all')}
+                        className={`px-2.5 py-1 rounded-lg font-bold border transition-all cursor-pointer ${
+                          hsnAuditFilter === 'all'
+                            ? 'bg-slate-800 text-white border-slate-900 shadow-2xs'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        Tất cả ({hsnAuditStats.total} KH)
+                      </button>
+                    </div>
+
+                    {/* Actions: Toggle hide checked and Save Audit button */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <label className="inline-flex items-center gap-1.5 cursor-pointer text-xs font-semibold text-slate-700 bg-white px-2.5 py-1.5 rounded-lg border border-slate-300 shadow-2xs hover:bg-slate-50 select-none">
+                        <input
+                          type="checkbox"
+                          checked={hideCheckedHsn}
+                          onChange={(e) => setHideCheckedHsn(e.target.checked)}
+                          className="w-3.5 h-3.5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
+                        />
+                        <span>Ẩn KH đã kiểm soát HSN</span>
+                      </label>
+
+                      {hsnAuditStats.matchCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => handleSaveHsnAudit()}
+                          disabled={isSavingHsnAudit}
+                          className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs rounded-lg shadow-sm shadow-emerald-600/30 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          title="Lưu các khách hàng khớp HSN vào cột KiemSoatHSN trong Sheet 963 và không đưa vào danh sách cần đối soát nữa"
+                        >
+                          {isSavingHsnAudit ? (
+                            <>
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              <span>Đang lưu vào Sheet 963...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Save className="w-3.5 h-3.5" />
+                              <span>Lưu Đối Soát HSN ({hsnAuditStats.matchCount} KH Khớp)</span>
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
@@ -3587,6 +4074,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                         <th className="py-2.5 px-3 text-right">CS 9h30</th>
                         <th className="py-2.5 px-3 text-right">CS Kỳ Trước</th>
                         <th className="py-2.5 px-3 text-right text-amber-900">SL Vượt (kWh)</th>
+                        <th className="py-2.5 px-3 text-center">Ảnh Công Tơ (Pic)</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -3657,38 +4145,62 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                               <td className="py-2 px-3 font-semibold text-slate-700">{item.kv}</td>
                               <td className="py-2 px-3 font-mono text-slate-600">{item.dot}</td>
                               <td className="py-2 px-3 text-center font-mono font-bold text-amber-900">{hsnVal}</td>
-                              <td className="py-2 px-3 text-center whitespace-nowrap">
-                                {audit ? (
-                                  audit.status === 'match' ? (
-                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300" title={audit.label}>
-                                      <Check className="w-3 h-3 text-emerald-700" />
-                                      <span>{audit.shortLabel}</span>
+                                <td className="py-2 px-3 text-center whitespace-nowrap">
+                                  {item.kiemSoatHsn ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono text-[10px] font-bold bg-blue-100 text-blue-900 border border-blue-300" title={`Đã kiểm soát HSN: ${item.kiemSoatHsn}`}>
+                                      <CheckCheck className="w-3 h-3 text-blue-700" />
+                                      <span>Đã KS ({item.kiemSoatHsn})</span>
                                     </span>
-                                  ) : audit.status === 'diff' ? (
-                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono text-[10px] font-bold bg-amber-100 text-amber-950 border border-amber-400 shadow-2xs animate-pulse" title={audit.label}>
-                                      <AlertTriangle className="w-3 h-3 text-amber-700" />
-                                      <span>{audit.shortLabel}</span>
-                                    </span>
+                                  ) : audit ? (
+                                    audit.status === 'checked' ? (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono text-[10px] font-bold bg-blue-100 text-blue-900 border border-blue-300" title={audit.label}>
+                                        <CheckCheck className="w-3 h-3 text-blue-700" />
+                                        <span>{audit.shortLabel}</span>
+                                      </span>
+                                    ) : audit.status === 'match' ? (
+                                      <div className="inline-flex items-center gap-1">
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300" title={audit.label}>
+                                          <Check className="w-3 h-3 text-emerald-700" />
+                                          <span>{audit.shortLabel}</span>
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleSaveHsnAudit(item.maKh);
+                                          }}
+                                          disabled={isSavingHsnAudit}
+                                          className="px-1.5 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] font-bold shadow-2xs cursor-pointer disabled:opacity-50"
+                                          title="Lưu kiểm soát HSN cho riêng khách hàng này vào Sheet 963 và loại khỏi danh sách cần đối soát"
+                                        >
+                                          Lưu
+                                        </button>
+                                      </div>
+                                    ) : audit.status === 'diff' ? (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono text-[10px] font-bold bg-amber-100 text-amber-950 border border-amber-400 shadow-2xs animate-pulse" title={audit.label}>
+                                        <AlertTriangle className="w-3 h-3 text-amber-700" />
+                                        <span>{audit.shortLabel}</span>
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono text-[10px] font-bold bg-rose-100 text-rose-900 border border-rose-300" title={audit.label}>
+                                        <AlertCircle className="w-3 h-3 text-rose-600" />
+                                        <span>{audit.shortLabel}</span>
+                                      </span>
+                                    )
                                   ) : (
-                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono text-[10px] font-bold bg-rose-100 text-rose-900 border border-rose-300" title={audit.label}>
-                                      <AlertCircle className="w-3 h-3 text-rose-600" />
-                                      <span>{audit.shortLabel}</span>
-                                    </span>
-                                  )
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setShowHsnAuditModal(true);
-                                    }}
-                                    className="text-[10px] text-indigo-700 hover:text-indigo-950 hover:underline font-medium cursor-pointer"
-                                    title="Bấm để tải file rà soát HSN treo"
-                                  >
-                                    + Rà soát
-                                  </button>
-                                )}
-                              </td>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setShowHsnAuditModal(true);
+                                      }}
+                                      className="text-[10px] text-indigo-700 hover:text-indigo-950 hover:underline font-medium cursor-pointer"
+                                      title="Bấm để tải file rà soát HSN treo"
+                                    >
+                                      + Rà soát
+                                    </button>
+                                  )}
+                                </td>
                               <td className="py-2 px-3 text-slate-700">{item.nv || '—'}</td>
                               <td className="py-2 px-3 font-mono text-[11px] text-slate-600">{item.ngayGio || '—'}</td>
                               <td className="py-2 px-3 text-[11px]">
@@ -3717,12 +4229,42 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                                   {slv} kWh
                                 </span>
                               </td>
+                              <td className="py-2 px-3 text-center whitespace-nowrap">
+                                {item.pic ? (
+                                  <div className="inline-flex items-center gap-1 justify-center">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setZoomPicUrl({ url: item.pic!, title: `Ảnh công tơ KH: ${item.maKh} (${item.tenKh})` });
+                                      }}
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono text-[10px] font-bold bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 transition-colors shadow-2xs cursor-pointer"
+                                      title="Bấm để xem ảnh công tơ & sơ đồ đấu dây phóng to"
+                                    >
+                                      <Camera className="w-3 h-3 text-amber-700" />
+                                      <span>Xem ảnh</span>
+                                    </button>
+                                    <a
+                                      href={item.pic}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="p-1 text-slate-500 hover:text-emerald-700 rounded hover:bg-emerald-50 transition-colors"
+                                      title="Mở trực tiếp trên Google Drive"
+                                    >
+                                      <ExternalLink className="w-3.5 h-3.5" />
+                                    </a>
+                                  </div>
+                                ) : (
+                                  <span className="text-slate-300 italic text-[11px]">—</span>
+                                )}
+                              </td>
                             </tr>
                           );
                         })
                       ) : (
                         <tr>
-                          <td colSpan={19} className="py-8 text-center text-slate-400 text-xs">
+                          <td colSpan={20} className="py-8 text-center text-slate-400 text-xs">
                             {bottomTableTab === 'search'
                               ? 'Không tìm thấy khách hàng nào khớp với điều kiện tìm kiếm hiện tại.'
                               : 'Chưa có khách hàng nào được thay xong trong phạm vi lựa chọn này.'}
@@ -6001,6 +6543,82 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                   Đóng
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Hidden File Inputs for Meter Photo: Camera & Device File Picker */}
+      <input
+        type="file"
+        ref={cameraInputRef}
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={e => {
+          const f = e.target.files?.[0];
+          if (f) handleProcessImageFile(f);
+          e.target.value = '';
+        }}
+      />
+      <input
+        type="file"
+        ref={fileInputRef}
+        accept="image/*"
+        className="hidden"
+        onChange={e => {
+          const f = e.target.files?.[0];
+          if (f) handleProcessImageFile(f);
+          e.target.value = '';
+        }}
+      />
+
+      {/* Lightbox / Zoom Modal for Meter Photo & Wiring Diagram */}
+      {zoomPicUrl && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5"
+          onClick={() => setZoomPicUrl(null)}
+        >
+          <div 
+            className="relative max-w-4xl w-full bg-slate-900 rounded-2xl overflow-hidden shadow-2xl border border-slate-700 animate-in fade-in zoom-in-95 duration-150"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="p-3 bg-slate-800 text-white flex items-center justify-between border-b border-slate-700">
+              <div className="font-bold text-xs truncate flex items-center gap-2">
+                <Camera className="w-4 h-4 text-amber-400 shrink-0" />
+                <span className="truncate">{zoomPicUrl.title}</span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {zoomPicUrl.url.startsWith('http') && (
+                  <a
+                    href={zoomPicUrl.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg flex items-center gap-1 text-xs font-semibold shadow-2xs"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Mở Drive</span>
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setZoomPicUrl(null)}
+                  className="p-1 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg transition-colors cursor-pointer"
+                  title="Đóng"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            <div className="p-2 sm:p-4 flex items-center justify-center max-h-[75vh] overflow-auto bg-black/50">
+              <img
+                src={zoomPicUrl.url}
+                alt={zoomPicUrl.title}
+                className="max-w-full max-h-[70vh] object-contain rounded-lg shadow-md"
+              />
+            </div>
+            <div className="p-2.5 bg-slate-800/90 text-[11px] text-slate-300 text-center border-t border-slate-700/80">
+              Ảnh công tơ kèm sơ đồ đấu dây sau khi thay • Lưu trữ an toàn tại Google Drive
             </div>
           </div>
         </div>

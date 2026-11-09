@@ -21,24 +21,28 @@ async function startServer() {
     try {
       if (fs.existsSync(sharedConfigPath)) {
         const parsed = JSON.parse(fs.readFileSync(sharedConfigPath, 'utf8'));
-        if (!parsed.appScriptUrl) {
+        // If config is not explicitly flagged as custom by admin, keep it synchronized with canonical URL
+        if (!parsed.isCustom) {
           parsed.appScriptUrl = CANONICAL_APP_SCRIPT_URL;
-        }
-        if (!parsed.spreadsheetId) {
           parsed.spreadsheetId = CANONICAL_SPREADSHEET_ID;
         }
+        parsed.canonicalAppScriptUrl = CANONICAL_APP_SCRIPT_URL;
+        parsed.canonicalSpreadsheetId = CANONICAL_SPREADSHEET_ID;
         return parsed;
       }
     } catch (e) {}
     return {
       spreadsheetId: CANONICAL_SPREADSHEET_ID,
-      appScriptUrl: CANONICAL_APP_SCRIPT_URL
+      appScriptUrl: CANONICAL_APP_SCRIPT_URL,
+      canonicalAppScriptUrl: CANONICAL_APP_SCRIPT_URL,
+      canonicalSpreadsheetId: CANONICAL_SPREADSHEET_ID,
+      isCustom: false
     };
   };
 
   // API route for version info (always no-cache to ensure clients detect new releases immediately)
   const getVersionData = () => {
-    let data: any = { version: "2026.11.04.1" };
+    let data: any = { version: "2026.11.05.1" };
     const candidatePaths = [
       path.join(process.cwd(), 'version.json'),
       path.join(process.cwd(), 'public', 'version.json'),
@@ -56,7 +60,9 @@ async function startServer() {
     return {
       ...data,
       appScriptUrl: cfg.appScriptUrl || CANONICAL_APP_SCRIPT_URL,
-      spreadsheetId: cfg.spreadsheetId || CANONICAL_SPREADSHEET_ID
+      spreadsheetId: cfg.spreadsheetId || CANONICAL_SPREADSHEET_ID,
+      canonicalAppScriptUrl: CANONICAL_APP_SCRIPT_URL,
+      canonicalSpreadsheetId: CANONICAL_SPREADSHEET_ID
     };
   };
 
@@ -67,13 +73,16 @@ async function startServer() {
     res.json(getVersionData());
   });
 
-  const saveSharedConfig = (data: Partial<{ spreadsheetId: string; appScriptUrl: string }>) => {
+  const saveSharedConfig = (data: Partial<{ spreadsheetId: string; appScriptUrl: string; isCustom?: boolean }>) => {
     try {
       const cur = getSharedConfig();
       const updated = {
         ...cur,
         ...(data.spreadsheetId ? { spreadsheetId: data.spreadsheetId } : {}),
         ...(data.appScriptUrl ? { appScriptUrl: data.appScriptUrl } : {}),
+        ...(data.isCustom !== undefined ? { isCustom: data.isCustom } : {}),
+        canonicalAppScriptUrl: CANONICAL_APP_SCRIPT_URL,
+        canonicalSpreadsheetId: CANONICAL_SPREADSHEET_ID,
         updatedAt: new Date().toISOString()
       };
       fs.writeFileSync(sharedConfigPath, JSON.stringify(updated, null, 2), 'utf8');
@@ -90,8 +99,8 @@ async function startServer() {
   });
 
   app.post("/api/config", (req, res) => {
-    const { spreadsheetId, appScriptUrl } = req.body || {};
-    const updated = saveSharedConfig({ spreadsheetId, appScriptUrl });
+    const { spreadsheetId, appScriptUrl, isCustom } = req.body || {};
+    const updated = saveSharedConfig({ spreadsheetId, appScriptUrl, isCustom });
     res.json({ success: !!updated, config: updated });
   });
 
@@ -360,6 +369,112 @@ async function startServer() {
         hasUpdate: false,
         version: dvkhStore.version
       });
+    }
+  });
+
+  // =========================================================================
+  // CENTRALIZED NHẬP ĐIỆN KẾ 963 STORE (MULTI-DEVICE INSTANT SYNCHRONIZATION)
+  // =========================================================================
+  const nhapDkStorePath = path.join(process.cwd(), 'nhap_dk_963_store.json');
+
+  let nhapDkStore: any[] = [];
+
+  const loadNhapDkStore = () => {
+    try {
+      if (fs.existsSync(nhapDkStorePath)) {
+        const raw = fs.readFileSync(nhapDkStorePath, 'utf8');
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          nhapDkStore = parsed;
+        }
+      }
+    } catch (e) {
+      console.warn('Could not load nhap_dk_963_store.json:', e);
+    }
+  };
+  loadNhapDkStore();
+
+  const saveNhapDkStore = () => {
+    try {
+      fs.writeFileSync(nhapDkStorePath, JSON.stringify(nhapDkStore, null, 2), 'utf8');
+    } catch (e) {
+      console.warn('Could not write nhap_dk_963_store.json:', e);
+    }
+  };
+
+  // Asynchronously forward to Google Apps Script
+  const forwardNhapDkToGoogleSheet = async (items: any[]) => {
+    try {
+      const cfg = getSharedConfig();
+      const targetUrl = cfg.appScriptUrl || CANONICAL_APP_SCRIPT_URL;
+      if (!targetUrl || !targetUrl.startsWith('http')) return false;
+
+      const bodyData = {
+        action: 'save_nhap_dk_963',
+        sheetName: 'NhapDK963',
+        spreadsheetId: cfg.spreadsheetId || CANONICAL_SPREADSHEET_ID,
+        items: items
+      };
+
+      const res = await fetch(targetUrl, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(bodyData)
+      });
+      return res.ok;
+    } catch (e) {
+      console.warn('Background sync NhapDK963 to Google Sheet error:', e);
+      return false;
+    }
+  };
+
+  app.get("/api/nhap-dk-963", (req, res) => {
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    loadNhapDkStore();
+    res.json({ success: true, items: nhapDkStore });
+  });
+
+  app.post("/api/nhap-dk-963", async (req, res) => {
+    try {
+      const { action, items, item, id } = req.body || {};
+
+      if (action === 'delete' && id) {
+        loadNhapDkStore();
+        nhapDkStore = nhapDkStore.filter((x: any) => x.id !== id);
+        saveNhapDkStore();
+        forwardNhapDkToGoogleSheet(nhapDkStore).catch(() => {});
+        res.json({ success: true, count: nhapDkStore.length, items: nhapDkStore });
+        return;
+      }
+
+      if (action === 'set_all' && Array.isArray(items)) {
+        nhapDkStore = items;
+        saveNhapDkStore();
+        forwardNhapDkToGoogleSheet(nhapDkStore).catch(() => {});
+        res.json({ success: true, count: nhapDkStore.length, items: nhapDkStore });
+        return;
+      }
+
+      // Default: save / upsert
+      loadNhapDkStore();
+      const incoming = Array.isArray(items) ? items : (item ? [item] : []);
+      if (incoming.length > 0) {
+        for (const inc of incoming) {
+          const idx = nhapDkStore.findIndex((x: any) => x.id === inc.id);
+          if (idx >= 0) {
+            nhapDkStore[idx] = { ...nhapDkStore[idx], ...inc };
+          } else {
+            nhapDkStore.unshift(inc);
+          }
+        }
+        saveNhapDkStore();
+        forwardNhapDkToGoogleSheet(nhapDkStore).catch(() => {});
+      }
+
+      res.json({ success: true, count: nhapDkStore.length, items: nhapDkStore });
+    } catch (err: any) {
+      console.warn('Error in /api/nhap-dk-963:', err);
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 

@@ -78,10 +78,10 @@ function bumpVersion() {
   if (fs.existsSync(sharedConfigPath)) {
     try {
       const sCfg = JSON.parse(fs.readFileSync(sharedConfigPath, 'utf8'));
-      if (sCfg.appScriptUrl && sCfg.appScriptUrl.startsWith('http')) {
+      if (sCfg.isCustom && sCfg.appScriptUrl && sCfg.appScriptUrl.startsWith('http')) {
         currentScriptUrl = sCfg.appScriptUrl;
       }
-      if (sCfg.spreadsheetId && sCfg.spreadsheetId.trim()) {
+      if (sCfg.isCustom && sCfg.spreadsheetId && sCfg.spreadsheetId.trim()) {
         currentSpreadsheetId = sCfg.spreadsheetId.trim();
       }
     } catch (e) {}
@@ -91,6 +91,8 @@ function bumpVersion() {
   const sharedConfigData = {
     spreadsheetId: currentSpreadsheetId,
     appScriptUrl: currentScriptUrl,
+    canonicalAppScriptUrl: CANONICAL_APP_SCRIPT_URL,
+    canonicalSpreadsheetId: CANONICAL_SPREADSHEET_ID,
     version: versionString,
     updatedAt: now.toISOString()
   };

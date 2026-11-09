@@ -1,6 +1,7 @@
 import Papa from 'papaparse';
 import { get, set, del } from 'idb-keyval';
 import { PermissionStore, normalizeRoleStr } from './PermissionStore';
+import { APP_VERSION } from '../version';
 
 export interface Station {
   id: string; // Mã trạm
@@ -150,6 +151,8 @@ export interface Entry963 {
   cs930?: string; // CS930 (Chỉ số cao điểm lúc 9h30 khi có đo xa)
   cs9h30?: string; // CS9h30 alias
   slVuot?: string; // SLVuot (Sản lượng cao điểm vượt)
+  kiemSoatHsn?: string; // KiemSoatHSN (kết quả rà soát/kiểm soát HSN: "Khớp HSN", "Đạt", v.v.)
+  pic?: string; // Pic (Link ảnh công tơ sau khi thay trên Google Drive)
   raw?: Record<string, string>;
   isLocal?: boolean;
 }
@@ -521,6 +524,13 @@ const STORAGE_KEY = 'workload_data_v1';
 export const DEFAULT_SPREADSHEET_ID = '1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ';
 export const DEFAULT_APP_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyFzMY2hA8LOgPix7FoN0n9nB3LAUlhuppc5KopO_ZD0fYU-uj4gpAZn5FnedGWr5vg2A/exec';
 const SCRIPT_URL_KEY = 'app_script_url_v1';
+const IS_CUSTOM_URL_KEY = 'app_script_url_is_custom_v1';
+const LAST_APP_VERSION_KEY = 'app_last_run_version_v1';
+const KNOWN_OLD_DEFAULT_URLS = [
+  'AKfycbyDCcu4I8yfT1g2KOHCRoaDtMMb1gLvfxhP4HJkzFYbqNIg1TSXCyi2HS3D7hDYpInVxQ',
+  'AKfycbzpw3SlqJxXYC29qjPRqH8ehfJp764bNvQFUzqIgMW_rMrpitMKvvRvWbbGrP505Sdi',
+  'AKfycbz_dG59Vw_y8xZtH3kK-1O8_1bH_yqV6eU59J9w6v-n_Kz6v-q6j_y_pXW3n6Z_m'
+];
 const SPREADSHEET_ID_KEY = 'SPREADSHEET_ID';
 const TEAMS_KEY = 'sheet_teams_v1';
 const MEMBERS_KEY = 'sheet_members_v1';
@@ -807,18 +817,46 @@ export const initDB = async () => {
       memoryCache[key] = val || null;
     }
 
+    // Tự động kiểm tra phiên bản và nâng cấp URL Apps Script mới nếu máy client đang chạy bản cũ
+    try {
+      const lastVersion = localStorage.getItem(LAST_APP_VERSION_KEY);
+      const isNewVersion = !lastVersion || lastVersion !== APP_VERSION;
+      const isCustom = localStorage.getItem(IS_CUSTOM_URL_KEY) === 'true';
+      const curStoredUrl = memoryCache[SCRIPT_URL_KEY] || localStorage.getItem(SCRIPT_URL_KEY);
+      const isKnownOld = curStoredUrl ? KNOWN_OLD_DEFAULT_URLS.some(oldPart => curStoredUrl.includes(oldPart)) : false;
+
+      if ((isNewVersion && !isCustom) || isKnownOld || !curStoredUrl) {
+        memoryCache[SCRIPT_URL_KEY] = DEFAULT_APP_SCRIPT_URL;
+        try {
+          localStorage.setItem(SCRIPT_URL_KEY, DEFAULT_APP_SCRIPT_URL);
+          await set(SCRIPT_URL_KEY, DEFAULT_APP_SCRIPT_URL);
+          localStorage.setItem(IS_CUSTOM_URL_KEY, 'false');
+        } catch (e) {}
+      }
+      try {
+        localStorage.setItem(LAST_APP_VERSION_KEY, APP_VERSION);
+      } catch (e) {}
+    } catch (e) {}
+
     // Automatically synchronize centralized server configuration across all devices
     try {
-      const cfgRes = await fetch('/api/config?_t=' + Date.now(), { cache: 'no-store' });
+      const cfgRes = await fetch('/api/config?_t=' + Date.now(), { 
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache, no-store' }
+      });
       if (cfgRes.ok) {
         const sCfg = await cfgRes.json();
-        const serverUrl = sCfg.appScriptUrl || DEFAULT_APP_SCRIPT_URL;
+        const serverUrl = sCfg.appScriptUrl || sCfg.canonicalAppScriptUrl || DEFAULT_APP_SCRIPT_URL;
         if (serverUrl && serverUrl.startsWith('http')) {
+          const oldUrl = memoryCache[SCRIPT_URL_KEY];
           memoryCache[SCRIPT_URL_KEY] = serverUrl;
           try {
             localStorage.setItem(SCRIPT_URL_KEY, serverUrl);
             await set(SCRIPT_URL_KEY, serverUrl);
           } catch (e) {}
+          if (oldUrl && oldUrl !== serverUrl) {
+            window.dispatchEvent(new CustomEvent('app_script_url_updated', { detail: serverUrl }));
+          }
         }
         if (sCfg.spreadsheetId && sCfg.spreadsheetId.trim()) {
           memoryCache[SPREADSHEET_ID_KEY] = sCfg.spreadsheetId.trim();
@@ -898,14 +936,19 @@ export const DataStore = {
   initDB: initDB,
   syncCentralConfig: async (): Promise<boolean> => {
     try {
-      const cfgRes = await fetch('/api/config?_t=' + Date.now(), { cache: 'no-store' });
+      const cfgRes = await fetch('/api/config?_t=' + Date.now(), { 
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache, no-store' }
+      });
       if (cfgRes.ok) {
         const sCfg = await cfgRes.json();
-        const serverUrl = sCfg.appScriptUrl || DEFAULT_APP_SCRIPT_URL;
+        const serverUrl = sCfg.appScriptUrl || sCfg.canonicalAppScriptUrl || DEFAULT_APP_SCRIPT_URL;
         if (serverUrl && serverUrl.startsWith('http')) {
           const cur = safeGetItem(SCRIPT_URL_KEY);
           if (cur !== serverUrl) {
             safeSetItem(SCRIPT_URL_KEY, serverUrl);
+            window.dispatchEvent(new CustomEvent('app_script_url_updated', { detail: serverUrl }));
+            window.dispatchEvent(new CustomEvent('workload_updated'));
             return true;
           }
         }
@@ -1032,12 +1075,14 @@ export const DataStore = {
   },
   setAppScriptUrl: (url: string) => {
       safeSetItem(SCRIPT_URL_KEY, url);
+      const isCustom = url.trim() !== DEFAULT_APP_SCRIPT_URL.trim();
+      safeSetItem(IS_CUSTOM_URL_KEY, isCustom ? 'true' : 'false');
       try {
         if (url && url.startsWith('http')) {
           fetch('/api/config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ appScriptUrl: url })
+            body: JSON.stringify({ appScriptUrl: url, isCustom })
           }).catch(() => {});
         }
       } catch (e) {}
@@ -6834,6 +6879,8 @@ export const DataStore = {
           cs930: getV(['CS9h30', 'CS930', 'CS_9h30', 'CS_930', 'Chỉ số 9h30', 'CS 9h30']),
           cs9h30: getV(['CS9h30', 'CS930', 'CS_9h30', 'CS_930', 'Chỉ số 9h30', 'CS 9h30']),
           slVuot: getV(['SLVuot', 'SL_Vuot', 'Sản lượng vượt', 'SL_VUOT']),
+          kiemSoatHsn: getV(['KiemSoatHSN', 'KIEM_SOAT_HSN', 'Kiem_Soat_HSN', 'Kiểm soát HSN', 'KiemSoat_HSN', 'KS_HSN', 'KiemsoatHSN', 'KIEMSOATHSN']),
+          pic: getV(['Pic', 'PIC', 'pic', 'HinhAnh', 'Hình ảnh', 'Anh', 'Photo', 'LinkAnh', 'AnhCongTo', 'ANH_CONG_TO']),
           raw: r
         });
       }
@@ -7006,6 +7053,7 @@ export const DataStore = {
       cs930?: string;
       cs9h30?: string;
       slVuot?: string;
+      pic?: string;
     }
   ): Promise<{ success: boolean; entry: Entry963 | null; error?: string }> => {
     const list = [...DataStore.get963Entries()];
@@ -7041,6 +7089,7 @@ export const DataStore = {
       cs930: cs930Clean,
       cs9h30: cs930Clean,
       slVuot: updates.slVuot !== undefined ? updates.slVuot : current.slVuot,
+      pic: updates.pic !== undefined ? updates.pic : current.pic,
       isLocal: true
     };
 
@@ -7056,7 +7105,8 @@ export const DataStore = {
       cscdThao: updatedEntry.cscdThao,
       cs930: cs930Clean,
       cs9h30: cs930Clean,
-      slVuot: updatedEntry.slVuot
+      slVuot: updatedEntry.slVuot,
+      pic: updatedEntry.pic
     }, false);
 
     window.dispatchEvent(new CustomEvent('tab963_updated'));
@@ -7130,6 +7180,7 @@ export const DataStore = {
         const val930 = item.cs930 !== undefined ? item.cs930 : (item.cs9h30 !== undefined ? item.cs9h30 : '');
         const valKSuDung = item.kSuDung !== undefined ? item.kSuDung : '';
         const valKqRaSoat = item.kqRaSoat !== undefined ? item.kqRaSoat : '';
+        const picVal = item.pic || '';
 
         return {
           maKh: item.maKh,
@@ -7159,7 +7210,13 @@ export const DataStore = {
           cs9h30: val930,
           CS9h30: val930,
           slVuot: item.slVuot !== undefined ? item.slVuot : '',
-          SLVuot: item.slVuot !== undefined ? item.slVuot : ''
+          SLVuot: item.slVuot !== undefined ? item.slVuot : '',
+          kiemSoatHsn: item.kiemSoatHsn || '',
+          KiemSoatHSN: item.kiemSoatHsn || '',
+          KIEM_SOAT_HSN: item.kiemSoatHsn || '',
+          pic: picVal,
+          Pic: picVal,
+          PIC: picVal
         };
       });
 
@@ -7241,6 +7298,62 @@ export const DataStore = {
     } catch (e: any) {
       console.warn('Lỗi khi đồng bộ sheet 963:', e);
       return { success: false, error: e?.message || 'Lỗi mạng khi đồng bộ sheet 963' };
+    }
+  },
+
+  /**
+   * Lưu kết quả đối soát HSN khớp vào cột KiemSoatHSN của Sheet 963
+   */
+  save963AuditHsn: async (
+    updates: { maKh: string; kiemSoatHsn: string }[]
+  ): Promise<{ success: boolean; updatedCount: number; error?: string }> => {
+    try {
+      if (!updates || updates.length === 0) {
+        return { success: true, updatedCount: 0 };
+      }
+      const list = [...DataStore.get963Entries()];
+      const updateMap = new Map<string, string>();
+      updates.forEach(u => {
+        if (u.maKh) {
+          updateMap.set(String(u.maKh).trim().toLowerCase(), u.kiemSoatHsn || 'Khớp HSN');
+        }
+      });
+
+      const updatedEntriesToSync: Entry963[] = [];
+      let updatedCount = 0;
+
+      for (let i = 0; i < list.length; i++) {
+        const key = String(list[i].maKh || '').trim().toLowerCase();
+        if (updateMap.has(key)) {
+          const val = updateMap.get(key)!;
+          list[i] = {
+            ...list[i],
+            kiemSoatHsn: val,
+            isLocal: true
+          };
+          updatedEntriesToSync.push(list[i]);
+          DataStore.recordLocal963Update(list[i].maKh, { kiemSoatHsn: val }, false);
+          updatedCount++;
+        }
+      }
+
+      DataStore.save963Entries(list);
+
+      // Đồng bộ sang Google Sheets ngầm
+      if (updatedEntriesToSync.length > 0) {
+        DataStore.sync963ToSheet(updatedEntriesToSync).then(res => {
+          if (res.success) {
+            DataStore.mark963UpdateSynced(updatedEntriesToSync.map(e => e.maKh));
+          }
+        }).catch(err => {
+          console.warn('Lỗi đồng bộ ngầm KiemSoatHSN:', err);
+        });
+      }
+
+      return { success: true, updatedCount };
+    } catch (err: any) {
+      console.error('Lỗi khi lưu kết quả đối soát HSN:', err);
+      return { success: false, updatedCount: 0, error: err?.message || 'Lỗi lưu đối soát HSN' };
     }
   },
 
@@ -7369,6 +7482,27 @@ export const DataStore = {
   },
 
   fetchNhapDk963Data: async (forceRefresh?: boolean): Promise<NhapDk963Entry[]> => {
+    // Strategy 1: Centralized Server Store (/api/nhap-dk-963)
+    // Đồng bộ lập tức giữa các máy tính và thiết bị khác nhau
+    try {
+      const serverRes = await fetch('/api/nhap-dk-963', {
+        headers: { 'Cache-Control': 'no-cache' }
+      });
+      if (serverRes.ok) {
+        const json = await serverRes.json();
+        if (json && json.success && Array.isArray(json.items)) {
+          if (json.items.length > 0) {
+            DataStore.saveNhapDk963Entries(json.items);
+            window.dispatchEvent(new CustomEvent('nhap_dk_963_updated'));
+            return json.items;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Could not fetch /api/nhap-dk-963:', err);
+    }
+
+    // Strategy 2: Google Sheets CSV export
     try {
       const sheetId = DataStore.getSpreadsheetId() || DEFAULT_SPREADSHEET_ID;
       const possibleNames = ['NhapDK963', 'nhapdk963', 'Nhap_DK_963', 'NhapDK_963', 'Nhập ĐK 963', 'NhapDK'];
@@ -7388,6 +7522,12 @@ export const DataStore = {
           const localOnly = current.filter(c => c.isLocal && !parsed.some(p => p.id === c.id));
           const merged = [...parsed, ...localOnly];
           DataStore.saveNhapDk963Entries(merged);
+          // Đồng bộ lên server để các máy khác cùng nhận được
+          fetch('/api/nhap-dk-963', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'set_all', items: merged })
+          }).catch(() => {});
           window.dispatchEvent(new CustomEvent('nhap_dk_963_updated'));
           return merged;
         }
@@ -7412,9 +7552,24 @@ export const DataStore = {
     DataStore.saveNhapDk963Entries(list);
     window.dispatchEvent(new CustomEvent('nhap_dk_963_updated'));
 
-    // Đồng bộ lên Google Sheets
+    // 1. Đồng bộ lên Centralized Server Database (lưu vĩnh viễn trên máy chủ, các máy khác thấy ngay lập tức)
+    let serverOk = false;
+    try {
+      const srvRes = await fetch('/api/nhap-dk-963', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'save', item: newEntry })
+      });
+      if (srvRes.ok) {
+        serverOk = true;
+      }
+    } catch (err) {
+      console.warn('Lỗi lưu server NhapDK963:', err);
+    }
+
+    // 2. Đồng bộ lên Google Sheets (qua Apps Script)
     const syncRes = await DataStore.syncNhapDk963ToSheet(list);
-    if (syncRes.success) {
+    if (serverOk || syncRes.success) {
       newEntry.isLocal = false;
       DataStore.saveNhapDk963Entries(list);
     }
@@ -7422,7 +7577,7 @@ export const DataStore = {
     return {
       success: true,
       entry: newEntry,
-      error: syncRes.success ? undefined : syncRes.error
+      error: (serverOk || syncRes.success) ? undefined : syncRes.error
     };
   },
 
@@ -7439,12 +7594,24 @@ export const DataStore = {
     DataStore.saveNhapDk963Entries(list);
     window.dispatchEvent(new CustomEvent('nhap_dk_963_updated'));
 
+    // 1. Đồng bộ lên Server Database
+    let serverOk = false;
+    try {
+      const srvRes = await fetch('/api/nhap-dk-963', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'save', item: list[idx] })
+      });
+      if (srvRes.ok) serverOk = true;
+    } catch (err) {}
+
+    // 2. Đồng bộ lên Google Sheets
     const syncRes = await DataStore.syncNhapDk963ToSheet(list);
-    if (syncRes.success) {
+    if (serverOk || syncRes.success) {
       list[idx].isLocal = false;
       DataStore.saveNhapDk963Entries(list);
     }
-    return { success: true, error: syncRes.success ? undefined : syncRes.error };
+    return { success: true, error: (serverOk || syncRes.success) ? undefined : syncRes.error };
   },
 
   deleteNhapDk963Entry: async (
@@ -7455,6 +7622,16 @@ export const DataStore = {
     DataStore.saveNhapDk963Entries(list);
     window.dispatchEvent(new CustomEvent('nhap_dk_963_updated'));
 
+    // 1. Đồng bộ xóa trên Server Database
+    try {
+      await fetch('/api/nhap-dk-963', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete', id })
+      });
+    } catch (err) {}
+
+    // 2. Đồng bộ Google Sheets
     const syncRes = await DataStore.syncNhapDk963ToSheet(list);
     return { success: true, error: syncRes.success ? undefined : syncRes.error };
   },

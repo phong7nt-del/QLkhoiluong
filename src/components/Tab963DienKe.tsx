@@ -145,6 +145,33 @@ export default function Tab963DienKe({
     return () => window.removeEventListener('nhap_dk_963_updated', handleUpdate);
   }, []);
 
+  // Tự động tải dữ liệu NhapDK963 từ server và Google Sheets ngay khi mở tab và khi quay lại cửa sổ
+  useEffect(() => {
+    DataStore.fetchNhapDk963Data(true).then((data) => {
+      if (Array.isArray(data)) {
+        setNhapList(data);
+      }
+    }).catch(() => {});
+
+    const handleFocus = () => {
+      DataStore.fetchNhapDk963Data(true).then((data) => {
+        if (Array.isArray(data)) {
+          setNhapList(data);
+        }
+      }).catch(() => {});
+    };
+    window.addEventListener('focus', handleFocus);
+
+    const timer = setInterval(() => {
+      DataStore.fetchNhapDk963Data(false).catch(() => {});
+    }, 12000);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      clearInterval(timer);
+    };
+  }, []);
+
   // Tải mới từ Google Sheets
   const handleReloadFromSheet = async () => {
     setIsRefreshing(true);

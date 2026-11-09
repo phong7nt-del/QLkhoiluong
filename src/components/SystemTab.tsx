@@ -263,6 +263,15 @@ export default function SystemTab() {
     const [showScriptGuide, setShowScriptGuide] = useState(false);
     const [dataUrlMsg, setDataUrlMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string; details?: string } | null>(null);
 
+    useEffect(() => {
+        const handleUrlChange = () => {
+            setDataUrl(DataStore.getAppScriptUrl());
+            setSheetInput(DataStore.getSpreadsheetId());
+        };
+        window.addEventListener('app_script_url_updated', handleUrlChange);
+        return () => window.removeEventListener('app_script_url_updated', handleUrlChange);
+    }, []);
+
     const handleSaveDataUrl = async () => {
         const cleanUrl = dataUrl.trim();
         const cleanSheet = sheetInput.trim();
