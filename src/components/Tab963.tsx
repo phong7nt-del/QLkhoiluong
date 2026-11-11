@@ -234,6 +234,17 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const getDrivePreviewUrl = (url?: string): string => {
+    if (!url) return '';
+    const trimmed = url.trim();
+    if (trimmed.startsWith('data:image')) return trimmed;
+    const match = trimmed.match(/(?:id=|file\/d\/)([a-zA-Z0-9_-]+)/);
+    if (match && match[1]) {
+      return `https://drive.google.com/thumbnail?id=${match[1]}&sz=w1000`;
+    }
+    return trimmed;
+  };
+
   const handleProcessImageFile = async (file: File) => {
     if (!file) return;
     setIsProcessingPic(true);
@@ -1182,7 +1193,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
             `963_${selectedCustomer.maKh}.jpg`,
             'image/jpeg',
             '1eze4kVWtdUr0gjKSEAB_BKSfm5CNg3fv',
-            { maKh: selectedCustomer.maKh }
+            { maKh: selectedCustomer.maKh, sheetName: '963' }
           );
         } catch (uploadErr: any) {
           console.warn('Lỗi khi tải ảnh công tơ lên Drive:', uploadErr);
@@ -3147,7 +3158,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                         <div className="flex flex-col sm:flex-row items-center gap-3 p-3 bg-emerald-50/60 rounded-xl border border-emerald-200">
                           <div className="relative group shrink-0">
                             <img
-                              src={selectedCustomer.pic}
+                              src={getDrivePreviewUrl(selectedCustomer.pic)}
                               alt={`Ảnh công tơ KH ${selectedCustomer.maKh}`}
                               className="w-24 h-24 sm:w-20 sm:h-20 object-cover rounded-lg border border-emerald-300 shadow-sm cursor-pointer"
                               onClick={() => setZoomPicUrl({ url: selectedCustomer.pic!, title: `Ảnh công tơ KH: ${selectedCustomer.maKh} (${selectedCustomer.tenKh})` })}
@@ -6612,7 +6623,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
             </div>
             <div className="p-2 sm:p-4 flex items-center justify-center max-h-[75vh] overflow-auto bg-black/50">
               <img
-                src={zoomPicUrl.url}
+                src={getDrivePreviewUrl(zoomPicUrl.url)}
                 alt={zoomPicUrl.title}
                 className="max-w-full max-h-[70vh] object-contain rounded-lg shadow-md"
               />

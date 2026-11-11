@@ -1703,8 +1703,6 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
                 <th className="px-3.5 py-2.5 border-r border-slate-200 text-center min-w-[125px]">Phân loại TB</th>
                 <th className="px-3.5 py-2.5 border-r border-slate-200 whitespace-nowrap min-w-[130px]">MA_DDO</th>
                 <th className="px-3.5 py-2.5 border-r border-slate-200 min-w-[200px]">TEN_KHANG</th>
-                <th className="px-3.5 py-2.5 border-r border-slate-200 min-w-[240px]">DCHI_DDO</th>
-                <th className="px-3.5 py-2.5 border-r border-slate-200 min-w-[110px]">DTHOAI</th>
                 <th className="px-3.5 py-2.5 border-r border-slate-200 whitespace-nowrap min-w-[110px]">MA_SOGCS</th>
                 <th className="px-3.5 py-2.5 border-r border-slate-200 text-center min-w-[75px]">MA_KVUC</th>
                 <th className="px-3.5 py-2.5 border-r border-slate-200 text-center min-w-[115px]">LOAI_TT_GT / Chi tiết</th>
@@ -1721,7 +1719,7 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
             <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
               {paginatedRecords.length === 0 ? (
                 <tr>
-                  <td colSpan={17} className="py-12 text-center text-slate-400 font-sans">
+                  <td colSpan={15} className="py-12 text-center text-slate-400 font-sans">
                     <Info className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                     <p className="font-bold text-sm text-slate-600">Không tìm thấy hồ sơ nào phù hợp</p>
                     <p className="text-xs text-slate-400 mt-1">Hãy thử xóa bộ lọc hoặc tìm kiếm từ khóa khác.</p>
@@ -1745,12 +1743,6 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
                       </td>
                       <td className="px-3.5 py-2.5 font-sans font-semibold text-slate-800 border-r border-slate-100">
                         {r.TEN_KHANG || '-'}
-                      </td>
-                      <td className="px-3.5 py-2.5 font-sans text-slate-600 border-r border-slate-100">
-                        {r.DCHI_DDO || '-'}
-                      </td>
-                      <td className="px-3.5 py-2.5 text-slate-700 border-r border-slate-100">
-                        {r.DTHOAI || '-'}
                       </td>
                       <td className="px-3.5 py-2.5 font-bold text-slate-800 border-r border-slate-100">
                         {r.MA_SOGCS || '-'}

@@ -1984,7 +1984,7 @@ export const DataStore = {
     fileName: string,
     mimeType: string = 'image/jpeg',
     folderId: string = '1eze4kVWtdUr0gjKSEAB_BKSfm5CNg3fv',
-    extra?: { maKh?: string; oldFileId?: string }
+    extra?: { maKh?: string; oldFileId?: string; sheetName?: string }
   ): Promise<string> => {
     try {
       const url = DataStore.getAppScriptUrl();
@@ -2001,7 +2001,8 @@ export const DataStore = {
           mimeType,
           folderId,
           maKh: extra?.maKh,
-          oldFileId: extra?.oldFileId
+          oldFileId: extra?.oldFileId,
+          sheetName: extra?.sheetName || (extra?.maKh ? '963' : undefined)
         })
       });
       const text = await res.text();

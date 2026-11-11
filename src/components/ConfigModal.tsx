@@ -2203,6 +2203,39 @@ function doPost(e) {
            var driveDirectUrl = "https://drive.google.com/file/d/" + fileId + "/view?usp=drivesdk";
            var finalUrl = driveDirectUrl;
 
+           // Nếu upload ảnh có kèm maKh (ví dụ từ tab 963), tự động lưu trực tiếp link ảnh vào cột Pic của sheet 963 ngay lập tức
+           if (payload.maKh) {
+             try {
+               var ssForPic = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
+               var targetSheetName = payload.sheetName || '963';
+               var sheetForPic = getSheetFlexibly(ssForPic, [targetSheetName, '963', 'qd963', 'QD963']);
+               if (sheetForPic && sheetForPic.getLastRow() >= 2) {
+                 var lastColP = sheetForPic.getLastColumn();
+                 var headersP = sheetForPic.getRange(1, 1, 1, lastColP).getValues()[0];
+                 var cMaKh = -1, cPic = -1;
+                 for (var cp = 0; cp < headersP.length; cp++) {
+                   var hnP = String(headersP[cp] || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                   if (hnP === 'makhang' || hnP === 'makh' || hnP === 'makhachhang') cMaKh = cp;
+                   if (hnP === 'pic' || hnP === 'hinhanh' || hnP === 'anh' || hnP === 'photo' || hnP === 'linkanh' || hnP === 'anhcongto') cPic = cp;
+                 }
+                 if (cMaKh === -1) cMaKh = 0;
+                 if (cPic === -1) {
+                   lastColP++;
+                   sheetForPic.getRange(1, lastColP).setValue('Pic');
+                   cPic = lastColP - 1;
+                 }
+                 var mRows = sheetForPic.getRange(2, cMaKh + 1, sheetForPic.getLastRow() - 1, 1).getValues();
+                 var targetKey = String(payload.maKh).trim().toLowerCase();
+                 for (var rIdx = 0; rIdx < mRows.length; rIdx++) {
+                   if (String(mRows[rIdx][0] || '').trim().toLowerCase() === targetKey) {
+                     sheetForPic.getRange(rIdx + 2, cPic + 1).setValue(finalUrl);
+                     break;
+                   }
+                 }
+               }
+             } catch (picErr) {}
+           }
+
            return ContentService.createTextOutput(JSON.stringify({ 
                status: 'success', 
                url: finalUrl,
@@ -3118,6 +3151,7 @@ function doPost(e) {
       var colMaKh = -1, colNv = -1, colNgayGio = -1, colKetQua = -1, colGioVuot = -1, colHsn = -1;
       var colKSuDung = -1, colKqRaSoat = -1;
       var colCscdKyTruoc = -1, colCscdThao = -1, colCs930 = -1, colSlVuot = -1;
+      var colPic = -1, colKiemSoatHsn = -1;
       for (var c = 0; c < headers.length; c++) {
         var hNorm = String(headers[c] || '').toLowerCase().replace(/[^a-z0-9]/g, '');
         if (hNorm === 'makhang' || hNorm === 'makh' || hNorm === 'makhachhang') colMaKh = c;
@@ -3132,6 +3166,8 @@ function doPost(e) {
         if (hNorm.indexOf('cscdthao') !== -1 || hNorm.indexOf('cdthao') !== -1) colCscdThao = c;
         if (hNorm.indexOf('cs930') !== -1 || hNorm.indexOf('cs9h30') !== -1 || hNorm.indexOf('9h30') !== -1 || hNorm.indexOf('930') !== -1) colCs930 = c;
         if (hNorm === 'slvuot' || hNorm.indexOf('slvuot') !== -1 || hNorm.indexOf('sanluongvuot') !== -1) colSlVuot = c;
+        if (hNorm === 'pic' || hNorm === 'hinhanh' || hNorm === 'anh' || hNorm === 'photo' || hNorm === 'linkanh' || hNorm === 'anhcongto') colPic = c;
+        if (hNorm === 'kiemsoathsn' || hNorm === 'kshsn' || hNorm === 'kiemsoat_hsn') colKiemSoatHsn = c;
       }
       if (colMaKh === -1) colMaKh = 0;
 
@@ -3192,6 +3228,16 @@ function doPost(e) {
         sheet.getRange(1, curLastCol).setValue('SLVuot');
         colSlVuot = curLastCol - 1;
       }
+      if (colPic === -1) {
+        curLastCol++;
+        sheet.getRange(1, curLastCol).setValue('Pic');
+        colPic = curLastCol - 1;
+      }
+      if (colKiemSoatHsn === -1) {
+        curLastCol++;
+        sheet.getRange(1, curLastCol).setValue('KiemSoatHSN');
+        colKiemSoatHsn = curLastCol - 1;
+      }
 
       var maVals = sheet.getRange(2, colMaKh + 1, lastRow - 1, 1).getValues();
       var maRowMap = {};
@@ -3246,6 +3292,18 @@ function doPost(e) {
           var valSlVuot = it.slVuot !== undefined ? it.slVuot : it.SLVuot;
           if (colSlVuot > -1 && valSlVuot !== undefined) {
             sheet.getRange(rowNum, colSlVuot + 1).setValue(valSlVuot);
+          }
+
+          // Ghi nhận liên kết ảnh công tơ (cột Pic)
+          var valPic = it.pic !== undefined ? it.pic : (it.Pic !== undefined ? it.Pic : (it.PIC !== undefined ? it.PIC : ''));
+          if (colPic > -1 && valPic !== undefined && valPic !== '') {
+            sheet.getRange(rowNum, colPic + 1).setValue(valPic);
+          }
+
+          // Ghi nhận kết quả rà soát HSN (cột KiemSoatHSN)
+          var valKshsn = it.kiemSoatHsn !== undefined ? it.kiemSoatHsn : (it.KiemSoatHSN !== undefined ? it.KiemSoatHSN : (it.kiemsoathsn !== undefined ? it.kiemsoathsn : ''));
+          if (colKiemSoatHsn > -1 && valKshsn !== undefined && valKshsn !== '') {
+            sheet.getRange(rowNum, colKiemSoatHsn + 1).setValue(valKshsn);
           }
 
           updatedCount++;
