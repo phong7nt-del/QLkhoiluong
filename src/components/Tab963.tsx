@@ -230,6 +230,8 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
   const [meterPicBase64, setMeterPicBase64] = useState<string | null>(null);
   const [meterPicSizeKb, setMeterPicSizeKb] = useState<number>(0);
   const [isProcessingPic, setIsProcessingPic] = useState<boolean>(false);
+  const [isSubmittingPic, setIsSubmittingPic] = useState<boolean>(false);
+  const [addPicModalCustomer, setAddPicModalCustomer] = useState<Entry963 | null>(null);
   const [zoomPicUrl, setZoomPicUrl] = useState<{ url: string; title: string } | null>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -252,12 +254,63 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       const { base64, sizeKb } = await compressImageFile(file, 1200, 1200, 0.7);
       setMeterPicBase64(base64);
       setMeterPicSizeKb(sizeKb);
-      showToast('info', `Đã nén tối ưu ảnh công tơ: ${sizeKb} KB (tên sẽ lưu: 963_${selectedCustomer?.maKh || 'KH'}.jpg).`);
+      const targetMa = addPicModalCustomer?.maKh || selectedCustomer?.maKh || 'KH';
+      showToast('info', `Đã nén tối ưu ảnh công tơ: ${sizeKb} KB (tên sẽ lưu: 963_${targetMa}.jpg).`);
     } catch (e: any) {
       console.error('Lỗi nén ảnh:', e);
       showToast('error', 'Không thể xử lý ảnh: ' + (e?.message || 'Có lỗi xảy ra'));
     } finally {
       setIsProcessingPic(false);
+    }
+  };
+
+  // Lưu bổ sung ảnh công tơ cho khách hàng đã thay xong
+  const handleSaveSupplementaryPic = async (targetCustomer?: Entry963) => {
+    const cust = targetCustomer || addPicModalCustomer || selectedCustomer;
+    if (!cust || !cust.maKh) {
+      showToast('error', 'Chưa chọn khách hàng cần bổ sung ảnh.');
+      return;
+    }
+    if (!meterPicBase64) {
+      showToast('error', 'Vui lòng chụp hoặc tải ảnh công tơ trước khi lưu.');
+      return;
+    }
+
+    setIsSubmittingPic(true);
+    showToast('info', `Đang tải ảnh công tơ (963_${cust.maKh}.jpg) lên Google Drive...`);
+
+    try {
+      const uploadedPicUrl = await DataStore.uploadImageToDrive(
+        meterPicBase64,
+        `963_${cust.maKh}.jpg`,
+        'image/jpeg',
+        '1eze4kVWtdUr0gjKSEAB_BKSfm5CNg3fv',
+        { maKh: cust.maKh, sheetName: '963' }
+      );
+
+      const res = await DataStore.update963Pic(cust.maKh, uploadedPicUrl);
+      if (res.error) {
+        showToast('error', res.error);
+      } else {
+        showToast('success', `Đã bổ sung ảnh công tơ cho KH ${cust.maKh} thành công và lưu liên kết vào cột Pic!`);
+        setMeterPicBase64(null);
+        setMeterPicSizeKb(0);
+
+        if (selectedCustomer && selectedCustomer.maKh === cust.maKh) {
+          setSelectedCustomer({
+            ...selectedCustomer,
+            pic: uploadedPicUrl
+          });
+        }
+        if (addPicModalCustomer && addPicModalCustomer.maKh === cust.maKh) {
+          setAddPicModalCustomer(null);
+        }
+      }
+    } catch (err: any) {
+      console.error('Lỗi bổ sung ảnh:', err);
+      showToast('error', 'Lỗi tải ảnh lên Google Drive: ' + (err?.message || 'Có lỗi xảy ra'));
+    } finally {
+      setIsSubmittingPic(false);
     }
   };
 
@@ -3128,11 +3181,33 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                               </span>
                             </div>
                             <p className="text-[11px] text-slate-600">
-                              Đã tối ưu hóa dung lượng nhỏ nhất, lưu nhanh. Ảnh sẽ được tự động tải lên Google Drive folder và cập nhật link vào cột <b>Pic</b> khi bấm <b>Xác nhận Đã Thay Xong</b>.
+                              {Boolean(selectedCustomer.ketQua?.toLowerCase().includes('xong'))
+                                ? 'Ảnh công tơ bổ sung cho khách hàng đã thay xong. Bấm "Lưu Bổ Sung Ảnh" để lưu lên Google Drive và ghi vào cột Pic.'
+                                : 'Đã tối ưu hóa dung lượng nhỏ nhất, lưu nhanh. Ảnh sẽ được tự động tải lên Google Drive folder và cập nhật link vào cột Pic khi bấm Xác nhận Đã Thay Xong.'}
                             </p>
                           </div>
 
-                          <div className="flex items-center gap-2 shrink-0">
+                          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                            {Boolean(selectedCustomer.ketQua?.toLowerCase().includes('xong')) && (
+                              <button
+                                type="button"
+                                onClick={() => handleSaveSupplementaryPic(selectedCustomer)}
+                                disabled={isSubmittingPic}
+                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer disabled:opacity-50"
+                              >
+                                {isSubmittingPic ? (
+                                  <>
+                                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                    <span>Đang lưu...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Save className="w-3.5 h-3.5" />
+                                    <span>Lưu Bổ Sung Ảnh</span>
+                                  </>
+                                )}
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => setZoomPicUrl({ url: meterPicBase64, title: `Ảnh công tơ mới KH: ${selectedCustomer.maKh} (${selectedCustomer.tenKh})` })}
@@ -3208,37 +3283,48 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                         </div>
                       ) : null}
 
-                      {/* Photo Capture / Upload buttons (disabled if already completed/locked) */}
-                      {!Boolean(selectedCustomer.ketQua?.toLowerCase().includes('xong')) && (
-                        <div className="flex flex-wrap items-center gap-2 pt-1">
-                          {/* Default Action: Chụp ảnh công tơ bằng Camera */}
-                          <button
-                            type="button"
-                            onClick={() => cameraInputRef.current?.click()}
-                            disabled={isProcessingPic}
-                            className="px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 active:scale-95 text-white font-bold text-xs rounded-xl shadow-sm hover:shadow flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
-                          >
-                            <Camera className="w-4 h-4" />
-                            <span>{meterPicBase64 ? 'Chụp lại ảnh (Mặc định)' : 'Chụp ảnh công tơ (Mặc định)'}</span>
-                          </button>
-
-                          {/* Secondary Action: Tải ảnh từ thư viện thiết bị */}
-                          <button
-                            type="button"
-                            onClick={() => fileInputRef.current?.click()}
-                            disabled={isProcessingPic}
-                            className="px-3.5 py-2 bg-white hover:bg-slate-100 active:scale-95 text-slate-700 border border-slate-300 font-semibold text-xs rounded-xl shadow-2xs flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
-                          >
-                            <Upload className="w-4 h-4 text-slate-600" />
-                            <span>Tải ảnh từ máy</span>
-                          </button>
-
-                          {isProcessingPic && (
-                            <span className="text-xs text-amber-800 font-medium flex items-center gap-1.5 animate-pulse ml-2">
-                              <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-600" />
-                              Đang nén tối ưu dung lượng siêu nhẹ...
-                            </span>
+                      {/* Photo Capture / Upload buttons (enabled if not completed OR if completed but missing photo) */}
+                      {(!Boolean(selectedCustomer.ketQua?.toLowerCase().includes('xong')) || !selectedCustomer.pic) && (
+                        <div className="space-y-2 pt-1">
+                          {Boolean(selectedCustomer.ketQua?.toLowerCase().includes('xong')) && !selectedCustomer.pic && (
+                            <div className="p-2.5 bg-amber-100/70 text-amber-900 rounded-xl border border-amber-300 text-xs flex items-center justify-between gap-2 flex-wrap">
+                              <div className="flex items-center gap-1.5 font-medium">
+                                <Sparkles className="w-4 h-4 text-amber-700 shrink-0" />
+                                <span>Khách hàng này đã thay xong nhưng chưa có ảnh công tơ. Hãy chụp/tải ảnh để bổ sung vào Drive & Cột Pic!</span>
+                              </div>
+                            </div>
                           )}
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            {/* Default Action: Chụp ảnh công tơ bằng Camera */}
+                            <button
+                              type="button"
+                              onClick={() => cameraInputRef.current?.click()}
+                              disabled={isProcessingPic || isSubmittingPic}
+                              className="px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 active:scale-95 text-white font-bold text-xs rounded-xl shadow-sm hover:shadow flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+                            >
+                              <Camera className="w-4 h-4" />
+                              <span>{meterPicBase64 ? 'Chụp lại ảnh (Mặc định)' : 'Chụp ảnh công tơ (Mặc định)'}</span>
+                            </button>
+
+                            {/* Secondary Action: Tải ảnh từ thư viện thiết bị */}
+                            <button
+                              type="button"
+                              onClick={() => fileInputRef.current?.click()}
+                              disabled={isProcessingPic || isSubmittingPic}
+                              className="px-3.5 py-2 bg-white hover:bg-slate-100 active:scale-95 text-slate-700 border border-slate-300 font-semibold text-xs rounded-xl shadow-2xs flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+                            >
+                              <Upload className="w-4 h-4 text-slate-600" />
+                              <span>Tải ảnh từ máy</span>
+                            </button>
+
+                            {isProcessingPic && (
+                              <span className="text-xs text-amber-800 font-medium flex items-center gap-1.5 animate-pulse ml-2">
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-600" />
+                                Đang nén tối ưu dung lượng siêu nhẹ...
+                              </span>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -3715,21 +3801,42 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => handleConfirmReplacement('calculation')}
-                  disabled={isSubmitting || Boolean(selectedCustomer?.kSuDung?.toLowerCase().includes('thu hồi')) || Boolean(selectedCustomer?.ketQua?.toLowerCase().includes('xong')) || !selectedCustomer}
-                  className="w-full sm:w-auto px-5 py-3 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-black text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>
-                    {selectedCustomer?.ketQua?.toLowerCase().includes('xong')
-                      ? 'Khách hàng đã thay xong (Đã khóa)'
-                      : isSubmitting
-                      ? 'Đang lưu vào Sheet...'
-                      : 'Lưu & Cập Nhật Vào Sheet 963'}
-                  </span>
-                </button>
+                {Boolean(selectedCustomer?.ketQua?.toLowerCase().includes('xong')) && !selectedCustomer?.pic && meterPicBase64 ? (
+                  <button
+                    type="button"
+                    onClick={() => handleSaveSupplementaryPic(selectedCustomer)}
+                    disabled={isSubmittingPic}
+                    className="w-full sm:w-auto px-5 py-3 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 shrink-0"
+                  >
+                    {isSubmittingPic ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Đang tải lên Drive & Cột Pic...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4" />
+                        <span>Lưu Bổ Sung Ảnh Công Tơ</span>
+                      </>
+                    )}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => handleConfirmReplacement('calculation')}
+                    disabled={isSubmitting || Boolean(selectedCustomer?.kSuDung?.toLowerCase().includes('thu hồi')) || Boolean(selectedCustomer?.ketQua?.toLowerCase().includes('xong')) || !selectedCustomer}
+                    className="w-full sm:w-auto px-5 py-3 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-black text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>
+                      {selectedCustomer?.ketQua?.toLowerCase().includes('xong')
+                        ? 'Khách hàng đã thay xong (Đã khóa)'
+                        : isSubmitting
+                        ? 'Đang lưu vào Sheet...'
+                        : 'Lưu & Cập Nhật Vào Sheet 963'}
+                    </span>
+                  </button>
+                )}
               </div>
             </>
           ) : (
@@ -4267,7 +4374,20 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                                     </a>
                                   </div>
                                 ) : (
-                                  <span className="text-slate-300 italic text-[11px]">—</span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setAddPicModalCustomer(item);
+                                      setMeterPicBase64(null);
+                                      setMeterPicSizeKb(0);
+                                    }}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-sans text-[10px] font-bold bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 hover:border-amber-400 transition-colors shadow-2xs cursor-pointer"
+                                    title="Khách hàng đã thay xong nhưng chưa có ảnh - Bấm để chụp hoặc tải ảnh bổ sung vào Drive & Cột Pic"
+                                  >
+                                    <Camera className="w-3 h-3 text-amber-700" />
+                                    <span>Bổ sung ảnh</span>
+                                  </button>
                                 )}
                               </td>
                             </tr>
@@ -6554,6 +6674,198 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                   Đóng
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Bổ Sung Ảnh Công Tơ Cho KH Đã Thay Xong */}
+      {addPicModalCustomer && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5"
+          onClick={() => {
+            if (!isSubmittingPic) {
+              setAddPicModalCustomer(null);
+              setMeterPicBase64(null);
+              setMeterPicSizeKb(0);
+            }
+          }}
+        >
+          <div 
+            className="relative max-w-lg w-full bg-white rounded-2xl overflow-hidden shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="p-4 bg-gradient-to-r from-amber-600 to-amber-700 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center text-white shrink-0">
+                  <Camera className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-sm">Bổ Sung Ảnh Công Tơ Sau Khi Thay</h4>
+                  <p className="text-[11px] text-amber-100">Lưu vào Google Drive & ghi link vào cột Pic (Sheet 963)</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={isSubmittingPic}
+                onClick={() => {
+                  setAddPicModalCustomer(null);
+                  setMeterPicBase64(null);
+                  setMeterPicSizeKb(0);
+                }}
+                className="p-1.5 hover:bg-white/20 text-white/90 hover:text-white rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                title="Đóng"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-5 space-y-4">
+              {/* Thông tin khách hàng */}
+              <div className="p-3 bg-amber-50/70 rounded-xl border border-amber-200 space-y-1.5 text-xs text-slate-700">
+                <div className="flex items-center justify-between flex-wrap gap-1">
+                  <span className="font-bold text-slate-900 text-sm">{addPicModalCustomer.tenKh}</span>
+                  <span className="font-mono bg-amber-100 text-amber-900 px-2 py-0.5 rounded font-bold border border-amber-300">
+                    {addPicModalCustomer.maKh}
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-600">
+                  <b>Địa chỉ:</b> {addPicModalCustomer.diaChi || '—'}
+                </div>
+                <div className="flex items-center gap-4 text-[11px] text-slate-600 flex-wrap">
+                  <span><b>Ngày thay:</b> {addPicModalCustomer.ngayGio || '—'}</span>
+                  <span><b>NV thực hiện:</b> {addPicModalCustomer.nv || '—'}</span>
+                  <span><b>HSN:</b> {addPicModalCustomer.hsn || '—'}</span>
+                </div>
+              </div>
+
+              {/* Ảnh đã chọn hoặc khung chụp ảnh */}
+              {meterPicBase64 ? (
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <img
+                      src={meterPicBase64}
+                      alt={`Ảnh công tơ 963_${addPicModalCustomer.maKh}`}
+                      className="w-24 h-24 object-cover rounded-lg border-2 border-amber-500 shadow-sm shrink-0"
+                    />
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <div className="font-mono text-xs font-bold text-amber-900 bg-amber-100 px-2 py-0.5 rounded inline-block">
+                        963_{addPicModalCustomer.maKh}.jpg
+                      </div>
+                      <div className="text-[11px] text-emerald-700 font-bold">
+                        Đã tối ưu hóa: {meterPicSizeKb} KB
+                      </div>
+                      <p className="text-[10px] text-slate-500">
+                        Ảnh đã sẵn sàng để lưu vào Google Drive folder và cập nhật link vào cột Pic.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => cameraInputRef.current?.click()}
+                      disabled={isProcessingPic || isSubmittingPic}
+                      className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    >
+                      <Camera className="w-3.5 h-3.5" />
+                      <span>Chụp lại</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isProcessingPic || isSubmittingPic}
+                      className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>Chọn ảnh khác</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMeterPicBase64(null);
+                        setMeterPicSizeKb(0);
+                      }}
+                      disabled={isSubmittingPic}
+                      className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer disabled:opacity-50 ml-auto"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Hủy ảnh</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-6 border-2 border-dashed border-amber-300 bg-amber-50/40 rounded-xl text-center space-y-3">
+                  <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center mx-auto">
+                    <Camera className="w-6 h-6" />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs font-bold text-slate-800">Chưa có ảnh công tơ cho khách hàng này</p>
+                    <p className="text-[11px] text-slate-500">Chụp ảnh công tơ rõ nét số hiệu, chỉ số và sơ đồ đấu dây</p>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => cameraInputRef.current?.click()}
+                      disabled={isProcessingPic}
+                      className="px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white font-bold text-xs rounded-xl shadow-sm flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      <Camera className="w-4 h-4" />
+                      <span>Chụp ảnh (Mặc định)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isProcessingPic}
+                      className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 font-semibold text-xs rounded-xl shadow-2xs flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      <Upload className="w-4 h-4 text-slate-600" />
+                      <span>Tải ảnh từ máy</span>
+                    </button>
+                  </div>
+                  {isProcessingPic && (
+                    <div className="text-xs text-amber-800 font-medium flex items-center justify-center gap-1.5 animate-pulse pt-2">
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-600" />
+                      Đang nén tối ưu dung lượng siêu nhẹ...
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                disabled={isSubmittingPic}
+                onClick={() => {
+                  setAddPicModalCustomer(null);
+                  setMeterPicBase64(null);
+                  setMeterPicSizeKb(0);
+                }}
+                className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 font-semibold text-xs rounded-xl cursor-pointer disabled:opacity-50"
+              >
+                Đóng
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSaveSupplementaryPic(addPicModalCustomer)}
+                disabled={!meterPicBase64 || isSubmittingPic}
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md flex items-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSubmittingPic ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Đang lưu lên Drive & Cột Pic...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    <span>Lưu Vào Google Drive & Cột Pic</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>

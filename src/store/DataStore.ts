@@ -7172,6 +7172,53 @@ export const DataStore = {
     }
   },
 
+  /**
+   * Bổ sung / cập nhật link ảnh công tơ vào cột Pic trong Sheet 963 và LocalStorage
+   */
+  update963Pic: async (
+    maKh: string,
+    picUrl: string
+  ): Promise<{ success: boolean; entry: Entry963 | null; error?: string }> => {
+    try {
+      const list = [...DataStore.get963Entries()];
+      const key = String(maKh || '').trim().toLowerCase();
+      const idx = list.findIndex(e => String(e.maKh || '').trim().toLowerCase() === key);
+
+      if (idx === -1) {
+        return { success: false, entry: null, error: `Không tìm thấy khách hàng có mã ${maKh}` };
+      }
+
+      const current = list[idx];
+      const updatedEntry: Entry963 = {
+        ...current,
+        pic: picUrl,
+        isLocal: true
+      };
+
+      list[idx] = updatedEntry;
+      DataStore.save963Entries(list);
+      DataStore.recordLocal963Update(maKh, {
+        pic: picUrl
+      }, false);
+
+      window.dispatchEvent(new CustomEvent('tab963_updated'));
+
+      // Đồng bộ lên Google Sheets
+      const syncRes = await DataStore.sync963ToSheet(updatedEntry);
+      if (syncRes.success) {
+        DataStore.mark963UpdateSynced([maKh]);
+      }
+
+      return {
+        success: syncRes.success,
+        entry: updatedEntry,
+        error: syncRes.success ? undefined : (syncRes.error || 'Đã lưu trên thiết bị nhưng đồng bộ Google Sheet chưa thành công.')
+      };
+    } catch (err: any) {
+      return { success: false, entry: null, error: err?.message || 'Có lỗi xảy ra khi lưu ảnh' };
+    }
+  },
+
   sync963ToSheet: async (data: Entry963 | Entry963[]): Promise<{ success: boolean; error?: string; updatedCount?: number }> => {
     try {
       const rawItems = Array.isArray(data) ? data : [data];
