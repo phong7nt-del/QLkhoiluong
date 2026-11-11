@@ -544,6 +544,17 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
   const [tab1ReceiptAreaFilter, setTab1ReceiptAreaFilter] = useState('ALL');
   const [tab1ReceiptWardFilter, setTab1ReceiptWardFilter] = useState('ALL');
 
+  // State chọn nhiều hồ sơ trong Danh sách Tiếp nhận ở Tab 1
+  const [tab1SelectedReceiptMaKhs, setTab1SelectedReceiptMaKhs] = useState<string[]>([]);
+  // State phục vụ Xác nhận trả hồ sơ về DVKH (chuyển về Chưa giao)
+  const [returnReceiptTarget, setReturnReceiptTarget] = useState<{
+    maKhs: string[];
+    previewItem?: DvkhEntry;
+    isBatch: boolean;
+  } | null>(null);
+  const [returnReceiptReason, setReturnReceiptReason] = useState<string>('Chưa đủ hồ sơ');
+  const [isProcessingReturnReceipt, setIsProcessingReturnReceipt] = useState(false);
+
   // STT tự động tăng cho hồ sơ nhập mới theo số lượng record
   const nextStt = useMemo(() => {
     const maxStt = dvkhList.reduce((max, item) => Math.max(max, typeof item.stt === 'number' ? item.stt : parseInt(String(item.stt || 0), 10) || 0), 0);
@@ -1021,6 +1032,135 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
       showToast('success', `Đã tiếp nhận ${count} hồ sơ vào Đội QLHTĐĐ và đồng bộ lên Google Sheet!`);
     } else {
       showToast('error', `Đã ghi nhận trên máy, nhưng đồng bộ lên Google Sheet thất bại. Vui lòng kiểm tra lại URL App Script trong Cài đặt!`);
+    }
+  };
+
+  // Chọn / bỏ chọn hồ sơ trong danh sách chờ tiếp nhận
+  const handleToggleReceiptMaKh = (maKh: string) => {
+    setTab1SelectedReceiptMaKhs(prev => 
+      prev.includes(maKh) ? prev.filter(k => k !== maKh) : [...prev, maKh]
+    );
+  };
+
+  const handleToggleSelectAllReceipts = () => {
+    const allFilteredKeys = filteredTab1DeliveredWaitingConfirm.map(e => e.maKh);
+    if (tab1SelectedReceiptMaKhs.length === allFilteredKeys.length && allFilteredKeys.length > 0) {
+      setTab1SelectedReceiptMaKhs([]);
+    } else {
+      setTab1SelectedReceiptMaKhs(allFilteredKeys);
+    }
+  };
+
+  // Tiếp nhận các hồ sơ đã chọn trong danh sách chờ tiếp nhận
+  const handleConfirmSelectedReceipts = async () => {
+    if (!canConfirmReceipt) {
+      alert('Chỉ Tổ trưởng Treo tháo, Tổ phó treo tháo, Đội trưởng hoặc Đội phó mới có quyền xác nhận tiếp nhận hồ sơ!');
+      return;
+    }
+    const targetKeys = tab1SelectedReceiptMaKhs.length > 0 
+      ? tab1SelectedReceiptMaKhs 
+      : filteredTab1DeliveredWaitingConfirm.map(e => e.maKh);
+
+    if (targetKeys.length === 0) return;
+
+    const count = targetKeys.length;
+    const nowStr = getCurrentDateTimeStr();
+    const currentUserName = sessionUser?.name || 'Lãnh đạo QLHTĐĐ';
+
+    showToast('info', `Đang tiếp nhận và đồng bộ ${count} hồ sơ sang Google Sheet...`);
+    const ok = await DataStore.batchUpdateDvkh(targetKeys, {
+      nguoiNhan: currentUserName,
+      ngayNhan: nowStr,
+      trangThai: 'Đã Nhận'
+    });
+
+    setDvkhList(DataStore.getDvkhEntries());
+    setTab1SelectedReceiptMaKhs([]);
+    if (ok) {
+      showToast('success', `Đã tiếp nhận ${count} hồ sơ vào Đội QLHTĐĐ và đồng bộ lên Google Sheet!`);
+    } else {
+      showToast('error', `Đã ghi nhận trên máy, nhưng đồng bộ lên Google Sheet thất bại. Vui lòng kiểm tra lại URL App Script trong Cài đặt!`);
+    }
+  };
+
+  // Mở modal xác nhận trả hồ sơ về DVKH (chuyển về trạng thái "Chưa giao")
+  const handleOpenReturnReceiptModal = (maKhs: string[], previewItem?: DvkhEntry) => {
+    if (!canConfirmReceipt && !isDvkhUser) {
+      alert('Chỉ Tổ phó, Tổ trưởng, Đội phó, Đội trưởng hoặc Bộ phận DVKH mới có quyền xác nhận trả hồ sơ!');
+      return;
+    }
+    if (!maKhs || maKhs.length === 0) {
+      alert('Vui lòng chọn ít nhất một hồ sơ để xác nhận trả về DVKH!');
+      return;
+    }
+    setReturnReceiptTarget({
+      maKhs,
+      previewItem,
+      isBatch: maKhs.length > 1
+    });
+    setReturnReceiptReason('Chưa đủ hồ sơ');
+  };
+
+  // Thực hiện trả hồ sơ về DVKH và cập nhật trạng thái "Chưa giao"
+  const handleConfirmReturnReceipt = async () => {
+    if (!returnReceiptTarget || returnReceiptTarget.maKhs.length === 0) return;
+    try {
+      setIsProcessingReturnReceipt(true);
+      const targetKeys = returnReceiptTarget.maKhs;
+      const count = targetKeys.length;
+      const reasonClean = returnReceiptReason.trim();
+
+      showToast('info', `Đang xác nhận trả ${count} hồ sơ về DVKH...`);
+
+      // Chuẩn bị danh sách cập nhật về 'Chưa giao'
+      const list = DataStore.getDvkhEntries();
+      const setKeys = new Set(targetKeys.map(k => String(k || '').trim().toLowerCase()));
+      const updatedItems: DvkhEntry[] = [];
+
+      list.forEach(item => {
+        if (setKeys.has(String(item.maKh || '').trim().toLowerCase())) {
+          let updatedNote = item.ghiChu || '';
+          if (reasonClean) {
+            const tag = `[Trả DVKH: ${reasonClean}]`;
+            updatedNote = updatedNote ? `${updatedNote} | ${tag}` : tag;
+          }
+          updatedItems.push({
+            ...item,
+            trangThai: 'Chưa giao',
+            nguoiNhan: '',
+            ngayNhan: '',
+            ngayGiao: '',
+            nguoiGiao: '',
+            nguoiThucHien: '',
+            ghiChu: updatedNote
+          });
+        }
+      });
+
+      // Ghi nhận và đồng bộ lên Cloud & Google Sheet
+      const ok = await DataStore.batchUpdateDvkh(targetKeys, {
+        trangThai: 'Chưa giao',
+        nguoiNhan: '',
+        ngayNhan: '',
+        ngayGiao: '',
+        nguoiGiao: '',
+        nguoiThucHien: '',
+        ...(reasonClean ? { ghiChu: updatedItems[0]?.ghiChu } : {})
+      });
+
+      setDvkhList(DataStore.getDvkhEntries());
+      setTab1SelectedReceiptMaKhs(prev => prev.filter(k => !setKeys.has(String(k || '').trim().toLowerCase())));
+      setReturnReceiptTarget(null);
+
+      if (ok) {
+        showToast('success', `Đã trả thành công ${count} hồ sơ về DVKH (đã cập nhật về trạng thái "Chưa giao") và đồng bộ Google Sheet!`);
+      } else {
+        showToast('info', `Đã cập nhật trạng thái "Chưa giao" cho ${count} hồ sơ trên ứng dụng. Dữ liệu đang được đồng bộ tới Google Sheet.`);
+      }
+    } catch (err: any) {
+      showToast('error', 'Lỗi khi trả hồ sơ: ' + (err?.message || 'Có sự cố xảy ra'));
+    } finally {
+      setIsProcessingReturnReceipt(false);
     }
   };
 
@@ -3046,11 +3186,37 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                 {canConfirmReceipt && filteredTab1DeliveredWaitingConfirm.length > 0 && (
                   <button
                     type="button"
-                    onClick={handleConfirmAllReceipts}
+                    onClick={tab1SelectedReceiptMaKhs.length > 0 ? handleConfirmSelectedReceipts : handleConfirmAllReceipts}
                     className="flex items-center gap-1.5 px-3.5 py-1.5 bg-sky-700 hover:bg-sky-800 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer"
+                    title={tab1SelectedReceiptMaKhs.length > 0 ? `Tiếp nhận ${tab1SelectedReceiptMaKhs.length} hồ sơ đã chọn` : `Tiếp nhận toàn bộ ${filteredTab1DeliveredWaitingConfirm.length} hồ sơ`}
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Tiếp nhận toàn bộ ({filteredTab1DeliveredWaitingConfirm.length})</span>
+                    <span>
+                      {tab1SelectedReceiptMaKhs.length > 0 
+                        ? `Tiếp nhận đã chọn (${tab1SelectedReceiptMaKhs.length})` 
+                        : `Tiếp nhận toàn bộ (${filteredTab1DeliveredWaitingConfirm.length})`}
+                    </span>
+                  </button>
+                )}
+
+                {/* Nút Xác nhận trả hồ sơ về DVKH (chuyển về Chưa giao) */}
+                {(canConfirmReceipt || isDvkhUser) && filteredTab1DeliveredWaitingConfirm.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenReturnReceiptModal(
+                      tab1SelectedReceiptMaKhs.length > 0 
+                        ? tab1SelectedReceiptMaKhs 
+                        : filteredTab1DeliveredWaitingConfirm.map(e => e.maKh)
+                    )}
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer"
+                    title="Xác nhận trả hồ sơ về DVKH do chưa đủ hồ sơ (chuyển về trạng thái Chưa giao)"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>
+                      {tab1SelectedReceiptMaKhs.length > 0 
+                        ? `Xác nhận trả (${tab1SelectedReceiptMaKhs.length})` 
+                        : `Xác nhận trả toàn bộ (${filteredTab1DeliveredWaitingConfirm.length})`}
+                    </span>
                   </button>
                 )}
 
@@ -3091,53 +3257,89 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                     <table className="w-full text-xs text-left">
                       <thead className="bg-sky-100/70 text-slate-700 font-bold uppercase text-[10px]">
                         <tr>
+                          <th className="px-2.5 py-2.5 border-b border-sky-200 w-10 text-center">
+                            <input
+                              type="checkbox"
+                              checked={filteredTab1DeliveredWaitingConfirm.length > 0 && tab1SelectedReceiptMaKhs.length === filteredTab1DeliveredWaitingConfirm.length}
+                              onChange={handleToggleSelectAllReceipts}
+                              className="rounded border-sky-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
+                              title="Chọn tất cả hồ sơ"
+                            />
+                          </th>
                           <th className="px-3 py-2.5 border-b border-sky-200 w-12 text-center">STT</th>
                           <th className="px-3 py-2.5 border-b border-sky-200">Mã KH</th>
                           <th className="px-3 py-2.5 border-b border-sky-200">Tên Khách Hàng</th>
                           <th className="px-3 py-2.5 border-b border-sky-200">Địa Chỉ</th>
                           <th className="px-3 py-2.5 border-b border-sky-200">Ngày Giao Từ DVKH</th>
                           <th className="px-3 py-2.5 border-b border-sky-200 text-center">Trạng Thái</th>
-                          <th className="px-3 py-2.5 border-b border-sky-200 text-center w-32">Thao Tác</th>
+                          <th className="px-3 py-2.5 border-b border-sky-200 text-center w-52">Thao Tác</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-sky-100">
-                        {paginatedTab1DeliveredWaitingConfirm.map((item, idx) => (
-                          <tr key={`${item.maKh}_${item.stt || idx}`} className="hover:bg-sky-50/50">
-                            <td className="px-3 py-2 text-center text-slate-500 font-mono">
-                              {item.stt || ((currentTab1ReceiptPage - 1) * TAB1_RECEIPT_PAGE_SIZE + idx + 1)}
-                            </td>
-                            <td className="px-3 py-2 font-mono font-bold text-sky-900">
-                              {item.maKh}
-                            </td>
-                            <td className="px-3 py-2 font-semibold text-slate-800">
-                              {item.tenKh}
-                            </td>
-                            <td className="px-3 py-2 text-slate-600 max-w-xs truncate" title={item.diaChi}>
-                              {item.diaChi}
-                            </td>
-                            <td className="px-3 py-2 text-slate-600 font-mono text-[11px]">
-                              {item.ngayNhan || '-'}
-                            </td>
-                            <td className="px-3 py-2 text-center">
-                              {renderStatusBadge(item.trangThai)}
-                            </td>
-                            <td className="px-3 py-2 text-center">
-                              {canConfirmReceipt ? (
-                                <button
-                                  type="button"
-                                  onClick={() => handleConfirmReceipt(item.maKh)}
-                                  className="px-3 py-1 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer"
-                                >
-                                  Xác nhận nhận
-                                </button>
-                              ) : (
-                                <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-semibold">
-                                  Chờ QLHTĐĐ nhận
-                                </span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
+                        {paginatedTab1DeliveredWaitingConfirm.map((item, idx) => {
+                          const isSelected = tab1SelectedReceiptMaKhs.includes(item.maKh);
+                          return (
+                            <tr key={`${item.maKh}_${item.stt || idx}`} className={`hover:bg-sky-50/50 ${isSelected ? 'bg-sky-50/80' : ''}`}>
+                              <td className="px-2.5 py-2 text-center">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => handleToggleReceiptMaKh(item.maKh)}
+                                  className="rounded border-sky-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
+                                />
+                              </td>
+                              <td className="px-3 py-2 text-center text-slate-500 font-mono">
+                                {item.stt || ((currentTab1ReceiptPage - 1) * TAB1_RECEIPT_PAGE_SIZE + idx + 1)}
+                              </td>
+                              <td className="px-3 py-2 font-mono font-bold text-sky-900">
+                                {item.maKh}
+                              </td>
+                              <td className="px-3 py-2 font-semibold text-slate-800">
+                                {item.tenKh}
+                              </td>
+                              <td className="px-3 py-2 text-slate-600 max-w-xs truncate" title={item.diaChi}>
+                                {item.diaChi}
+                              </td>
+                              <td className="px-3 py-2 text-slate-600 font-mono text-[11px]">
+                                {item.ngayNhan || '-'}
+                              </td>
+                              <td className="px-3 py-2 text-center">
+                                {renderStatusBadge(item.trangThai)}
+                              </td>
+                              <td className="px-3 py-2 text-center whitespace-nowrap">
+                                <div className="flex items-center justify-center gap-1.5">
+                                  {canConfirmReceipt ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleConfirmReceipt(item.maKh)}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-bold transition-all shadow-2xs active:scale-95 cursor-pointer"
+                                      title="Tiếp nhận hồ sơ này vào Đội QLHTĐĐ"
+                                    >
+                                      <CheckCircle2 className="w-3.5 h-3.5" />
+                                      <span>Nhận</span>
+                                    </button>
+                                  ) : (
+                                    <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-semibold">
+                                      Chờ QLHTĐĐ nhận
+                                    </span>
+                                  )}
+
+                                  {(canConfirmReceipt || isDvkhUser) && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenReturnReceiptModal([item.maKh], item)}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-lg text-xs font-bold transition-all shadow-2xs active:scale-95 cursor-pointer"
+                                      title="Xác nhận trả hồ sơ này về DVKH do chưa đủ (chuyển về trạng thái Chưa giao)"
+                                    >
+                                      <RotateCcw className="w-3.5 h-3.5 text-rose-600" />
+                                      <span>Xác nhận trả</span>
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -4955,6 +5157,116 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                 >
                   {isProcessingDelete && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                   <span>{isProcessingDelete ? 'Đang xóa...' : 'Xác nhận xóa'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL XÁC NHẬN TRẢ HỒ SƠ VỀ DVKH (CHUYỂN VỀ TRẠNG THÁI CHƯA GIAO) */}
+      {returnReceiptTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl border border-rose-200 w-full max-w-md overflow-hidden animate-in zoom-in-95">
+            <div className="bg-gradient-to-r from-rose-700 to-amber-700 text-white p-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <RotateCcw className="w-5 h-5 text-rose-200" />
+                <h3 className="font-bold text-sm uppercase">Xác Nhận Trả Hồ Sơ Về DVKH</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReturnReceiptTarget(null)}
+                className="text-white/80 hover:text-white p-1 rounded-lg hover:bg-white/10 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-xs text-slate-600">
+              <div>
+                <p className="text-slate-700 font-medium">
+                  {returnReceiptTarget.isBatch
+                    ? `Bạn có chắc chắn muốn trả ${returnReceiptTarget.maKhs.length} hồ sơ đã chọn về lại bộ phận DVKH?`
+                    : 'Bạn có chắc chắn muốn trả hồ sơ sau về lại bộ phận DVKH do chưa đủ thông tin / tài liệu?'}
+                </p>
+
+                {returnReceiptTarget.previewItem && !returnReceiptTarget.isBatch ? (
+                  <div className="mt-2.5 p-3 bg-rose-50 border border-rose-200 rounded-xl space-y-1.5 text-xs">
+                    <div>Mã KH: <b className="font-mono text-rose-900">{returnReceiptTarget.previewItem.maKh}</b></div>
+                    <div>Tên KH: <b className="text-slate-900">{returnReceiptTarget.previewItem.tenKh}</b></div>
+                    {returnReceiptTarget.previewItem.diaChi && (
+                      <div>Địa chỉ: <span className="text-slate-700">{returnReceiptTarget.previewItem.diaChi}</span></div>
+                    )}
+                    {returnReceiptTarget.previewItem.loaiYeuCau && (
+                      <div>Loại: <span className="text-slate-700">{returnReceiptTarget.previewItem.loaiYeuCau}</span></div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="mt-2.5 p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs">
+                    <div className="font-bold text-rose-900 mb-1">
+                      Danh sách {returnReceiptTarget.maKhs.length} mã khách hàng:
+                    </div>
+                    <div className="max-h-28 overflow-y-auto font-mono text-[11px] text-slate-700 flex flex-wrap gap-1">
+                      {returnReceiptTarget.maKhs.map(k => (
+                        <span key={k} className="px-1.5 py-0.5 bg-white border border-rose-200 rounded text-rose-900 font-bold">
+                          {k}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt-3 p-2.5 bg-amber-50 rounded-xl border border-amber-200 text-amber-900 text-[11px]">
+                  💡 <b>Lưu ý:</b> Hồ sơ sau khi trả sẽ được cập nhật về trạng thái <b>"Chưa giao"</b>, xóa người nhận/ngày giao để bộ phận DVKH hoàn thiện và tiến hành giao lại khi đã đầy đủ.
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  Lý do trả hồ sơ:
+                </label>
+                <input
+                  type="text"
+                  value={returnReceiptReason}
+                  onChange={(e) => setReturnReceiptReason(e.target.value)}
+                  placeholder="Nhập lý do trả (ví dụ: Chưa đủ hồ sơ, thiếu CCCD...)"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500"
+                />
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {['Chưa đủ hồ sơ', 'Thiếu CCCD/giấy tờ', 'Sai thông tin SĐT/địa chỉ', 'Giao nhầm hồ sơ'].map(tag => (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() => setReturnReceiptReason(tag)}
+                      className={`px-2 py-0.5 rounded-lg text-[10px] font-semibold border transition-all cursor-pointer ${
+                        returnReceiptReason === tag 
+                          ? 'bg-rose-100 border-rose-400 text-rose-900 font-bold' 
+                          : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  disabled={isProcessingReturnReceipt}
+                  onClick={() => setReturnReceiptTarget(null)}
+                  className="px-4 py-2 rounded-xl border border-slate-300 hover:bg-slate-50 font-bold text-slate-700 cursor-pointer disabled:opacity-50"
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  type="button"
+                  disabled={isProcessingReturnReceipt}
+                  onClick={handleConfirmReturnReceipt}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold shadow-md cursor-pointer disabled:opacity-50 active:scale-95"
+                >
+                  {isProcessingReturnReceipt && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                  <span>{isProcessingReturnReceipt ? 'Đang trả...' : 'Xác nhận trả về DVKH'}</span>
                 </button>
               </div>
             </div>

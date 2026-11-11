@@ -5896,15 +5896,21 @@ export const DataStore = {
       const remoteWeight = getDvkhStatusWeight(remoteItem.trangThai);
       const localWeight = getDvkhStatusWeight(localItem.trangThai);
 
-      // Explicit support for "Trả DVKH" (reverting from Đã Nhận back to Chờ nhận)
+      // Explicit support for "Trả DVKH" (reverting from Đã Nhận back to Chờ nhận, or from Chờ nhận/Đã Nhận back to Chưa giao)
       const isLocalReturned = (localItem.trangThai === 'Chờ nhận' || localItem.trangThai === 'Chưa giao');
-      const isRemoteReceived = (remoteItem.trangThai === 'Đã Nhận' || String(remoteItem.trangThai || '').toLowerCase().includes('nhan'));
-      if (isLocalReturned && isRemoteReceived) {
+      const isRemoteForward = (
+        remoteItem.trangThai === 'Đã Nhận' ||
+        remoteItem.trangThai === 'Chờ nhận' ||
+        String(remoteItem.trangThai || '').toLowerCase().includes('nhan') ||
+        String(remoteItem.trangThai || '').toLowerCase().includes('cho')
+      );
+      if (isLocalReturned && isRemoteForward) {
         res.trangThai = localItem.trangThai;
         res.nguoiNhan = '';
         res.ngayNhan = '';
         res.ngayGiao = '';
         res.nguoiGiao = '';
+        res.nguoiThucHien = '';
       } else if (localWeight > remoteWeight) {
         // Local has advanced further (e.g. đã nhận, đã giao thi công, xong, trở ngại)
         // Keep local progression only if remote hasn't progressed
@@ -6530,7 +6536,7 @@ export const DataStore = {
           sdt: item.sdt || '',
           loai: item.loaiYeuCau || (item as any).loai || 'Gắn mới',
           loaiYeuCau: item.loaiYeuCau || (item as any).loai || 'Gắn mới',
-          ngayNhan: item.ngayNhan || item.ngayTao || '',
+          ngayNhan: item.trangThai === 'Chưa giao' ? '' : (item.ngayNhan !== undefined ? item.ngayNhan : (item.ngayTao || '')),
           nguoiNhan: item.nguoiNhan || '',
           ngayGiao: item.ngayGiao || '',
           nguoiGiao: '', // Luôn để trống vì người giao luôn là DVKH
