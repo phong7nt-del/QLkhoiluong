@@ -80,7 +80,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!username.trim() || !password.trim()) {
-      setError('Vui lòng nhập đầy đủ Họ tên và MSNV');
+      setError('Vui lòng nhập đầy đủ User và Mật khẩu');
       return;
     }
 
@@ -143,7 +143,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         if (memberByName && !getMsnv(memberByName)) {
           setError('Lỗi hệ thống: Dữ liệu chưa có MSNV. Quản trị viên cần cập nhật mã Google Apps Script mới trong mục Cấu hình!');
         } else if (memberByName) {
-          setError('Sai mật khẩu (MSNV). Vui lòng thử lại!');
+          setError('Sai mật khẩu. Vui lòng thử lại!');
         } else {
           setError('Không tìm thấy nhân viên này trong danh sách!');
         }
@@ -302,7 +302,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
               <form onSubmit={handleLogin} className="space-y-4 sm:space-y-5">
                  <div className="space-y-1.5">
                     <label className="text-xs font-bold tracking-widest text-[#141414]/70 uppercase flex items-center gap-2">
-                       Họ và tên
+                       User
                     </label>
                     <div className="relative">
                        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
@@ -318,7 +318,6 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                           list="members-list"
                           value={username}
                           onChange={(e) => setUsername(e.target.value)}
-                          placeholder="Nhập họ tên của bạn..."
                           className="w-full pl-12 pr-4 py-3 sm:py-3.5 bg-white border-2 border-slate-200 rounded-xl focus:bg-white focus:ring-0 focus:border-[#141414] transition-all outline-none text-[#141414] font-bold placeholder:text-slate-400 placeholder:font-medium shadow-sm hover:border-slate-300 text-sm"
                           disabled={isLoading}
                           autoFocus
@@ -329,7 +328,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
 
                  <div className="space-y-1.5">
                     <label className="text-xs font-bold tracking-widest text-[#141414]/70 uppercase flex items-center gap-2">
-                       Mật khẩu (MSNV)
+                       Mật khẩu
                     </label>
                     <div className="relative">
                        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
@@ -339,7 +338,6 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                           type="password"
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
-                          placeholder="Mã số nhân viên (MSNV)"
                           className="w-full pl-12 pr-4 py-3 sm:py-3.5 bg-white border-2 border-slate-200 rounded-xl focus:bg-white focus:ring-0 focus:border-[#141414] transition-all outline-none text-[#141414] font-bold tracking-widest placeholder:text-slate-400 placeholder:font-medium placeholder:tracking-normal shadow-sm hover:border-slate-300 text-sm"
                           disabled={isLoading}
                        />
