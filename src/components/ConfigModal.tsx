@@ -3324,30 +3324,99 @@ function doPost(e) {
       var sheet = getSheetFlexibly(ss, ['NhapDK963', 'nhapdk963', 'Nhap_DK_963', 'NhapDK_963', 'Nhập ĐK 963']);
       if (!sheet) {
         sheet = ss.insertSheet('NhapDK963');
-        sheet.appendRow(['Ngay', 'ChungLoai', 'SL', 'GhiChu', 'NguoiNhap', 'Id']);
-        sheet.getRange(1, 1, 1, 6).setFontWeight('bold').setBackground('#E2E8F0');
       }
+
+      // Đảm bảo dòng tiêu đề đầy đủ cả 6 cột rõ ràng
+      sheet.getRange(1, 1, 1, 6).setValues([['Ngay', 'ChungLoai', 'SL', 'GhiChu', 'NguoiNhap', 'Id']]);
+      sheet.getRange(1, 1, 1, 6).setFontWeight('bold').setBackground('#E2E8F0');
+
+      // Lọc trùng lặp dữ liệu trước khi lưu vào sheet
+      var seenKeys = {};
+      var seenBiz = {};
+      var dedupedItems = [];
+
+      for (var i = 0; i < items.length; i++) {
+        var it = items[i];
+        if (!it) continue;
+        var ngayStr = (it.Ngay || it.ngay || '').toString().trim();
+        var clStr = (it.ChungLoai || it.chungLoai || '').toString().trim();
+        var slNum = it.SL !== undefined ? it.SL : (it.sl !== undefined ? it.sl : 0);
+        var idStr = (it.Id || it.id || '').toString().trim();
+        var nguoiNhapStr = (it.NguoiNhap || it.nguoiNhap || '').toString().trim();
+        var ghiChuStr = (it.GhiChu || it.ghiChu || '').toString().trim();
+
+        if (!ngayStr && !clStr && (!slNum || slNum === 0)) continue;
+
+        var bizKey = ngayStr + '___' + clStr.toLowerCase() + '___' + slNum;
+
+        // Nếu trùng ID
+        if (idStr && seenKeys[idStr] !== undefined) {
+          var ex = dedupedItems[seenKeys[idStr]];
+          if (ex) {
+            if (!(ex.NguoiNhap || ex.nguoiNhap) && nguoiNhapStr) {
+              ex.NguoiNhap = nguoiNhapStr;
+              ex.nguoiNhap = nguoiNhapStr;
+            }
+            if (!(ex.GhiChu || ex.ghiChu) && ghiChuStr) {
+              ex.GhiChu = ghiChuStr;
+              ex.ghiChu = ghiChuStr;
+            }
+          }
+          continue;
+        }
+
+        // Nếu trùng thông tin nghiệp vụ (ngày + loại + số lượng)
+        if (seenBiz[bizKey] !== undefined) {
+          var exBiz = dedupedItems[seenBiz[bizKey]];
+          if (exBiz) {
+            if (!(exBiz.NguoiNhap || exBiz.nguoiNhap) && nguoiNhapStr) {
+              exBiz.NguoiNhap = nguoiNhapStr;
+              exBiz.nguoiNhap = nguoiNhapStr;
+            }
+            if (!(exBiz.GhiChu || exBiz.ghiChu) && ghiChuStr) {
+              exBiz.GhiChu = ghiChuStr;
+              exBiz.ghiChu = ghiChuStr;
+            }
+            if (!(exBiz.Id || exBiz.id) && idStr) {
+              exBiz.Id = idStr;
+              exBiz.id = idStr;
+            }
+          }
+          continue;
+        }
+
+        var idxNew = dedupedItems.length;
+        if (idStr) seenKeys[idStr] = idxNew;
+        seenBiz[bizKey] = idxNew;
+        dedupedItems.push(it);
+      }
+
       var lastRow = sheet.getLastRow();
+      var lastCol = Math.max(sheet.getLastColumn(), 6);
       if (lastRow > 1) {
-        sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).clearContent();
+        sheet.getRange(2, 1, lastRow - 1, lastCol).clearContent();
       }
-      if (items.length > 0) {
-        var rowsToAdd = items.map(function(it) {
-          return [
-            it.Ngay || it.ngay || '',
-            it.ChungLoai || it.chungLoai || '',
-            it.SL !== undefined ? it.SL : (it.sl !== undefined ? it.sl : 0),
-            it.GhiChu || it.ghiChu || '',
-            it.NguoiNhap || it.nguoiNhap || '',
-            it.Id || it.id || ''
-          ];
+
+      if (dedupedItems.length > 0) {
+        var rowsToAdd = dedupedItems.map(function(it) {
+          var dateVal = it.Ngay || it.ngay || '';
+          var loaiVal = it.ChungLoai || it.chungLoai || '';
+          var slVal = it.SL !== undefined ? it.SL : (it.sl !== undefined ? it.sl : 0);
+          var noteVal = it.GhiChu || it.ghiChu || '';
+          var userVal = it.NguoiNhap || it.nguoiNhap || '';
+          var idVal = it.Id || it.id || '';
+          if (!idVal) {
+            idVal = 'ndk_' + dateVal.toString().replace(/[^0-9]/g, '') + '_' + loaiVal.toString().replace(/[^a-zA-Z0-9]/g, '') + '_' + slVal;
+          }
+          return [dateVal, loaiVal, slVal, noteVal, userVal, idVal];
         });
         sheet.getRange(2, 1, rowsToAdd.length, 6).setValues(rowsToAdd);
       }
+
       return ContentService.createTextOutput(JSON.stringify({
         status: "success",
-        updatedCount: items.length,
-        message: "Đã cập nhật " + items.length + " bản ghi vào sheet NhapDK963"
+        updatedCount: dedupedItems.length,
+        message: "Đã cập nhật " + dedupedItems.length + " bản ghi vào sheet NhapDK963 (đã loại bỏ trùng lặp)"
       })).setMimeType(ContentService.MimeType.JSON);
     }
 

@@ -379,13 +379,71 @@ async function startServer() {
 
   let nhapDkStore: any[] = [];
 
+  // Helper deduplication by ID and compound business key (date + chungLoai + sl)
+  const deduplicateNhapDkList = (items: any[]): any[] => {
+    if (!Array.isArray(items)) return [];
+    const seenId = new Map<string, any>();
+    const seenBiz = new Map<string, any>();
+
+    for (const it of items) {
+      if (!it) continue;
+      const ngay = String(it.ngay || it.Ngay || '').trim();
+      const chungLoai = String(it.chungLoai || it.ChungLoai || '').trim();
+      const sl = Math.max(0, parseInt(String(it.sl !== undefined ? it.sl : (it.SL || 0)).replace(/[^0-9]/g, ''), 10) || 0);
+      const ghiChu = String(it.ghiChu || it.GhiChu || '').trim();
+      const nguoiNhap = String(it.nguoiNhap || it.NguoiNhap || '').trim();
+      let id = String(it.id || it.Id || '').trim();
+
+      if (!ngay && !chungLoai && sl === 0) continue;
+
+      if (!id) {
+        const cleanDate = ngay.replace(/[^0-9]/g, '');
+        const cleanLoai = chungLoai.toLowerCase().replace(/[^a-z0-9]/g, '');
+        id = `ndk_${cleanDate}_${cleanLoai}_${sl}`;
+      }
+
+      const bizKey = `${ngay}___${chungLoai.toLowerCase()}___${sl}`;
+
+      if (seenId.has(id)) {
+        const ex = seenId.get(id);
+        if (!ex.nguoiNhap && nguoiNhap) ex.nguoiNhap = nguoiNhap;
+        if (!ex.ghiChu && ghiChu) ex.ghiChu = ghiChu;
+        continue;
+      }
+
+      if (seenBiz.has(bizKey)) {
+        const ex = seenBiz.get(bizKey);
+        if (!ex.nguoiNhap && nguoiNhap) ex.nguoiNhap = nguoiNhap;
+        if (!ex.ghiChu && ghiChu) ex.ghiChu = ghiChu;
+        if (id && !ex.id.startsWith('ndk_')) ex.id = id;
+        continue;
+      }
+
+      const normalizedItem = {
+        id,
+        ngay,
+        chungLoai,
+        sl,
+        ghiChu,
+        nguoiNhap,
+        timestamp: it.timestamp || Date.now(),
+        isLocal: false
+      };
+
+      seenId.set(id, normalizedItem);
+      seenBiz.set(bizKey, normalizedItem);
+    }
+
+    return Array.from(seenId.values());
+  };
+
   const loadNhapDkStore = () => {
     try {
       if (fs.existsSync(nhapDkStorePath)) {
         const raw = fs.readFileSync(nhapDkStorePath, 'utf8');
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
-          nhapDkStore = parsed;
+          nhapDkStore = deduplicateNhapDkList(parsed);
         }
       }
     } catch (e) {
@@ -396,6 +454,7 @@ async function startServer() {
 
   const saveNhapDkStore = () => {
     try {
+      nhapDkStore = deduplicateNhapDkList(nhapDkStore);
       fs.writeFileSync(nhapDkStorePath, JSON.stringify(nhapDkStore, null, 2), 'utf8');
     } catch (e) {
       console.warn('Could not write nhap_dk_963_store.json:', e);
@@ -448,7 +507,7 @@ async function startServer() {
       }
 
       if (action === 'set_all' && Array.isArray(items)) {
-        nhapDkStore = items;
+        nhapDkStore = deduplicateNhapDkList(items);
         saveNhapDkStore();
         forwardNhapDkToGoogleSheet(nhapDkStore).catch(() => {});
         res.json({ success: true, count: nhapDkStore.length, items: nhapDkStore });
@@ -460,13 +519,33 @@ async function startServer() {
       const incoming = Array.isArray(items) ? items : (item ? [item] : []);
       if (incoming.length > 0) {
         for (const inc of incoming) {
-          const idx = nhapDkStore.findIndex((x: any) => x.id === inc.id);
+          const incNgay = String(inc.ngay || inc.Ngay || '').trim();
+          const incLoai = String(inc.chungLoai || inc.ChungLoai || '').trim().toLowerCase();
+          const incSl = Math.max(0, parseInt(String(inc.sl !== undefined ? inc.sl : (inc.SL || 0)).replace(/[^0-9]/g, ''), 10) || 0);
+
+          // Find by id first
+          let idx = nhapDkStore.findIndex((x: any) => x.id === inc.id);
+          // If not found by id, find by exact business match (same date, same type, same quantity)
+          if (idx === -1) {
+            idx = nhapDkStore.findIndex((x: any) =>
+              String(x.ngay || '').trim() === incNgay &&
+              String(x.chungLoai || '').trim().toLowerCase() === incLoai &&
+              (Number(x.sl) || 0) === incSl
+            );
+          }
+
           if (idx >= 0) {
-            nhapDkStore[idx] = { ...nhapDkStore[idx], ...inc };
+            nhapDkStore[idx] = {
+              ...nhapDkStore[idx],
+              ...inc,
+              nguoiNhap: inc.nguoiNhap || nhapDkStore[idx].nguoiNhap || '',
+              ghiChu: inc.ghiChu !== undefined ? inc.ghiChu : (nhapDkStore[idx].ghiChu || '')
+            };
           } else {
             nhapDkStore.unshift(inc);
           }
         }
+        nhapDkStore = deduplicateNhapDkList(nhapDkStore);
         saveNhapDkStore();
         forwardNhapDkToGoogleSheet(nhapDkStore).catch(() => {});
       }

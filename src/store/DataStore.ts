@@ -7431,63 +7431,94 @@ export const DataStore = {
     }
   },
 
-  parseNhapDk963CSVData: (input: string | any[]): NhapDk963Entry[] => {
+  // Lọc trùng lặp danh sách đợt nhập điện kế
+  deduplicateNhapDkEntries: (entries: NhapDk963Entry[]): NhapDk963Entry[] => {
+    if (!Array.isArray(entries)) return [];
+    const seenId = new Map<string, NhapDk963Entry>();
+    const seenBiz = new Map<string, NhapDk963Entry>();
+
+    for (const item of entries) {
+      if (!item) continue;
+      const d = (item.ngay || '').trim();
+      const cl = (item.chungLoai || '').trim().toLowerCase();
+      const sl = Number(item.sl) || 0;
+      const bizKey = `${d}___${cl}___${sl}`;
+
+      if (seenId.has(item.id)) {
+        const ex = seenId.get(item.id)!;
+        if (!ex.nguoiNhap && item.nguoiNhap) ex.nguoiNhap = item.nguoiNhap;
+        if (!ex.ghiChu && item.ghiChu) ex.ghiChu = item.ghiChu;
+        continue;
+      }
+
+      if (seenBiz.has(bizKey)) {
+        const ex = seenBiz.get(bizKey)!;
+        if (!ex.nguoiNhap && item.nguoiNhap) ex.nguoiNhap = item.nguoiNhap;
+        if (!ex.ghiChu && item.ghiChu) ex.ghiChu = item.ghiChu;
+        if (item.id && !ex.id.startsWith('ndk_')) ex.id = item.id;
+        continue;
+      }
+
+      seenId.set(item.id, item);
+      seenBiz.set(bizKey, item);
+    }
+
+    return Array.from(seenId.values());
+  },
+
+  parseNhapDk963CSVData: (input: string | any[][]): NhapDk963Entry[] => {
     try {
-      let rows: any[] = [];
+      let rawGrid: any[][] = [];
       if (typeof input === 'string') {
-        const res = Papa.parse(input, { header: true, skipEmptyLines: true });
-        rows = (res.data as any[]) || [];
+        const parsed = Papa.parse(input.trim(), { skipEmptyLines: true });
+        rawGrid = (parsed.data as any[][]) || [];
       } else if (Array.isArray(input)) {
-        if (input.length > 1 && Array.isArray(input[0])) {
-          const headers = (input[0] as any[]).map(h => String(h || '').trim());
-          for (let r = 1; r < input.length; r++) {
-            const rowObj: Record<string, any> = {};
-            for (let c = 0; c < headers.length; c++) {
-              rowObj[headers[c]] = input[r][c];
-            }
-            rows.push(rowObj);
-          }
+        if (input.length > 0 && Array.isArray(input[0])) {
+          rawGrid = input;
         } else {
-          rows = input;
+          return DataStore.deduplicateNhapDkEntries(input as any);
         }
       }
 
-      if (rows.length === 0) return [];
+      if (rawGrid.length === 0) return [];
 
+      // Kiểm tra dòng 0 để tìm tiêu đề cột
+      const row0 = (rawGrid[0] || []).map((c: any) => String(c || '').trim());
       const normalizeCol = (s: string) =>
         s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[^a-z0-9]/g, '');
 
-      const sample = rows[0] || {};
-      const keys = Object.keys(sample);
+      let idxNgay = row0.findIndex(c => ['ngay', 'ngaynhap', 'date'].some(a => normalizeCol(c).includes(a)));
+      let idxChungLoai = row0.findIndex(c => ['chungloai', 'loaidienke', 'cloai'].some(a => normalizeCol(c).includes(a)));
+      let idxSl = row0.findIndex(c => ['sl', 'soluong', 'quantity', 'count'].some(a => normalizeCol(c).includes(a)));
+      let idxGhiChu = row0.findIndex(c => ['ghichu', 'note'].some(a => normalizeCol(c).includes(a)));
+      let idxNguoiNhap = row0.findIndex(c => ['nguoinhap', 'nhanvien', 'user', 'nv'].some(a => normalizeCol(c).includes(a)));
+      let idxId = row0.findIndex(c => ['id', 'stt', 'ma'].some(a => normalizeCol(c).includes(a)));
 
-      const findKey = (aliases: string[]) => {
-        return keys.find(k => {
-          const n = normalizeCol(k);
-          return aliases.some(a => {
-            const na = normalizeCol(a);
-            return n === na || n.includes(na);
-          });
-        });
-      };
+      // Vị trí mặc định nếu dòng tiêu đề bị khuyết cột (như cột 4, 5, 6 trong Google Sheet)
+      if (idxNgay === -1) idxNgay = 0;
+      if (idxChungLoai === -1) idxChungLoai = 1;
+      if (idxSl === -1) idxSl = 2;
+      if (idxGhiChu === -1 && row0.length > 3) idxGhiChu = 3;
+      if (idxNguoiNhap === -1 && row0.length > 4) idxNguoiNhap = 4;
+      if (idxId === -1 && row0.length > 5) idxId = 5;
 
-      const kNgay = findKey(['ngay', 'ngaynhap', 'ngay_nhap', 'ngaynhan', 'ngay_nhan', 'date']);
-      const kChungLoai = findKey(['chungloai', 'chung_loai', 'loaidienke', 'loai_cto', 'loai_dienke', 'cloai', 'chungloaicanthay']);
-      const kSl = findKey(['sl', 'soluong', 'so_luong', 'slnhap', 'soluongnhap', 'quantity', 'count']);
-      const kGhiChu = findKey(['ghichu', 'ghi_chu', 'note', 'noidung']);
-      const kNguoiNhap = findKey(['nguoinhap', 'nguoi_nhap', 'nv', 'nhanvien', 'user']);
-      const kId = findKey(['id', 'stt', 'ma']);
+      // Xác định xem dòng 0 có phải dòng tiêu đề hay không
+      const isHeaderRow = ['ngay', 'date', 'chungloai'].some(a =>
+        normalizeCol(row0[0] || '').includes(a) || normalizeCol(row0[1] || '').includes(a)
+      );
+      const startRow = isHeaderRow ? 1 : 0;
 
       const result: NhapDk963Entry[] = [];
-      for (let i = 0; i < rows.length; i++) {
-        const r = rows[i];
-        let ngayVal = kNgay ? String(r[kNgay] || '').trim() : '';
-        let chungLoaiVal = kChungLoai ? String(r[kChungLoai] || '').trim() : '';
-        const slRaw = kSl ? r[kSl] : 0;
-        const slVal = Math.max(0, parseInt(String(slRaw).replace(/[^0-9]/g, ''), 10) || 0);
+      for (let i = startRow; i < rawGrid.length; i++) {
+        const r = rawGrid[i] || [];
+        let ngayVal = String(r[idxNgay] || '').trim();
+        let chungLoaiVal = String(r[idxChungLoai] || '').trim();
+        const slRaw = r[idxSl];
+        const slVal = Math.max(0, parseInt(String(slRaw || 0).replace(/[^0-9]/g, ''), 10) || 0);
 
         if (!ngayVal && !chungLoaiVal && slVal === 0) continue;
 
-        // Normalize date to dd/mm/yyyy
+        // Chuẩn hóa định dạng ngày dd/mm/yyyy
         if (ngayVal.includes('-')) {
           const parts = ngayVal.split('T')[0].split('-');
           if (parts.length === 3 && parts[0].length === 4) {
@@ -7495,7 +7526,7 @@ export const DataStore = {
           }
         }
 
-        // Normalize chungLoai
+        // Chuẩn hóa chủng loại điện kế
         const clNorm = chungLoaiVal.toLowerCase();
         let normalizedCl = chungLoaiVal || '1 Pha';
         if (clNorm.includes('1') || clNorm.includes('1 pha') || clNorm === '1p') {
@@ -7508,21 +7539,28 @@ export const DataStore = {
           normalizedCl = '3 Pha';
         }
 
-        const idVal = kId && r[kId] ? String(r[kId]).trim() : `ndk_${Date.now()}_${i}`;
+        const rawId = idxId > -1 && r[idxId] ? String(r[idxId]).trim() : '';
+        // Tạo ID tất định dựa trên dữ liệu bản ghi, KHÔNG dùng Date.now() để tránh phát sinh ID mới ngẫu nhiên
+        const cleanDate = ngayVal.replace(/[^0-9]/g, '');
+        const cleanLoai = normalizedCl.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const idVal = rawId || `ndk_${cleanDate}_${cleanLoai}_${slVal}`;
+
+        const ghiChuVal = idxGhiChu > -1 && r[idxGhiChu] ? String(r[idxGhiChu]).trim() : '';
+        const nguoiNhapVal = idxNguoiNhap > -1 && r[idxNguoiNhap] ? String(r[idxNguoiNhap]).trim() : '';
 
         result.push({
           id: idVal,
           ngay: ngayVal,
           chungLoai: normalizedCl,
           sl: slVal,
-          ghiChu: kGhiChu ? String(r[kGhiChu] || '').trim() : '',
-          nguoiNhap: kNguoiNhap ? String(r[kNguoiNhap] || '').trim() : '',
-          timestamp: Date.now() - (rows.length - i) * 1000,
+          ghiChu: ghiChuVal,
+          nguoiNhap: nguoiNhapVal,
+          timestamp: Date.now() - (rawGrid.length - i) * 1000,
           isLocal: false
         });
       }
 
-      return result;
+      return DataStore.deduplicateNhapDkEntries(result);
     } catch (e) {
       console.warn('Lỗi khi parse NhapDK963 CSV:', e);
       return [];
@@ -7540,9 +7578,10 @@ export const DataStore = {
         const json = await serverRes.json();
         if (json && json.success && Array.isArray(json.items)) {
           if (json.items.length > 0) {
-            DataStore.saveNhapDk963Entries(json.items);
+            const dedupedServer = DataStore.deduplicateNhapDkEntries(json.items);
+            DataStore.saveNhapDk963Entries(dedupedServer);
             window.dispatchEvent(new CustomEvent('nhap_dk_963_updated'));
-            return json.items;
+            return dedupedServer;
           }
         }
       }
@@ -7568,7 +7607,7 @@ export const DataStore = {
         if (parsed.length > 0) {
           const current = DataStore.getNhapDk963Entries();
           const localOnly = current.filter(c => c.isLocal && !parsed.some(p => p.id === c.id));
-          const merged = [...parsed, ...localOnly];
+          const merged = DataStore.deduplicateNhapDkEntries([...parsed, ...localOnly]);
           DataStore.saveNhapDk963Entries(merged);
           // Đồng bộ lên server để các máy khác cùng nhận được
           fetch('/api/nhap-dk-963', {
@@ -7583,20 +7622,46 @@ export const DataStore = {
     } catch (e) {
       console.warn('Lỗi khi fetch sheet NhapDK963:', e);
     }
-    return DataStore.getNhapDk963Entries();
+    return DataStore.deduplicateNhapDkEntries(DataStore.getNhapDk963Entries());
   },
 
   addNhapDk963Entry: async (
     entry: Omit<NhapDk963Entry, 'id' | 'timestamp'>
   ): Promise<{ success: boolean; entry: NhapDk963Entry; error?: string }> => {
-    const list = [...DataStore.getNhapDk963Entries()];
-    const newEntry: NhapDk963Entry = {
-      ...entry,
-      id: 'ndk_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
-      timestamp: Date.now(),
-      isLocal: true
-    };
-    list.unshift(newEntry);
+    let list = DataStore.deduplicateNhapDkEntries(DataStore.getNhapDk963Entries());
+
+    const normDate = (entry.ngay || '').trim();
+    const normCl = (entry.chungLoai || '').trim().toLowerCase();
+
+    // Kiểm tra xem đã có đợt nhập nào cùng ngày và cùng chủng loại chưa
+    const existingIdx = list.findIndex(
+      e => (e.ngay || '').trim() === normDate && (e.chungLoai || '').trim().toLowerCase() === normCl
+    );
+
+    let savedEntry: NhapDk963Entry;
+    if (existingIdx >= 0) {
+      // Cập nhật số lượng và thông tin vào dòng đã có, tránh sinh dòng trùng lặp
+      list[existingIdx] = {
+        ...list[existingIdx],
+        ...entry,
+        isLocal: true,
+        timestamp: Date.now()
+      };
+      savedEntry = list[existingIdx];
+    } else {
+      const cleanDate = normDate.replace(/[^0-9]/g, '');
+      const cleanLoai = normCl.replace(/[^a-z0-9]/g, '');
+      const deterministicId = `ndk_${cleanDate}_${cleanLoai}_${entry.sl || 0}`;
+      savedEntry = {
+        ...entry,
+        id: deterministicId,
+        timestamp: Date.now(),
+        isLocal: true
+      };
+      list.unshift(savedEntry);
+    }
+
+    list = DataStore.deduplicateNhapDkEntries(list);
     DataStore.saveNhapDk963Entries(list);
     window.dispatchEvent(new CustomEvent('nhap_dk_963_updated'));
 
@@ -7606,7 +7671,7 @@ export const DataStore = {
       const srvRes = await fetch('/api/nhap-dk-963', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'save', item: newEntry })
+        body: JSON.stringify({ action: 'save', item: savedEntry })
       });
       if (srvRes.ok) {
         serverOk = true;
@@ -7618,13 +7683,13 @@ export const DataStore = {
     // 2. Đồng bộ lên Google Sheets (qua Apps Script)
     const syncRes = await DataStore.syncNhapDk963ToSheet(list);
     if (serverOk || syncRes.success) {
-      newEntry.isLocal = false;
+      savedEntry.isLocal = false;
       DataStore.saveNhapDk963Entries(list);
     }
 
     return {
       success: true,
-      entry: newEntry,
+      entry: savedEntry,
       error: (serverOk || syncRes.success) ? undefined : syncRes.error
     };
   },
@@ -7688,10 +7753,11 @@ export const DataStore = {
     items: NhapDk963Entry[]
   ): Promise<{ success: boolean; error?: string }> => {
     try {
+      const deduped = DataStore.deduplicateNhapDkEntries(items);
       const payload = {
         action: 'save_nhap_dk_963',
         sheetName: 'NhapDK963',
-        items: items.map(it => ({
+        items: deduped.map(it => ({
           Ngay: it.ngay,
           ngay: it.ngay,
           ChungLoai: it.chungLoai,

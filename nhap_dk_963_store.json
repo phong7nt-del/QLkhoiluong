@@ -1,0 +1,62 @@
+[
+  {
+    "id": "ndk_1794355189382_0",
+    "ngay": "09/11/2026",
+    "chungLoai": "1 Pha",
+    "sl": 5,
+    "ghiChu": "",
+    "nguoiNhap": "",
+    "timestamp": 1794355183382,
+    "isLocal": false
+  },
+  {
+    "id": "ndk_1794355189382_1",
+    "ngay": "09/11/2026",
+    "chungLoai": "3 Pha Trực Tiếp",
+    "sl": 109,
+    "ghiChu": "",
+    "nguoiNhap": "",
+    "timestamp": 1794355184382,
+    "isLocal": false
+  },
+  {
+    "id": "ndk_1794355189382_2",
+    "ngay": "07/11/2026",
+    "chungLoai": "1 Pha",
+    "sl": 65,
+    "ghiChu": "",
+    "nguoiNhap": "",
+    "timestamp": 1794355185382,
+    "isLocal": false
+  },
+  {
+    "id": "ndk_1794355189382_3",
+    "ngay": "07/11/2026",
+    "chungLoai": "3 Pha Gián Tiếp",
+    "sl": 36,
+    "ghiChu": "",
+    "nguoiNhap": "",
+    "timestamp": 1794355186382,
+    "isLocal": false
+  },
+  {
+    "id": "ndk_1794355189382_4",
+    "ngay": "06/11/2026",
+    "chungLoai": "3 Pha Gián Tiếp",
+    "sl": 1,
+    "ghiChu": "",
+    "nguoiNhap": "",
+    "timestamp": 1794355187382,
+    "isLocal": false
+  },
+  {
+    "id": "ndk_1794355189382_5",
+    "ngay": "06/11/2026",
+    "chungLoai": "3 Pha Trực Tiếp",
+    "sl": 15,
+    "ghiChu": "",
+    "nguoiNhap": "",
+    "timestamp": 1794355188382,
+    "isLocal": false
+  }
+]

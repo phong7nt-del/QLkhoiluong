@@ -508,7 +508,20 @@ export default function Tab963DienKe({
           showToast('error', res.error || 'Lỗi cập nhật');
         }
       } else {
-        // Thêm mới
+        // Kiểm tra xem đã có bản ghi cùng ngày và cùng chủng loại chưa
+        const existing = nhapList.find(
+          item => (item.ngay || '').trim() === dClean && (item.chungLoai || '').trim().toLowerCase() === formChungLoai.toLowerCase()
+        );
+
+        if (existing && existing.sl === qty && (!formGhiChu.trim() || existing.ghiChu === formGhiChu.trim())) {
+          showToast('info', `Đợt nhập ngày ${dClean} (${formChungLoai}: ${qty} công tơ) đã tồn tại trong hệ thống.`);
+          setFormSl('');
+          setFormGhiChu('');
+          setIsSubmitting(false);
+          return;
+        }
+
+        // Thêm mới hoặc cập nhật vào dòng đã có
         const res = await DataStore.addNhapDk963Entry({
           ngay: dClean,
           chungLoai: formChungLoai,
@@ -517,7 +530,11 @@ export default function Tab963DienKe({
           nguoiNhap: uName
         });
         if (res.success) {
-          showToast('success', `Đã lưu đợt nhập ngày ${dClean} (${formChungLoai}: ${qty} công tơ) vào sheet NhapDK963`);
+          if (existing) {
+            showToast('success', `Đã cập nhật số lượng đợt nhập ngày ${dClean} (${formChungLoai}: ${qty} công tơ) vào sheet NhapDK963`);
+          } else {
+            showToast('success', `Đã lưu đợt nhập ngày ${dClean} (${formChungLoai}: ${qty} công tơ) vào sheet NhapDK963`);
+          }
           setFormSl('');
           setFormGhiChu('');
         } else {
