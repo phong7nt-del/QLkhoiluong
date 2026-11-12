@@ -19,7 +19,8 @@ import {
   ChevronRight,
   ShieldCheck,
   Building2,
-  CalendarCheck2
+  CalendarCheck2,
+  Coffee
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import * as XLSX from 'xlsx-js-style';
@@ -38,6 +39,8 @@ interface MemberOvertimeStat {
   isWorkerOrDeputy: boolean;
   overtimeDates: { date: string; dayOfWeek: number; content: string }[];
   overtimeDaysCount: number;
+  leaveDates: { date: string; dayOfWeek: number; content: string; days: number }[];
+  leaveDaysReportCount: number;
   daNghiBu: number;
   totalDaNghiBuAllTime: number;
   conLai: number;
@@ -65,6 +68,7 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
 
   // Detail view modal
   const [detailMember, setDetailMember] = useState<MemberOvertimeStat | null>(null);
+  const [detailActiveTab, setDetailActiveTab] = useState<'overtime' | 'leave'>('overtime');
 
   // History log modal
   const [showHistoryModal, setShowHistoryModal] = useState<boolean>(false);
@@ -144,10 +148,53 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
     return true; // nhân viên, công nhân, tổ phó, hoặc chưa gán chức vụ quản lý
   };
 
+  // Helper check: Is leave report from Monday to Friday with content 'Nghỉ'
+  const isLeaveReport = (content?: string): boolean => {
+    if (!content) return false;
+    const lower = content.toLowerCase().trim();
+    return (
+      lower.startsWith('nghỉ') ||
+      lower.startsWith('- nghỉ') ||
+      lower.startsWith('nghi') ||
+      lower.startsWith('- nghi') ||
+      /(^|\n)\s*(-\s*)?nghỉ(\s*:|\s+|$)/i.test(lower) ||
+      /(^|\n)\s*(-\s*)?nghi(\s*:|\s+|$)/i.test(lower) ||
+      lower.includes('nghỉ bù') ||
+      lower.includes('nghi bu')
+    );
+  };
+
+  // Helper: Extract leave days from content (defaults to 1 if not specified)
+  const extractLeaveDays = (content?: string): number => {
+    if (!content) return 1;
+    const match = content.match(/(?:^|\n|\s)(?:-\s*)?ngh[iỉ]\s*:\s*([0-9]+(?:\.[0-9]+)?)/i);
+    if (match && match[1]) {
+      const val = parseFloat(match[1]);
+      if (!isNaN(val) && val > 0) return val;
+    }
+    return 1;
+  };
+
+  // Helper: Day of week name
+  const getDayOfWeekName = (dayOfWeek: number): string => {
+    switch (dayOfWeek) {
+      case 1: return 'Thứ Hai';
+      case 2: return 'Thứ Ba';
+      case 3: return 'Thứ Tư';
+      case 4: return 'Thứ Năm';
+      case 5: return 'Thứ Sáu';
+      case 6: return 'Thứ Bảy';
+      case 0: return 'Chủ Nhật';
+      default: return '';
+    }
+  };
+
   // Map of member overtime records
   const memberStatsList = useMemo<MemberOvertimeStat[]>(() => {
-    // 1. Build map of member names to weekend dates worked
+    // 1. Build map of member names to weekend dates worked (T7, CN)
     const weekendWorkedMap = new Map<string, Map<string, { date: string; dayOfWeek: number; content: string }>>();
+    // 2. Build map of member names to weekday compensatory leave dates (T2 - T6, report 'Nghỉ')
+    const weekdayLeaveMap = new Map<string, Map<string, { date: string; dayOfWeek: number; content: string; days: number }>>();
 
     rawEntries.forEach(e => {
       if (!e.date) return;
@@ -163,28 +210,53 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
       if (selectedMonth !== 'all' && m !== selectedMonth) return;
 
       const dObj = new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(d, 10));
-      const dayOfWeek = dObj.getDay(); // 0: Sunday, 6: Saturday
-      if (dayOfWeek !== 0 && dayOfWeek !== 6) return; // Only Saturday and Sunday
+      const dayOfWeek = dObj.getDay(); // 0: Sunday, 1: Mon, ..., 5: Fri, 6: Sat
 
       let mbrTokens = e.members || (e as any).workGroup || [];
       if (typeof mbrTokens === 'string') mbrTokens = [mbrTokens];
       if (!Array.isArray(mbrTokens) || mbrTokens.length === 0) return;
+
+      // Check if it's weekend overtime (Saturday or Sunday)
+      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+      // Check if it's weekday compensatory leave (Monday to Friday with "Nghỉ" report)
+      const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
+      const isLeave = isWeekday && isLeaveReport(e.content);
+
+      if (!isWeekend && !isLeave) return;
 
       mbrTokens.forEach(mName => {
         const cleanName = String(mName || '').trim();
         if (!cleanName || cleanName.toLowerCase() === 'khuyết danh') return;
         const normKey = normalizeRoleStr(cleanName);
 
-        if (!weekendWorkedMap.has(normKey)) {
-          weekendWorkedMap.set(normKey, new Map());
+        if (isWeekend) {
+          if (!weekendWorkedMap.has(normKey)) {
+            weekendWorkedMap.set(normKey, new Map());
+          }
+          const userDates = weekendWorkedMap.get(normKey)!;
+          if (!userDates.has(e.date)) {
+            userDates.set(e.date, {
+              date: e.date,
+              dayOfWeek,
+              content: e.content || 'Công tác ngày nghỉ'
+            });
+          }
         }
-        const userDates = weekendWorkedMap.get(normKey)!;
-        if (!userDates.has(e.date)) {
-          userDates.set(e.date, {
-            date: e.date,
-            dayOfWeek,
-            content: e.content || 'Công tác ngày nghỉ'
-          });
+
+        if (isLeave) {
+          if (!weekdayLeaveMap.has(normKey)) {
+            weekdayLeaveMap.set(normKey, new Map());
+          }
+          const userLeaveDates = weekdayLeaveMap.get(normKey)!;
+          if (!userLeaveDates.has(e.date)) {
+            const days = extractLeaveDays(e.content);
+            userLeaveDates.set(e.date, {
+              date: e.date,
+              dayOfWeek,
+              content: e.content || 'Nghỉ',
+              days
+            });
+          }
         }
       });
     });
@@ -205,9 +277,14 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
       const userDateMap = weekendWorkedMap.get(normKey);
       const overtimeDates = userDateMap ? Array.from(userDateMap.values()).sort((a, b) => b.date.localeCompare(a.date)) : [];
       const overtimeDaysCount = overtimeDates.length;
+
+      const userLeaveMap = weekdayLeaveMap.get(normKey);
+      const leaveDates = userLeaveMap ? Array.from(userLeaveMap.values()).sort((a, b) => b.date.localeCompare(a.date)) : [];
+      const leaveDaysReportCount = Number(leaveDates.reduce((sum, item) => sum + (item.days || 1), 0).toFixed(1));
+
       const memNghiBu = typeof mem.nghiBu === 'number' ? mem.nghiBu : (parseFloat(String(mem.nghiBu || 0)) || 0);
       const localVal = localNghiBuMap[cleanName] ?? localNghiBuMap[normKey] ?? 0;
-      const daNghiBu = Math.max(memNghiBu, localVal);
+      const daNghiBu = Number(Math.max(memNghiBu, localVal, leaveDaysReportCount).toFixed(2));
       const conLai = Math.max(0, Number((overtimeDaysCount - daNghiBu).toFixed(2)));
 
       const memberLogs = allNghiBuLogs.filter(l => {
@@ -223,6 +300,8 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
         isWorkerOrDeputy,
         overtimeDates,
         overtimeDaysCount,
+        leaveDates,
+        leaveDaysReportCount,
         daNghiBu,
         totalDaNghiBuAllTime: daNghiBu,
         conLai,
@@ -233,12 +312,19 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
     });
 
     // Also include any reporting member from CongTac who might not be in members master list
-    weekendWorkedMap.forEach((userDateMap, normKey) => {
+    const remainingKeys = new Set([...weekendWorkedMap.keys(), ...weekdayLeaveMap.keys()]);
+    remainingKeys.forEach(normKey => {
       if (!processedNormNames.has(normKey)) {
-        const overtimeDates = Array.from(userDateMap.values()).sort((a, b) => b.date.localeCompare(a.date));
+        const userDateMap = weekendWorkedMap.get(normKey);
+        const overtimeDates = userDateMap ? Array.from(userDateMap.values()).sort((a, b) => b.date.localeCompare(a.date)) : [];
         const overtimeDaysCount = overtimeDates.length;
+
+        const userLeaveMap = weekdayLeaveMap.get(normKey);
+        const leaveDates = userLeaveMap ? Array.from(userLeaveMap.values()).sort((a, b) => b.date.localeCompare(a.date)) : [];
+        const leaveDaysReportCount = Number(leaveDates.reduce((sum, item) => sum + (item.days || 1), 0).toFixed(1));
+
         const localVal = localNghiBuMap[normKey] ?? 0;
-        const daNghiBu = localVal;
+        const daNghiBu = Number(Math.max(localVal, leaveDaysReportCount).toFixed(2));
         const conLai = Math.max(0, Number((overtimeDaysCount - daNghiBu).toFixed(2)));
         const memberLogs = allNghiBuLogs.filter(l => {
           const lName = normalizeRoleStr(l.memberName || '');
@@ -253,6 +339,8 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
           isWorkerOrDeputy: true,
           overtimeDates,
           overtimeDaysCount,
+          leaveDates,
+          leaveDaysReportCount,
           daNghiBu,
           totalDaNghiBuAllTime: daNghiBu,
           conLai,
@@ -305,6 +393,7 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
     const activeMembersCount = targetList.filter(m => m.overtimeDaysCount > 0).length;
     const totalOvertimeDays = targetList.reduce((acc, m) => acc + m.overtimeDaysCount, 0);
     const totalDaNghiBu = targetList.reduce((acc, m) => acc + m.daNghiBu, 0);
+    const totalLeaveFromReports = targetList.reduce((acc, m) => acc + m.leaveDaysReportCount, 0);
     const totalConLai = Math.max(0, totalOvertimeDays - totalDaNghiBu);
     const rate = totalOvertimeDays > 0 ? (totalDaNghiBu / totalOvertimeDays) * 100 : 0;
 
@@ -312,6 +401,7 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
       activeMembersCount,
       totalOvertimeDays,
       totalDaNghiBu: Number(totalDaNghiBu.toFixed(2)),
+      totalLeaveFromReports: Number(totalLeaveFromReports.toFixed(1)),
       totalConLai: Number(totalConLai.toFixed(2)),
       rate: Number(rate.toFixed(1))
     };
@@ -323,18 +413,19 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
       ? memberStatsList.filter(m => m.isWorkerOrDeputy) 
       : memberStatsList;
 
-    const map: Record<string, { team: string; memberCount: number; overtimeDays: number; daNghiBu: number; conLai: number }> = {};
+    const map: Record<string, { team: string; memberCount: number; overtimeDays: number; daNghiBu: number; leaveDaysReport: number; conLai: number }> = {};
 
     targetList.forEach(m => {
       const t = m.team || 'Khác';
       if (!map[t]) {
-        map[t] = { team: t, memberCount: 0, overtimeDays: 0, daNghiBu: 0, conLai: 0 };
+        map[t] = { team: t, memberCount: 0, overtimeDays: 0, daNghiBu: 0, leaveDaysReport: 0, conLai: 0 };
       }
       if (m.overtimeDaysCount > 0) {
         map[t].memberCount += 1;
       }
       map[t].overtimeDays += m.overtimeDaysCount;
       map[t].daNghiBu += m.daNghiBu;
+      map[t].leaveDaysReport += m.leaveDaysReportCount;
       map[t].conLai += m.conLai;
     });
 
@@ -342,6 +433,7 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
       .map(t => ({
         ...t,
         daNghiBu: Number(t.daNghiBu.toFixed(2)),
+        leaveDaysReport: Number(t.leaveDaysReport.toFixed(1)),
         conLai: Number(t.conLai.toFixed(2)),
         rate: t.overtimeDays > 0 ? Number(((t.daNghiBu / t.overtimeDays) * 100).toFixed(1)) : 0
       }))
@@ -457,11 +549,12 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
       ['Tổng nhân sự tham gia làm thêm:', teamKPIs.activeMembersCount],
       ['Tổng số ngày làm thêm (ngày công):', teamKPIs.totalOvertimeDays],
       ['Tổng số ngày đã giải quyết nghỉ bù:', teamKPIs.totalDaNghiBu],
+      ['Trong đó số ngày nghỉ bù báo cáo (T2-T6):', teamKPIs.totalLeaveFromReports],
       ['Tổng số ngày còn lại cần bố trí nghỉ bù:', teamKPIs.totalConLai],
       ['Tỷ lệ đã giải quyết nghỉ bù:', `${teamKPIs.rate}%`],
       [''],
       ['II. BẢNG TỔNG HỢP THEO TỔ CÔNG TÁC'],
-      ['STT', 'Tổ công tác', 'Số nhân sự', 'Tổng ngày làm thêm (T7-CN)', 'Đã nghỉ bù (ngày)', 'Còn lại (ngày)', 'Tỷ lệ giải quyết (%)']
+      ['STT', 'Tổ công tác', 'Số nhân sự', 'Tổng ngày làm thêm (T7-CN)', 'Đã nghỉ bù (ngày)', 'Nghỉ bù T2-T6 báo cáo', 'Còn lại (ngày)', 'Tỷ lệ giải quyết (%)']
     ];
 
     teamSummaries.forEach((t, idx) => {
@@ -471,6 +564,7 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
         t.memberCount,
         t.overtimeDays,
         t.daNghiBu,
+        t.leaveDaysReport,
         t.conLai,
         `${t.rate}%`
       ]);
@@ -483,6 +577,7 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
       { wch: 16 },
       { wch: 28 },
       { wch: 20 },
+      { wch: 22 },
       { wch: 18 },
       { wch: 22 }
     ];
@@ -494,7 +589,7 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
       ['DANH SÁCH CHI TIẾT NGÀY LÀM THÊM & NGHỈ BÙ TỪNG NHÂN VIÊN'],
       [`Kỳ báo cáo: ${timeLabel}`],
       [''],
-      ['STT', 'Họ và tên', 'Tổ công tác', 'Chức danh', 'Số ngày làm thêm T7-CN', 'Đã nghỉ bù (ngày)', 'Còn lại (ngày)', 'Tỷ lệ đã nghỉ (%)']
+      ['STT', 'Họ và tên', 'Tổ công tác', 'Chức danh', 'Số ngày làm thêm T7-CN', 'Nghỉ bù T2-T6 báo cáo (ngày)', 'Tổng đã nghỉ bù (ngày)', 'Còn lại (ngày)', 'Tỷ lệ đã nghỉ (%)']
     ];
 
     filteredMembers.forEach((m, idx) => {
@@ -505,6 +600,7 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
         m.team,
         m.role,
         m.overtimeDaysCount,
+        m.leaveDaysReportCount,
         m.daNghiBu,
         m.conLai,
         `${rate}%`
@@ -518,7 +614,8 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
       { wch: 26 },
       { wch: 22 },
       { wch: 26 },
-      { wch: 20 },
+      { wch: 26 },
+      { wch: 22 },
       { wch: 18 },
       { wch: 20 }
     ];
@@ -559,6 +656,43 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
     ];
     formatSheet(ws3);
     XLSX.utils.book_append_sheet(workbook, ws3, 'NhatKy_LamThem_T7_CN');
+
+    // Sheet 4: Danh sách các ngày Thứ 2 đến Thứ 6 đã nghỉ bù theo báo cáo
+    const sheet4Rows: any[] = [
+      ['NHẬT KÝ CHI TIẾT CÁC NGÀY NGHỈ BÙ THỨ 2 - THỨ 6 (SHEET CONGTAC)'],
+      [`Kỳ báo cáo: ${timeLabel}`],
+      [''],
+      ['STT', 'Họ và tên', 'Tổ công tác', 'Ngày nghỉ', 'Thứ', 'Số ngày', 'Nội dung báo cáo công tác']
+    ];
+
+    let leaveRowCount = 0;
+    filteredMembers.forEach(m => {
+      m.leaveDates.forEach(d => {
+        leaveRowCount++;
+        sheet4Rows.push([
+          leaveRowCount,
+          m.name,
+          m.team,
+          format(parseISO(d.date), 'dd/MM/yyyy'),
+          getDayOfWeekName(d.dayOfWeek),
+          d.days,
+          d.content
+        ]);
+      });
+    });
+
+    const ws4 = XLSX.utils.aoa_to_sheet(sheet4Rows);
+    ws4['!cols'] = [
+      { wch: 8 },
+      { wch: 28 },
+      { wch: 26 },
+      { wch: 16 },
+      { wch: 14 },
+      { wch: 12 },
+      { wch: 55 }
+    ];
+    formatSheet(ws4);
+    XLSX.utils.book_append_sheet(workbook, ws4, 'NhatKy_NghiBu_T2_T6');
 
     const fileName = `BaoCao_NgayLamThem_NghiBu_${selectedYear}_${selectedMonth}.xlsx`;
     XLSX.writeFile(workbook, fileName);
@@ -758,8 +892,11 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
             </span>
             <span className="text-xs font-semibold text-amber-700">ngày</span>
           </div>
-          <div className="text-[11px] text-amber-800/80 mt-1">
-            Đã cộng dồn vào cột NghiBu
+          <div className="text-[11px] text-amber-800/80 mt-1 flex items-center justify-between">
+            <span>Đã ghi nhận</span>
+            <span className="font-bold text-[10px] bg-amber-100/90 text-amber-900 px-1.5 py-0.5 rounded-md border border-amber-200">
+              T2-T6: {teamKPIs.totalLeaveFromReports} ngày
+            </span>
           </div>
         </div>
 
@@ -807,6 +944,7 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
                 <th className="px-4 py-2.5 text-center">Nhân sự làm thêm</th>
                 <th className="px-4 py-2.5 text-right">Tổng ngày làm thêm</th>
                 <th className="px-4 py-2.5 text-right">Đã nghỉ bù</th>
+                <th className="px-4 py-2.5 text-right" title="Nghỉ bù từ Thứ 2 đến Thứ 6 có báo cáo là Nghỉ">Nghỉ T2-T6</th>
                 <th className="px-4 py-2.5 text-right">Còn lại</th>
                 <th className="px-4 py-2.5 min-w-[140px]">Tỷ lệ giải quyết</th>
               </tr>
@@ -814,7 +952,7 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
             <tbody className="divide-y divide-slate-100">
               {teamSummaries.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-6 text-center text-slate-400 italic">
+                  <td colSpan={8} className="px-4 py-6 text-center text-slate-400 italic">
                     Chưa có dữ liệu làm thêm cho kỳ báo cáo này
                   </td>
                 </tr>
@@ -835,6 +973,15 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
                     </td>
                     <td className="px-4 py-2.5 text-right font-mono font-semibold text-amber-800">
                       {t.daNghiBu}
+                    </td>
+                    <td className="px-4 py-2.5 text-right font-mono font-semibold text-amber-900">
+                      {t.leaveDaysReport > 0 ? (
+                        <span className="inline-flex px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 text-[11px] font-bold border border-amber-200">
+                          {t.leaveDaysReport}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400">0</span>
+                      )}
                     </td>
                     <td className="px-4 py-2.5 text-right font-mono font-black text-emerald-700">
                       {t.conLai}
@@ -947,9 +1094,12 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
                           </span>
                           {hasOvertime && (
                             <button
-                              onClick={() => setDetailMember(m)}
+                              onClick={() => {
+                                setDetailMember(m);
+                                setDetailActiveTab('overtime');
+                              }}
                               className="text-[10px] text-purple-700 hover:text-purple-900 underline font-semibold cursor-pointer"
-                              title="Xem danh sách các ngày làm việc"
+                              title="Xem danh sách các ngày làm việc T7-CN"
                             >
                               Xem ngày
                             </button>
@@ -957,11 +1107,25 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
                         </div>
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <span className={`px-2.5 py-1 rounded-full text-xs font-mono font-bold ${
-                          m.daNghiBu > 0 ? 'bg-amber-100 text-amber-900 border border-amber-200' : 'bg-slate-100 text-slate-500'
-                        }`}>
-                          {m.daNghiBu} ngày
-                        </span>
+                        <div className="flex flex-col items-center gap-1">
+                          <span className={`px-2.5 py-1 rounded-full text-xs font-mono font-bold ${
+                            m.daNghiBu > 0 ? 'bg-amber-100 text-amber-900 border border-amber-200' : 'bg-slate-100 text-slate-500'
+                          }`}>
+                            {m.daNghiBu} ngày
+                          </span>
+                          {m.leaveDaysReportCount > 0 && (
+                            <button
+                              onClick={() => {
+                                setDetailMember(m);
+                                setDetailActiveTab('leave');
+                              }}
+                              className="text-[10px] text-amber-700 hover:text-amber-900 underline font-semibold cursor-pointer inline-flex items-center gap-0.5"
+                              title="Xem chi tiết các ngày đã nghỉ bù T2-T6 từ báo cáo"
+                            >
+                              <span>T2-T6: {m.leaveDaysReportCount} ngày</span>
+                            </button>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-center">
                         <span className={`px-2.5 py-1 rounded-full text-xs font-mono font-black ${
@@ -1168,20 +1332,20 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
         </div>
       )}
 
-      {/* Modal Chi Tiết Ngày Làm Việc Thứ 7 - Chủ Nhật */}
+      {/* Modal Chi Tiết Ngày Làm Việc & Nghỉ Bù */}
       {detailMember && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
           <div className="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150 flex flex-col max-h-[85vh]">
             {/* Header */}
             <div className="px-5 py-4 bg-gradient-to-r from-purple-900 via-indigo-900 to-slate-900 text-white flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2.5">
                 <CalendarDays className="w-5 h-5 text-purple-300" />
                 <div>
                   <h3 className="font-bold text-sm sm:text-base">
-                    Chi Tiết Ngày Làm Thêm T7 & Chủ Nhật
+                    Chi Tiết Làm Thêm & Nghỉ Bù Nhân Viên
                   </h3>
                   <div className="text-xs text-purple-200">
-                    {detailMember.name} • {detailMember.team} ({detailMember.overtimeDaysCount} ngày)
+                    {detailMember.name} • {detailMember.team} (Làm thêm: {detailMember.overtimeDaysCount} ngày • Đã nghỉ: {detailMember.daNghiBu} ngày)
                   </div>
                 </div>
               </div>
@@ -1194,40 +1358,105 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
               </button>
             </div>
 
+            {/* Tabs Selector */}
+            <div className="flex border-b border-slate-200 bg-slate-50/90 px-4 pt-2 gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setDetailActiveTab('overtime')}
+                className={`px-3.5 py-2 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 cursor-pointer ${
+                  detailActiveTab === 'overtime'
+                    ? 'border-purple-600 text-purple-950 bg-white rounded-t-lg shadow-2xs'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <Calendar className="w-3.5 h-3.5" />
+                <span>Làm thêm T7-CN ({detailMember.overtimeDaysCount})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setDetailActiveTab('leave')}
+                className={`px-3.5 py-2 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 cursor-pointer ${
+                  detailActiveTab === 'leave'
+                    ? 'border-amber-600 text-amber-950 bg-white rounded-t-lg shadow-2xs'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <Coffee className="w-3.5 h-3.5 text-amber-600" />
+                <span>Đã nghỉ bù T2-T6 ({detailMember.leaveDaysReportCount})</span>
+              </button>
+            </div>
+
             {/* Content List */}
             <div className="p-4 overflow-y-auto space-y-2.5 flex-1 divide-y divide-slate-100">
-              {detailMember.overtimeDates.length === 0 ? (
-                <div className="text-center py-8 text-slate-400 italic text-xs">
-                  Không có nhật ký làm việc ngày Thứ 7, Chủ Nhật trong kỳ này
-                </div>
-              ) : (
-                detailMember.overtimeDates.map((item, idx) => {
-                  const isSaturday = item.dayOfWeek === 6;
-                  const formattedDate = format(parseISO(item.date), 'dd/MM/yyyy');
+              {detailActiveTab === 'overtime' ? (
+                detailMember.overtimeDates.length === 0 ? (
+                  <div className="text-center py-8 text-slate-400 italic text-xs">
+                    Không có nhật ký làm việc ngày Thứ 7, Chủ Nhật trong kỳ này
+                  </div>
+                ) : (
+                  detailMember.overtimeDates.map((item, idx) => {
+                    const isSaturday = item.dayOfWeek === 6;
+                    const formattedDate = format(parseISO(item.date), 'dd/MM/yyyy');
 
-                  return (
-                    <div key={item.date + idx} className="pt-2.5 first:pt-0">
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-2">
-                          <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${
-                            isSaturday ? 'bg-blue-100 text-blue-800 border border-blue-200' : 'bg-amber-100 text-amber-800 border border-amber-200'
-                          }`}>
-                            {isSaturday ? 'Thứ Bảy' : 'Chủ Nhật'}
-                          </span>
-                          <span className="font-bold text-xs font-mono text-slate-800">
-                            {formattedDate}
+                    return (
+                      <div key={item.date + idx} className="pt-2.5 first:pt-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center gap-2">
+                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${
+                              isSaturday ? 'bg-blue-100 text-blue-800 border border-blue-200' : 'bg-amber-100 text-amber-800 border border-amber-200'
+                            }`}>
+                              {isSaturday ? 'Thứ Bảy' : 'Chủ Nhật'}
+                            </span>
+                            <span className="font-bold text-xs font-mono text-slate-800">
+                              {formattedDate}
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            #{idx + 1}
                           </span>
                         </div>
-                        <span className="text-[10px] text-slate-400 font-mono">
-                          #{idx + 1}
-                        </span>
+                        <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-2.5 text-xs text-slate-700 whitespace-pre-line leading-relaxed font-sans">
+                          {item.content}
+                        </div>
                       </div>
-                      <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-2.5 text-xs text-slate-700 whitespace-pre-line leading-relaxed font-sans">
-                        {item.content}
+                    );
+                  })
+                )
+              ) : (
+                detailMember.leaveDates.length === 0 ? (
+                  <div className="text-center py-8 text-slate-400 italic text-xs">
+                    Không có báo cáo nghỉ bù từ Thứ 2 đến Thứ 6 trong kỳ này
+                  </div>
+                ) : (
+                  detailMember.leaveDates.map((item, idx) => {
+                    const formattedDate = format(parseISO(item.date), 'dd/MM/yyyy');
+                    const dowName = getDayOfWeekName(item.dayOfWeek);
+
+                    return (
+                      <div key={item.date + idx} className="pt-2.5 first:pt-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase bg-amber-100 text-amber-900 border border-amber-300">
+                              {dowName}
+                            </span>
+                            <span className="font-bold text-xs font-mono text-slate-800">
+                              {formattedDate}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-100 text-purple-900 border border-purple-200">
+                              {item.days} ngày
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            #{idx + 1}
+                          </span>
+                        </div>
+                        <div className="bg-amber-50/50 border border-amber-200/80 rounded-xl p-2.5 text-xs text-slate-800 whitespace-pre-line leading-relaxed font-sans">
+                          {item.content}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })
+                    );
+                  })
+                )
               )}
             </div>
 
