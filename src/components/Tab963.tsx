@@ -207,6 +207,10 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
   const [bottomTableTab, setBottomTableTab] = useState<'completed' | 'search'>('completed');
   const bottomTableRef = useRef<HTMLDivElement>(null);
 
+  // Column-level filters for the bottom table (Lọc theo từng cột)
+  const [tableColFilters, setTableColFilters] = useState<Record<string, string>>({});
+  const [activeColFilterDropdown, setActiveColFilterDropdown] = useState<string | null>(null);
+
   // HSN Audit State (Rà soát hệ số nhân khi treo tháo)
   interface HsnAuditEntry {
     hsnFile: string;
@@ -1001,7 +1005,58 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
     };
   }, [hsnAuditMap, completedCustomersList]);
 
-  // Active list for bottom table (Completed customers vs Search results), filtered by HSN audit if selected
+  const getRaw963Field = (item: Entry963, keys: string[]): string => {
+    if (!item?.raw) return '';
+    for (const k of keys) {
+      if (item.raw[k] !== undefined && item.raw[k] !== null && String(item.raw[k]).trim() !== '') {
+        const val = String(item.raw[k]).trim();
+        return val.startsWith("'") ? val.substring(1).trim() : val;
+      }
+    }
+    const rKeys = Object.keys(item.raw);
+    for (const opt of keys) {
+      const optClean = opt.toLowerCase().replace(/[^a-z0-9]/g, '');
+      for (const rk of rKeys) {
+        if (rk.toLowerCase().replace(/[^a-z0-9]/g, '') === optClean) {
+          const val = String(item.raw[rk] ?? '').trim();
+          if (val !== '') return val.startsWith("'") ? val.substring(1).trim() : val;
+        }
+      }
+    }
+    return '';
+  };
+
+  // Distinct options for column filters
+  const colFilterOptions = useMemo(() => {
+    const baseList = bottomTableTab === 'search' ? filteredEntries : completedCustomersList;
+    const extractUnique = (fn: (item: Entry963) => string | undefined) => {
+      const s = new Set<string>();
+      baseList.forEach(item => {
+        const val = fn(item);
+        if (val !== undefined && val !== null && String(val).trim() !== '') {
+          s.add(String(val).trim());
+        }
+      });
+      return Array.from(s).sort((a, b) => a.localeCompare(b, 'vi'));
+    };
+
+    return {
+      trangThai: ['Đã thay xong', 'Thu hồi', 'Chưa thay'],
+      chungLoaiCanThay: extractUnique(item => item.chungLoaiCanThay),
+      soPha: ['1 Pha', '3 Pha'],
+      phien: ['TT (Trực tiếp)', 'GT (Gián tiếp)'],
+      cap: extractUnique(item => item.cap || getRaw963Field(item, ['Cap', 'CAP', 'Cấp', 'cap'])),
+      kv: extractUnique(item => item.kv),
+      dot: extractUnique(item => item.dot),
+      hsn: extractUnique(item => String(item.hsn !== undefined && item.hsn !== '' ? item.hsn : resolveHsn(item))),
+      raSoatHsn: ['Khớp HSN', 'Sai lệch HSN', 'Chưa kiểm soát'],
+      nv: extractUnique(item => item.nv),
+      kqRaSoat: extractUnique(item => item.kqRaSoat),
+      pic: ['Đã có ảnh', 'Chưa có ảnh']
+    };
+  }, [bottomTableTab, filteredEntries, completedCustomersList]);
+
+  // Active list for bottom table (Completed customers vs Search results), filtered by HSN audit if selected & column filters
   const activeBottomList = useMemo(() => {
     let list = bottomTableTab === 'search' ? filteredEntries : completedCustomersList;
 
@@ -1026,13 +1081,77 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       }
     }
 
+    // Áp dụng bộ lọc từng cột (tableColFilters)
+    const activeFilters = (Object.entries(tableColFilters) as [string, string][]).filter(([_, v]) => typeof v === 'string' && v.trim() !== '');
+    if (activeFilters.length > 0) {
+      list = list.filter(item => {
+        return activeFilters.every(([key, rawFilterVal]) => {
+          const val = String(rawFilterVal || '').trim().toLowerCase();
+          if (key === 'trangThai') {
+            const isDone = Boolean(item.ketQua && item.ketQua.trim().toLowerCase().includes('xong'));
+            const isThuHoi = Boolean(item.kSuDung && item.kSuDung.trim().toLowerCase().includes('thu hồi'));
+            if (val.includes('thu hồi')) return isThuHoi;
+            if (val.includes('xong')) return isDone && !isThuHoi;
+            if (val.includes('chưa thay')) return !isDone && !isThuHoi;
+            const statusStr = isThuHoi ? 'thu hồi' : isDone ? 'đã thay xong' : 'chưa thay';
+            return statusStr.includes(val);
+          }
+          if (key === 'maKh') return (item.maKh || '').toLowerCase().includes(val);
+          if (key === 'tenKh') return (item.tenKh || '').toLowerCase().includes(val);
+          if (key === 'sdt') return (item.sdt || '').toLowerCase().includes(val);
+          if (key === 'chungLoaiCanThay') return (item.chungLoaiCanThay || '').toLowerCase().includes(val);
+          if (key === 'soPha') {
+            const sp = String(item.soPha || item.raw?.['SO_PHA'] || item.raw?.['Số pha'] || item.raw?.['So_pha'] || '').trim().toLowerCase();
+            if (val.includes('1')) return sp === '1' || sp.includes('1 pha') || sp === '1p';
+            if (val.includes('3')) return sp === '3' || sp.includes('3 pha') || sp === '3p';
+            return sp.includes(val);
+          }
+          if (key === 'phien') {
+            const ph = String(item.phien || item.raw?.['PHIEN'] || item.raw?.['Phiên'] || item.raw?.['Phien'] || '').trim().toLowerCase();
+            if (val.includes('tt') || val.includes('trực')) return ph === 'tt' || ph.includes('tt') || ph.includes('trực tiếp');
+            if (val.includes('gt') || val.includes('gián')) return ph === 'gt' || ph.includes('gt') || ph.includes('gián tiếp');
+            return ph.includes(val);
+          }
+          if (key === 'cap') {
+            const capVal = String(item.cap || getRaw963Field(item, ['Cap', 'CAP', 'Cấp', 'cap'])).trim().toLowerCase();
+            return capVal.includes(val);
+          }
+          if (key === 'titu') {
+            const ti = item.tySoTi || item.raw?.['ty0so0_TI'] || item.raw?.['TI'] || item.raw?.['TSO_TI'] || '';
+            const tu = item.tySoTu || item.raw?.['ty so_TU'] || item.raw?.['TU'] || item.raw?.['TSO_TU'] || '';
+            return `${ti} ${tu}`.toLowerCase().includes(val);
+          }
+          if (key === 'kv') return (item.kv || '').toLowerCase().includes(val);
+          if (key === 'dot') return String(item.dot || '').toLowerCase().includes(val);
+          if (key === 'hsn') {
+            const hsnVal = String(item.hsn !== undefined && item.hsn !== '' ? item.hsn : resolveHsn(item)).toLowerCase();
+            return hsnVal.includes(val);
+          }
+          if (key === 'raSoatHsn') {
+            const audit = getHsnAuditResult(item);
+            const auditStr = (audit ? audit.label : (item.kiemSoatHsn || '')).toLowerCase();
+            return auditStr.includes(val);
+          }
+          if (key === 'nv') return (item.nv || '').toLowerCase().includes(val);
+          if (key === 'ngayGio') return (item.ngayGio || '').toLowerCase().includes(val);
+          if (key === 'kqRaSoat') return (item.kqRaSoat || '').toLowerCase().includes(val);
+          if (key === 'pic') {
+            if (val.includes('đã') || val.includes('có')) return Boolean(item.pic && item.pic.trim() !== '');
+            if (val.includes('chưa') || val.includes('không')) return !item.pic || item.pic.trim() === '';
+            return (item.pic || '').toLowerCase().includes(val);
+          }
+          return true;
+        });
+      });
+    }
+
     return list;
-  }, [bottomTableTab, filteredEntries, completedCustomersList, hsnAuditMap, hsnAuditFilter, hideCheckedHsn]);
+  }, [bottomTableTab, filteredEntries, completedCustomersList, hsnAuditMap, hsnAuditFilter, hideCheckedHsn, tableColFilters]);
 
   // Reset bottom table page when filter or tab changes
   useEffect(() => {
     setCompletedPage(1);
-  }, [selectedDot, selectedKv, searchQuery, searchTarget, searchMode, bottomTableTab, hsnAuditFilter]);
+  }, [selectedDot, selectedKv, searchQuery, searchTarget, searchMode, bottomTableTab, hsnAuditFilter, tableColFilters]);
 
   const totalCompletedPages = Math.max(1, Math.ceil(activeBottomList.length / PAGE_SIZE));
   const currentCompletedPage = Math.min(completedPage, totalCompletedPages);
@@ -1383,18 +1502,18 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       rowData['Đợt'] = c.dot;
       rowData['Địa Chỉ'] = c.diaChi || '';
       rowData['Loại Công Tơ'] = c.loaiCto || '';
-      rowData['Số Pha'] = c.soPha || '';
+      rowData['Số Pha (So_pha)'] = c.soPha || c.raw?.['SO_PHA'] || c.raw?.['Số pha'] || c.raw?.['So_pha'] || '';
+      rowData['Phiên (Phien)'] = c.phien || c.raw?.['PHIEN'] || c.raw?.['Phiên'] || c.raw?.['Phien'] || '';
+      rowData['Cấp (Cap)'] = c.cap || getRaw963Field(c, ['Cap', 'CAP', 'Cấp', 'cap']) || '';
+      rowData['MA_DS'] = c.maDs || getRaw963Field(c, ['MA_DS', 'Ma_DS', 'MADS', 'Mã ĐS', 'MaDS']) || '';
+      rowData['MA_Tram'] = c.maTram || getRaw963Field(c, ['MA_Tram', 'MA_TRAM', 'Ma_Tram', 'MATRAM', 'Mã trạm', 'MaTram']) || '';
+      rowData['No.'] = c.no || getRaw963Field(c, ['No.', 'No', 'NO', 'NO.']) || '';
       rowData['Công Nghệ'] = c.congNghe || '';
       rowData['Đo Xa'] = c.doXa || '';
       rowData['NV Thực Hiện'] = c.nv || '';
       rowData['Ngày Giờ Thay'] = c.ngayGio || '';
       rowData['Kết Quả'] = c.ketQua || (isDone ? 'Xong' : '');
       rowData['Kết Quả Rà Soát (KQRaSoat)'] = c.kqRaSoat || '';
-      rowData['Giờ Vượt (h)'] = c.gioVuot !== undefined ? c.gioVuot : 0;
-      rowData['CS CĐ Lúc Tháo'] = c.cscdThao || '';
-      rowData['CS CĐ Lúc 9h30'] = c.cs930 || c.cs9h30 || '';
-      rowData['CS CĐ Kỳ Trước'] = c.cscdKyTruoc || '';
-      rowData['Sản Lượng Vượt (kWh)'] = c.slVuot !== undefined && c.slVuot !== '' ? c.slVuot : 0;
       rowData['Ảnh Công Tơ (Pic)'] = c.pic || '';
 
       return rowData;
@@ -2145,6 +2264,172 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
     XLSX.utils.book_append_sheet(wb, ws, 'DS_KhachHang_QuaHan');
     XLSX.writeFile(wb, `DS_KH_QuaHan_DaThay_QD963_${getCurrentDateTimeStr().replace(/[/ :]/g, '_')}.xlsx`);
     showToast('success', `Đã xuất ${filteredQuaHanCustomers.length} khách hàng quá hạn ra file Excel thành công!`);
+  };
+
+  const COL_FILTER_LABELS: Record<string, string> = {
+    trangThai: 'Trạng Thái',
+    maKh: 'Mã KH',
+    tenKh: 'Tên KH',
+    sdt: 'SĐT',
+    chungLoaiCanThay: 'Chủng Loại',
+    soPha: 'Số Pha',
+    phien: 'Phiên',
+    cap: 'Cap',
+    titu: 'TI / TU',
+    kv: 'Khu Vực',
+    dot: 'Đợt',
+    hsn: 'HSN',
+    raSoatHsn: 'Rà Soát HSN',
+    nv: 'NV Thay',
+    ngayGio: 'Ngày Giờ',
+    kqRaSoat: 'KQ Rà Soát',
+    pic: 'Ảnh (Pic)'
+  };
+
+  const renderColHeader = (
+    colKey: string,
+    label: string,
+    options?: string[],
+    align: 'left' | 'center' | 'right' = 'left',
+    dropdownAlign: 'left' | 'right' = 'left'
+  ) => {
+    const activeVal = tableColFilters[colKey] || '';
+    const isOpen = activeColFilterDropdown === colKey;
+    const isActive = activeVal.trim() !== '';
+
+    return (
+      <th className={`py-2.5 px-2.5 relative select-none ${align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : 'text-left'}`}>
+        <div className={`inline-flex items-center gap-1 ${align === 'center' ? 'justify-center' : align === 'right' ? 'justify-end' : 'justify-start'}`}>
+          <span>{label}</span>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setActiveColFilterDropdown(prev => (prev === colKey ? null : colKey));
+            }}
+            className={`p-0.5 rounded transition-colors cursor-pointer ${
+              isActive
+                ? 'bg-amber-500 text-white shadow-2xs'
+                : isOpen
+                  ? 'bg-indigo-100 text-indigo-700'
+                  : 'text-slate-400 hover:text-indigo-700 hover:bg-slate-200/70'
+            }`}
+            title={`Lọc theo cột ${label}${isActive ? ` (Đang lọc: ${activeVal})` : ''}`}
+          >
+            <Filter className="w-3 h-3" />
+          </button>
+        </div>
+
+        {isOpen && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className={`absolute top-full mt-1 ${dropdownAlign === 'right' ? 'right-0' : 'left-0'} z-50 w-56 bg-white rounded-xl shadow-xl border border-slate-200 p-2.5 text-left normal-case font-normal text-slate-700`}
+          >
+            <div className="flex items-center justify-between gap-1 mb-1.5 pb-1 border-b border-slate-100">
+              <span className="text-[11px] font-bold text-slate-700 truncate">Lọc: {label}</span>
+              {isActive && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTableColFilters(prev => {
+                      const next = { ...prev };
+                      delete next[colKey];
+                      return next;
+                    });
+                    setActiveColFilterDropdown(null);
+                  }}
+                  className="text-[10px] font-bold text-rose-600 hover:text-rose-800 cursor-pointer shrink-0"
+                >
+                  Xóa lọc
+                </button>
+              )}
+            </div>
+            <div className="relative mb-1.5">
+              <input
+                type="text"
+                autoFocus
+                value={activeVal}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setTableColFilters(prev => {
+                    const next = { ...prev };
+                    if (val) next[colKey] = val;
+                    else delete next[colKey];
+                    return next;
+                  });
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === 'Escape') {
+                    setActiveColFilterDropdown(null);
+                  }
+                }}
+                placeholder={`Tìm ${label.toLowerCase()}...`}
+                className="w-full px-2 py-1 text-[11px] bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400"
+              />
+              {isActive && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTableColFilters(prev => {
+                      const next = { ...prev };
+                      delete next[colKey];
+                      return next;
+                    });
+                  }}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  title="Xóa"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+
+            {options && options.length > 0 && (
+              <div className="max-h-40 overflow-y-auto divide-y divide-slate-50 space-y-0.5 pr-0.5">
+                {options
+                  .filter(opt => !activeVal || opt.toLowerCase().includes(activeVal.trim().toLowerCase()))
+                  .map(opt => {
+                    const selected = activeVal.trim().toLowerCase() === opt.trim().toLowerCase();
+                    return (
+                      <button
+                        key={opt}
+                        type="button"
+                        onClick={() => {
+                          setTableColFilters(prev => {
+                            const next = { ...prev };
+                            if (selected) delete next[colKey];
+                            else next[colKey] = opt;
+                            return next;
+                          });
+                          setActiveColFilterDropdown(null);
+                        }}
+                        className={`w-full text-left px-2 py-1 rounded-md text-[11px] flex items-center justify-between gap-1.5 transition-colors cursor-pointer ${
+                          selected
+                            ? 'bg-indigo-50 text-indigo-800 font-bold'
+                            : 'hover:bg-slate-100 text-slate-700'
+                        }`}
+                      >
+                        <span className="truncate">{opt}</span>
+                        {selected && <Check className="w-3 h-3 text-indigo-600 shrink-0" />}
+                      </button>
+                    );
+                  })}
+              </div>
+            )}
+
+            <div className="pt-1.5 mt-1.5 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setActiveColFilterDropdown(null)}
+                className="px-2 py-0.5 text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md cursor-pointer"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        )}
+      </th>
+    );
   };
 
   return (
@@ -2964,6 +3249,24 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                     <div>
                       <span className="text-[10px] text-slate-500 font-bold uppercase">Phiên</span>
                       <div className="font-medium text-slate-800 mt-0.5">{selectedCustomer.phien || '—'}</div>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 font-bold uppercase">MA_DS</span>
+                      <div className="font-mono font-bold text-slate-800 mt-0.5">
+                        {selectedCustomer.maDs || getRaw963Field(selectedCustomer, ['MA_DS', 'Ma_DS', 'MADS', 'Mã ĐS', 'MaDS']) || '—'}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 font-bold uppercase">MA_Tram</span>
+                      <div className="font-mono font-bold text-slate-800 mt-0.5">
+                        {selectedCustomer.maTram || getRaw963Field(selectedCustomer, ['MA_Tram', 'MA_TRAM', 'Ma_Tram', 'MATRAM', 'Mã trạm', 'MaTram']) || '—'}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 font-bold uppercase">No.</span>
+                      <div className="font-mono font-bold text-slate-800 mt-0.5">
+                        {selectedCustomer.no || getRaw963Field(selectedCustomer, ['No.', 'No', 'NO', 'NO.']) || '—'}
+                      </div>
                     </div>
                     <div>
                       <span className="text-[10px] text-slate-500 font-bold uppercase">KSuDung (Thu hồi)</span>
@@ -3899,7 +4202,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                   <p className="text-[11px] text-slate-500 mt-1">
                     {bottomTableTab === 'search'
                       ? `Hiển thị danh sách ${filteredEntries.length} khách hàng tìm kiếm theo 5 tiêu chí (Mã KH, Tên KH, TI, TU, Chủng loại). Có thể xem và kết xuất Excel.`
-                      : `Hiển thị danh sách khách hàng đã thay xong kèm các chỉ số và sản lượng vượt (10 KH/trang).`}
+                      : `Hiển thị danh sách khách hàng đã thay xong (10 KH/trang).`}
                   </p>
                 </div>
 
@@ -4168,41 +4471,86 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
 
               {collapsedSections.completedList ? (
                 /* Table */
+                <div className="space-y-2">
+                  {activeColFilterDropdown && (
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setActiveColFilterDropdown(null)}
+                    />
+                  )}
+                  {Object.keys(tableColFilters).length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 bg-amber-50/80 border border-amber-200 rounded-xl text-[11px]">
+                      <span className="font-bold text-amber-900 flex items-center gap-1 mr-1">
+                        <Filter className="w-3.5 h-3.5 text-amber-700" />
+                        Đang lọc cột:
+                      </span>
+                      {Object.entries(tableColFilters).map(([k, v]) => (
+                        <span
+                          key={k}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white border border-amber-300 text-amber-900 font-semibold shadow-2xs"
+                        >
+                          <span className="text-slate-500">{COL_FILTER_LABELS[k] || k}:</span>
+                          <span className="font-bold">{v}</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setTableColFilters(prev => {
+                                const next = { ...prev };
+                                delete next[k];
+                                return next;
+                              });
+                            }}
+                            className="ml-0.5 text-slate-400 hover:text-rose-600 cursor-pointer"
+                            title="Xóa bộ lọc này"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => setTableColFilters({})}
+                        className="ml-auto px-2 py-0.5 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-800 font-bold transition-colors cursor-pointer"
+                      >
+                        Xóa tất cả bộ lọc
+                      </button>
+                    </div>
+                  )}
                 <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto min-h-[260px]">
                   <table className="w-full text-left text-xs border-collapse">
                     <thead>
                       <tr className="bg-slate-100/90 text-slate-700 font-bold border-b border-slate-200 uppercase text-[10px]">
                         <th className="py-2.5 px-3 w-10 text-center">STT</th>
-                        <th className="py-2.5 px-3 text-center">Trạng Thái</th>
-                        <th className="py-2.5 px-3">Mã KH</th>
-                        <th className="py-2.5 px-3">Tên Khách Hàng</th>
-                        <th className="py-2.5 px-3">SĐT</th>
-                        <th className="py-2.5 px-3">Chủng Loại Cần Thay</th>
-                        <th className="py-2.5 px-3 text-center">TI / TU</th>
-                        <th className="py-2.5 px-3">Khu Vực</th>
-                        <th className="py-2.5 px-3">Đợt</th>
-                        <th className="py-2.5 px-3 text-center">HSN</th>
-                        <th className="py-2.5 px-3 text-center">Rà Soát HSN</th>
-                        <th className="py-2.5 px-3">NV Thay</th>
-                        <th className="py-2.5 px-3">Ngày Giờ</th>
-                        <th className="py-2.5 px-3">KQ Rà Soát</th>
-                        <th className="py-2.5 px-3 text-right">Giờ Vượt</th>
-                        <th className="py-2.5 px-3 text-right">CS Tháo</th>
-                        <th className="py-2.5 px-3 text-right">CS 9h30</th>
-                        <th className="py-2.5 px-3 text-right">CS Kỳ Trước</th>
-                        <th className="py-2.5 px-3 text-right text-amber-900">SL Vượt (kWh)</th>
-                        <th className="py-2.5 px-3 text-center">Ảnh Công Tơ (Pic)</th>
+                        {renderColHeader('trangThai', 'Trạng Thái', colFilterOptions.trangThai, 'center')}
+                        {renderColHeader('maKh', 'Mã KH')}
+                        {renderColHeader('tenKh', 'Tên Khách Hàng')}
+                        {renderColHeader('sdt', 'SĐT')}
+                        {renderColHeader('chungLoaiCanThay', 'Chủng Loại Cần Thay', colFilterOptions.chungLoaiCanThay)}
+                        {renderColHeader('soPha', 'Số Pha', colFilterOptions.soPha, 'center')}
+                        {renderColHeader('phien', 'Phiên', colFilterOptions.phien, 'center')}
+                        {renderColHeader('cap', 'Cap', colFilterOptions.cap, 'center')}
+                        {renderColHeader('titu', 'TI / TU', undefined, 'center')}
+                        {renderColHeader('kv', 'Khu Vực', colFilterOptions.kv)}
+                        {renderColHeader('dot', 'Đợt', colFilterOptions.dot)}
+                        {renderColHeader('hsn', 'HSN', colFilterOptions.hsn, 'center')}
+                        {renderColHeader('raSoatHsn', 'Rà Soát HSN', colFilterOptions.raSoatHsn, 'center')}
+                        {renderColHeader('nv', 'NV Thay', colFilterOptions.nv)}
+                        {renderColHeader('ngayGio', 'Ngày Giờ')}
+                        {renderColHeader('kqRaSoat', 'KQ Rà Soát', colFilterOptions.kqRaSoat, 'left', 'right')}
+                        {renderColHeader('pic', 'Ảnh Công Tơ (Pic)', colFilterOptions.pic, 'center', 'right')}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {paginatedCompletedList.length > 0 ? (
                         paginatedCompletedList.map((item, idx) => {
                           const stt = (currentCompletedPage - 1) * PAGE_SIZE + idx + 1;
-                          const slv = item.slVuot !== undefined && item.slVuot !== '' ? item.slVuot : '0';
                           const hsnVal = item.hsn !== undefined && item.hsn !== '' ? item.hsn : resolveHsn(item);
                           const tiVal = item.tySoTi || item.raw?.['ty0so0_TI'] || item.raw?.['TI'] || item.raw?.['TSO_TI'] || '';
                           const tuVal = item.tySoTu || item.raw?.['ty so_TU'] || item.raw?.['TU'] || item.raw?.['TSO_TU'] || '';
+                          const soPhaRaw = String(item.soPha || item.raw?.['SO_PHA'] || item.raw?.['Số pha'] || item.raw?.['So_pha'] || '').trim();
+                          const phienRaw = String(item.phien || item.raw?.['PHIEN'] || item.raw?.['Phiên'] || item.raw?.['Phien'] || '').trim().toUpperCase();
+                          const capVal = String(item.cap || getRaw963Field(item, ['Cap', 'CAP', 'Cấp', 'cap']) || '').trim();
                           const isDone = item.ketQua && item.ketQua.trim().toLowerCase().includes('xong');
                           const isThuHoi = item.kSuDung && item.kSuDung.trim().toLowerCase().includes('thu hồi');
                           const audit = getHsnAuditResult(item);
@@ -4252,6 +4600,41 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                                 {item.chungLoaiCanThay ? (
                                   <span className="font-mono font-black text-xs text-purple-900 bg-purple-100 border border-purple-300 px-2 py-0.5 rounded-md shadow-2xs inline-block">
                                     {item.chungLoaiCanThay}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 italic text-[11px]">—</span>
+                                )}
+                              </td>
+                              <td className="py-2 px-3 text-center whitespace-nowrap">
+                                {soPhaRaw ? (
+                                  <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                                    soPhaRaw === '3' || soPhaRaw.toLowerCase().includes('3')
+                                      ? 'bg-indigo-50 text-indigo-800 border-indigo-200'
+                                      : 'bg-sky-50 text-sky-800 border-sky-200'
+                                  }`}>
+                                    {soPhaRaw === '1' ? '1 Pha' : soPhaRaw === '3' ? '3 Pha' : soPhaRaw}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 italic text-[11px]">—</span>
+                                )}
+                              </td>
+                              <td className="py-2 px-3 text-center whitespace-nowrap">
+                                {phienRaw ? (
+                                  <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                                    phienRaw === 'GT' || phienRaw.includes('GT')
+                                      ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                      : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                  }`}>
+                                    {phienRaw === 'TT' ? 'TT (Trực tiếp)' : phienRaw === 'GT' ? 'GT (Gián tiếp)' : phienRaw}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 italic text-[11px]">—</span>
+                                )}
+                              </td>
+                              <td className="py-2 px-3 text-center whitespace-nowrap">
+                                {capVal ? (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-800 border border-slate-300 font-mono">
+                                    {capVal}
                                   </span>
                                 ) : (
                                   <span className="text-slate-400 italic text-[11px]">—</span>
@@ -4330,23 +4713,6 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                                   <span className="text-slate-400">—</span>
                                 )}
                               </td>
-                              <td className="py-2 px-3 text-right font-mono font-bold text-indigo-800">
-                                {item.gioVuot !== undefined ? `${item.gioVuot}h` : '0h'}
-                              </td>
-                              <td className="py-2 px-3 text-right font-mono text-slate-700">
-                                {item.cscdThao || '—'}
-                              </td>
-                              <td className="py-2 px-3 text-right font-mono text-indigo-700 font-semibold">
-                                {item.cs930 || item.cs9h30 || '—'}
-                              </td>
-                              <td className="py-2 px-3 text-right font-mono text-slate-700">
-                                {item.cscdKyTruoc || '—'}
-                              </td>
-                              <td className="py-2 px-3 text-right font-mono font-black text-amber-900">
-                                <span className="bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full border border-amber-300">
-                                  {slv} kWh
-                                </span>
-                              </td>
                               <td className="py-2 px-3 text-center whitespace-nowrap">
                                 {item.pic ? (
                                   <div className="inline-flex items-center gap-1 justify-center">
@@ -4395,7 +4761,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                         })
                       ) : (
                         <tr>
-                          <td colSpan={20} className="py-8 text-center text-slate-400 text-xs">
+                          <td colSpan={18} className="py-8 text-center text-slate-400 text-xs">
                             {bottomTableTab === 'search'
                               ? 'Không tìm thấy khách hàng nào khớp với điều kiện tìm kiếm hiện tại.'
                               : 'Chưa có khách hàng nào được thay xong trong phạm vi lựa chọn này.'}
@@ -4404,6 +4770,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                       )}
                     </tbody>
                   </table>
+                </div>
                 </div>
 
                 {/* Pagination Controls */}

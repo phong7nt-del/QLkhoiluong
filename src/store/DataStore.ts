@@ -135,6 +135,10 @@ export interface Entry963 {
   sl2025?: string; // SL2025
   nlmt?: string; // NLMT
   phien?: string; // PHIEN
+  cap?: string; // Cap
+  maDs?: string; // MA_DS
+  maTram?: string; // MA_Tram / MA_TRAM
+  no?: string; // No.
   loaiCto?: string; // LOAICTO_TTIEP_GTIEP
   dot: string; // Dot (1, 2, v.v.)
   sdt?: string; // SDT / SĐT / Số điện thoại khách hàng
@@ -6869,7 +6873,11 @@ export const DataStore = {
           doXa: getV(['DoXa', 'Đo xa']),
           sl2025: getV(['SL2025']),
           nlmt: getV(['NLMT']),
-          phien: getV(['PHIEN', 'Phiên']),
+          phien: getV(['PHIEN', 'Phiên', 'Phien']),
+          cap: getV(['Cap', 'CAP', 'Cấp', 'cap']),
+          maDs: getV(['MA_DS', 'Ma_DS', 'MADS', 'Mã ĐS', 'MaDS']),
+          maTram: getV(['MA_Tram', 'MA_TRAM', 'Ma_Tram', 'MATRAM', 'Mã trạm', 'MaTram']),
+          no: getV(['No.', 'No', 'NO', 'NO.']),
           loaiCto: getV(['LOAICTO_TTIEP_GTIEP', 'Loại công tơ']),
           dot,
           sdt: getV(['SDT', 'SĐT', 'SoDienThoai', 'Số điện thoại', 'SO_DIEN_THOAI', 'DTHOAI', 'DIEN_THOAI', 'TEL', 'PHONE', 'SDT_KH', 'SĐT_KH']),

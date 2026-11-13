@@ -41,6 +41,7 @@ interface MemberOvertimeStat {
   overtimeDaysCount: number;
   leaveDates: { date: string; dayOfWeek: number; content: string; days: number }[];
   leaveDaysReportCount: number;
+  nghiPhep: number;
   daNghiBu: number;
   totalDaNghiBuAllTime: number;
   conLai: number;
@@ -284,8 +285,10 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
 
       const memNghiBu = typeof mem.nghiBu === 'number' ? mem.nghiBu : (parseFloat(String(mem.nghiBu || 0)) || 0);
       const localVal = localNghiBuMap[cleanName] ?? localNghiBuMap[normKey] ?? 0;
-      const daNghiBu = Number(Math.max(memNghiBu, localVal, leaveDaysReportCount).toFixed(2));
-      const conLai = Math.max(0, Number((overtimeDaysCount - daNghiBu).toFixed(2)));
+      const nghiPhep = Number((localVal > 0 ? localVal : memNghiBu).toFixed(2));
+      const daNghiBu = nghiPhep;
+      // Công thức: tổng số ngày làm thêm trừ đi nghỉ T2 - T6 cộng Số ngày nghỉ phép
+      const conLai = Math.max(0, Number((overtimeDaysCount - leaveDaysReportCount + nghiPhep).toFixed(2)));
 
       const memberLogs = allNghiBuLogs.filter(l => {
         const lName = normalizeRoleStr(l.memberName || '');
@@ -302,6 +305,7 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
         overtimeDaysCount,
         leaveDates,
         leaveDaysReportCount,
+        nghiPhep,
         daNghiBu,
         totalDaNghiBuAllTime: daNghiBu,
         conLai,
@@ -324,8 +328,10 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
         const leaveDaysReportCount = Number(leaveDates.reduce((sum, item) => sum + (item.days || 1), 0).toFixed(1));
 
         const localVal = localNghiBuMap[normKey] ?? 0;
-        const daNghiBu = Number(Math.max(localVal, leaveDaysReportCount).toFixed(2));
-        const conLai = Math.max(0, Number((overtimeDaysCount - daNghiBu).toFixed(2)));
+        const nghiPhep = Number(localVal.toFixed(2));
+        const daNghiBu = nghiPhep;
+        // Công thức: tổng số ngày làm thêm trừ đi nghỉ T2 - T6 cộng Số ngày nghỉ phép
+        const conLai = Math.max(0, Number((overtimeDaysCount - leaveDaysReportCount + nghiPhep).toFixed(2)));
         const memberLogs = allNghiBuLogs.filter(l => {
           const lName = normalizeRoleStr(l.memberName || '');
           return lName === normKey || lName.includes(normKey) || normKey.includes(lName);
@@ -341,6 +347,7 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
           overtimeDaysCount,
           leaveDates,
           leaveDaysReportCount,
+          nghiPhep,
           daNghiBu,
           totalDaNghiBuAllTime: daNghiBu,
           conLai,
@@ -392,15 +399,17 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
 
     const activeMembersCount = targetList.filter(m => m.overtimeDaysCount > 0).length;
     const totalOvertimeDays = targetList.reduce((acc, m) => acc + m.overtimeDaysCount, 0);
-    const totalDaNghiBu = targetList.reduce((acc, m) => acc + m.daNghiBu, 0);
     const totalLeaveFromReports = targetList.reduce((acc, m) => acc + m.leaveDaysReportCount, 0);
-    const totalConLai = Math.max(0, totalOvertimeDays - totalDaNghiBu);
-    const rate = totalOvertimeDays > 0 ? (totalDaNghiBu / totalOvertimeDays) * 100 : 0;
+    const totalNghiPhep = targetList.reduce((acc, m) => acc + m.nghiPhep, 0);
+    // Công thức: tổng số ngày làm thêm trừ đi nghỉ T2 - T6 cộng Số ngày nghỉ phép
+    const totalConLai = Math.max(0, Number((totalOvertimeDays - totalLeaveFromReports + totalNghiPhep).toFixed(2)));
+    const rate = totalOvertimeDays > 0 ? (totalLeaveFromReports / totalOvertimeDays) * 100 : 0;
 
     return {
       activeMembersCount,
       totalOvertimeDays,
-      totalDaNghiBu: Number(totalDaNghiBu.toFixed(2)),
+      totalNghiPhep: Number(totalNghiPhep.toFixed(2)),
+      totalDaNghiBu: Number(totalNghiPhep.toFixed(2)),
       totalLeaveFromReports: Number(totalLeaveFromReports.toFixed(1)),
       totalConLai: Number(totalConLai.toFixed(2)),
       rate: Number(rate.toFixed(1))
@@ -413,18 +422,19 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
       ? memberStatsList.filter(m => m.isWorkerOrDeputy) 
       : memberStatsList;
 
-    const map: Record<string, { team: string; memberCount: number; overtimeDays: number; daNghiBu: number; leaveDaysReport: number; conLai: number }> = {};
+    const map: Record<string, { team: string; memberCount: number; overtimeDays: number; nghiPhep: number; daNghiBu: number; leaveDaysReport: number; conLai: number }> = {};
 
     targetList.forEach(m => {
       const t = m.team || 'Khác';
       if (!map[t]) {
-        map[t] = { team: t, memberCount: 0, overtimeDays: 0, daNghiBu: 0, leaveDaysReport: 0, conLai: 0 };
+        map[t] = { team: t, memberCount: 0, overtimeDays: 0, nghiPhep: 0, daNghiBu: 0, leaveDaysReport: 0, conLai: 0 };
       }
       if (m.overtimeDaysCount > 0) {
         map[t].memberCount += 1;
       }
       map[t].overtimeDays += m.overtimeDaysCount;
-      map[t].daNghiBu += m.daNghiBu;
+      map[t].nghiPhep += m.nghiPhep;
+      map[t].daNghiBu += m.nghiPhep;
       map[t].leaveDaysReport += m.leaveDaysReportCount;
       map[t].conLai += m.conLai;
     });
@@ -432,10 +442,11 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
     return Object.values(map)
       .map(t => ({
         ...t,
+        nghiPhep: Number(t.nghiPhep.toFixed(2)),
         daNghiBu: Number(t.daNghiBu.toFixed(2)),
         leaveDaysReport: Number(t.leaveDaysReport.toFixed(1)),
         conLai: Number(t.conLai.toFixed(2)),
-        rate: t.overtimeDays > 0 ? Number(((t.daNghiBu / t.overtimeDays) * 100).toFixed(1)) : 0
+        rate: t.overtimeDays > 0 ? Number(((t.leaveDaysReport / t.overtimeDays) * 100).toFixed(1)) : 0
       }))
       .sort((a, b) => b.overtimeDays - a.overtimeDays);
   }, [memberStatsList, onlyWorkerAndDeputy]);
@@ -455,27 +466,14 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
     setModalSuccess(null);
   };
 
-  // Submit Compensatory Leave Update
+  // Submit Annual Leave (Nghỉ Phép) Update
   const handleSubmitUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!updatingMember) return;
 
     const addVal = parseFloat(addDaysInput.replace(',', '.'));
     if (isNaN(addVal) || addVal <= 0) {
-      setModalError('Số ngày nghỉ bù phải lớn hơn 0 (ví dụ: 0.5, 1, 1.5, 2)');
-      return;
-    }
-
-    // Constraint 1: Mỗi lần nghỉ bù không được quá 2 ngày
-    if (addVal > 2) {
-      setModalError('Mỗi lần nghỉ bù không được quá 2 ngày theo quy định!');
-      return;
-    }
-
-    // Constraint 2: Số ngày nghỉ bù không được lớn hơn số ngày đã làm
-    const currentRemaining = updatingMember.conLai;
-    if (addVal > currentRemaining) {
-      setModalError(`Số ngày nghỉ bù (${addVal} ngày) vượt quá số ngày làm thêm còn lại (${currentRemaining} ngày)!`);
+      setModalError('Số ngày nghỉ phép phải lớn hơn 0 (ví dụ: 0.5, 1, 1.5, 2)');
       return;
     }
 
@@ -486,8 +484,8 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
     try {
       const updaterName = sessionUser?.name || 'Quản lý';
       const fullNote = leaveNoteInput.trim() 
-        ? `${leaveNoteInput.trim()} (Ngày nghỉ: ${leaveDateInput})` 
-        : `Nghỉ bù ngày ${leaveDateInput}`;
+        ? `${leaveNoteInput.trim()} (Ngày nghỉ phép: ${leaveDateInput})` 
+        : `Nghỉ phép ngày ${leaveDateInput}`;
 
       const res = await DataStore.updateMemberNghiBu(
         updatingMember.name,
@@ -498,7 +496,7 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
       );
 
       if (res.success) {
-        setModalSuccess(`Đã cập nhật thành công! Tổng ngày nghỉ bù hiện tại: ${res.newTotal} ngày.`);
+        setModalSuccess(`Đã cập nhật thành công! Tổng ngày nghỉ phép hiện tại: ${res.newTotal} ngày.`);
         setLocalRefresh(p => p + 1);
         if (onRefresh) onRefresh();
         setTimeout(() => {
@@ -542,19 +540,19 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
 
     // Sheet 1: Tổng hợp Toàn Đội & Các Tổ
     const sheet1Rows: any[] = [
-      ['BÁO CÁO TỔNG HỢP NGÀY LÀM THÊM (THỨ 7 - CHỦ NHẬT) & NGHỈ BÙ'],
+      ['BÁO CÁO TỔNG HỢP NGÀY LÀM THÊM (THỨ 7 - CHỦ NHẬT) & NGHỈ PHÉP'],
       [`Kỳ báo cáo: ${timeLabel}`],
       [''],
       ['I. CHỈ SỐ TỔNG QUAN TOÀN ĐỘI'],
       ['Tổng nhân sự tham gia làm thêm:', teamKPIs.activeMembersCount],
       ['Tổng số ngày làm thêm (ngày công):', teamKPIs.totalOvertimeDays],
-      ['Tổng số ngày đã giải quyết nghỉ bù:', teamKPIs.totalDaNghiBu],
-      ['Trong đó số ngày nghỉ bù báo cáo (T2-T6):', teamKPIs.totalLeaveFromReports],
-      ['Tổng số ngày còn lại cần bố trí nghỉ bù:', teamKPIs.totalConLai],
-      ['Tỷ lệ đã giải quyết nghỉ bù:', `${teamKPIs.rate}%`],
+      ['Tổng số ngày nghỉ phép (cập nhật):', teamKPIs.totalNghiPhep],
+      ['Tổng số ngày nghỉ T2-T6 từ báo cáo:', teamKPIs.totalLeaveFromReports],
+      ['Tổng số ngày làm thêm còn lại (Làm thêm - Nghỉ T2-T6 + Phép):', teamKPIs.totalConLai],
+      ['Tỷ lệ giải quyết:', `${teamKPIs.rate}%`],
       [''],
       ['II. BẢNG TỔNG HỢP THEO TỔ CÔNG TÁC'],
-      ['STT', 'Tổ công tác', 'Số nhân sự', 'Tổng ngày làm thêm (T7-CN)', 'Đã nghỉ bù (ngày)', 'Nghỉ bù T2-T6 báo cáo', 'Còn lại (ngày)', 'Tỷ lệ giải quyết (%)']
+      ['STT', 'Tổ công tác', 'Số nhân sự', 'Tổng ngày làm thêm (T7-CN)', 'Nghỉ T2-T6 báo cáo', 'Nghỉ phép (ngày)', 'Còn lại (ngày)', 'Tỷ lệ (%)']
     ];
 
     teamSummaries.forEach((t, idx) => {
@@ -563,8 +561,8 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
         t.team,
         t.memberCount,
         t.overtimeDays,
-        t.daNghiBu,
         t.leaveDaysReport,
+        t.nghiPhep,
         t.conLai,
         `${t.rate}%`
       ]);
@@ -576,8 +574,8 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
       { wch: 32 },
       { wch: 16 },
       { wch: 28 },
-      { wch: 20 },
       { wch: 22 },
+      { wch: 20 },
       { wch: 18 },
       { wch: 22 }
     ];
@@ -586,14 +584,14 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
 
     // Sheet 2: Chi tiết Từng Nhân Viên
     const sheet2Rows: any[] = [
-      ['DANH SÁCH CHI TIẾT NGÀY LÀM THÊM & NGHỈ BÙ TỪNG NHÂN VIÊN'],
+      ['DANH SÁCH CHI TIẾT NGÀY LÀM THÊM & NGHỈ PHÉP TỪNG NHÂN VIÊN'],
       [`Kỳ báo cáo: ${timeLabel}`],
       [''],
-      ['STT', 'Họ và tên', 'Tổ công tác', 'Chức danh', 'Số ngày làm thêm T7-CN', 'Nghỉ bù T2-T6 báo cáo (ngày)', 'Tổng đã nghỉ bù (ngày)', 'Còn lại (ngày)', 'Tỷ lệ đã nghỉ (%)']
+      ['STT', 'Họ và tên', 'Tổ công tác', 'Chức danh', 'Số ngày làm thêm T7-CN', 'Nghỉ T2-T6 báo cáo (ngày)', 'Nghỉ phép (ngày)', 'Còn lại (ngày)', 'Tỷ lệ giải quyết (%)']
     ];
 
     filteredMembers.forEach((m, idx) => {
-      const rate = m.overtimeDaysCount > 0 ? Number(((m.daNghiBu / m.overtimeDaysCount) * 100).toFixed(1)) : 0;
+      const rate = m.overtimeDaysCount > 0 ? Number((((m.leaveDaysReportCount) / m.overtimeDaysCount) * 100).toFixed(1)) : 0;
       sheet2Rows.push([
         idx + 1,
         m.name,
@@ -601,7 +599,7 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
         m.role,
         m.overtimeDaysCount,
         m.leaveDaysReportCount,
-        m.daNghiBu,
+        m.nghiPhep,
         m.conLai,
         `${rate}%`
       ]);
@@ -710,10 +708,10 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
               </span>
               <div>
                 <h3 className="text-base sm:text-lg font-bold text-slate-800 tracking-tight">
-                  Quản Lý Ngày Làm Thêm & Nghỉ Bù
+                  Quản Lý Ngày Làm Thêm & Nghỉ Phép
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Thống kê ngày làm việc Thứ 7 & Chủ Nhật từ sheet <b>CongTac</b> và quản lý hạn mức nghỉ bù nhân viên
+                  Thống kê ngày làm việc Thứ 7 & Chủ Nhật, ngày nghỉ T2-T6 từ sheet <b>CongTac</b> và quản lý số ngày nghỉ phép nhân viên
                 </p>
               </div>
             </div>
@@ -722,17 +720,17 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
           <div className="flex items-center gap-2.5 flex-wrap">
             <button
               onClick={() => setShowHistoryModal(true)}
-              className="px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 flex items-center gap-1.5 transition-colors shadow-2xs"
-              title="Xem lịch sử duyệt nghỉ bù"
+              className="px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
+              title="Xem lịch sử cập nhật nghỉ phép"
             >
               <History className="w-3.5 h-3.5 text-slate-500" />
-              <span>Lịch sử duyệt nghỉ bù</span>
+              <span>Lịch sử cập nhật nghỉ phép</span>
             </button>
 
             <button
               onClick={handleExportExcel}
-              className="px-3.5 py-2 text-xs font-bold rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 transition-colors shadow-xs hover:shadow"
-              title="Xuất báo cáo Excel 3 sheet"
+              className="px-3.5 py-2 text-xs font-bold rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 transition-colors shadow-xs hover:shadow cursor-pointer"
+              title="Xuất báo cáo Excel 4 sheet"
             >
               <Download className="w-4 h-4" />
               <span>Xuất Excel</span>
@@ -876,11 +874,11 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
           </div>
         </div>
 
-        {/* Card 3: Đã nghỉ bù */}
+        {/* Card 3: Nghỉ phép */}
         <div className="bg-gradient-to-br from-amber-50 via-orange-50/50 to-white border border-amber-200/80 rounded-2xl p-4 shadow-xs relative overflow-hidden">
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-[11px] font-bold uppercase tracking-wider text-amber-900/70">
-              Đã giải quyết nghỉ bù
+              Tổng ngày nghỉ phép
             </span>
             <span className="p-1.5 rounded-lg bg-amber-200/60 text-amber-800">
               <CheckCircle2 className="w-4 h-4" />
@@ -888,14 +886,14 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
           </div>
           <div className="flex items-baseline gap-1.5">
             <span className="text-2xl sm:text-3xl font-black text-amber-950 font-mono tracking-tight">
-              {teamKPIs.totalDaNghiBu}
+              {teamKPIs.totalNghiPhep}
             </span>
             <span className="text-xs font-semibold text-amber-700">ngày</span>
           </div>
           <div className="text-[11px] text-amber-800/80 mt-1 flex items-center justify-between">
-            <span>Đã ghi nhận</span>
+            <span>Đã cập nhật phép</span>
             <span className="font-bold text-[10px] bg-amber-100/90 text-amber-900 px-1.5 py-0.5 rounded-md border border-amber-200">
-              T2-T6: {teamKPIs.totalLeaveFromReports} ngày
+              Nghỉ T2-T6: {teamKPIs.totalLeaveFromReports} ngày
             </span>
           </div>
         </div>
@@ -904,7 +902,7 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
         <div className="bg-gradient-to-br from-emerald-50 via-teal-50/50 to-white border border-emerald-200/80 rounded-2xl p-4 shadow-xs relative overflow-hidden">
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-900/70">
-              Còn lại cần bố trí nghỉ bù
+              Số ngày làm thêm còn lại
             </span>
             <span className="p-1.5 rounded-lg bg-emerald-200/60 text-emerald-800">
               <Clock className="w-4 h-4" />
@@ -917,8 +915,8 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
             <span className="text-xs font-semibold text-emerald-700">ngày công</span>
           </div>
           <div className="text-[11px] text-emerald-800/80 mt-1 flex items-center justify-between">
-            <span>Tồn đọng</span>
-            <span className="font-bold font-mono">Đã nghỉ {teamKPIs.rate}%</span>
+            <span>(Làm thêm - T2-T6 + Phép)</span>
+            <span className="font-bold font-mono">Nghỉ T2-T6: {teamKPIs.totalLeaveFromReports} ngày</span>
           </div>
         </div>
       </div>
@@ -943,9 +941,9 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
                 <th className="px-4 py-2.5">Tổ công tác</th>
                 <th className="px-4 py-2.5 text-center">Nhân sự làm thêm</th>
                 <th className="px-4 py-2.5 text-right">Tổng ngày làm thêm</th>
-                <th className="px-4 py-2.5 text-right">Đã nghỉ bù</th>
-                <th className="px-4 py-2.5 text-right" title="Nghỉ bù từ Thứ 2 đến Thứ 6 có báo cáo là Nghỉ">Nghỉ T2-T6</th>
-                <th className="px-4 py-2.5 text-right">Còn lại</th>
+                <th className="px-4 py-2.5 text-right" title="Nghỉ từ Thứ 2 đến Thứ 6 có báo cáo là Nghỉ">Nghỉ T2-T6</th>
+                <th className="px-4 py-2.5 text-right" title="Số ngày nghỉ phép đã cập nhật">Nghỉ phép</th>
+                <th className="px-4 py-2.5 text-right" title="Làm thêm - Nghỉ T2-T6 + Phép">Còn lại</th>
                 <th className="px-4 py-2.5 min-w-[140px]">Tỷ lệ giải quyết</th>
               </tr>
             </thead>
@@ -971,13 +969,19 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
                     <td className="px-4 py-2.5 text-right font-mono font-bold text-purple-900">
                       {t.overtimeDays}
                     </td>
-                    <td className="px-4 py-2.5 text-right font-mono font-semibold text-amber-800">
-                      {t.daNghiBu}
-                    </td>
                     <td className="px-4 py-2.5 text-right font-mono font-semibold text-amber-900">
                       {t.leaveDaysReport > 0 ? (
                         <span className="inline-flex px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 text-[11px] font-bold border border-amber-200">
                           {t.leaveDaysReport}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400">0</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 text-right font-mono font-semibold text-blue-900">
+                      {t.nghiPhep > 0 ? (
+                        <span className="inline-flex px-1.5 py-0.5 rounded bg-blue-100 text-blue-900 text-[11px] font-bold border border-blue-200">
+                          {t.nghiPhep}
                         </span>
                       ) : (
                         <span className="text-slate-400">0</span>
@@ -1013,10 +1017,10 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
           <div>
             <h4 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-slate-800 flex items-center gap-2">
               <Users className="w-4 h-4 text-purple-600" />
-              Danh Sách Chi Tiết Từng Nhân Viên & Quản Lý Nghỉ Bù
+              Danh Sách Chi Tiết Từng Nhân Viên & Quản Lý Nghỉ Phép
             </h4>
             <p className="text-[11px] text-slate-500 mt-0.5">
-              Hiển thị số ngày làm thêm T7-CN, ngày đã nghỉ bù (cột NghiBu) và số ngày còn lại
+              Hiển thị số ngày làm thêm T7-CN, ngày nghỉ T2-T6 từ báo cáo, ngày nghỉ phép và số ngày còn lại (Làm thêm - Nghỉ T2-T6 + Phép)
             </p>
           </div>
 
@@ -1029,26 +1033,29 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
           <table className="w-full text-left text-xs whitespace-nowrap">
             <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[10px]">
               <tr>
-                <th className="px-4 py-3 w-12 text-center">STT</th>
-                <th className="px-4 py-3">Họ và tên</th>
-                <th className="px-4 py-3">Tổ công tác</th>
-                <th className="px-4 py-3">Chức danh</th>
-                <th className="px-4 py-3 text-center" title="Số ngày Thứ 7, Chủ Nhật có báo cáo công tác">
-                  Ngày làm thêm (T7-CN)
+                <th className="px-3.5 py-3 w-12 text-center">STT</th>
+                <th className="px-3.5 py-3">Họ và tên</th>
+                <th className="px-3.5 py-3">Tổ công tác</th>
+                <th className="px-3.5 py-3">Chức danh</th>
+                <th className="px-3.5 py-3 text-center" title="Số ngày Thứ 7, Chủ Nhật có báo cáo công tác">
+                  Làm thêm (T7-CN)
                 </th>
-                <th className="px-4 py-3 text-center" title="Số ngày đã được duyệt nghỉ bù (cột NghiBu sheet CongTac)">
-                  Đã nghỉ bù
+                <th className="px-3.5 py-3 text-center" title="Số ngày nghỉ từ Thứ 2 đến Thứ 6 ghi nhận trong báo cáo công tác">
+                  Nghỉ T2-T6 (Báo cáo)
                 </th>
-                <th className="px-4 py-3 text-center" title="Số ngày làm thêm còn lại có thể nghỉ bù">
+                <th className="px-3.5 py-3 text-center" title="Số ngày nghỉ phép đã cập nhật vào sheet CongTac">
+                  Nghỉ phép
+                </th>
+                <th className="px-3.5 py-3 text-center" title="Số ngày làm thêm còn lại = Làm thêm - Nghỉ T2-T6 + Phép">
                   Còn lại
                 </th>
-                <th className="px-4 py-3 text-center">Thao tác</th>
+                <th className="px-3.5 py-3 text-center">Thao tác</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredMembers.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-slate-400 italic">
+                  <td colSpan={9} className="px-4 py-8 text-center text-slate-400 italic">
                     Không tìm thấy nhân viên nào phù hợp với bộ lọc
                   </td>
                 </tr>
@@ -1059,10 +1066,10 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
 
                   return (
                     <tr key={m.name + idx} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="px-4 py-3 text-center font-bold text-slate-400">
+                      <td className="px-3.5 py-3 text-center font-bold text-slate-400">
                         {idx + 1}
                       </td>
-                      <td className="px-4 py-3 font-bold text-slate-800">
+                      <td className="px-3.5 py-3 font-bold text-slate-800">
                         <div className="flex items-center gap-2">
                           <span className="w-7 h-7 rounded-full bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center shrink-0 uppercase border border-slate-200">
                             {m.name.charAt(0)}
@@ -1077,15 +1084,15 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-slate-700 font-medium">
+                      <td className="px-3.5 py-3 text-slate-700 font-medium">
                         <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-slate-100 text-slate-700 text-[11px] border border-slate-200">
                           {m.team}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-slate-600 text-[11px]">
+                      <td className="px-3.5 py-3 text-slate-600 text-[11px]">
                         {m.role}
                       </td>
-                      <td className="px-4 py-3 text-center">
+                      <td className="px-3.5 py-3 text-center">
                         <div className="inline-flex items-center gap-1.5">
                           <span className={`px-2.5 py-1 rounded-full text-xs font-mono font-bold ${
                             hasOvertime ? 'bg-purple-100 text-purple-900 border border-purple-200' : 'bg-slate-100 text-slate-500'
@@ -1106,12 +1113,12 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-center">
-                        <div className="flex flex-col items-center gap-1">
+                      <td className="px-3.5 py-3 text-center">
+                        <div className="inline-flex items-center gap-1.5">
                           <span className={`px-2.5 py-1 rounded-full text-xs font-mono font-bold ${
-                            m.daNghiBu > 0 ? 'bg-amber-100 text-amber-900 border border-amber-200' : 'bg-slate-100 text-slate-500'
+                            m.leaveDaysReportCount > 0 ? 'bg-amber-100 text-amber-900 border border-amber-200' : 'bg-slate-100 text-slate-500'
                           }`}>
-                            {m.daNghiBu} ngày
+                            {m.leaveDaysReportCount} ngày
                           </span>
                           {m.leaveDaysReportCount > 0 && (
                             <button
@@ -1119,15 +1126,22 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
                                 setDetailMember(m);
                                 setDetailActiveTab('leave');
                               }}
-                              className="text-[10px] text-amber-700 hover:text-amber-900 underline font-semibold cursor-pointer inline-flex items-center gap-0.5"
-                              title="Xem chi tiết các ngày đã nghỉ bù T2-T6 từ báo cáo"
+                              className="text-[10px] text-amber-700 hover:text-amber-900 underline font-semibold cursor-pointer"
+                              title="Xem chi tiết các ngày đã nghỉ T2-T6 từ báo cáo"
                             >
-                              <span>T2-T6: {m.leaveDaysReportCount} ngày</span>
+                              Xem ngày
                             </button>
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-center">
+                      <td className="px-3.5 py-3 text-center">
+                        <span className={`px-2.5 py-1 rounded-full text-xs font-mono font-bold ${
+                          m.nghiPhep > 0 ? 'bg-blue-100 text-blue-900 border border-blue-200' : 'bg-slate-100 text-slate-500'
+                        }`}>
+                          {m.nghiPhep} ngày
+                        </span>
+                      </td>
+                      <td className="px-3.5 py-3 text-center">
                         <span className={`px-2.5 py-1 rounded-full text-xs font-mono font-black ${
                           hasRemaining 
                             ? 'bg-emerald-100 text-emerald-900 border border-emerald-300 shadow-2xs' 
@@ -1136,20 +1150,15 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
                           {m.conLai} ngày
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-center">
+                      <td className="px-3.5 py-3 text-center">
                         {canManageNghiBu ? (
                           <button
                             onClick={() => handleOpenUpdate(m)}
-                            disabled={!hasRemaining}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 mx-auto shadow-2xs ${
-                              hasRemaining
-                                ? 'bg-purple-600 hover:bg-purple-700 text-white cursor-pointer hover:shadow'
-                                : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
-                            }`}
-                            title={hasRemaining ? 'Cập nhật ngày nghỉ bù' : 'Hết ngày làm thêm để nghỉ bù'}
+                            className="px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 mx-auto shadow-2xs bg-purple-600 hover:bg-purple-700 text-white cursor-pointer hover:shadow"
+                            title="Cập nhật số ngày nghỉ phép cho nhân viên"
                           >
                             <PlusCircle className="w-3.5 h-3.5" />
-                            <span>Cập nhật nghỉ bù</span>
+                            <span>Cập nhật nghỉ phép</span>
                           </button>
                         ) : (
                           <span className="text-[11px] text-slate-400 italic">
@@ -1166,7 +1175,7 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
         </div>
       </div>
 
-      {/* Modal Cập Nhật Nghỉ Bù */}
+      {/* Modal Cập Nhật Nghỉ Phép */}
       {updatingMember && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
           <div className="bg-white rounded-2xl max-w-md w-full border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
@@ -1175,7 +1184,7 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
               <div className="flex items-center gap-2">
                 <ShieldCheck className="w-5 h-5 text-purple-300" />
                 <h3 className="font-bold text-sm sm:text-base">
-                  Cập Nhật Ngày Nghỉ Bù
+                  Cập Nhật Ngày Nghỉ Phép
                 </h3>
               </div>
               <button
@@ -1199,18 +1208,22 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
                   <span className="text-slate-500">Tổ công tác:</span>
                   <span className="font-semibold text-slate-800">{updatingMember.team}</span>
                 </div>
-                <div className="grid grid-cols-3 gap-2 pt-2 border-t border-purple-200/80 text-center">
+                <div className="grid grid-cols-4 gap-1.5 pt-2 border-t border-purple-200/80 text-center">
                   <div className="bg-white p-1.5 rounded-lg border border-purple-100">
-                    <div className="text-[10px] text-slate-500">Làm thêm</div>
-                    <div className="font-bold font-mono text-purple-900">{updatingMember.overtimeDaysCount} ngày</div>
+                    <div className="text-[9px] text-slate-500 font-semibold">Làm thêm</div>
+                    <div className="font-bold font-mono text-purple-900 text-[11px]">{updatingMember.overtimeDaysCount}d</div>
                   </div>
                   <div className="bg-white p-1.5 rounded-lg border border-purple-100">
-                    <div className="text-[10px] text-slate-500">Đã nghỉ</div>
-                    <div className="font-bold font-mono text-amber-800">{updatingMember.daNghiBu} ngày</div>
+                    <div className="text-[9px] text-slate-500 font-semibold">Nghỉ T2-T6</div>
+                    <div className="font-bold font-mono text-amber-800 text-[11px]">{updatingMember.leaveDaysReportCount}d</div>
                   </div>
                   <div className="bg-white p-1.5 rounded-lg border border-purple-100">
-                    <div className="text-[10px] text-slate-500">Còn lại</div>
-                    <div className="font-black font-mono text-emerald-700">{updatingMember.conLai} ngày</div>
+                    <div className="text-[9px] text-slate-500 font-semibold">Nghỉ phép</div>
+                    <div className="font-bold font-mono text-blue-900 text-[11px]">{updatingMember.nghiPhep}d</div>
+                  </div>
+                  <div className="bg-white p-1.5 rounded-lg border border-purple-100">
+                    <div className="text-[9px] text-slate-500 font-semibold">Còn lại</div>
+                    <div className="font-black font-mono text-emerald-700 text-[11px]">{updatingMember.conLai}d</div>
                   </div>
                 </div>
               </div>
@@ -1218,7 +1231,7 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
               {/* Number of days input */}
               <div className="space-y-1.5">
                 <label className="block text-xs font-bold text-slate-700">
-                  Số ngày xin nghỉ bù lần này (Tối đa 2 ngày):
+                  Số ngày xin nghỉ phép đợt này (ví dụ: 1 hoặc 0.5 ngày):
                 </label>
                 <div className="grid grid-cols-4 gap-2 mb-2">
                   {['0.5', '1', '1.5', '2'].map(val => (
@@ -1240,11 +1253,10 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
                   type="number"
                   step="0.5"
                   min="0.5"
-                  max="2"
                   value={addDaysInput}
                   onChange={(e) => setAddDaysInput(e.target.value)}
                   className="w-full text-sm font-semibold bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
-                  placeholder="Nhập số ngày (ví dụ: 1)"
+                  placeholder="Nhập số ngày nghỉ phép (ví dụ: 1)"
                   required
                 />
               </div>
@@ -1252,7 +1264,7 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
               {/* Leave Date */}
               <div className="space-y-1.5">
                 <label className="block text-xs font-bold text-slate-700">
-                  Ngày nghỉ bù:
+                  Ngày nghỉ phép:
                 </label>
                 <input
                   type="date"
@@ -1266,24 +1278,32 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
               {/* Leave Note */}
               <div className="space-y-1.5">
                 <label className="block text-xs font-bold text-slate-700">
-                  Lý do / Ghi chú (tùy chọn):
+                  Lý do / Ghi chú nghỉ phép (tùy chọn):
                 </label>
                 <textarea
                   rows={2}
                   value={leaveNoteInput}
                   onChange={(e) => setLeaveNoteInput(e.target.value)}
-                  placeholder="Nhập lý do nghỉ bù (ví dụ: Nghỉ bù ca làm thêm Thứ Bảy...)"
+                  placeholder="Nhập lý do nghỉ phép (ví dụ: Nghỉ phép năm, giải quyết việc cá nhân...)"
                   className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 resize-none"
                 />
               </div>
 
               {/* Preview calculation */}
               {parseFloat(addDaysInput) > 0 && (
-                <div className="bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-[11px] text-slate-600 flex items-center justify-between">
-                  <span>Cộng dồn vào cột NghiBu:</span>
-                  <span className="font-bold font-mono text-purple-950">
-                    {updatingMember.daNghiBu} + {addDaysInput} = {(updatingMember.daNghiBu + parseFloat(addDaysInput || '0')).toFixed(2)} ngày
-                  </span>
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-[11px] text-slate-600 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span>Tổng ngày nghỉ phép mới:</span>
+                    <span className="font-bold font-mono text-purple-950">
+                      {updatingMember.nghiPhep} + {addDaysInput} = {(updatingMember.nghiPhep + parseFloat(addDaysInput || '0')).toFixed(2)} ngày
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-emerald-800">
+                    <span>Số ngày làm thêm còn lại:</span>
+                    <span className="font-black font-mono">
+                      {(Math.max(0, updatingMember.overtimeDaysCount - updatingMember.leaveDaysReportCount + updatingMember.nghiPhep + parseFloat(addDaysInput || '0'))).toFixed(2)} ngày công
+                    </span>
+                  </div>
                 </div>
               )}
 
@@ -1315,14 +1335,14 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-5 py-2 text-xs font-bold rounded-xl bg-purple-600 hover:bg-purple-700 text-white transition-all shadow-xs flex items-center gap-1.5 disabled:opacity-50"
+                  className="px-5 py-2 text-xs font-bold rounded-xl bg-purple-600 hover:bg-purple-700 text-white transition-all shadow-xs flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
                 >
                   {isSubmitting ? (
                     <span>Đang lưu...</span>
                   ) : (
                     <>
                       <CheckCircle2 className="w-4 h-4" />
-                      <span>Xác nhận & Ghi vào Sheet CongTac</span>
+                      <span>Xác nhận & Cập nhật Nghỉ Phép</span>
                     </>
                   )}
                 </button>
@@ -1474,7 +1494,7 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
         </div>
       )}
 
-      {/* Modal Lịch Sử Duyệt Nghỉ Bù */}
+      {/* Modal Lịch Sử Cập Nhật Nghỉ Phép */}
       {showHistoryModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
           <div className="bg-white rounded-2xl max-w-2xl w-full border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150 flex flex-col max-h-[85vh]">
@@ -1484,10 +1504,10 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
                 <History className="w-5 h-5 text-purple-300" />
                 <div>
                   <h3 className="font-bold text-sm sm:text-base">
-                    Lịch Sử Duyệt Nghỉ Bù Nhân Viên
+                    Lịch Sử Cập Nhật Nghỉ Phép Nhân Viên
                   </h3>
                   <div className="text-xs text-slate-300">
-                    Ghi nhận các lần cập nhật cộng dồn số ngày nghỉ bù vào sheet CongTac
+                    Ghi nhận các lần cập nhật cộng dồn số ngày nghỉ phép vào sheet CongTac
                   </div>
                 </div>
               </div>
@@ -1504,7 +1524,7 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
             <div className="p-4 overflow-y-auto flex-1">
               {historyLogs.length === 0 ? (
                 <div className="text-center py-12 text-slate-400 italic text-xs">
-                  Chưa có lịch sử cập nhật nghỉ bù nào được lưu
+                  Chưa có lịch sử cập nhật nghỉ phép nào được lưu
                 </div>
               ) : (
                 <div className="border border-slate-200 rounded-xl overflow-hidden">
@@ -1513,7 +1533,7 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
                       <tr>
                         <th className="px-3 py-2.5">Thời gian</th>
                         <th className="px-3 py-2.5">Nhân viên</th>
-                        <th className="px-3 py-2.5 text-center">Nghỉ bù đợt này</th>
+                        <th className="px-3 py-2.5 text-center">Nghỉ phép đợt này</th>
                         <th className="px-3 py-2.5 text-center">Tổng tích lũy</th>
                         <th className="px-3 py-2.5">Người duyệt</th>
                         <th className="px-3 py-2.5">Ghi chú</th>

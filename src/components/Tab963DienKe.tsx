@@ -60,39 +60,60 @@ export const normalizeDateStr = (raw: string | undefined): string => {
   return s;
 };
 
+// 4 Chủng loại điện kế theo yêu cầu:
+// 1. 1 Pha Trực Tiếp
+// 2. 1 Pha Gián Tiếp
+// 3. 3 Pha Trực Tiếp
+// 4. 3 Pha Gián Tiếp
+export type MeterCategory4 = '1 Pha Trực Tiếp' | '1 Pha Gián Tiếp' | '3 Pha Trực Tiếp' | '3 Pha Gián Tiếp';
+
 // Helper: Phân loại chủng loại điện kế của bản ghi 963
-// Dựa trên cột SO_PHA (1 là 1 Pha, 3 là 3 Pha) và loại trực tiếp/gián tiếp
+// Số pha căn cứ vào cột So_pha ('1' hoặc '3')
+// Trực tiếp hay gián tiếp căn cứ vào Cột "Phien" ('TT' là Trực tiếp, 'GT' là Gián tiếp)
 export const resolvePhaseCategory = (c: Entry963): {
   soPhaGroup: '1 Pha' | '3 Pha';
-  chiTiet: '1 Pha' | '3 Pha Trực Tiếp' | '3 Pha Gián Tiếp';
+  kieuDo: 'Trực Tiếp' | 'Gián Tiếp';
+  chiTiet: MeterCategory4;
 } => {
   const spRaw = String(c.soPha || '').trim();
-  const is1P = spRaw === '1' || spRaw.toLowerCase().includes('1 pha') || spRaw.toLowerCase() === '1p';
   const is3P = spRaw === '3' || spRaw.toLowerCase().includes('3 pha') || spRaw.toLowerCase() === '3p';
+  const soPhaGroup: '1 Pha' | '3 Pha' = is3P ? '3 Pha' : '1 Pha';
 
-  if (is1P || (!is3P && spRaw.includes('1'))) {
-    return { soPhaGroup: '1 Pha', chiTiet: '1 Pha' };
+  const phienRaw = String(c.phien || '').trim().toUpperCase();
+  let isGT = false;
+  if (phienRaw === 'GT' || phienRaw.includes('GT') || phienRaw.toLowerCase().includes('gián tiếp')) {
+    isGT = true;
+  } else if (phienRaw === 'TT' || phienRaw.includes('TT') || phienRaw.toLowerCase().includes('trực tiếp')) {
+    isGT = false;
+  } else {
+    // Fallback nếu cột Phien trống: kiểm tra thông số TI/TU, HSN hoặc loại công tơ
+    const loai = (c.loaiCto || '').toLowerCase();
+    const cloai = (c.chungLoaiCanThay || '').toLowerCase();
+    const hasTiTu = Boolean((c.tySoTi && c.tySoTi.trim() !== '') || (c.tySoTu && c.tySoTu.trim() !== ''));
+    const hsnVal = parseFloat(String(c.hsn || '1'));
+    isGT = loai.includes('gián tiếp') || loai.includes('gt') || cloai.includes('gián tiếp') || cloai.includes('gt') || hasTiTu || hsnVal > 1;
   }
 
-  // Nếu là 3 Pha, phân định Trực tiếp hay Gián tiếp
-  const loai = (c.loaiCto || '').toLowerCase();
-  const cloai = (c.chungLoaiCanThay || '').toLowerCase();
-  const hasTiTu = Boolean((c.tySoTi && c.tySoTi.trim() !== '') || (c.tySoTu && c.tySoTu.trim() !== ''));
-  const hsnVal = parseFloat(String(c.hsn || '1'));
-
-  const isGianTiep = 
-    loai.includes('gián tiếp') || 
-    loai.includes('gian tiep') || 
-    loai.includes('gt') || 
-    cloai.includes('gián tiếp') || 
-    cloai.includes('gt') || 
-    hasTiTu || 
-    hsnVal > 1;
+  const kieuDo: 'Trực Tiếp' | 'Gián Tiếp' = isGT ? 'Gián Tiếp' : 'Trực Tiếp';
+  const chiTiet: MeterCategory4 = `${soPhaGroup} ${kieuDo}` as MeterCategory4;
 
   return {
-    soPhaGroup: '3 Pha',
-    chiTiet: isGianTiep ? '3 Pha Gián Tiếp' : '3 Pha Trực Tiếp'
+    soPhaGroup,
+    kieuDo,
+    chiTiet
   };
+};
+
+// Helper: Chuẩn hóa chủng loại từ đợt nhập (NhapDK963) về 1 trong 4 loại
+export const resolveNhapCategory = (clRaw?: string): MeterCategory4 => {
+  const s = String(clRaw || '').trim().toLowerCase();
+  const is3P = s.includes('3') || s.includes('3p');
+  const isGT = s.includes('gián tiếp') || s.includes('gian tiep') || s.includes('gt');
+  if (is3P) {
+    return isGT ? '3 Pha Gián Tiếp' : '3 Pha Trực Tiếp';
+  } else {
+    return isGT ? '1 Pha Gián Tiếp' : '1 Pha Trực Tiếp';
+  }
 };
 
 export default function Tab963DienKe({
@@ -111,9 +132,9 @@ export default function Tab963DienKe({
     return PermissionStore.hasActionAccess('tab963_dien_ke', sessionUser?.role || '', sessionUser);
   }, [sessionUser]);
 
-  // Form state nhập mới
+  // Form state nhập mới (hỗ trợ 4 chủng loại)
   const [formNgay, setFormNgay] = useState<string>(getTodayFormatted());
-  const [formChungLoai, setFormChungLoai] = useState<'1 Pha' | '3 Pha Trực Tiếp' | '3 Pha Gián Tiếp' | '3 Pha'>('1 Pha');
+  const [formChungLoai, setFormChungLoai] = useState<MeterCategory4>('1 Pha Trực Tiếp');
   const [formSl, setFormSl] = useState<string>('');
   const [formGhiChu, setFormGhiChu] = useState<string>('');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -126,13 +147,13 @@ export default function Tab963DienKe({
   const [dateRangePreset, setDateRangePreset] = useState<'all' | 'today' | '7days' | '30days'>('all');
   const [filterStartDate, setFilterStartDate] = useState<string>('');
   const [filterEndDate, setFilterEndDate] = useState<string>('');
-  const [filterChungLoai, setFilterChungLoai] = useState<'all' | '1 Pha' | '3 Pha' | '3 Pha Trực Tiếp' | '3 Pha Gián Tiếp'>('all');
+  const [filterChungLoai, setFilterChungLoai] = useState<'all' | '1 Pha' | '3 Pha' | MeterCategory4>('all');
   const [searchDailyText, setSearchDailyText] = useState<string>('');
 
   // Interactive drill-down: Xem danh sách chi tiết khách hàng đã thay theo ngày/chủng loại
   const [selectedDrillDown, setSelectedDrillDown] = useState<{
     date?: string;
-    soPha?: 'all' | '1 Pha' | '3 Pha';
+    category?: 'all' | '1 Pha' | '3 Pha' | MeterCategory4;
     label: string;
   } | null>(null);
 
@@ -211,96 +232,116 @@ export default function Tab963DienKe({
   }, [completedCustomers]);
 
   // ==========================================
-  // TÍNH TOÁN KPI TỔNG HỢP TOÀN BỘ (ALL-TIME)
+  // TÍNH TOÁN KPI TỔNG HỢP TOÀN BỘ (ALL-TIME) - 4 CHỦNG LOẠI
   // ==========================================
   const kpiTotals = useMemo(() => {
-    // 1. Tổng nhập theo chủng loại
+    // 1. Tổng nhập theo 4 chủng loại
     let nhapTong = 0;
-    let nhap1P = 0;
-    let nhap3P = 0;
+    let nhap1PTT = 0;
+    let nhap1PGT = 0;
     let nhap3PTT = 0;
     let nhap3PGT = 0;
 
     nhapList.forEach(item => {
       const qty = Number(item.sl) || 0;
       nhapTong += qty;
-      const cl = (item.chungLoai || '').toLowerCase();
-      if (cl.includes('1') || cl.includes('1 pha') || cl === '1p') {
-        nhap1P += qty;
-      } else if (cl.includes('gián tiếp') || cl.includes('gt')) {
-        nhap3PGT += qty;
-        nhap3P += qty;
-      } else if (cl.includes('trực tiếp') || cl.includes('tt')) {
-        nhap3PTT += qty;
-        nhap3P += qty;
-      } else {
-        nhap3P += qty;
-      }
+      const cat = resolveNhapCategory(item.chungLoai);
+      if (cat === '1 Pha Trực Tiếp') nhap1PTT += qty;
+      else if (cat === '1 Pha Gián Tiếp') nhap1PGT += qty;
+      else if (cat === '3 Pha Trực Tiếp') nhap3PTT += qty;
+      else if (cat === '3 Pha Gián Tiếp') nhap3PGT += qty;
     });
 
-    // 2. Tổng đã thay theo chủng loại từ sheet 963
+    const nhap1P = nhap1PTT + nhap1PGT;
+    const nhap3P = nhap3PTT + nhap3PGT;
+
+    // 2. Tổng đã thay theo 4 chủng loại từ sheet 963
     let thayTong = 0;
-    let thay1P = 0;
-    let thay3P = 0;
+    let thay1PTT = 0;
+    let thay1PGT = 0;
     let thay3PTT = 0;
     let thay3PGT = 0;
 
     completedWithNormalizedDate.forEach(c => {
       thayTong++;
-      if (c.phaseGroup === '1 Pha') {
-        thay1P++;
-      } else {
-        thay3P++;
-        if (c.phaseDetail === '3 Pha Trực Tiếp') thay3PTT++;
-        else if (c.phaseDetail === '3 Pha Gián Tiếp') thay3PGT++;
-      }
+      if (c.phaseDetail === '1 Pha Trực Tiếp') thay1PTT++;
+      else if (c.phaseDetail === '1 Pha Gián Tiếp') thay1PGT++;
+      else if (c.phaseDetail === '3 Pha Trực Tiếp') thay3PTT++;
+      else if (c.phaseDetail === '3 Pha Gián Tiếp') thay3PGT++;
     });
+
+    const thay1P = thay1PTT + thay1PGT;
+    const thay3P = thay3PTT + thay3PGT;
 
     // 3. Tỷ lệ % thay / nhập
     const tyLeTong = nhapTong > 0 ? ((thayTong / nhapTong) * 100).toFixed(1) : '0.0';
     const tyLe1P = nhap1P > 0 ? ((thay1P / nhap1P) * 100).toFixed(1) : '0.0';
+    const tyLe1PTT = nhap1PTT > 0 ? ((thay1PTT / nhap1PTT) * 100).toFixed(1) : '0.0';
+    const tyLe1PGT = nhap1PGT > 0 ? ((thay1PGT / nhap1PGT) * 100).toFixed(1) : '0.0';
     const tyLe3P = nhap3P > 0 ? ((thay3P / nhap3P) * 100).toFixed(1) : '0.0';
+    const tyLe3PTT = nhap3PTT > 0 ? ((thay3PTT / nhap3PTT) * 100).toFixed(1) : '0.0';
+    const tyLe3PGT = nhap3PGT > 0 ? ((thay3PGT / nhap3PGT) * 100).toFixed(1) : '0.0';
 
     // 4. Tồn kho chưa thay
     const tonTong = nhapTong - thayTong;
-    const ton1P = nhap1P - thay1P;
-    const ton3P = nhap3P - thay3P;
+    const ton1PTT = nhap1PTT - thay1PTT;
+    const ton1PGT = nhap1PGT - thay1PGT;
+    const ton1P = ton1PTT + ton1PGT;
+    const ton3PTT = nhap3PTT - thay3PTT;
+    const ton3PGT = nhap3PGT - thay3PGT;
+    const ton3P = ton3PTT + ton3PGT;
 
     return {
       nhapTong,
       nhap1P,
+      nhap1PTT,
+      nhap1PGT,
       nhap3P,
       nhap3PTT,
       nhap3PGT,
       thayTong,
       thay1P,
+      thay1PTT,
+      thay1PGT,
       thay3P,
       thay3PTT,
       thay3PGT,
       tyLeTong,
       tyLe1P,
+      tyLe1PTT,
+      tyLe1PGT,
       tyLe3P,
+      tyLe3PTT,
+      tyLe3PGT,
       tonTong,
       ton1P,
-      ton3P
+      ton1PTT,
+      ton1PGT,
+      ton3P,
+      ton3PTT,
+      ton3PGT
     };
   }, [nhapList, completedWithNormalizedDate]);
 
   // ==========================================
-  // THỐNG KÊ CHI TIẾT THEO NGÀY
+  // THỐNG KÊ CHI TIẾT THEO NGÀY - 4 CHỦNG LOẠI
   // ==========================================
   const dailyStats = useMemo(() => {
     // Thu thập tất cả các ngày xuất hiện ở cả NhapDK963 và Sheet 963
     const dateMap = new Map<string, {
       date: string;
       rawDateSort: number; // để sắp xếp
-      // Nhập
+      // Nhập 4 loại
+      nhap1PTT: number;
+      nhap1PGT: number;
       nhap1P: number;
       nhap3PTT: number;
       nhap3PGT: number;
       nhap3P: number;
       nhapTong: number;
-      // Thay xong
+      // Thay xong 4 loại
+      thay1PTT: number;
+      thay1PGT: number;
       thay1P: number;
       thay3PTT: number;
       thay3PGT: number;
@@ -313,7 +354,6 @@ export default function Tab963DienKe({
     const getOrCreateDateEntry = (dStr: string) => {
       if (!dStr) return null;
       if (!dateMap.has(dStr)) {
-        // Parse dd/mm/yyyy thành timestamp để sort
         let sortVal = 0;
         const p = dStr.split('/');
         if (p.length === 3) {
@@ -322,11 +362,15 @@ export default function Tab963DienKe({
         dateMap.set(dStr, {
           date: dStr,
           rawDateSort: isNaN(sortVal) ? 0 : sortVal,
+          nhap1PTT: 0,
+          nhap1PGT: 0,
           nhap1P: 0,
           nhap3PTT: 0,
           nhap3PGT: 0,
           nhap3P: 0,
           nhapTong: 0,
+          thay1PTT: 0,
+          thay1PGT: 0,
           thay1P: 0,
           thay3PTT: 0,
           thay3PGT: 0,
@@ -348,16 +392,18 @@ export default function Tab963DienKe({
       const qty = Number(item.sl) || 0;
       entry.nhapTong += qty;
 
-      const cl = (item.chungLoai || '').toLowerCase();
-      if (cl.includes('1') || cl.includes('1 pha') || cl === '1p') {
+      const cat = resolveNhapCategory(item.chungLoai);
+      if (cat === '1 Pha Trực Tiếp') {
+        entry.nhap1PTT += qty;
         entry.nhap1P += qty;
-      } else if (cl.includes('gián tiếp') || cl.includes('gt')) {
-        entry.nhap3PGT += qty;
-        entry.nhap3P += qty;
-      } else if (cl.includes('trực tiếp') || cl.includes('tt')) {
+      } else if (cat === '1 Pha Gián Tiếp') {
+        entry.nhap1PGT += qty;
+        entry.nhap1P += qty;
+      } else if (cat === '3 Pha Trực Tiếp') {
         entry.nhap3PTT += qty;
         entry.nhap3P += qty;
-      } else {
+      } else if (cat === '3 Pha Gián Tiếp') {
+        entry.nhap3PGT += qty;
         entry.nhap3P += qty;
       }
     });
@@ -372,12 +418,18 @@ export default function Tab963DienKe({
       entry.thayTong++;
       entry.customersReplaced.push(c);
 
-      if (c.phaseGroup === '1 Pha') {
+      if (c.phaseDetail === '1 Pha Trực Tiếp') {
+        entry.thay1PTT++;
         entry.thay1P++;
-      } else {
+      } else if (c.phaseDetail === '1 Pha Gián Tiếp') {
+        entry.thay1PGT++;
+        entry.thay1P++;
+      } else if (c.phaseDetail === '3 Pha Trực Tiếp') {
+        entry.thay3PTT++;
         entry.thay3P++;
-        if (c.phaseDetail === '3 Pha Trực Tiếp') entry.thay3PTT++;
-        else if (c.phaseDetail === '3 Pha Gián Tiếp') entry.thay3PGT++;
+      } else if (c.phaseDetail === '3 Pha Gián Tiếp') {
+        entry.thay3PGT++;
+        entry.thay3P++;
       }
     });
 
@@ -458,13 +510,14 @@ export default function Tab963DienKe({
   // Danh sách drill-down chi tiết khách hàng đã thay
   const drillDownCustomers = useMemo(() => {
     if (!selectedDrillDown) return [];
-    const { date, soPha } = selectedDrillDown;
+    const { date, category } = selectedDrillDown;
 
     return completedWithNormalizedDate.filter(c => {
       if (date && c.normDate !== date) return false;
-      if (soPha === '1 Pha' && c.phaseGroup !== '1 Pha') return false;
-      if (soPha === '3 Pha' && c.phaseGroup !== '3 Pha') return false;
-      return true;
+      if (!category || category === 'all') return true;
+      if (category === '1 Pha') return c.phaseGroup === '1 Pha';
+      if (category === '3 Pha') return c.phaseGroup === '3 Pha';
+      return c.phaseDetail === category;
     });
   }, [selectedDrillDown, completedWithNormalizedDate]);
 
@@ -551,7 +604,7 @@ export default function Tab963DienKe({
   const handleEditEntry = (item: NhapDk963Entry) => {
     setEditingId(item.id);
     setFormNgay(item.ngay);
-    setFormChungLoai((item.chungLoai as any) || '1 Pha');
+    setFormChungLoai(resolveNhapCategory(item.chungLoai));
     setFormSl(String(item.sl));
     setFormGhiChu(item.ghiChu || '');
     setShowInputSection(true);
@@ -581,19 +634,25 @@ export default function Tab963DienKe({
   // ==========================================
   // XUẤT EXCEL
   // ==========================================
-  // 1. Xuất Excel bảng thống kê theo ngày
+  // 1. Xuất Excel bảng thống kê theo ngày (4 chủng loại)
   const handleExportDailyExcel = () => {
     try {
       const exportRows = filteredDailyStats.map((r, idx) => ({
         'STT': idx + 1,
         'Ngày': r.date,
-        '1 Pha - Nhập': r.nhap1P,
-        '1 Pha - Đã Thay': r.thay1P,
+        '1P Trực Tiếp - Nhập': r.nhap1PTT,
+        '1P Gián Tiếp - Nhập': r.nhap1PGT,
+        '1 Pha - Tổng Nhập': r.nhap1P,
+        '1P Trực Tiếp - Đã Thay': r.thay1PTT,
+        '1P Gián Tiếp - Đã Thay': r.thay1PGT,
+        '1 Pha - Tổng Đã Thay': r.thay1P,
         '1 Pha - % Thay/Nhập': r.tyLe1P !== '-' ? `${r.tyLe1P}%` : '-',
-        '3 Pha - Nhập (Tổng)': r.nhap3P,
-        '3 Pha - Nhập (Trực tiếp)': r.nhap3PTT,
-        '3 Pha - Nhập (Gián tiếp)': r.nhap3PGT,
-        '3 Pha - Đã Thay': r.thay3P,
+        '3P Trực Tiếp - Nhập': r.nhap3PTT,
+        '3P Gián Tiếp - Nhập': r.nhap3PGT,
+        '3 Pha - Tổng Nhập': r.nhap3P,
+        '3P Trực Tiếp - Đã Thay': r.thay3PTT,
+        '3P Gián Tiếp - Đã Thay': r.thay3PGT,
+        '3 Pha - Tổng Đã Thay': r.thay3P,
         '3 Pha - % Thay/Nhập': r.tyLe3P !== '-' ? `${r.tyLe3P}%` : '-',
         'Tổng Nhập Ngày': r.nhapTong,
         'Tổng Đã Thay Ngày': r.thayTong,
@@ -602,23 +661,39 @@ export default function Tab963DienKe({
       }));
 
       // Dòng tổng kết
+      const sumNhap1PTT = filteredDailyStats.reduce((s, r) => s + r.nhap1PTT, 0);
+      const sumNhap1PGT = filteredDailyStats.reduce((s, r) => s + r.nhap1PGT, 0);
       const sumNhap1P = filteredDailyStats.reduce((s, r) => s + r.nhap1P, 0);
+      const sumThay1PTT = filteredDailyStats.reduce((s, r) => s + r.thay1PTT, 0);
+      const sumThay1PGT = filteredDailyStats.reduce((s, r) => s + r.thay1PGT, 0);
       const sumThay1P = filteredDailyStats.reduce((s, r) => s + r.thay1P, 0);
+
+      const sumNhap3PTT = filteredDailyStats.reduce((s, r) => s + r.nhap3PTT, 0);
+      const sumNhap3PGT = filteredDailyStats.reduce((s, r) => s + r.nhap3PGT, 0);
       const sumNhap3P = filteredDailyStats.reduce((s, r) => s + r.nhap3P, 0);
+      const sumThay3PTT = filteredDailyStats.reduce((s, r) => s + r.thay3PTT, 0);
+      const sumThay3PGT = filteredDailyStats.reduce((s, r) => s + r.thay3PGT, 0);
       const sumThay3P = filteredDailyStats.reduce((s, r) => s + r.thay3P, 0);
+
       const sumNhapTong = filteredDailyStats.reduce((s, r) => s + r.nhapTong, 0);
       const sumThayTong = filteredDailyStats.reduce((s, r) => s + r.thayTong, 0);
 
       exportRows.push({
         'STT': 'TỔNG CỘNG' as any,
         'Ngày': '',
-        '1 Pha - Nhập': sumNhap1P,
-        '1 Pha - Đã Thay': sumThay1P,
+        '1P Trực Tiếp - Nhập': sumNhap1PTT,
+        '1P Gián Tiếp - Nhập': sumNhap1PGT,
+        '1 Pha - Tổng Nhập': sumNhap1P,
+        '1P Trực Tiếp - Đã Thay': sumThay1PTT,
+        '1P Gián Tiếp - Đã Thay': sumThay1PGT,
+        '1 Pha - Tổng Đã Thay': sumThay1P,
         '1 Pha - % Thay/Nhập': sumNhap1P > 0 ? `${((sumThay1P / sumNhap1P) * 100).toFixed(1)}%` : '-',
-        '3 Pha - Nhập (Tổng)': sumNhap3P,
-        '3 Pha - Nhập (Trực tiếp)': filteredDailyStats.reduce((s, r) => s + r.nhap3PTT, 0),
-        '3 Pha - Nhập (Gián tiếp)': filteredDailyStats.reduce((s, r) => s + r.nhap3PGT, 0),
-        '3 Pha - Đã Thay': sumThay3P,
+        '3P Trực Tiếp - Nhập': sumNhap3PTT,
+        '3P Gián Tiếp - Nhập': sumNhap3PGT,
+        '3 Pha - Tổng Nhập': sumNhap3P,
+        '3P Trực Tiếp - Đã Thay': sumThay3PTT,
+        '3P Gián Tiếp - Đã Thay': sumThay3PGT,
+        '3 Pha - Tổng Đã Thay': sumThay3P,
         '3 Pha - % Thay/Nhập': sumNhap3P > 0 ? `${((sumThay3P / sumNhap3P) * 100).toFixed(1)}%` : '-',
         'Tổng Nhập Ngày': sumNhapTong,
         'Tổng Đã Thay Ngày': sumThayTong,
@@ -630,7 +705,7 @@ export default function Tab963DienKe({
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'ThongKe_DienKe_TheoNgay');
       XLSX.writeFile(wb, `BaoCao_ThongKe_DienKe_963_${getTodayFormatted().replace(/\//g, '-')}.xlsx`);
-      showToast('success', 'Đã xuất file Excel thống kê điện kế theo ngày thành công!');
+      showToast('success', 'Đã xuất file Excel thống kê điện kế 4 chủng loại theo ngày thành công!');
     } catch (err: any) {
       showToast('error', 'Lỗi xuất Excel: ' + (err?.message || 'Có sự cố'));
     }
@@ -672,8 +747,9 @@ export default function Tab963DienKe({
         'Khu Vực': c.kv,
         'Đợt': c.dot,
         'Số Pha (SO_PHA)': c.soPha || '',
+        'Phiên (PHIEN)': c.phien || '',
+        'Phân Loại (4 Loại)': c.phaseDetail,
         'Nhóm Pha': c.phaseGroup,
-        'Chi Tiết': c.phaseDetail,
         'Loại Công Tơ': c.loaiCto || '',
         'Chủng Loại Cần Thay': c.chungLoaiCanThay || '',
         'HSN': c.hsn || '',
@@ -777,7 +853,12 @@ export default function Tab963DienKe({
           <div className="mt-3 pt-2.5 border-t border-indigo-100 text-[11px] space-y-1">
             <div className="flex justify-between text-slate-600">
               <span>• 1 Pha:</span>
-              <span className="font-bold text-slate-800">{kpiTotals.nhap1P.toLocaleString('vi-VN')}</span>
+              <span className="font-bold text-slate-800">
+                {kpiTotals.nhap1P.toLocaleString('vi-VN')}{' '}
+                <span className="font-normal text-[10px] text-slate-500">
+                  (TT: {kpiTotals.nhap1PTT} | GT: {kpiTotals.nhap1PGT})
+                </span>
+              </span>
             </div>
             <div className="flex justify-between text-slate-600">
               <span>• 3 Pha:</span>
@@ -809,7 +890,12 @@ export default function Tab963DienKe({
           <div className="mt-3 pt-2.5 border-t border-emerald-100 text-[11px] space-y-1">
             <div className="flex justify-between text-slate-600">
               <span>• 1 Pha:</span>
-              <span className="font-bold text-slate-800">{kpiTotals.thay1P.toLocaleString('vi-VN')}</span>
+              <span className="font-bold text-slate-800">
+                {kpiTotals.thay1P.toLocaleString('vi-VN')}{' '}
+                <span className="font-normal text-[10px] text-slate-500">
+                  (TT: {kpiTotals.thay1PTT} | GT: {kpiTotals.thay1PGT})
+                </span>
+              </span>
             </div>
             <div className="flex justify-between text-slate-600">
               <span>• 3 Pha:</span>
@@ -845,9 +931,13 @@ export default function Tab963DienKe({
               style={{ width: `${Math.min(100, Math.max(0, parseFloat(kpiTotals.tyLeTong) || 0))}%` }}
             />
           </div>
-          <div className="mt-2 text-[10px] flex justify-between text-slate-500 font-medium">
-            <span>1 Pha: <b>{kpiTotals.tyLe1P}%</b></span>
-            <span>3 Pha: <b>{kpiTotals.tyLe3P}%</b></span>
+          <div className="mt-2 text-[10px] space-y-0.5 text-slate-500 font-medium">
+            <div className="flex justify-between">
+              <span>1 Pha: <b>{kpiTotals.tyLe1P}%</b> <span className="text-[9px]">(TT: {kpiTotals.tyLe1PTT}% | GT: {kpiTotals.tyLe1PGT}%)</span></span>
+            </div>
+            <div className="flex justify-between">
+              <span>3 Pha: <b>{kpiTotals.tyLe3P}%</b> <span className="text-[9px]">(TT: {kpiTotals.tyLe3PTT}% | GT: {kpiTotals.tyLe3PGT}%)</span></span>
+            </div>
           </div>
         </div>
 
@@ -870,13 +960,19 @@ export default function Tab963DienKe({
             <div className="flex justify-between text-slate-600">
               <span>• 1 Pha tồn:</span>
               <span className={`font-bold ${kpiTotals.ton1P < 0 ? 'text-rose-600' : 'text-slate-800'}`}>
-                {kpiTotals.ton1P.toLocaleString('vi-VN')}
+                {kpiTotals.ton1P.toLocaleString('vi-VN')}{' '}
+                <span className="font-normal text-[10px] text-slate-500">
+                  (TT: {kpiTotals.ton1PTT} | GT: {kpiTotals.ton1PGT})
+                </span>
               </span>
             </div>
             <div className="flex justify-between text-slate-600">
               <span>• 3 Pha tồn:</span>
               <span className={`font-bold ${kpiTotals.ton3P < 0 ? 'text-rose-600' : 'text-slate-800'}`}>
-                {kpiTotals.ton3P.toLocaleString('vi-VN')}
+                {kpiTotals.ton3P.toLocaleString('vi-VN')}{' '}
+                <span className="font-normal text-[10px] text-slate-500">
+                  (TT: {kpiTotals.ton3PTT} | GT: {kpiTotals.ton3PGT})
+                </span>
               </span>
             </div>
           </div>
@@ -944,12 +1040,12 @@ export default function Tab963DienKe({
                   <span>Chủng Loại Điện Kế:</span>
                 </label>
                 <div className="grid grid-cols-2 gap-1.5">
-                  {(['1 Pha', '3 Pha Trực Tiếp', '3 Pha Gián Tiếp', '3 Pha'] as const).map((cl) => (
+                  {(['1 Pha Trực Tiếp', '1 Pha Gián Tiếp', '3 Pha Trực Tiếp', '3 Pha Gián Tiếp'] as const).map((cl) => (
                     <button
                       key={cl}
                       type="button"
                       onClick={() => setFormChungLoai(cl)}
-                      className={`px-2.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer text-center ${
+                      className={`px-2 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer text-center leading-snug ${
                         formChungLoai === cl
                           ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
                           : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
@@ -1220,11 +1316,11 @@ export default function Tab963DienKe({
               {/* Header Tầng 1: Nhóm cột */}
               <tr className="bg-slate-800 text-white font-bold text-center text-[11px]">
                 <th rowSpan={2} className="p-2.5 border-r border-slate-700 w-12">STT</th>
-                <th rowSpan={2} className="p-2.5 border-r border-slate-700 min-w-[110px]">Ngày Thực Hiện</th>
-                <th colSpan={3} className="p-2 border-r border-slate-700 bg-blue-950 text-blue-100">
+                <th rowSpan={2} className="p-2.5 border-r border-slate-700 min-w-[105px]">Ngày Thực Hiện</th>
+                <th colSpan={5} className="p-2 border-r border-slate-700 bg-blue-950 text-blue-100">
                   ĐIỆN KẾ 1 PHA (SO_PHA = 1)
                 </th>
-                <th colSpan={3} className="p-2 border-r border-slate-700 bg-purple-950 text-purple-100">
+                <th colSpan={5} className="p-2 border-r border-slate-700 bg-purple-950 text-purple-100">
                   ĐIỆN KẾ 3 PHA (SO_PHA = 3)
                 </th>
                 <th colSpan={3} className="p-2 border-r border-slate-700 bg-amber-950 text-amber-100">
@@ -1237,16 +1333,20 @@ export default function Tab963DienKe({
                   Xem Chi Tiết
                 </th>
               </tr>
-              {/* Header Tầng 2: Chi tiết từng nhóm */}
+              {/* Header Tầng 2: Chi tiết từng nhóm 4 loại */}
               <tr className="bg-slate-100 text-slate-700 font-bold text-[10px] uppercase tracking-wider text-center border-b border-slate-300">
                 {/* 1 Pha */}
-                <th className="p-2 border-r border-slate-200 text-right bg-blue-50/70">Đã Nhập</th>
-                <th className="p-2 border-r border-slate-200 text-right bg-blue-50/70">Đã Thay</th>
-                <th className="p-2 border-r border-slate-200 bg-blue-50/70">% Hoàn Tất</th>
+                <th className="p-2 border-r border-slate-200 text-right bg-blue-50/70" title="1 Pha Trực Tiếp - Đã Nhập">Nhập TT</th>
+                <th className="p-2 border-r border-slate-200 text-right bg-blue-50/70" title="1 Pha Gián Tiếp - Đã Nhập">Nhập GT</th>
+                <th className="p-2 border-r border-slate-200 text-right bg-blue-50/70 text-emerald-800" title="1 Pha Trực Tiếp - Đã Thay">Thay TT</th>
+                <th className="p-2 border-r border-slate-200 text-right bg-blue-50/70 text-emerald-800" title="1 Pha Gián Tiếp - Đã Thay">Thay GT</th>
+                <th className="p-2 border-r border-slate-200 bg-blue-50/70">% 1 Pha</th>
                 {/* 3 Pha */}
-                <th className="p-2 border-r border-slate-200 text-right bg-purple-50/70">Đã Nhập</th>
-                <th className="p-2 border-r border-slate-200 text-right bg-purple-50/70">Đã Thay</th>
-                <th className="p-2 border-r border-slate-200 bg-purple-50/70">% Hoàn Tất</th>
+                <th className="p-2 border-r border-slate-200 text-right bg-purple-50/70" title="3 Pha Trực Tiếp - Đã Nhập">Nhập TT</th>
+                <th className="p-2 border-r border-slate-200 text-right bg-purple-50/70" title="3 Pha Gián Tiếp - Đã Nhập">Nhập GT</th>
+                <th className="p-2 border-r border-slate-200 text-right bg-purple-50/70 text-emerald-800" title="3 Pha Trực Tiếp - Đã Thay">Thay TT</th>
+                <th className="p-2 border-r border-slate-200 text-right bg-purple-50/70 text-emerald-800" title="3 Pha Gián Tiếp - Đã Thay">Thay GT</th>
+                <th className="p-2 border-r border-slate-200 bg-purple-50/70">% 3 Pha</th>
                 {/* Tổng ngày */}
                 <th className="p-2 border-r border-slate-200 text-right bg-amber-50/70">Tổng Nhập</th>
                 <th className="p-2 border-r border-slate-200 text-right bg-amber-50/70">Tổng Thay</th>
@@ -1257,7 +1357,7 @@ export default function Tab963DienKe({
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {filteredDailyStats.length === 0 ? (
                 <tr>
-                  <td colSpan={13} className="p-8 text-center text-slate-400 italic">
+                  <td colSpan={17} className="p-8 text-center text-slate-400 italic">
                     Không tìm thấy dữ liệu thống kê nào phù hợp với bộ lọc ngày hiện tại.
                   </td>
                 </tr>
@@ -1278,21 +1378,40 @@ export default function Tab963DienKe({
 
                     {/* 1 Pha */}
                     <td className="p-2.5 text-right font-semibold text-slate-700 border-r border-slate-100 bg-blue-50/20">
-                      {row.nhap1P > 0 ? row.nhap1P.toLocaleString('vi-VN') : '-'}
+                      {row.nhap1PTT > 0 ? row.nhap1PTT.toLocaleString('vi-VN') : '-'}
+                    </td>
+                    <td className="p-2.5 text-right font-semibold text-slate-700 border-r border-slate-100 bg-blue-50/20">
+                      {row.nhap1PGT > 0 ? row.nhap1PGT.toLocaleString('vi-VN') : '-'}
                     </td>
                     <td className="p-2.5 text-right font-bold text-emerald-700 border-r border-slate-100 bg-blue-50/20">
-                      {row.thay1P > 0 ? (
+                      {row.thay1PTT > 0 ? (
                         <button
                           type="button"
                           onClick={() => setSelectedDrillDown({
                             date: row.date,
-                            soPha: '1 Pha',
-                            label: `1 Pha ngày ${row.date}`
+                            category: '1 Pha Trực Tiếp',
+                            label: `1 Pha Trực Tiếp ngày ${row.date}`
                           })}
                           className="hover:underline font-black text-emerald-700 cursor-pointer"
-                          title="Bấm để xem danh sách khách hàng 1 Pha đã thay ngày này"
+                          title="Bấm để xem danh sách khách hàng 1 Pha Trực Tiếp đã thay ngày này"
                         >
-                          {row.thay1P.toLocaleString('vi-VN')}
+                          {row.thay1PTT.toLocaleString('vi-VN')}
+                        </button>
+                      ) : '-'}
+                    </td>
+                    <td className="p-2.5 text-right font-bold text-emerald-700 border-r border-slate-100 bg-blue-50/20">
+                      {row.thay1PGT > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedDrillDown({
+                            date: row.date,
+                            category: '1 Pha Gián Tiếp',
+                            label: `1 Pha Gián Tiếp ngày ${row.date}`
+                          })}
+                          className="hover:underline font-black text-emerald-700 cursor-pointer"
+                          title="Bấm để xem danh sách khách hàng 1 Pha Gián Tiếp đã thay ngày này"
+                        >
+                          {row.thay1PGT.toLocaleString('vi-VN')}
                         </button>
                       ) : '-'}
                     </td>
@@ -1310,25 +1429,40 @@ export default function Tab963DienKe({
 
                     {/* 3 Pha */}
                     <td className="p-2.5 text-right font-semibold text-slate-700 border-r border-slate-100 bg-purple-50/20">
-                      {row.nhap3P > 0 ? (
-                        <span title={`TT: ${row.nhap3PTT} | GT: ${row.nhap3PGT}`}>
-                          {row.nhap3P.toLocaleString('vi-VN')}
-                        </span>
-                      ) : '-'}
+                      {row.nhap3PTT > 0 ? row.nhap3PTT.toLocaleString('vi-VN') : '-'}
+                    </td>
+                    <td className="p-2.5 text-right font-semibold text-slate-700 border-r border-slate-100 bg-purple-50/20">
+                      {row.nhap3PGT > 0 ? row.nhap3PGT.toLocaleString('vi-VN') : '-'}
                     </td>
                     <td className="p-2.5 text-right font-bold text-emerald-700 border-r border-slate-100 bg-purple-50/20">
-                      {row.thay3P > 0 ? (
+                      {row.thay3PTT > 0 ? (
                         <button
                           type="button"
                           onClick={() => setSelectedDrillDown({
                             date: row.date,
-                            soPha: '3 Pha',
-                            label: `3 Pha ngày ${row.date}`
+                            category: '3 Pha Trực Tiếp',
+                            label: `3 Pha Trực Tiếp ngày ${row.date}`
                           })}
                           className="hover:underline font-black text-emerald-700 cursor-pointer"
-                          title="Bấm để xem danh sách khách hàng 3 Pha đã thay ngày này"
+                          title="Bấm để xem danh sách khách hàng 3 Pha Trực Tiếp đã thay ngày này"
                         >
-                          {row.thay3P.toLocaleString('vi-VN')}
+                          {row.thay3PTT.toLocaleString('vi-VN')}
+                        </button>
+                      ) : '-'}
+                    </td>
+                    <td className="p-2.5 text-right font-bold text-emerald-700 border-r border-slate-100 bg-purple-50/20">
+                      {row.thay3PGT > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedDrillDown({
+                            date: row.date,
+                            category: '3 Pha Gián Tiếp',
+                            label: `3 Pha Gián Tiếp ngày ${row.date}`
+                          })}
+                          className="hover:underline font-black text-emerald-700 cursor-pointer"
+                          title="Bấm để xem danh sách khách hàng 3 Pha Gián Tiếp đã thay ngày này"
+                        >
+                          {row.thay3PGT.toLocaleString('vi-VN')}
                         </button>
                       ) : '-'}
                     </td>
@@ -1354,7 +1488,7 @@ export default function Tab963DienKe({
                           type="button"
                           onClick={() => setSelectedDrillDown({
                             date: row.date,
-                            soPha: 'all',
+                            category: 'all',
                             label: `tất cả công tơ ngày ${row.date}`
                           })}
                           className="hover:underline cursor-pointer"
@@ -1390,7 +1524,7 @@ export default function Tab963DienKe({
                           type="button"
                           onClick={() => setSelectedDrillDown({
                             date: row.date,
-                            soPha: 'all',
+                            category: 'all',
                             label: `ngày ${row.date}`
                           })}
                           className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-[10px] rounded-md transition-colors cursor-pointer border border-indigo-200"
@@ -1415,20 +1549,32 @@ export default function Tab963DienKe({
                   </td>
                   {/* 1 Pha */}
                   <td className="p-3 text-right border-r border-slate-700 font-black">
-                    {filteredDailyStats.reduce((s, r) => s + r.nhap1P, 0).toLocaleString('vi-VN')}
+                    {filteredDailyStats.reduce((s, r) => s + r.nhap1PTT, 0).toLocaleString('vi-VN')}
+                  </td>
+                  <td className="p-3 text-right border-r border-slate-700 font-black">
+                    {filteredDailyStats.reduce((s, r) => s + r.nhap1PGT, 0).toLocaleString('vi-VN')}
                   </td>
                   <td className="p-3 text-right border-r border-slate-700 font-black text-emerald-400">
-                    {filteredDailyStats.reduce((s, r) => s + r.thay1P, 0).toLocaleString('vi-VN')}
+                    {filteredDailyStats.reduce((s, r) => s + r.thay1PTT, 0).toLocaleString('vi-VN')}
+                  </td>
+                  <td className="p-3 text-right border-r border-slate-700 font-black text-emerald-400">
+                    {filteredDailyStats.reduce((s, r) => s + r.thay1PGT, 0).toLocaleString('vi-VN')}
                   </td>
                   <td className="p-3 text-center border-r border-slate-700 font-bold text-amber-300">
                     {kpiTotals.tyLe1P}%
                   </td>
                   {/* 3 Pha */}
                   <td className="p-3 text-right border-r border-slate-700 font-black">
-                    {filteredDailyStats.reduce((s, r) => s + r.nhap3P, 0).toLocaleString('vi-VN')}
+                    {filteredDailyStats.reduce((s, r) => s + r.nhap3PTT, 0).toLocaleString('vi-VN')}
+                  </td>
+                  <td className="p-3 text-right border-r border-slate-700 font-black">
+                    {filteredDailyStats.reduce((s, r) => s + r.nhap3PGT, 0).toLocaleString('vi-VN')}
                   </td>
                   <td className="p-3 text-right border-r border-slate-700 font-black text-emerald-400">
-                    {filteredDailyStats.reduce((s, r) => s + r.thay3P, 0).toLocaleString('vi-VN')}
+                    {filteredDailyStats.reduce((s, r) => s + r.thay3PTT, 0).toLocaleString('vi-VN')}
+                  </td>
+                  <td className="p-3 text-right border-r border-slate-700 font-black text-emerald-400">
+                    {filteredDailyStats.reduce((s, r) => s + r.thay3PGT, 0).toLocaleString('vi-VN')}
                   </td>
                   <td className="p-3 text-center border-r border-slate-700 font-bold text-amber-300">
                     {kpiTotals.tyLe3P}%
@@ -1452,7 +1598,7 @@ export default function Tab963DienKe({
                       type="button"
                       onClick={() => setSelectedDrillDown({
                         date: undefined,
-                        soPha: 'all',
+                        category: 'all',
                         label: 'toàn bộ khách hàng đã thay xong'
                       })}
                       className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[10px] rounded-md transition-all cursor-pointer"
@@ -1518,7 +1664,9 @@ export default function Tab963DienKe({
                   <th className="p-2.5">Địa Chỉ</th>
                   <th className="p-2.5 text-center">KV</th>
                   <th className="p-2.5 text-center">Đợt</th>
-                  <th className="p-2.5 text-center">Số Pha</th>
+                  <th className="p-2.5 text-center" title="Cột So_pha trong sheet 963">Số Pha (So_pha)</th>
+                  <th className="p-2.5 text-center" title="Cột Phien trong sheet 963: TT = Trực tiếp, GT = Gián tiếp">Phiên (Phien)</th>
+                  <th className="p-2.5 text-center">Phân Loại (4 Loại)</th>
                   <th className="p-2.5">Chủng Loại Cần Thay</th>
                   <th className="p-2.5 text-center">HSN</th>
                   <th className="p-2.5">Người Thay</th>
@@ -1528,7 +1676,7 @@ export default function Tab963DienKe({
               <tbody className="divide-y divide-slate-100 text-slate-700">
                 {drillDownCustomers.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="p-6 text-center text-slate-400 italic">
+                    <td colSpan={13} className="p-6 text-center text-slate-400 italic">
                       Không có khách hàng nào trong nhóm này.
                     </td>
                   </tr>
@@ -1541,13 +1689,25 @@ export default function Tab963DienKe({
                       <td className="p-2 text-slate-500 max-w-xs truncate" title={c.diaChi}>{c.diaChi}</td>
                       <td className="p-2 text-center font-bold text-slate-600">{c.kv}</td>
                       <td className="p-2 text-center font-bold text-amber-700">Đ{c.dot}</td>
+                      <td className="p-2 text-center font-mono font-bold text-slate-700">
+                        {c.soPha || (c.phaseGroup === '3 Pha' ? '3' : '1')}
+                      </td>
                       <td className="p-2 text-center">
                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          c.phaseGroup === '1 Pha' 
-                            ? 'bg-blue-100 text-blue-800' 
-                            : 'bg-purple-100 text-purple-800'
+                          (c.phien || '').toUpperCase() === 'GT' || c.phaseDetail.includes('Gián Tiếp')
+                            ? 'bg-purple-100 text-purple-900 border border-purple-200'
+                            : 'bg-blue-100 text-blue-900 border border-blue-200'
                         }`}>
-                          {c.phaseGroup}
+                          {c.phien ? c.phien.toUpperCase() : (c.phaseDetail.includes('Gián Tiếp') ? 'GT' : 'TT')}
+                        </span>
+                      </td>
+                      <td className="p-2 text-center">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          c.phaseDetail.includes('3 Pha')
+                            ? 'bg-purple-100 text-purple-900'
+                            : 'bg-blue-100 text-blue-900'
+                        }`}>
+                          {c.phaseDetail}
                         </span>
                       </td>
                       <td className="p-2 font-bold text-slate-700">{c.chungLoaiCanThay || c.loaiCto || '-'}</td>

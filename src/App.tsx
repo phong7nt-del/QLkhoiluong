@@ -401,8 +401,12 @@ export default function App() {
   }, [sessionUser, refreshToggle]);
 
   const canViewOnlineUsers = useMemo(() => {
-    return PermissionStore.hasActionAccess('view_online_users', roleStr);
-  }, [roleStr, permissionsVersion]);
+    return PermissionStore.hasActionAccess('view_online_users', roleStr, sessionUser);
+  }, [roleStr, sessionUser, permissionsVersion]);
+
+  const canConfigSystem = useMemo(() => {
+    return PermissionStore.hasActionAccess('config_system', roleStr, sessionUser);
+  }, [roleStr, sessionUser, permissionsVersion]);
 
   const displayOnlineCount = useMemo(() => {
     if (onlineStats?.onlineCount) {
@@ -731,13 +735,15 @@ export default function App() {
             >
               <KeyRound className="w-5 h-5" />
             </button>
-            <button 
-              onClick={() => setShowConfig(true)}
-              className="text-white hover:text-white hover:bg-white/20 p-2 rounded-full transition-colors border border-transparent hover:border-white/30 backdrop-blur-md"
-              title="Cấu hình hệ thống (Cài đặt)"
-            >
-              <Settings className="w-5 h-5" />
-            </button>
+            {canConfigSystem && (
+              <button 
+                onClick={() => setShowConfig(true)}
+                className="text-white hover:text-white hover:bg-white/20 p-2 rounded-full transition-colors border border-transparent hover:border-white/30 backdrop-blur-md"
+                title="Cấu hình hệ thống (Cài đặt)"
+              >
+                <Settings className="w-5 h-5" />
+              </button>
+            )}
             <button 
               onClick={handleLogout}
               className="text-white hover:text-red-300 hover:bg-white/20 p-2 rounded-full transition-all hover:scale-105 border border-transparent hover:border-white/30 backdrop-blur-md"

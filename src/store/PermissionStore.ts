@@ -25,11 +25,11 @@ export const DEFAULT_RBAC: RBACConfig = {
     'kthtdd': STANDARD_ROLES,
     'birthday': STANDARD_ROLES,
     'dvkh': ALL_ROLES, // Tab DVKH: tất cả vai trò, bao gồm DVKH (mặc định người DVKH chỉ xem được tab DVKH)
-    'tab963': ALL_ROLES, // Tab 963: Theo dõi thay công tơ theo QĐ 963
-    'system': ALL_ROLES, // cho tất cả người dùng thấy tab Hệ thống / Cài đặt
+    'tab963': STANDARD_ROLES, // Tab 963: Theo dõi thay công tơ theo QĐ 963 (chỉ nhân sự QLHTĐĐ, không gồm DVKH)
+    'system': STANDARD_ROLES, // Tab Hệ thống / Cài đặt (chỉ nhân sự QLHTĐĐ, không gồm DVKH)
   },
   actions: {
-    'config_system': ALL_ROLES, // cho tất cả người dùng thấy nút Cài đặt (bánh răng) theo mặc định
+    'config_system': STANDARD_ROLES, // Nút Cài đặt (bánh răng) cho nhân sự QLHTĐĐ, không gồm DVKH
     'edit_others_workload': ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'],
     'bao_cao_ho': ['đội trưởng', 'giám đốc'],
     'view_online_users': ['đội trưởng'], // xem danh sách người dùng online (mặc định Đội trưởng)
@@ -177,6 +177,23 @@ export const PermissionStore = {
            merged.tabs['dvkh'] = DEFAULT_RBAC.tabs['dvkh'] || ALL_ROLES;
         } else if (!merged.tabs['dvkh'].includes('DVKH')) {
            merged.tabs['dvkh'].push('DVKH');
+        }
+        // One-time migration: ensure DVKH only sees tab 'dvkh' (remove 'DVKH' from 'tab963', 'system', and 'config_system' if inherited from old defaults)
+        const dvkhFixKey = 'app_rbac_dvkh_only_tab_v1';
+        if (!localStorage.getItem(dvkhFixKey)) {
+          if (Array.isArray(merged.tabs['tab963'])) {
+            merged.tabs['tab963'] = merged.tabs['tab963'].filter(r => r !== 'DVKH');
+          }
+          if (Array.isArray(merged.tabs['system'])) {
+            merged.tabs['system'] = merged.tabs['system'].filter(r => r !== 'DVKH');
+          }
+          if (Array.isArray(merged.actions['config_system'])) {
+            merged.actions['config_system'] = merged.actions['config_system'].filter(r => r !== 'DVKH');
+          }
+          try {
+            localStorage.setItem(RBAC_STORAGE_KEY, JSON.stringify(merged));
+            localStorage.setItem(dvkhFixKey, '1');
+          } catch {}
         }
         return merged;
       }
