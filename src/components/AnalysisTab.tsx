@@ -715,7 +715,7 @@ export default function AnalysisTab({ refreshToggle, sessionUser }: { refreshTog
         </div>
 
         <div className="text-xs text-slate-500 font-semibold px-2">
-          {subTab === 'productivity' ? 'Xếp hạng năng suất theo định mức' : 'Quản lý làm thêm Thứ 7 - Chủ Nhật & Nghỉ bù'}
+          {subTab === 'productivity' ? 'Xếp hạng năng suất theo định mức' : 'Quản lý làm thêm Thứ 7 - Chủ Nhật & Nghỉ phép'}
         </div>
       </div>
 

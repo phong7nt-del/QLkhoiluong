@@ -1005,7 +1005,7 @@ export const DataStore = {
       return [];
     }
   },
-  updateMemberNghiBu: async (memberName: string, addDays: number, note?: string, updatedBy?: string, leaveDate?: string): Promise<{ success: boolean; newTotal: number; error?: string }> => {
+  updateMemberNghiBu: async (memberName: string, addDays: number, note?: string, updatedBy?: string, leaveDate?: string, isDirectSet: boolean = false): Promise<{ success: boolean; newTotal: number; error?: string }> => {
     try {
       const members = DataStore.getMembers();
       const normTarget = memberName.toLowerCase().trim();
@@ -1024,7 +1024,10 @@ export const DataStore = {
         }
       }
 
-      const newTotal = Number((currentTotal + addDays).toFixed(2));
+      const newTotal = isDirectSet
+        ? Math.max(0, Number(addDays.toFixed(2)))
+        : Math.max(0, Number((currentTotal + addDays).toFixed(2)));
+      const deltaDays = Number((newTotal - currentTotal).toFixed(2));
 
       // Update in-memory members
       if (found) {
@@ -1047,7 +1050,7 @@ export const DataStore = {
       const logItem: NghiBuLog = {
         id: Math.random().toString(36).substring(2, 9),
         memberName,
-        addDays,
+        addDays: isDirectSet ? deltaDays : addDays,
         totalNghiBu: newTotal,
         date: effectiveDate,
         note: note || "",
@@ -1065,7 +1068,7 @@ export const DataStore = {
         action: "update_nghibu",
         data: {
           name: memberName,
-          addDays,
+          addDays: isDirectSet ? deltaDays : addDays,
           totalNghiBu: newTotal,
           note: note || "",
           updatedBy: updatedBy || "",
@@ -1094,7 +1097,7 @@ export const DataStore = {
 
       return { success: true, newTotal };
     } catch (err: any) {
-      return { success: false, newTotal: 0, error: err?.message || "Lỗi cập nhật nghỉ bù" };
+      return { success: false, newTotal: 0, error: err?.message || "Lỗi cập nhật nghỉ phép" };
     }
   },
   getAppScriptUrl: () => { 
@@ -2369,7 +2372,7 @@ export const DataStore = {
             if (val.includes('bộ phận') || val.includes('bo phan')) {
               boPhanColIdx = c;
             }
-            if (val.includes('nghỉ bù') || val.includes('nghibu') || cleanVal.includes('nghỉbù') || cleanVal.includes('nghibu') || cleanVal.includes('đãnghỉbù')) {
+            if (val.includes('nghỉ bù') || val.includes('nghibu') || cleanVal.includes('nghỉbù') || cleanVal.includes('nghibu') || cleanVal.includes('đãnghỉbù') || val.includes('nghỉ phép') || val.includes('nghiphep') || cleanVal.includes('nghỉphép') || cleanVal.includes('nghiphep')) {
               nghiBuColIdx = c;
             }
           }
@@ -2615,7 +2618,7 @@ export const DataStore = {
                                    }
                                }
 
-                               if (val.includes('nghỉ bù') || val.includes('nghibu') || cleanVal.includes('nghỉbù') || cleanVal.includes('nghibu') || cleanVal.includes('đãnghỉbù')) {
+                               if (val.includes('nghỉ bù') || val.includes('nghibu') || cleanVal.includes('nghỉbù') || cleanVal.includes('nghibu') || cleanVal.includes('đãnghỉbù') || val.includes('nghỉ phép') || val.includes('nghiphep') || cleanVal.includes('nghỉphép') || cleanVal.includes('nghiphep')) {
                                    nghiBuColIdx = c;
                                }
                            }

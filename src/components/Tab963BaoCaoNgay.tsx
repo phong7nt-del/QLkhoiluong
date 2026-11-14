@@ -34,7 +34,11 @@ const FIXED_BASELINE_12_11: FourColCounts = {
 };
 const FIXED_BASELINE_LABEL = 'Tính đến 12/11';
 const FIXED_BASELINE_GUIDE = 'Dòng này fix không thay đổi';
+const START_DAILY_TRACKING_ISO = '2026-11-13';
 const START_DAILY_TRACKING_NUM = 20261113; // 13/11/2026
+const MAX_DAILY_DISPLAY_ROWS = 7;
+const INSERTED_DAILY_GUIDE =
+  'Mỗi 1 ngày qua sẽ chèn thêm 1 dòng báo cáo kế tiếp kết quả thay của ngày được chèn, cho hiển thị 7 ngày';
 
 const emptyCounts = (): FourColCounts => ({ p1tt: 0, p1gt: 0, p3tt: 0, p3gt: 0 });
 
@@ -217,12 +221,12 @@ export default function Tab963BaoCaoNgay({
     });
   }, [reportDateObj]);
 
-  // Tính toán 4 cột cho từng dòng cố định từ sheet 963
+  // Tính toán 4 cột cho từng dòng từ sheet 963
   const reportData = useMemo(() => {
     const tongSo = emptyCounts(); // Tổng hợp từ số liệu phải thay (tính cả thu hồi)
     const den12_11: FourColCounts = { ...FIXED_BASELINE_12_11 }; // Fix cứng không thay đổi (129, 5, 106, 160 -> 400)
-    const ngayBaoCao = emptyCounts(); // Số thay của ngày báo cáo
     const luyKeTu13_11 = emptyCounts(); // Số thay từ 13/11/2026 đến hết ngày báo cáo
+    const dailyCountsByNum = new Map<number, FourColCounts>();
 
     entries963.forEach((c) => {
       const cat = resolvePhaseCategory(c);
@@ -243,15 +247,55 @@ export default function Tab963BaoCaoNgay({
 
       const normStr = normalizeDateStr(c.ngayGio);
       const entryNum = dateStrToNum(normStr);
+      if (entryNum === null) return;
 
-      if (entryNum === reportDateNum) {
-        ngayBaoCao[colKey] += 1;
+      let dayBucket = dailyCountsByNum.get(entryNum);
+      if (!dayBucket) {
+        dayBucket = emptyCounts();
+        dailyCountsByNum.set(entryNum, dayBucket);
       }
+      dayBucket[colKey] += 1;
 
-      // Cộng dồn lũy kế các ngày từ 13/11/2026 đến hết ngày báo cáo hiện tại
-      if (entryNum !== null && entryNum >= START_DAILY_TRACKING_NUM && entryNum <= reportDateNum) {
+      // Cộng dồn lũy kế tất cả các ngày từ 13/11/2026 đến hết ngày báo cáo hiện tại
+      if (entryNum >= START_DAILY_TRACKING_NUM && entryNum <= reportDateNum) {
         luyKeTu13_11[colKey] += 1;
       }
+    });
+
+    // Danh sách các ngày thực hiện hiển thị (bắt đầu từ 13/11/2026, mỗi ngày qua chèn thêm 1 dòng, hiển thị tối đa 7 ngày gần nhất)
+    const allTrackingDates: Date[] = [];
+    if (reportDateNum >= START_DAILY_TRACKING_NUM) {
+      const startObj = fromIsoDate(START_DAILY_TRACKING_ISO);
+      let cursor = startObj;
+      while (
+        cursor.getFullYear() * 10000 + (cursor.getMonth() + 1) * 100 + cursor.getDate() <=
+        reportDateNum
+      ) {
+        allTrackingDates.push(cursor);
+        cursor = addDays(cursor, 1);
+      }
+    } else {
+      allTrackingDates.push(reportDateObj);
+    }
+
+    const hiddenPriorDaysCount = Math.max(0, allTrackingDates.length - MAX_DAILY_DISPLAY_ROWS);
+    const visibleDailyDates = allTrackingDates.slice(-MAX_DAILY_DISPLAY_ROWS);
+
+    const dailyRows = visibleDailyDates.map((d, idx) => {
+      const dateNum = d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+      const labelDDMMYYYY = formatDDMMYYYY(d);
+      const counts = dailyCountsByNum.get(dateNum) || emptyCounts();
+      const isFirstDailyRow = idx === 0;
+      return {
+        iso: toIsoDate(d),
+        dateNum,
+        labelDDMMYYYY,
+        counts,
+        isFirstDailyRow,
+        isActiveReportDate: dateNum === reportDateNum,
+        displayLabel: isFirstDailyRow ? `Ngày thực hiện ${labelDDMMYYYY}` : labelDDMMYYYY,
+        guideText: isFirstDailyRow ? 'Số thay của ngày báo cáo' : INSERTED_DAILY_GUIDE
+      };
     });
 
     const tLuy: FourColCounts = {
@@ -292,14 +336,15 @@ export default function Tab963BaoCaoNgay({
     return {
       tongSo,
       den12_11,
-      ngayBaoCao,
+      dailyRows,
+      hiddenPriorDaysCount,
       tLuy,
       conLai,
       planRows,
       tongKeHoach7Ngay,
       conLaiCuoi
     };
-  }, [entries963, reportDateNum, next7Days, plansByDate]);
+  }, [entries963, reportDateObj, reportDateNum, next7Days, plansByDate]);
 
   const hasUnsavedChanges = useMemo(() => {
     return Object.keys(dirtyDates).some((iso) => {
@@ -470,7 +515,9 @@ export default function Tab963BaoCaoNgay({
       ['Hạng mục / Ngày', '1P3G TT', '1P3G GT', '3P3G TT', '3P3G GT', 'Tổng'].join('\t'),
       ['Tổng số', reportData.tongSo.p1tt, reportData.tongSo.p1gt, reportData.tongSo.p3tt, reportData.tongSo.p3gt, sumRow(reportData.tongSo)].join('\t'),
       [FIXED_BASELINE_LABEL, reportData.den12_11.p1tt, reportData.den12_11.p1gt, reportData.den12_11.p3tt, reportData.den12_11.p3gt, sumRow(reportData.den12_11)].join('\t'),
-      [`Ngày thực hiện ${formatDDMMYYYY(reportDateObj)}`, reportData.ngayBaoCao.p1tt, reportData.ngayBaoCao.p1gt, reportData.ngayBaoCao.p3tt, reportData.ngayBaoCao.p3gt, sumRow(reportData.ngayBaoCao)].join('\t'),
+      ...reportData.dailyRows.map((dRow) =>
+        [dRow.displayLabel, dRow.counts.p1tt, dRow.counts.p1gt, dRow.counts.p3tt, dRow.counts.p3gt, sumRow(dRow.counts)].join('\t')
+      ),
       ['T. Lũy', reportData.tLuy.p1tt, reportData.tLuy.p1gt, reportData.tLuy.p3tt, reportData.tLuy.p3gt, sumRow(reportData.tLuy)].join('\t'),
       ['Còn lại', reportData.conLai.p1tt, reportData.conLai.p1gt, reportData.conLai.p3tt, reportData.conLai.p3gt, sumRow(reportData.conLai)].join('\t'),
       ...reportData.planRows.map((r) =>
@@ -500,11 +547,19 @@ export default function Tab963BaoCaoNgay({
         return arr;
       };
 
+      const dailyAoaRows = reportData.dailyRows.map((dRow, idx) =>
+        makeRow(
+          dRow.displayLabel,
+          dRow.counts,
+          idx === 0 ? 'Số thay của ngày báo cáo' : idx === 1 ? INSERTED_DAILY_GUIDE : ''
+        )
+      );
+
       const aoa: any[][] = [
         headers,
         makeRow('Tổng số', reportData.tongSo, 'Tổng hợp từ số liệu phải thay (tính cả thu hồi)'),
         makeRow(FIXED_BASELINE_LABEL, reportData.den12_11, FIXED_BASELINE_GUIDE),
-        makeRow(`Ngày thực hiện ${formatDDMMYYYY(reportDateObj)}`, reportData.ngayBaoCao, 'Số thay của ngày báo cáo'),
+        ...dailyAoaRows,
         makeRow('T. Lũy', reportData.tLuy, 'Lũy kế đã thay tính đến hết ngày báo cáo'),
         makeRow('Còn lại', reportData.conLai, 'Số lượng còn lại tính đến ngày báo cáo'),
         ...reportData.planRows.map((r) => makeRow(r.labelDDMM, r.plan, r.guideText)),
@@ -512,6 +567,21 @@ export default function Tab963BaoCaoNgay({
       ];
 
       const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+      const dailyStartRowIdx = 3;
+      const dailyCount = reportData.dailyRows.length;
+      const tLuyRowIdx = dailyStartRowIdx + dailyCount;
+      const conLaiRowIdx = tLuyRowIdx + 1;
+      const conLaiCuoiRowIdx = aoa.length - 1;
+
+      if (showGuideCol && dailyCount > 2) {
+        ws['!merges'] = [
+          {
+            s: { r: dailyStartRowIdx + 1, c: 6 },
+            e: { r: dailyStartRowIdx + dailyCount - 1, c: 6 }
+          }
+        ];
+      }
 
       // Style cells cho đẹp và giống mẫu Excel
       const borderThin = {
@@ -521,15 +591,16 @@ export default function Tab963BaoCaoNgay({
         right: { style: 'thin', color: { rgb: '000000' } }
       };
 
-      const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:G14');
+      const range = XLSX.utils.decode_range(ws['!ref'] || `A1:G${aoa.length}`);
       for (let R = range.s.r; R <= range.e.r; R++) {
         for (let C = range.s.c; C <= range.e.c; C++) {
           const addr = XLSX.utils.encode_cell({ r: R, c: C });
           if (!ws[addr]) continue;
           const isHeader = R === 0;
-          const isTLuy = R === 4;
-          const isConLai = R === 5;
-          const isConLaiCuoi = R === aoa.length - 1;
+          const isInsertedDailyRow = R > dailyStartRowIdx && R < tLuyRowIdx;
+          const isTLuy = R === tLuyRowIdx;
+          const isConLai = R === conLaiRowIdx;
+          const isConLaiCuoi = R === conLaiCuoiRowIdx;
           const isNumCol = C >= 1 && C <= 5;
 
           ws[addr].s = {
@@ -540,7 +611,13 @@ export default function Tab963BaoCaoNgay({
             },
             alignment: {
               vertical: 'center',
-              horizontal: isHeader ? 'center' : isNumCol ? 'right' : 'left',
+              horizontal: isHeader
+                ? 'center'
+                : isNumCol
+                ? 'right'
+                : isInsertedDailyRow && C === 0
+                ? 'right'
+                : 'left',
               wrapText: true
             },
             fill: isConLai && C <= 5
@@ -555,13 +632,13 @@ export default function Tab963BaoCaoNgay({
       }
 
       ws['!cols'] = [
-        { wch: 24 },
+        { wch: 28 },
         { wch: 12 },
         { wch: 12 },
         { wch: 12 },
         { wch: 12 },
         { wch: 12 },
-        ...(showGuideCol ? [{ wch: 52 }] : [])
+        ...(showGuideCol ? [{ wch: 56 }] : [])
       ];
 
       const wb = XLSX.utils.book_new();
@@ -809,33 +886,56 @@ export default function Tab963BaoCaoNgay({
                 )}
               </tr>
 
-              {/* 3. Ngày thực hiện */}
-              <tr className="bg-emerald-50/40 hover:bg-emerald-50/70">
-                <td className="py-2.5 px-3.5 font-black border-r border-slate-300 leading-tight">
-                  <div>Ngày thực hiện</div>
-                  <div className="text-emerald-800 font-mono">{formatDDMMYYYY(reportDateObj)}</div>
-                </td>
-                <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-900 border-r border-slate-300">
-                  {formatNum(reportData.ngayBaoCao.p1tt, true)}
-                </td>
-                <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-900 border-r border-slate-300">
-                  {formatNum(reportData.ngayBaoCao.p1gt, true)}
-                </td>
-                <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-900 border-r border-slate-300">
-                  {formatNum(reportData.ngayBaoCao.p3tt, true)}
-                </td>
-                <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-900 border-r border-slate-300">
-                  {formatNum(reportData.ngayBaoCao.p3gt, true)}
-                </td>
-                <td className="py-2.5 px-3 text-right font-mono font-black text-emerald-900 border-r border-slate-300">
-                  {formatNum(sumRow(reportData.ngayBaoCao), true)}
-                </td>
-                {showGuideCol && (
-                  <td className="py-2.5 px-3.5 text-xs text-slate-700">
-                    Số thay của ngày báo cáo
-                  </td>
-                )}
-              </tr>
+              {/* 3. Các dòng kết quả thực hiện theo từng ngày (từ 13/11/2026, mỗi ngày qua chèn thêm 1 dòng, hiển thị tối đa 7 ngày) */}
+              {reportData.dailyRows.map((dRow, idx) => {
+                const insertedRowsCount = reportData.dailyRows.length - 1;
+                return (
+                  <tr
+                    key={dRow.iso}
+                    className={
+                      dRow.isActiveReportDate
+                        ? 'bg-emerald-50/45 hover:bg-emerald-50/75'
+                        : 'bg-white hover:bg-slate-50/70'
+                    }
+                  >
+                    <td
+                      className={`py-2.5 px-3.5 font-black border-r border-slate-300 whitespace-nowrap ${
+                        dRow.isFirstDailyRow ? 'text-left' : 'text-right font-mono'
+                      }`}
+                    >
+                      {dRow.displayLabel}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono font-semibold border-r border-slate-300">
+                      {formatNum(dRow.counts.p1tt)}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono font-semibold border-r border-slate-300">
+                      {formatNum(dRow.counts.p1gt)}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono font-semibold border-r border-slate-300">
+                      {formatNum(dRow.counts.p3tt)}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono font-semibold border-r border-slate-300">
+                      {formatNum(dRow.counts.p3gt)}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono font-bold border-r border-slate-300">
+                      {formatNum(sumRow(dRow.counts))}
+                    </td>
+                    {showGuideCol && idx === 0 && (
+                      <td className="py-2.5 px-3.5 text-xs text-slate-700 align-middle">
+                        Số thay của ngày báo cáo
+                      </td>
+                    )}
+                    {showGuideCol && idx === 1 && (
+                      <td
+                        rowSpan={insertedRowsCount}
+                        className="py-2.5 px-3.5 text-xs text-slate-700 align-middle bg-white"
+                      >
+                        {INSERTED_DAILY_GUIDE}
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
 
               {/* 4. T. Lũy */}
               <tr className="bg-slate-50 font-black hover:bg-slate-100/80">
@@ -859,7 +959,12 @@ export default function Tab963BaoCaoNgay({
                 </td>
                 {showGuideCol && (
                   <td className="py-2.5 px-3.5 text-xs font-normal text-slate-700">
-                    Lũy kế đã thay tính đến hết ngày báo cáo
+                    <span>Lũy kế đã thay tính đến hết ngày báo cáo</span>
+                    {reportData.hiddenPriorDaysCount > 0 && (
+                      <span className="ml-1.5 text-[11px] text-slate-500">
+                        (đã gồm {reportData.hiddenPriorDaysCount} ngày trước đó từ 13/11)
+                      </span>
+                    )}
                   </td>
                 )}
               </tr>

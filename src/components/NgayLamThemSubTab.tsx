@@ -60,7 +60,9 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
 
   // Modals state
   const [updatingMember, setUpdatingMember] = useState<MemberOvertimeStat | null>(null);
+  const [updateMode, setUpdateMode] = useState<'add' | 'set'>('add');
   const [addDaysInput, setAddDaysInput] = useState<string>('1');
+  const [directTotalInput, setDirectTotalInput] = useState<string>('0');
   const [leaveDateInput, setLeaveDateInput] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
   const [leaveNoteInput, setLeaveNoteInput] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -284,8 +286,8 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
       const leaveDaysReportCount = Number(leaveDates.reduce((sum, item) => sum + (item.days || 1), 0).toFixed(1));
 
       const memNghiBu = typeof mem.nghiBu === 'number' ? mem.nghiBu : (parseFloat(String(mem.nghiBu || 0)) || 0);
-      const localVal = localNghiBuMap[cleanName] ?? localNghiBuMap[normKey] ?? 0;
-      const nghiPhep = Number((localVal > 0 ? localVal : memNghiBu).toFixed(2));
+      const localVal = localNghiBuMap[cleanName] ?? localNghiBuMap[normKey];
+      const nghiPhep = Number((localVal !== undefined ? localVal : memNghiBu).toFixed(2));
       const daNghiBu = nghiPhep;
       // Công thức: tổng số ngày làm thêm trừ đi nghỉ T2 - T6 cộng Số ngày nghỉ phép
       const conLai = Math.max(0, Number((overtimeDaysCount - leaveDaysReportCount + nghiPhep).toFixed(2)));
@@ -402,8 +404,9 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
     const totalLeaveFromReports = targetList.reduce((acc, m) => acc + m.leaveDaysReportCount, 0);
     const totalNghiPhep = targetList.reduce((acc, m) => acc + m.nghiPhep, 0);
     // Công thức: tổng số ngày làm thêm trừ đi nghỉ T2 - T6 cộng Số ngày nghỉ phép
-    const totalConLai = Math.max(0, Number((totalOvertimeDays - totalLeaveFromReports + totalNghiPhep).toFixed(2)));
-    const rate = totalOvertimeDays > 0 ? (totalLeaveFromReports / totalOvertimeDays) * 100 : 0;
+    const totalConLai = targetList.reduce((acc, m) => acc + m.conLai, 0);
+    const solvedDays = Math.max(0, totalOvertimeDays - totalConLai);
+    const rate = totalOvertimeDays > 0 ? (solvedDays / totalOvertimeDays) * 100 : 0;
 
     return {
       activeMembersCount,
@@ -446,7 +449,7 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
         daNghiBu: Number(t.daNghiBu.toFixed(2)),
         leaveDaysReport: Number(t.leaveDaysReport.toFixed(1)),
         conLai: Number(t.conLai.toFixed(2)),
-        rate: t.overtimeDays > 0 ? Number(((t.leaveDaysReport / t.overtimeDays) * 100).toFixed(1)) : 0
+        rate: t.overtimeDays > 0 ? Number((Math.max(0, t.overtimeDays - t.conLai) / t.overtimeDays * 100).toFixed(1)) : 0
       }))
       .sort((a, b) => b.overtimeDays - a.overtimeDays);
   }, [memberStatsList, onlyWorkerAndDeputy]);
@@ -459,7 +462,9 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
   // Open Update Modal
   const handleOpenUpdate = (item: MemberOvertimeStat) => {
     setUpdatingMember(item);
+    setUpdateMode('add');
     setAddDaysInput('1');
+    setDirectTotalInput(String(item.nghiPhep));
     setLeaveDateInput(format(new Date(), 'yyyy-MM-dd'));
     setLeaveNoteInput('');
     setModalError(null);
@@ -471,9 +476,17 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
     e.preventDefault();
     if (!updatingMember) return;
 
-    const addVal = parseFloat(addDaysInput.replace(',', '.'));
-    if (isNaN(addVal) || addVal <= 0) {
-      setModalError('Số ngày nghỉ phép phải lớn hơn 0 (ví dụ: 0.5, 1, 1.5, 2)');
+    const isDirect = updateMode === 'set';
+    const rawInputVal = isDirect
+      ? parseFloat(directTotalInput.replace(',', '.'))
+      : parseFloat(addDaysInput.replace(',', '.'));
+
+    if (isNaN(rawInputVal) || (isDirect ? rawInputVal < 0 : rawInputVal <= 0)) {
+      setModalError(
+        isDirect
+          ? 'Tổng số ngày nghỉ phép phải >= 0 (ví dụ: 0, 0.5, 1, 2)'
+          : 'Số ngày nghỉ phép cộng thêm phải lớn hơn 0 (ví dụ: 0.5, 1, 1.5, 2)'
+      );
       return;
     }
 
@@ -483,16 +496,20 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
 
     try {
       const updaterName = sessionUser?.name || 'Quản lý';
+      const defaultNote = isDirect
+        ? `Điều chỉnh tổng nghỉ phép thành ${rawInputVal} ngày (${leaveDateInput})`
+        : `Nghỉ phép ngày ${leaveDateInput}`;
       const fullNote = leaveNoteInput.trim() 
         ? `${leaveNoteInput.trim()} (Ngày nghỉ phép: ${leaveDateInput})` 
-        : `Nghỉ phép ngày ${leaveDateInput}`;
+        : defaultNote;
 
       const res = await DataStore.updateMemberNghiBu(
         updatingMember.name,
-        addVal,
+        rawInputVal,
         fullNote,
         updaterName,
-        leaveDateInput
+        leaveDateInput,
+        isDirect
       );
 
       if (res.success) {
@@ -501,7 +518,7 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
         if (onRefresh) onRefresh();
         setTimeout(() => {
           setUpdatingMember(null);
-        }, 1400);
+        }, 1200);
       } else {
         setModalError(res.error || 'Có lỗi xảy ra khi lưu lên hệ thống');
       }
@@ -655,9 +672,9 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
     formatSheet(ws3);
     XLSX.utils.book_append_sheet(workbook, ws3, 'NhatKy_LamThem_T7_CN');
 
-    // Sheet 4: Danh sách các ngày Thứ 2 đến Thứ 6 đã nghỉ bù theo báo cáo
+    // Sheet 4: Danh sách các ngày Thứ 2 đến Thứ 6 đã nghỉ theo báo cáo
     const sheet4Rows: any[] = [
-      ['NHẬT KÝ CHI TIẾT CÁC NGÀY NGHỈ BÙ THỨ 2 - THỨ 6 (SHEET CONGTAC)'],
+      ['NHẬT KÝ CHI TIẾT CÁC NGÀY NGHỈ THỨ 2 - THỨ 6 (SHEET CONGTAC)'],
       [`Kỳ báo cáo: ${timeLabel}`],
       [''],
       ['STT', 'Họ và tên', 'Tổ công tác', 'Ngày nghỉ', 'Thứ', 'Số ngày', 'Nội dung báo cáo công tác']
@@ -690,9 +707,9 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
       { wch: 55 }
     ];
     formatSheet(ws4);
-    XLSX.utils.book_append_sheet(workbook, ws4, 'NhatKy_NghiBu_T2_T6');
+    XLSX.utils.book_append_sheet(workbook, ws4, 'NhatKy_Nghi_T2_T6');
 
-    const fileName = `BaoCao_NgayLamThem_NghiBu_${selectedYear}_${selectedMonth}.xlsx`;
+    const fileName = `BaoCao_NgayLamThem_NghiPhep_${selectedYear}_${selectedMonth}.xlsx`;
     XLSX.writeFile(workbook, fileName);
   };
 
@@ -825,7 +842,7 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
 
           <div className="text-[11px] text-slate-500 flex items-center gap-1.5">
             <Info className="w-3.5 h-3.5 text-purple-600 shrink-0" />
-            <span>Mỗi lần nghỉ bù tối đa <b>2 ngày</b> và không vượt quá số ngày làm thêm còn lại</span>
+            <span>Số ngày làm thêm còn lại = <b>Tổng làm thêm (T7-CN) - Nghỉ T2-T6 + Nghỉ phép</b></span>
           </div>
         </div>
       </div>
@@ -1228,38 +1245,88 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
                 </div>
               </div>
 
-              {/* Number of days input */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-700">
-                  Số ngày xin nghỉ phép đợt này (ví dụ: 1 hoặc 0.5 ngày):
-                </label>
-                <div className="grid grid-cols-4 gap-2 mb-2">
-                  {['0.5', '1', '1.5', '2'].map(val => (
-                    <button
-                      type="button"
-                      key={val}
-                      onClick={() => setAddDaysInput(val)}
-                      className={`py-1.5 text-xs font-bold font-mono rounded-lg border transition-all ${
-                        addDaysInput === val 
-                          ? 'bg-purple-600 text-white border-purple-600 shadow-xs' 
-                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >
-                      +{val} ngày
-                    </button>
-                  ))}
-                </div>
-                <input
-                  type="number"
-                  step="0.5"
-                  min="0.5"
-                  value={addDaysInput}
-                  onChange={(e) => setAddDaysInput(e.target.value)}
-                  className="w-full text-sm font-semibold bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
-                  placeholder="Nhập số ngày nghỉ phép (ví dụ: 1)"
-                  required
-                />
+              {/* Mode switcher: Cộng thêm vs Điều chỉnh tổng trực tiếp */}
+              <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUpdateMode('add');
+                    setModalError(null);
+                  }}
+                  className={`py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    updateMode === 'add'
+                      ? 'bg-white text-purple-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  + Cộng thêm ngày phép
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUpdateMode('set');
+                    setDirectTotalInput(String(updatingMember.nghiPhep));
+                    setModalError(null);
+                  }}
+                  className={`py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    updateMode === 'set'
+                      ? 'bg-white text-purple-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Điều chỉnh tổng trực tiếp
+                </button>
               </div>
+
+              {updateMode === 'add' ? (
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-700">
+                    Số ngày nghỉ phép cộng thêm đợt này (ví dụ: 1 hoặc 0.5 ngày):
+                  </label>
+                  <div className="grid grid-cols-4 gap-2 mb-2">
+                    {['0.5', '1', '1.5', '2'].map(val => (
+                      <button
+                        type="button"
+                        key={val}
+                        onClick={() => setAddDaysInput(val)}
+                        className={`py-1.5 text-xs font-bold font-mono rounded-lg border transition-all cursor-pointer ${
+                          addDaysInput === val 
+                            ? 'bg-purple-600 text-white border-purple-600 shadow-xs' 
+                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        +{val} ngày
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="0.5"
+                    value={addDaysInput}
+                    onChange={(e) => setAddDaysInput(e.target.value)}
+                    className="w-full text-sm font-semibold bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+                    placeholder="Nhập số ngày nghỉ phép (ví dụ: 1)"
+                    required
+                  />
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-700">
+                    Nhập tổng số ngày nghỉ phép chính xác (cho phép sửa lại từ 0 trở lên):
+                  </label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="0"
+                    value={directTotalInput}
+                    onChange={(e) => setDirectTotalInput(e.target.value)}
+                    className="w-full text-sm font-semibold bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+                    placeholder="Nhập tổng số ngày nghỉ phép (ví dụ: 1)"
+                    required
+                  />
+                </div>
+              )}
 
               {/* Leave Date */}
               <div className="space-y-1.5">
@@ -1290,22 +1357,38 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
               </div>
 
               {/* Preview calculation */}
-              {parseFloat(addDaysInput) > 0 && (
-                <div className="bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-[11px] text-slate-600 space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span>Tổng ngày nghỉ phép mới:</span>
-                    <span className="font-bold font-mono text-purple-950">
-                      {updatingMember.nghiPhep} + {addDaysInput} = {(updatingMember.nghiPhep + parseFloat(addDaysInput || '0')).toFixed(2)} ngày
-                    </span>
+              {(() => {
+                const parsedVal = updateMode === 'set'
+                  ? parseFloat(directTotalInput.replace(',', '.'))
+                  : parseFloat(addDaysInput.replace(',', '.'));
+                const isValid = !isNaN(parsedVal) && (updateMode === 'set' ? parsedVal >= 0 : parsedVal > 0);
+                if (!isValid) return null;
+                const nextNghiPhep = updateMode === 'set'
+                  ? Number(parsedVal.toFixed(2))
+                  : Number((updatingMember.nghiPhep + parsedVal).toFixed(2));
+                const nextConLai = Math.max(
+                  0,
+                  Number((updatingMember.overtimeDaysCount - updatingMember.leaveDaysReportCount + nextNghiPhep).toFixed(2))
+                );
+                return (
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-[11px] text-slate-600 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span>Tổng ngày nghỉ phép mới:</span>
+                      <span className="font-bold font-mono text-purple-950">
+                        {updateMode === 'set'
+                          ? `${nextNghiPhep} ngày`
+                          : `${updatingMember.nghiPhep} + ${parsedVal} = ${nextNghiPhep} ngày`}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-emerald-800">
+                      <span>Số ngày làm thêm còn lại:</span>
+                      <span className="font-black font-mono">
+                        {nextConLai} ngày công ({updatingMember.overtimeDaysCount} - {updatingMember.leaveDaysReportCount} + {nextNghiPhep})
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between text-emerald-800">
-                    <span>Số ngày làm thêm còn lại:</span>
-                    <span className="font-black font-mono">
-                      {(Math.max(0, updatingMember.overtimeDaysCount - updatingMember.leaveDaysReportCount + updatingMember.nghiPhep + parseFloat(addDaysInput || '0'))).toFixed(2)} ngày công
-                    </span>
-                  </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* Status / Error Messages */}
               {modalError && (
@@ -1352,7 +1435,7 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
         </div>
       )}
 
-      {/* Modal Chi Tiết Ngày Làm Việc & Nghỉ Bù */}
+      {/* Modal Chi Tiết Ngày Làm Việc & Nghỉ */}
       {detailMember && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
           <div className="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150 flex flex-col max-h-[85vh]">
@@ -1362,10 +1445,10 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
                 <CalendarDays className="w-5 h-5 text-purple-300" />
                 <div>
                   <h3 className="font-bold text-sm sm:text-base">
-                    Chi Tiết Làm Thêm & Nghỉ Bù Nhân Viên
+                    Chi Tiết Làm Thêm & Nghỉ Nhân Viên
                   </h3>
                   <div className="text-xs text-purple-200">
-                    {detailMember.name} • {detailMember.team} (Làm thêm: {detailMember.overtimeDaysCount} ngày • Đã nghỉ: {detailMember.daNghiBu} ngày)
+                    {detailMember.name} • {detailMember.team} (Làm thêm: {detailMember.overtimeDaysCount} • Nghỉ T2-T6: {detailMember.leaveDaysReportCount} • Phép: {detailMember.nghiPhep})
                   </div>
                 </div>
               </div>
@@ -1402,7 +1485,7 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
                 }`}
               >
                 <Coffee className="w-3.5 h-3.5 text-amber-600" />
-                <span>Đã nghỉ bù T2-T6 ({detailMember.leaveDaysReportCount})</span>
+                <span>Đã nghỉ T2-T6 ({detailMember.leaveDaysReportCount})</span>
               </button>
             </div>
 
@@ -1445,7 +1528,7 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
               ) : (
                 detailMember.leaveDates.length === 0 ? (
                   <div className="text-center py-8 text-slate-400 italic text-xs">
-                    Không có báo cáo nghỉ bù từ Thứ 2 đến Thứ 6 trong kỳ này
+                    Không có báo cáo nghỉ từ Thứ 2 đến Thứ 6 trong kỳ này
                   </div>
                 ) : (
                   detailMember.leaveDates.map((item, idx) => {
@@ -1549,7 +1632,7 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
                             {log.memberName}
                           </td>
                           <td className="px-3 py-2 text-center font-mono font-bold text-purple-700">
-                            +{log.addDays} ngày
+                            {log.addDays >= 0 ? `+${log.addDays}` : log.addDays} ngày
                           </td>
                           <td className="px-3 py-2 text-center font-mono font-bold text-amber-800">
                             {log.totalNghiBu} ngày

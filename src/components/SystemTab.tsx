@@ -101,7 +101,7 @@ const ACTIONS_INFO = [
     { id: 'kthtdd_all_areas', label: 'Kiện toàn tất cả khu vực (Phát sinh KT)' },
     { id: 'import_htdd_data', label: 'Import dữ liệu Quá hạn / Cuối năm (HTDD)' },
     { id: 'sync_doxa_data', label: 'Đồng bộ dữ liệu Đo xa (MDIS / HES)' },
-    { id: 'update_nghibu', label: 'Cập nhật ngày nghỉ bù nhân viên' },
+    { id: 'update_nghibu', label: 'Cập nhật ngày nghỉ phép nhân viên' },
     { id: 'tab963_bao_cao_ngay', label: 'Báo Cáo Ngày & Kế Hoạch Tuần (Tab 3 QĐ 963)' },
     { id: 'tab963_dien_ke', label: 'Quản lý Điện Kế (Tab 4 QĐ 963 — Nhập & Thay)' }
 ];
