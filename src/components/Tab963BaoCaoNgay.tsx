@@ -112,7 +112,7 @@ export default function Tab963BaoCaoNgay({
 }: Tab963BaoCaoNgayProps) {
   // Ngày thực hiện / Ngày báo cáo (mặc định: hôm nay)
   const [reportDateIso, setReportDateIso] = useState<string>(() => toIsoDate(new Date()));
-  const [showGuideCol, setShowGuideCol] = useState<boolean>(true);
+  const [showGuideCol, setShowGuideCol] = useState<boolean>(false);
   const [copiedSummary, setCopiedSummary] = useState<boolean>(false);
   const [isSavingKhTuan, setIsSavingKhTuan] = useState<boolean>(false);
   const [isLoadingKhTuan, setIsLoadingKhTuan] = useState<boolean>(false);
