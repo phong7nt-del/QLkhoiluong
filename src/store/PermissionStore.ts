@@ -37,7 +37,8 @@ export const DEFAULT_RBAC: RBACConfig = {
     'import_htdd_data': ['đội trưởng'], // Import dữ liệu Quá hạn / Cuối năm (HTDD) - mặc định Đội trưởng
     'sync_doxa_data': ['đội trưởng'], // Đồng bộ dữ liệu Đo xa (MDIS / HES) - mặc định Đội trưởng
     'update_nghibu': ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng'], // Cập nhật ngày nghỉ bù nhân viên
-    'tab963_dien_ke': ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'], // Quản lý điện kế (Tab 3 QĐ 963): Chỉ cho phép từ Tổ phó, Tổ trưởng trở lên (không cho nhân viên)
+    'tab963_bao_cao_ngay': ['đội trưởng', 'giám đốc', 'phó giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'], // Báo cáo ngày & Kế hoạch tuần (Tab 3 QĐ 963): Chỉ cho phép từ Tổ phó, Tổ trưởng trở lên
+    'tab963_dien_ke': ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'], // Quản lý điện kế (Tab 4 QĐ 963): Chỉ cho phép từ Tổ phó, Tổ trưởng trở lên (không cho nhân viên)
   }
 };
 
@@ -167,6 +168,10 @@ export const PermissionStore = {
         // Ensure new action kthtdd_all_areas defaults to management roles if not explicitly configured
         if (!merged.actions['kthtdd_all_areas'] || !Array.isArray(merged.actions['kthtdd_all_areas']) || merged.actions['kthtdd_all_areas'].length === 0) {
            merged.actions['kthtdd_all_areas'] = DEFAULT_RBAC.actions['kthtdd_all_areas'] || ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'];
+        }
+        // Ensure new action tab963_bao_cao_ngay defaults to management roles (Tổ phó, Tổ trưởng trở lên) if not explicitly configured
+        if (!merged.actions['tab963_bao_cao_ngay'] || !Array.isArray(merged.actions['tab963_bao_cao_ngay']) || merged.actions['tab963_bao_cao_ngay'].length === 0) {
+           merged.actions['tab963_bao_cao_ngay'] = DEFAULT_RBAC.actions['tab963_bao_cao_ngay'] || ['đội trưởng', 'giám đốc', 'phó giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'];
         }
         // Ensure new action tab963_dien_ke defaults to management roles (Tổ phó, Tổ trưởng trở lên) if not explicitly configured
         if (!merged.actions['tab963_dien_ke'] || !Array.isArray(merged.actions['tab963_dien_ke']) || merged.actions['tab963_dien_ke'].length === 0) {

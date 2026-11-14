@@ -114,17 +114,28 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
   const [isLoading, setIsLoading] = useState(false);
   const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
-  // Phân quyền Tab 3 Điện Kế: Chỉ cho phép từ Tổ phó, Tổ trưởng trở lên (cấu hình trong tab Hệ thống)
+  // Phân quyền Tab 3 Báo Cáo Ngày & Tab 4 Điện Kế: Chỉ cho phép từ Tổ phó, Tổ trưởng trở lên (cấu hình trong tab Hệ thống)
+  const [permTick, setPermTick] = useState(0);
+  useEffect(() => {
+    const onPermUpdated = () => setPermTick(t => t + 1);
+    window.addEventListener('permissions_updated', onPermUpdated);
+    return () => window.removeEventListener('permissions_updated', onPermUpdated);
+  }, []);
+
+  const canAccessBaoCaoNgay = useMemo(() => {
+    return PermissionStore.hasActionAccess('tab963_bao_cao_ngay', sessionUser?.role || '', sessionUser);
+  }, [sessionUser, permTick]);
+
   const canAccessDienKe = useMemo(() => {
     return PermissionStore.hasActionAccess('tab963_dien_ke', sessionUser?.role || '', sessionUser);
-  }, [sessionUser]);
+  }, [sessionUser, permTick]);
 
   // Tự động chuyển về tab Thực Hiện nếu người dùng không đủ quyền truy cập
   useEffect(() => {
-    if (activeSubTab === 'dien_ke' && !canAccessDienKe) {
+    if ((activeSubTab === 'dien_ke' && !canAccessDienKe) || (activeSubTab === 'bao_cao_ngay' && !canAccessBaoCaoNgay)) {
       setActiveSubTab('thuc_hien');
     }
-  }, [activeSubTab, canAccessDienKe]);
+  }, [activeSubTab, canAccessDienKe, canAccessBaoCaoNgay]);
 
   // Section collapse/expand state with localStorage persistence (calculation collapses by default)
   const [collapsedSections, setCollapsedSections] = useState<SectionCollapseState>(() => {
@@ -2503,15 +2514,29 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
 
             <button
               type="button"
-              onClick={() => setActiveSubTab('bao_cao_ngay')}
+              onClick={() => {
+                if (canAccessBaoCaoNgay) {
+                  setActiveSubTab('bao_cao_ngay');
+                } else {
+                  showToast('error', 'Chức năng Báo Cáo Ngày & Kế Hoạch Tuần chỉ dành cho Tổ phó, Tổ trưởng trở lên theo phân quyền trong tab Hệ thống!');
+                }
+              }}
               className={`flex items-center gap-1.5 px-3 sm:px-4 py-1.5 rounded-lg font-bold text-xs transition-all cursor-pointer ${
                 activeSubTab === 'bao_cao_ngay'
                   ? 'bg-amber-400 text-amber-950 shadow-sm'
-                  : 'text-amber-100 hover:text-white hover:bg-white/10'
+                  : canAccessBaoCaoNgay
+                  ? 'text-amber-100 hover:text-white hover:bg-white/10'
+                  : 'text-amber-200/60 hover:bg-white/5 opacity-80'
               }`}
+              title={canAccessBaoCaoNgay ? 'Báo cáo ngày & kế hoạch tuần QĐ 963' : 'Khóa: Chỉ cho phép từ Tổ phó, Tổ trưởng trở lên'}
             >
-              <Calendar className="w-3.5 h-3.5" />
+              {canAccessBaoCaoNgay ? <Calendar className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5 text-amber-300" />}
               <span>Tab 3: Báo Cáo Ngày</span>
+              {!canAccessBaoCaoNgay && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-black/40 text-amber-300 border border-amber-400/30">
+                  Khóa
+                </span>
+              )}
             </button>
 
             <button
@@ -6770,11 +6795,32 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       {/* SUB-TAB 3: BÁO CÁO NGÀY & KẾ HOẠCH TUẦN (QĐ 963)           */}
       {/* ========================================================= */}
       {activeSubTab === 'bao_cao_ngay' && (
-        <Tab963BaoCaoNgay
-          entries963={entries}
-          sessionUser={sessionUser}
-          showToast={showToast}
-        />
+        canAccessBaoCaoNgay ? (
+          <Tab963BaoCaoNgay
+            entries963={entries}
+            sessionUser={sessionUser}
+            showToast={showToast}
+          />
+        ) : (
+          <div className="bg-white rounded-2xl border border-rose-200 shadow-sm p-8 text-center space-y-3">
+            <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto">
+              <ShieldAlert className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-bold text-slate-800">
+              Không Đủ Quyền Truy Cập Tab Báo Cáo Ngày
+            </h3>
+            <p className="text-xs text-slate-500 max-w-md mx-auto">
+              Chức năng Báo Cáo Ngày &amp; Kế Hoạch Tuần (Tab 3 QĐ 963) không cho phép tài khoản nhân viên sử dụng, chỉ cho phép từ cấp <b>Tổ phó, Tổ trưởng trở lên</b> theo quy định phân quyền trong tab <b>Hệ thống</b>.
+            </p>
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('thuc_hien')}
+              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors cursor-pointer"
+            >
+              Quay lại Tab Thực Hiện
+            </button>
+          </div>
+        )
       )}
 
       {/* ========================================================= */}
