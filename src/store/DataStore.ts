@@ -179,6 +179,18 @@ export interface NhapDk963Entry {
   isLocal?: boolean;
 }
 
+export interface KhTuanEntry {
+  ngayIso: string; // YYYY-MM-DD
+  ngay: string;    // dd/mm/yyyy
+  p1tt: number;    // 1P3G TT
+  p1gt: number;    // 1P3G GT
+  p3tt: number;    // 3P3G TT
+  p3gt: number;    // 3P3G GT
+  tong: number;
+  nguoiCapNhat?: string;
+  capNhatLuc?: string;
+}
+
 export const parseHsn = (tySoTi?: string): number => {
   if (!tySoTi) return 1;
   const s = String(tySoTi).trim();
@@ -557,6 +569,7 @@ const ALLOW_CUSTOM_NGAY_HOAN_TAT_DVKH_KEY = 'config_allow_custom_ngay_hoan_tat_d
 const SHEET_963_KEY = 'sheet_963_v1';
 const LOCAL_963_UPDATES_KEY = 'local_963_updates_v1';
 const SHEET_NHAP_DK_963_KEY = 'sheet_nhap_dk_963_v1';
+const SHEET_KH_TUAN_963_KEY = 'sheet_kh_tuan_963_v1';
 
 let memCacheQuaHanList: QuaHanEntry[] | null = null;
 let memCacheQuaHanNamList: QuaHanEntry[] | null = null;
@@ -570,6 +583,7 @@ let memCacheDeletedDvkhKeys: Set<string> | null = null;
 let memCache963List: Entry963[] | null = null;
 let memCache963UpdatesMap: Record<string, Local963Update> | null = null;
 let memCacheNhapDk963List: NhapDk963Entry[] | null = null;
+let memCacheKhTuan963List: KhTuanEntry[] | null = null;
 let memCacheKhuVucList: any[] | null = null;
 let memCacheMatKetNoiList: any[] | null = null;
 let memCacheChiTietMKNList: any[] | null = null;
@@ -771,6 +785,16 @@ export const initDB = async () => {
         if (Array.isArray(parsed)) {
           memCacheNhapDk963List = parsed;
           safeSetItem(SHEET_NHAP_DK_963_KEY, JSON.stringify(parsed));
+        }
+      }
+    } catch (e) {}
+    try {
+      const khtVal = await get(SHEET_KH_TUAN_963_KEY);
+      if (khtVal) {
+        let parsed = typeof khtVal === 'string' ? JSON.parse(khtVal) : khtVal;
+        if (Array.isArray(parsed)) {
+          memCacheKhTuan963List = parsed;
+          safeSetItem(SHEET_KH_TUAN_963_KEY, JSON.stringify(parsed));
         }
       }
     } catch (e) {}
@@ -3222,6 +3246,13 @@ export const DataStore = {
                DataStore.fetchNhapDk963Data().catch(() => {});
             } catch(e) {
                console.warn('Could not fetch NhapDK963 sheet:', e);
+            }
+
+            // Fetch KHTuan (Kế hoạch tuần Báo cáo ngày QĐ 963)
+            try {
+               DataStore.fetchKhTuan963Data().catch(() => {});
+            } catch(e) {
+               console.warn('Could not fetch KHTuan sheet:', e);
             }
 
             // Fetch QuaHan
@@ -7831,6 +7862,341 @@ export const DataStore = {
       console.warn('Lỗi đồng bộ NhapDK963:', e);
       return { success: false, error: e?.message };
     }
+  },
+
+  // ======== QUẢN LÝ KẾ HOẠCH TUẦN QĐ 963 (SHEET KHTuan) ========
+  getKhTuan963Entries: (): KhTuanEntry[] => {
+    if (memCacheKhTuan963List) return memCacheKhTuan963List;
+    try {
+      const local = safeGetItem(SHEET_KH_TUAN_963_KEY);
+      if (local) {
+        const parsed = JSON.parse(local);
+        if (Array.isArray(parsed)) {
+          memCacheKhTuan963List = parsed;
+          return memCacheKhTuan963List;
+        }
+      }
+    } catch (e) {}
+    return [];
+  },
+
+  saveKhTuan963Local: (entries: KhTuanEntry[]) => {
+    const sorted = [...entries].sort((a, b) => a.ngayIso.localeCompare(b.ngayIso));
+    memCacheKhTuan963List = sorted;
+    try {
+      safeSetItem(SHEET_KH_TUAN_963_KEY, JSON.stringify(sorted));
+      set(SHEET_KH_TUAN_963_KEY, sorted).catch(() => {});
+    } catch (e) {
+      console.warn('Could not persist KHTuan:', e);
+    }
+  },
+
+  parseKhTuan963CSVData: (csvText: string): { validSheet: boolean; items: KhTuanEntry[] } => {
+    try {
+      const parsed = Papa.parse(csvText.trim(), { skipEmptyLines: true });
+      const rawGrid = (parsed.data as any[][]) || [];
+      if (rawGrid.length === 0) return { validSheet: false, items: [] };
+
+      const normCol = (s: string) =>
+        String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[^a-z0-9]/g, '');
+
+      const row0 = (rawGrid[0] || []).map(c => normCol(String(c || '')));
+      const idxNgay = row0.findIndex(c => c === 'ngay' || c === 'date' || c === 'ngaythuchien');
+      const idxNgayIso = row0.findIndex(c => c === 'ngayiso' || c === 'iso');
+      const idxP1TT = row0.findIndex(c => c === '1p3gtt' || c === 'p1tt' || c === '1ptt');
+      const idxP1GT = row0.findIndex(c => c === '1p3ggt' || c === 'p1gt' || c === '1pgt');
+      const idxP3TT = row0.findIndex(c => c === '3p3gtt' || c === 'p3tt' || c === '3ptt');
+      const idxP3GT = row0.findIndex(c => c === '3p3ggt' || c === 'p3gt' || c === '3pgt');
+      const idxNguoi = row0.findIndex(c => c.includes('nguoicapnhat') || c.includes('nguoinhap') || c === 'user');
+      const idxTime = row0.findIndex(c => c.includes('capnhatluc') || c.includes('updatedat') || c.includes('timestamp'));
+
+      // Xác thực đúng là sheet KHTuan (tránh nhầm sheet mặc định khi KHTuan chưa được tạo)
+      const matchedPhaseCols = [idxP1TT, idxP1GT, idxP3TT, idxP3GT].filter(i => i >= 0).length;
+      if ((idxNgay === -1 && idxNgayIso === -1) || matchedPhaseCols < 2) {
+        return { validSheet: false, items: [] };
+      }
+
+      const normalizeDatePair = (isoRaw: string, ngayRaw: string): { ngayIso: string; ngay: string } | null => {
+        const isoClean = String(isoRaw || '').trim();
+        const ngayClean = String(ngayRaw || '').trim();
+
+        const isoMatch = isoClean.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+        if (isoMatch) {
+          const y = isoMatch[1];
+          const m = isoMatch[2].padStart(2, '0');
+          const d = isoMatch[3].padStart(2, '0');
+          return { ngayIso: `${y}-${m}-${d}`, ngay: `${d}/${m}/${y}` };
+        }
+
+        const slashMatch = ngayClean.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+        if (slashMatch) {
+          const d = slashMatch[1].padStart(2, '0');
+          const m = slashMatch[2].padStart(2, '0');
+          const y = slashMatch[3];
+          return { ngayIso: `${y}-${m}-${d}`, ngay: `${d}/${m}/${y}` };
+        }
+
+        const revMatch = ngayClean.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+        if (revMatch) {
+          const y = revMatch[1];
+          const m = revMatch[2].padStart(2, '0');
+          const d = revMatch[3].padStart(2, '0');
+          return { ngayIso: `${y}-${m}-${d}`, ngay: `${d}/${m}/${y}` };
+        }
+        return null;
+      };
+
+      const toInt = (val: any) => Math.max(0, parseInt(String(val ?? 0).replace(/[^0-9]/g, ''), 10) || 0);
+
+      const byDate = new Map<string, KhTuanEntry>();
+      for (let i = 1; i < rawGrid.length; i++) {
+        const r = rawGrid[i] || [];
+        const pair = normalizeDatePair(
+          idxNgayIso >= 0 ? String(r[idxNgayIso] || '') : '',
+          idxNgay >= 0 ? String(r[idxNgay] || '') : ''
+        );
+        if (!pair) continue;
+
+        const p1tt = idxP1TT >= 0 ? toInt(r[idxP1TT]) : 0;
+        const p1gt = idxP1GT >= 0 ? toInt(r[idxP1GT]) : 0;
+        const p3tt = idxP3TT >= 0 ? toInt(r[idxP3TT]) : 0;
+        const p3gt = idxP3GT >= 0 ? toInt(r[idxP3GT]) : 0;
+
+        byDate.set(pair.ngayIso, {
+          ngayIso: pair.ngayIso,
+          ngay: pair.ngay,
+          p1tt,
+          p1gt,
+          p3tt,
+          p3gt,
+          tong: p1tt + p1gt + p3tt + p3gt,
+          nguoiCapNhat: idxNguoi >= 0 ? String(r[idxNguoi] || '').trim() : '',
+          capNhatLuc: idxTime >= 0 ? String(r[idxTime] || '').trim() : ''
+        });
+      }
+
+      return {
+        validSheet: true,
+        items: Array.from(byDate.values()).sort((a, b) => a.ngayIso.localeCompare(b.ngayIso))
+      };
+    } catch (e) {
+      console.warn('Lỗi parse KHTuan CSV:', e);
+      return { validSheet: false, items: [] };
+    }
+  },
+
+  fetchKhTuan963Data: async (preferSheet: boolean = false): Promise<{ items: KhTuanEntry[]; source: 'sheet' | 'server' | 'local' }> => {
+    let serverItems: KhTuanEntry[] = [];
+    let sheetItems: KhTuanEntry[] = [];
+    let hasValidSheet = false;
+
+    const sheetId = DataStore.getSpreadsheetId() || DEFAULT_SPREADSHEET_ID;
+
+    await Promise.allSettled([
+      (async () => {
+        try {
+          const res = await fetch('/api/kh-tuan-963', { headers: { 'Cache-Control': 'no-cache' } });
+          if (res.ok) {
+            const j = await res.json();
+            if (j && j.success && Array.isArray(j.items)) {
+              serverItems = j.items;
+            }
+          }
+        } catch {}
+      })(),
+      (async () => {
+        try {
+          const possibleNames = ['KHTuan', 'khtuan', 'KH_Tuan', 'KHTuan_963'];
+          for (const sName of possibleNames) {
+            const csv = await DataStore.fetchSheetCSV(sName, sheetId);
+            if (csv && !csv.includes('<html') && csv.trim().length > 10) {
+              const parsed = DataStore.parseKhTuan963CSVData(csv);
+              if (parsed.validSheet) {
+                hasValidSheet = true;
+                sheetItems = parsed.items;
+                break;
+              }
+            }
+          }
+        } catch {}
+      })()
+    ]);
+
+    if (hasValidSheet) {
+      let merged: KhTuanEntry[] = [];
+      if (preferSheet || serverItems.length === 0) {
+        merged = sheetItems;
+      } else {
+        const map = new Map<string, KhTuanEntry>();
+        sheetItems.forEach(it => map.set(it.ngayIso, it));
+        serverItems.forEach(srv => {
+          const sh = map.get(srv.ngayIso);
+          if (!sh || (srv.capNhatLuc && (!sh.capNhatLuc || srv.capNhatLuc > sh.capNhatLuc))) {
+            map.set(srv.ngayIso, srv);
+          }
+        });
+        merged = Array.from(map.values()).sort((a, b) => a.ngayIso.localeCompare(b.ngayIso));
+      }
+
+      DataStore.saveKhTuan963Local(merged);
+      if (preferSheet || (sheetItems.length > 0 && serverItems.length === 0)) {
+        fetch('/api/kh-tuan-963', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'set_all', items: merged })
+        }).catch(() => {});
+      }
+      window.dispatchEvent(new CustomEvent('kh_tuan_963_updated'));
+      return { items: merged, source: 'sheet' };
+    }
+
+    if (serverItems.length > 0) {
+      DataStore.saveKhTuan963Local(serverItems);
+      window.dispatchEvent(new CustomEvent('kh_tuan_963_updated'));
+      return { items: serverItems, source: 'server' };
+    }
+
+    return { items: DataStore.getKhTuan963Entries(), source: 'local' };
+  },
+
+  syncKhTuan963ToSheet: async (items: KhTuanEntry[]): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const sorted = [...items].sort((a, b) => a.ngayIso.localeCompare(b.ngayIso));
+      const headers = ['Ngay', '1P3G_TT', '1P3G_GT', '3P3G_TT', '3P3G_GT', 'Tong', 'NguoiCapNhat', 'CapNhatLuc', 'NgayIso'];
+      const rows = sorted.map(it => [
+        it.ngay,
+        it.p1tt,
+        it.p1gt,
+        it.p3tt,
+        it.p3gt,
+        it.p1tt + it.p1gt + it.p3tt + it.p3gt,
+        it.nguoiCapNhat || '',
+        it.capNhatLuc || '',
+        it.ngayIso
+      ]);
+
+      const payload = {
+        action: 'overwrite_sheet',
+        sheetName: 'KHTuan',
+        spreadsheetId: DataStore.getSpreadsheetId() || DEFAULT_SPREADSHEET_ID,
+        chunkIndex: 0,
+        totalChunks: 1,
+        headers,
+        rows
+      };
+
+      let lastError = '';
+      try {
+        const proxyRes = await fetch('/api/proxy/apps-script', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...payload,
+            _targetUrl: DataStore.getAppScriptUrl()
+          })
+        });
+        if (proxyRes.ok) {
+          const resJson = await proxyRes.json().catch(() => null);
+          if (resJson && resJson.status === 'success') {
+            return { success: true };
+          }
+          if (resJson && resJson.message) lastError = resJson.message;
+        }
+      } catch (err: any) {
+        lastError = err?.message || 'Lỗi proxy';
+      }
+
+      const url = DataStore.getAppScriptUrl();
+      if (!url || !url.startsWith('http')) {
+        return { success: false, error: lastError || 'Chưa cấu hình URL Google Apps Script' };
+      }
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload)
+      });
+      const rawText = await response.text().catch(() => '');
+      try {
+        const directJson = JSON.parse(rawText);
+        if (directJson.status === 'success') return { success: true };
+        return { success: false, error: directJson.message || 'Không thành công' };
+      } catch {
+        if (response.ok && !rawText.includes('Unknown action')) return { success: true };
+        return { success: false, error: rawText || lastError || 'Lỗi lưu sheet KHTuan' };
+      }
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Lỗi kết nối Apps Script' };
+    }
+  },
+
+  saveKhTuan963Week: async (
+    editableEntries: KhTuanEntry[],
+    clientTodayIso: string
+  ): Promise<{ success: boolean; sheetSynced: boolean; items: KhTuanEntry[]; error?: string }> => {
+    // 1. Lấy danh sách hiện tại và chỉ cập nhật các ngày CHƯA TỚI ngày thực hiện (ngayIso > clientTodayIso)
+    const existingMap = new Map<string, KhTuanEntry>();
+    DataStore.getKhTuan963Entries().forEach(it => existingMap.set(it.ngayIso, it));
+
+    for (const entry of editableEntries) {
+      if (entry.ngayIso > clientTodayIso) {
+        existingMap.set(entry.ngayIso, {
+          ...entry,
+          tong: entry.p1tt + entry.p1gt + entry.p3tt + entry.p3gt
+        });
+      }
+    }
+
+    const merged = Array.from(existingMap.values()).sort((a, b) => a.ngayIso.localeCompare(b.ngayIso));
+    DataStore.saveKhTuan963Local(merged);
+
+    let serverOk = false;
+    let serverItems = merged;
+    let sheetSynced = false;
+    let sheetError: string | undefined;
+
+    try {
+      const srvRes = await fetch('/api/kh-tuan-963', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'save',
+          items: editableEntries.filter(e => e.ngayIso > clientTodayIso),
+          clientTodayIso
+        })
+      });
+      if (srvRes.ok) {
+        const j = await srvRes.json().catch(() => null);
+        if (j && j.success) {
+          serverOk = true;
+          if (Array.isArray(j.items)) {
+            serverItems = j.items;
+            DataStore.saveKhTuan963Local(serverItems);
+          }
+          sheetSynced = !!j.sheetSynced;
+          sheetError = j.sheetError;
+        }
+      }
+    } catch (e: any) {
+      sheetError = e?.message;
+    }
+
+    // Nếu server chưa sync được lên Google Sheet KHTuan, thử sync từ client qua proxy/direct
+    if (!sheetSynced) {
+      const directRes = await DataStore.syncKhTuan963ToSheet(serverItems);
+      sheetSynced = directRes.success;
+      if (!directRes.success && directRes.error) {
+        sheetError = directRes.error;
+      }
+    }
+
+    window.dispatchEvent(new CustomEvent('kh_tuan_963_updated'));
+    return {
+      success: serverOk || sheetSynced,
+      sheetSynced,
+      items: serverItems,
+      error: sheetSynced ? undefined : sheetError
+    };
   }
 
 };

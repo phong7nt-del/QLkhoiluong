@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { SCRIPT_TEMPLATE } from './ConfigModal';
 import Tab963DienKe from './Tab963DienKe';
+import Tab963BaoCaoNgay from './Tab963BaoCaoNgay';
 import { PermissionStore } from '../store/PermissionStore';
 import { 
   DataStore, 
@@ -108,7 +109,7 @@ interface Tab963Props {
 }
 
 export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) {
-  const [activeSubTab, setActiveSubTab] = useState<'thuc_hien' | 'bao_cao' | 'dien_ke'>('thuc_hien');
+  const [activeSubTab, setActiveSubTab] = useState<'thuc_hien' | 'bao_cao' | 'bao_cao_ngay' | 'dien_ke'>('thuc_hien');
   const [entries, setEntries] = useState<Entry963[]>(() => DataStore.get963Entries());
   const [isLoading, setIsLoading] = useState(false);
   const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
@@ -2502,6 +2503,19 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
 
             <button
               type="button"
+              onClick={() => setActiveSubTab('bao_cao_ngay')}
+              className={`flex items-center gap-1.5 px-3 sm:px-4 py-1.5 rounded-lg font-bold text-xs transition-all cursor-pointer ${
+                activeSubTab === 'bao_cao_ngay'
+                  ? 'bg-amber-400 text-amber-950 shadow-sm'
+                  : 'text-amber-100 hover:text-white hover:bg-white/10'
+              }`}
+            >
+              <Calendar className="w-3.5 h-3.5" />
+              <span>Tab 3: Báo Cáo Ngày</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => {
                 if (canAccessDienKe) {
                   setActiveSubTab('dien_ke');
@@ -2519,7 +2533,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
               title={canAccessDienKe ? 'Theo dõi nhập và thay điện kế' : 'Khóa: Chỉ cho phép từ Tổ phó, Tổ trưởng trở lên'}
             >
               {canAccessDienKe ? <Gauge className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5 text-amber-300" />}
-              <span>Tab 3: Điện Kế</span>
+              <span>Tab 4: Điện Kế</span>
               {!canAccessDienKe && (
                 <span className="text-[9px] px-1.5 py-0.5 rounded bg-black/40 text-amber-300 border border-amber-400/30">
                   Khóa
@@ -6753,7 +6767,18 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       )}
 
       {/* ========================================================= */}
-      {/* SUB-TAB 3: ĐIỆN KẾ (THEO DÕI NHẬP & THAY ĐIỆN KẾ QĐ 963) */}
+      {/* SUB-TAB 3: BÁO CÁO NGÀY & KẾ HOẠCH TUẦN (QĐ 963)           */}
+      {/* ========================================================= */}
+      {activeSubTab === 'bao_cao_ngay' && (
+        <Tab963BaoCaoNgay
+          entries963={entries}
+          sessionUser={sessionUser}
+          showToast={showToast}
+        />
+      )}
+
+      {/* ========================================================= */}
+      {/* SUB-TAB 4: ĐIỆN KẾ (THEO DÕI NHẬP & THAY ĐIỆN KẾ QĐ 963) */}
       {/* ========================================================= */}
       {activeSubTab === 'dien_ke' && (
         canAccessDienKe ? (

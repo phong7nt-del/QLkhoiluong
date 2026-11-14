@@ -557,6 +557,200 @@ async function startServer() {
     }
   });
 
+  // =========================================================================
+  // CENTRALIZED KẾ HOẠCH TUẦN 963 STORE (SHEET KHTuan)
+  // =========================================================================
+  const khTuanStorePath = path.join(process.cwd(), 'kh_tuan_963_store.json');
+  let khTuanStore: any[] = [];
+
+  const normalizeKhTuanDate = (rawNgayIso: any, rawNgay: any): { ngayIso: string; ngay: string } | null => {
+    const isoStr = String(rawNgayIso || '').trim();
+    const ngayStr = String(rawNgay || '').trim();
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(isoStr)) {
+      const [y, m, d] = isoStr.split('-');
+      return { ngayIso: isoStr, ngay: `${d}/${m}/${y}` };
+    }
+    const isoSlashMatch = ngayStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (isoSlashMatch) {
+      const d = isoSlashMatch[1].padStart(2, '0');
+      const m = isoSlashMatch[2].padStart(2, '0');
+      const y = isoSlashMatch[3];
+      return { ngayIso: `${y}-${m}-${d}`, ngay: `${d}/${m}/${y}` };
+    }
+    const isoDashMatch = ngayStr.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (isoDashMatch) {
+      const y = isoDashMatch[1];
+      const m = isoDashMatch[2].padStart(2, '0');
+      const d = isoDashMatch[3].padStart(2, '0');
+      return { ngayIso: `${y}-${m}-${d}`, ngay: `${d}/${m}/${y}` };
+    }
+    return null;
+  };
+
+  const deduplicateKhTuanList = (items: any[]): any[] => {
+    if (!Array.isArray(items)) return [];
+    const byDate = new Map<string, any>();
+    for (const it of items) {
+      if (!it) continue;
+      const norm = normalizeKhTuanDate(it.ngayIso || it.NgayIso, it.ngay || it.Ngay);
+      if (!norm) continue;
+      const p1tt = Math.max(0, Number(it.p1tt ?? it['1P3G_TT'] ?? it['1P3G TT'] ?? 0) || 0);
+      const p1gt = Math.max(0, Number(it.p1gt ?? it['1P3G_GT'] ?? it['1P3G GT'] ?? 0) || 0);
+      const p3tt = Math.max(0, Number(it.p3tt ?? it['3P3G_TT'] ?? it['3P3G TT'] ?? 0) || 0);
+      const p3gt = Math.max(0, Number(it.p3gt ?? it['3P3G_GT'] ?? it['3P3G GT'] ?? 0) || 0);
+      const tong = p1tt + p1gt + p3tt + p3gt;
+      const capNhatLuc = String(it.capNhatLuc || it.CapNhatLuc || new Date().toISOString());
+      const nguoiCapNhat = String(it.nguoiCapNhat || it.NguoiCapNhat || '').trim();
+
+      const existing = byDate.get(norm.ngayIso);
+      if (!existing || capNhatLuc >= (existing.capNhatLuc || '')) {
+        byDate.set(norm.ngayIso, {
+          ngayIso: norm.ngayIso,
+          ngay: norm.ngay,
+          p1tt,
+          p1gt,
+          p3tt,
+          p3gt,
+          tong,
+          nguoiCapNhat,
+          capNhatLuc
+        });
+      }
+    }
+    return Array.from(byDate.values()).sort((a, b) => a.ngayIso.localeCompare(b.ngayIso));
+  };
+
+  const loadKhTuanStore = () => {
+    try {
+      if (fs.existsSync(khTuanStorePath)) {
+        const raw = fs.readFileSync(khTuanStorePath, 'utf8');
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          khTuanStore = deduplicateKhTuanList(parsed);
+        }
+      }
+    } catch (e) {
+      console.warn('Could not load kh_tuan_963_store.json:', e);
+    }
+  };
+  loadKhTuanStore();
+
+  const saveKhTuanStore = () => {
+    try {
+      khTuanStore = deduplicateKhTuanList(khTuanStore);
+      fs.writeFileSync(khTuanStorePath, JSON.stringify(khTuanStore, null, 2), 'utf8');
+    } catch (e) {
+      console.warn('Could not write kh_tuan_963_store.json:', e);
+    }
+  };
+
+  const forwardKhTuanToGoogleSheet = async (items: any[]): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      const cfg = getSharedConfig();
+      const targetUrl = cfg.appScriptUrl || CANONICAL_APP_SCRIPT_URL;
+      if (!targetUrl || !targetUrl.startsWith('http')) {
+        return { ok: false, error: 'Chưa cấu hình URL Apps Script' };
+      }
+
+      const headers = ['Ngay', '1P3G_TT', '1P3G_GT', '3P3G_TT', '3P3G_GT', 'Tong', 'NguoiCapNhat', 'CapNhatLuc', 'NgayIso'];
+      const rows = items.map(it => [
+        it.ngay,
+        it.p1tt,
+        it.p1gt,
+        it.p3tt,
+        it.p3gt,
+        it.tong,
+        it.nguoiCapNhat || '',
+        it.capNhatLuc || '',
+        it.ngayIso
+      ]);
+
+      const bodyData = {
+        action: 'overwrite_sheet',
+        sheetName: 'KHTuan',
+        spreadsheetId: cfg.spreadsheetId || CANONICAL_SPREADSHEET_ID,
+        chunkIndex: 0,
+        totalChunks: 1,
+        headers,
+        rows
+      };
+
+      const res = await fetch(targetUrl, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(bodyData)
+      });
+      const text = await res.text().catch(() => '');
+      try {
+        const j = JSON.parse(text);
+        if (j && j.status === 'success') return { ok: true };
+        return { ok: false, error: j?.message || text };
+      } catch {
+        return { ok: res.ok && !text.includes('Unknown action'), error: text };
+      }
+    } catch (e: any) {
+      console.warn('Sync KHTuan to Google Sheet error:', e);
+      return { ok: false, error: e?.message };
+    }
+  };
+
+  app.get("/api/kh-tuan-963", (req, res) => {
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    loadKhTuanStore();
+    res.json({ success: true, items: khTuanStore });
+  });
+
+  app.post("/api/kh-tuan-963", async (req, res) => {
+    try {
+      const { action, items, clientTodayIso } = req.body || {};
+
+      if (action === 'set_all' && Array.isArray(items)) {
+        khTuanStore = deduplicateKhTuanList(items);
+        saveKhTuanStore();
+        res.json({ success: true, count: khTuanStore.length, items: khTuanStore });
+        return;
+      }
+
+      loadKhTuanStore();
+      const todayIso = (typeof clientTodayIso === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(clientTodayIso))
+        ? clientTodayIso
+        : new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
+
+      const existingMap = new Map<string, any>();
+      for (const ex of khTuanStore) {
+        existingMap.set(ex.ngayIso, ex);
+      }
+
+      const incoming = deduplicateKhTuanList(Array.isArray(items) ? items : []);
+      let updatedCount = 0;
+      for (const inc of incoming) {
+        // Chỉ cho phép thay đổi và lưu các ngày CHƯA TỚI ngày thực hiện (ngayIso > todayIso)
+        if (inc.ngayIso > todayIso) {
+          existingMap.set(inc.ngayIso, inc);
+          updatedCount++;
+        } else if (!existingMap.has(inc.ngayIso)) {
+          // Bỏ qua tạo mới nếu đã tới hoặc qua ngày thực hiện
+        }
+      }
+
+      khTuanStore = Array.from(existingMap.values()).sort((a, b) => a.ngayIso.localeCompare(b.ngayIso));
+      saveKhTuanStore();
+
+      const sheetRes = await forwardKhTuanToGoogleSheet(khTuanStore);
+      res.json({
+        success: true,
+        updatedCount,
+        sheetSynced: sheetRes.ok,
+        sheetError: sheetRes.ok ? undefined : sheetRes.error,
+        items: khTuanStore
+      });
+    } catch (err: any) {
+      console.warn('Error in /api/kh-tuan-963:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   // Cache for sheet name -> gid mapping to prevent gviz active-filter truncation
   const gidCache = new Map<string, { map: Record<string, string>; timestamp: number }>();
 
