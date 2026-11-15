@@ -129,6 +129,10 @@ export default function Login({ onLoginSuccess }: LoginProps) {
       });
 
       if (foundMember) {
+        if (!DataStore.isMemberActive(foundMember)) {
+          setError('Tài khoản của bạn đang bị khóa (TrangThai = 0). Vui lòng liên hệ Quản trị viên để mở khóa!');
+          return;
+        }
         const normMName = normalizeStr(foundMember.name);
         if (normMName.includes('nguyenthanhphong') || normMName.includes('thanhphong')) {
           foundMember.role = 'Đội trưởng';

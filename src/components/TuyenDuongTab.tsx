@@ -129,6 +129,7 @@ export default function TuyenDuongTab({ onGoToBirthdayMonth, sessionUser }: Tuye
     // Fallbacks if not enough entries recorded (also strictly exclude penalized members & non-productivity roles)
     const fallbackList = allMembers
       .filter(m => 
+        DataStore.isMemberActive(m) &&
         (selectedTeam === 'all' || m.team === selectedTeam) &&
         !DataStore.isMemberExcludedFromTuyenDuong(m.name, selectedYear, periodType === 'month' ? selectedMonth : 0) &&
         !DataStore.isMemberExcludedFromProductivity(m)

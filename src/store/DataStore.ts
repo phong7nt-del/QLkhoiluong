@@ -46,6 +46,7 @@ export interface XuLyDoXaEntry {
 }
 
 export interface SheetMember {
+  stt?: string | number;
   team: string;
   name: string;
   role?: string;
@@ -53,6 +54,7 @@ export interface SheetMember {
   sinhNhat?: string;
   boPhanCongTac?: string;
   boPhan?: string;
+  trangThai?: string; // '1' = Đang hoạt động, '0' = Bị khóa
   nghiBu?: number;
   [key: string]: any;
 }
@@ -2349,13 +2351,14 @@ export const DataStore = {
       let newTeams = new Set<string>();
       if (ctText && !ctText.includes('<html')) {
         const ctData = Papa.parse(ctText, { header: false }).data;
-        let headerRowIdx = -1, nameColIdx = -1, msnvColIdx = -1, roleColIdx = -1, teamColIdx = 5, boPhanColIdx = -1, nghiBuColIdx = -1;
+        let headerRowIdx = -1, sttColIdx = -1, nameColIdx = -1, msnvColIdx = -1, roleColIdx = -1, teamColIdx = 5, boPhanColIdx = -1, sinhNhatColIdx = -1, trangThaiColIdx = -1, nghiBuColIdx = -1;
         for (let r = 0; r < Math.min(5, ctData.length); r++) {
           const rowData = ctData[r] as string[];
           if (!rowData) continue;
           for (let c = 0; c < rowData.length; c++) {
             const val = String(rowData[c] || '').toLowerCase().trim();
             const cleanVal = val.replace(/\s+/g, '');
+            if (cleanVal === 'stt') sttColIdx = c;
             if (val.includes('họ và tên') || val === 'họ tên' || cleanVal === 'họvàtên' || cleanVal === 'họtên') {
               headerRowIdx = r;
               nameColIdx = c;
@@ -2372,12 +2375,20 @@ export const DataStore = {
             if (val.includes('bộ phận') || val.includes('bo phan')) {
               boPhanColIdx = c;
             }
+            if (val.includes('sinh') || cleanVal.includes('ngàysinh')) {
+              sinhNhatColIdx = c;
+            }
+            if (cleanVal === 'trangthai' || cleanVal.includes('trạngthái') || cleanVal.includes('trangthai')) {
+              trangThaiColIdx = c;
+            }
             if (val.includes('nghỉ bù') || val.includes('nghibu') || cleanVal.includes('nghỉbù') || cleanVal.includes('nghibu') || cleanVal.includes('đãnghỉbù') || val.includes('nghỉ phép') || val.includes('nghiphep') || cleanVal.includes('nghỉphép') || cleanVal.includes('nghiphep')) {
               nghiBuColIdx = c;
             }
           }
           if (headerRowIdx !== -1) break;
         }
+        if (sttColIdx === -1) sttColIdx = 0;
+        if (trangThaiColIdx === -1) trangThaiColIdx = 7;
 
         if (headerRowIdx !== -1 && nameColIdx !== -1) {
           let currentTeam = '';
@@ -2387,6 +2398,8 @@ export const DataStore = {
             if (!row || !row[nameColIdx]) continue;
             const rawName = row[nameColIdx].trim();
             if (!rawName) continue;
+
+            const memberStt = sttColIdx !== -1 && row[sttColIdx] !== undefined ? String(row[sttColIdx]).trim() : '';
 
             let teamStr = row[teamColIdx] ? row[teamColIdx].trim().replace(/\s+/g, ' ') : '';
             if (teamStr && teamStr.toLowerCase() !== 'khu vực' && teamStr.toLowerCase() !== 'tổ công tác') {
@@ -2419,6 +2432,25 @@ export const DataStore = {
               finalTeam = 'DVKH';
             }
 
+            let sinhNhat = '';
+            if (sinhNhatColIdx !== -1 && row[sinhNhatColIdx]) {
+              const rawSn = String(row[sinhNhatColIdx]).trim();
+              if (rawSn && rawSn !== '#N/A' && rawSn.toUpperCase() !== 'N/A') {
+                const sn = rawSn.replace(/[\-\.]/g, '/');
+                const p = sn.split('/');
+                if (p.length >= 2) {
+                  const day = p[0].length === 1 ? '0' + p[0] : p[0];
+                  const month = p[1].length === 1 ? '0' + p[1] : p[1];
+                  sinhNhat = day + '/' + month + (p.length === 3 ? '/' + p[2] : '');
+                } else {
+                  sinhNhat = rawSn;
+                }
+              }
+            }
+
+            const trangThaiRaw = trangThaiColIdx !== -1 && row[trangThaiColIdx] !== undefined ? String(row[trangThaiColIdx]).trim() : '1';
+            const memberTrangThai = DataStore.normalizeTrangThai(trangThaiRaw);
+
             let memberNghiBu = 0;
             if (nghiBuColIdx !== -1 && row[nghiBuColIdx]) {
               const parsed = parseFloat(String(row[nghiBuColIdx]).replace(',', '.').trim());
@@ -2434,13 +2466,15 @@ export const DataStore = {
             }
 
             newMembers.push({
+              stt: memberStt,
               name: rawName,
               team: finalTeam,
               msnv: memberMsnv,
               role: memberRole,
-              sinhNhat: '',
+              sinhNhat,
               boPhanCongTac: memberBoPhan,
               boPhan: memberBoPhan,
+              trangThai: memberTrangThai,
               nghiBu: memberNghiBu
             });
           }
@@ -2448,9 +2482,16 @@ export const DataStore = {
       }
 
       if (newMembers.length > 0) {
+        newMembers = await DataStore.applyCongTacUserOverlays(newMembers);
         safeSetItem(MEMBERS_KEY, JSON.stringify(newMembers));
-        if (newTeams.size > 0) {
-          safeSetItem(TEAMS_KEY, JSON.stringify(Array.from(newTeams)));
+        const teamSet = new Set<string>(Array.from(newTeams));
+        newMembers.forEach(m => {
+          if (m.team && m.team !== 'Không xác định' && m.team !== 'Tổ công tác' && m.team !== 'Khu vực') {
+            teamSet.add(m.team);
+          }
+        });
+        if (teamSet.size > 0) {
+          safeSetItem(TEAMS_KEY, JSON.stringify(Array.from(teamSet)));
         }
         return newMembers;
       }
@@ -2540,6 +2581,7 @@ export const DataStore = {
                if (ctText) {
                    const ctData = Papa.parse(ctText, { header: false }).data;
                    let headerRowIdx = -1;
+                   let sttColIdx = -1;
                    let nameColIdx = -1;
                    let msnvColIdx = -1;
                    let roleColIdx = -1;
@@ -2549,7 +2591,8 @@ export const DataStore = {
                    let sinhNhatColIdx = -1;
                    let boPhanColIdx = -1;
                    let boPhanColScore = 0;
-                    let nghiBuColIdx = -1;
+                   let trangThaiColIdx = -1;
+                   let nghiBuColIdx = -1;
                    
                    for(let r=0; r<5; r++) {
                        if(ctData[r]) {
@@ -2558,6 +2601,7 @@ export const DataStore = {
                                const val = String(rowData[c] || '').toLowerCase().trim();
                                const cleanVal = val.replace(/\s+/g, '');
                                
+                               if (cleanVal === 'stt') sttColIdx = c;
                                if (val.includes('họ và tên') || val === 'họ tên' || cleanVal === 'họvàtên' || cleanVal === 'họtên') {
                                    headerRowIdx = r;
                                    nameColIdx = c;
@@ -2567,6 +2611,9 @@ export const DataStore = {
                                }
                                if(val.includes('sinh') || val.includes('ngàysinh') || cleanVal.includes('ngàysinh')) {
                                    sinhNhatColIdx = c;
+                               }
+                               if (cleanVal === 'trangthai' || cleanVal.includes('trạngthái') || cleanVal.includes('trangthai')) {
+                                   trangThaiColIdx = c;
                                }
                                
                                // Prioritize Chức danh, công việc
@@ -2625,7 +2672,9 @@ export const DataStore = {
                        }
                        if(headerRowIdx !== -1) break;
                    }
+                   if (sttColIdx === -1) sttColIdx = 0;
                    if (teamColIdx === -1) teamColIdx = 5;
+                   if (trangThaiColIdx === -1) trangThaiColIdx = 7;
 
                    if(headerRowIdx !== -1) {
                        let currentTeam = '';
@@ -2640,6 +2689,8 @@ export const DataStore = {
                           if (!row || !row[nameColIdx]) continue;
                           const rawName = row[nameColIdx].trim();
                           if (!rawName) continue;
+
+                          const memberStt = sttColIdx !== -1 && row[sttColIdx] !== undefined ? String(row[sttColIdx]).trim() : '';
                           
                           let finalTeam = currentTeam || 'Không xác định';
 
@@ -2659,15 +2710,18 @@ export const DataStore = {
 
                           let sinhNhat = '';
                           const existingMember = (json.members || []).find((m: any) => m.name === rawName);
-                          if (existingMember && existingMember.sinhNhat) {
+                          if (existingMember && existingMember.sinhNhat && existingMember.sinhNhat !== '#N/A') {
                               sinhNhat = existingMember.sinhNhat;
                           } else if (sinhNhatColIdx !== -1 && row[sinhNhatColIdx]) {
-                              sinhNhat = String(row[sinhNhatColIdx]).trim().replace(/[\-\.]/g, '/');
-                              var p = sinhNhat.split('/');
-                              if (p.length >= 2) {
-                                  var day = p[0].length === 1 ? '0' + p[0] : p[0];
-                                  var month = p[1].length === 1 ? '0' + p[1] : p[1];
-                                  sinhNhat = day + '/' + month + (p.length === 3 ? '/' + p[2] : '');
+                              const rawSn = String(row[sinhNhatColIdx]).trim();
+                              if (rawSn && rawSn !== '#N/A' && rawSn.toUpperCase() !== 'N/A') {
+                                sinhNhat = rawSn.replace(/[\-\.]/g, '/');
+                                var p = sinhNhat.split('/');
+                                if (p.length >= 2) {
+                                    var day = p[0].length === 1 ? '0' + p[0] : p[0];
+                                    var month = p[1].length === 1 ? '0' + p[1] : p[1];
+                                    sinhNhat = day + '/' + month + (p.length === 3 ? '/' + p[2] : '');
+                                }
                               }
                           }
 
@@ -2705,6 +2759,9 @@ export const DataStore = {
                               finalTeam = 'DVKH';
                           }
 
+                          const trangThaiRaw = trangThaiColIdx !== -1 && row[trangThaiColIdx] !== undefined ? String(row[trangThaiColIdx]).trim() : '1';
+                          const memberTrangThai = DataStore.normalizeTrangThai(trangThaiRaw);
+
                           let memberNghiBu = 0;
                           if (nghiBuColIdx !== -1 && row[nghiBuColIdx]) {
                               const parsed = parseFloat(String(row[nghiBuColIdx]).replace(',', '.').trim());
@@ -2724,6 +2781,7 @@ export const DataStore = {
                           }
 
                           newMembers.push({
+                              stt: memberStt,
                               name: rawName,
                               team: finalTeam,
                               msnv: memberMsnv,
@@ -2731,6 +2789,7 @@ export const DataStore = {
                               sinhNhat: sinhNhat,
                               boPhanCongTac: memberBoPhan,
                               boPhan: memberBoPhan,
+                              trangThai: memberTrangThai,
                               nghiBu: memberNghiBu
                           });
                        }
@@ -2741,7 +2800,13 @@ export const DataStore = {
             }
 
             if (newMembers.length > 0) {
+                newMembers = await DataStore.applyCongTacUserOverlays(newMembers);
                 json.members = newMembers;
+                newMembers.forEach((m: any) => {
+                  if (m.team && m.team !== 'Không xác định' && m.team !== 'Tổ công tác' && m.team !== 'Khu vực') {
+                    newTeams.add(m.team);
+                  }
+                });
             }
             if (newTeams.size > 0) {
                 json.teams = Array.from(newTeams).filter(t => t && t !== 'Không xác định' && t !== 'Tổ công tác' && t !== 'Khu vực');
@@ -4213,6 +4278,415 @@ export const DataStore = {
     } catch (error) {
       console.error('Lỗi cập nhật mật khẩu:', error);
       return false;
+    }
+  },
+
+  normalizeUserKey: (name: any): string => {
+    return String(name || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/đ/g, 'd')
+      .replace(/Đ/g, 'd')
+      .toLowerCase()
+      .replace(/\s+/g, '');
+  },
+
+  normalizeTrangThai: (val: any): '1' | '0' => {
+    const s = String(val === undefined || val === null ? '1' : val)
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/đ/g, 'd')
+      .toLowerCase()
+      .trim();
+    if (s === '0' || s === 'khoa' || s === 'locked' || s === 'false' || s === 'bikhoa' || s === 'bi khoa') {
+      return '0';
+    }
+    return '1';
+  },
+
+  isMemberActive: (member: SheetMember | null | undefined): boolean => {
+    if (!member) return true;
+    return DataStore.normalizeTrangThai(member.trangThai) !== '0';
+  },
+
+  applyCongTacUserOverlays: async (baseMembers: SheetMember[]): Promise<SheetMember[]> => {
+    try {
+      const res = await fetch(`/api/congtac-users?_t=${Date.now()}`, { cache: 'no-store' });
+      if (!res.ok) return baseMembers;
+      const json = await res.json();
+      const store = json?.store;
+      if (!store || typeof store !== 'object') return baseMembers;
+
+      const upserts: Record<string, any> = store.upserts || {};
+      const deletes: Record<string, any> = store.deletes || {};
+      const pruneUpsertKeys: string[] = [];
+      const pruneDeleteKeys: string[] = [];
+
+      const baseByKey = new Map<string, SheetMember>();
+      baseMembers.forEach((m) => {
+        const k = DataStore.normalizeUserKey(m.name);
+        if (k) baseByKey.set(k, m);
+      });
+
+      // Kiểm tra và áp dụng danh sách đã xóa
+      const deletedKeysSet = new Set<string>();
+      Object.keys(deletes).forEach((k) => {
+        const delInfo = deletes[k];
+        if (!baseByKey.has(k)) {
+          if (delInfo?.sheetSynced) pruneDeleteKeys.push(k);
+        } else {
+          deletedKeysSet.add(k);
+        }
+      });
+
+      const result: SheetMember[] = [];
+      const seenKeys = new Set<string>();
+
+      for (const m of baseMembers) {
+        const k = DataStore.normalizeUserKey(m.name);
+        if (deletedKeysSet.has(k)) continue;
+        const overlay = upserts[k];
+        if (overlay) {
+          // Nếu bản ghi trên CSV đã khớp hoàn toàn với overlay đã đồng bộ thì thu dọn overlay
+          const csvMatchesOverlay =
+            overlay.sheetSynced &&
+            String(m.msnv || '').trim() === String(overlay.msnv ?? m.msnv ?? '').trim() &&
+            String(m.name || '').trim() === String(overlay.name ?? m.name ?? '').trim() &&
+            String(m.boPhanCongTac || '').trim() === String(overlay.boPhanCongTac ?? m.boPhanCongTac ?? '').trim() &&
+            String(m.role || '').trim() === String(overlay.role ?? m.role ?? '').trim() &&
+            String(m.team || '').trim() === String(overlay.team ?? m.team ?? '').trim() &&
+            String(m.sinhNhat || '').trim() === String(overlay.sinhNhat ?? m.sinhNhat ?? '').trim() &&
+            DataStore.normalizeTrangThai(m.trangThai) === DataStore.normalizeTrangThai(overlay.trangThai ?? m.trangThai);
+
+          if (csvMatchesOverlay) {
+            pruneUpsertKeys.push(k);
+            result.push(m);
+          } else {
+            result.push({
+              ...m,
+              stt: overlay.stt !== undefined ? overlay.stt : m.stt,
+              msnv: overlay.msnv !== undefined ? overlay.msnv : m.msnv,
+              name: overlay.name || m.name,
+              boPhanCongTac: overlay.boPhanCongTac !== undefined ? overlay.boPhanCongTac : m.boPhanCongTac,
+              boPhan: overlay.boPhanCongTac !== undefined ? overlay.boPhanCongTac : m.boPhan,
+              role: overlay.role !== undefined ? overlay.role : m.role,
+              team: overlay.team !== undefined ? overlay.team : m.team,
+              sinhNhat: overlay.sinhNhat !== undefined ? overlay.sinhNhat : m.sinhNhat,
+              trangThai: overlay.trangThai !== undefined ? DataStore.normalizeTrangThai(overlay.trangThai) : (m.trangThai || '1')
+            });
+          }
+        } else {
+          result.push(m);
+        }
+        seenKeys.add(k);
+      }
+
+      // Thêm các user mới tạo nằm trong upserts chưa xuất hiện trên CSV
+      Object.keys(upserts).forEach((k) => {
+        if (seenKeys.has(k) || deletedKeysSet.has(k)) return;
+        const ov = upserts[k];
+        if (ov && ov.name) {
+          result.push({
+            stt: ov.stt ?? (result.length + 1),
+            name: String(ov.name).trim(),
+            msnv: String(ov.msnv || '').trim(),
+            boPhanCongTac: String(ov.boPhanCongTac || '').trim(),
+            boPhan: String(ov.boPhanCongTac || '').trim(),
+            role: String(ov.role || 'Nhân viên').trim(),
+            team: String(ov.team || 'Không xác định').trim(),
+            sinhNhat: String(ov.sinhNhat || '').trim(),
+            trangThai: DataStore.normalizeTrangThai(ov.trangThai),
+            nghiBu: 0
+          });
+        }
+      });
+
+      // Thu dọn nền các overlay đã khớp Google Sheet
+      if (pruneUpsertKeys.length > 0 || pruneDeleteKeys.length > 0) {
+        fetch('/api/congtac-users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subAction: 'prune', pruneUpsertKeys, pruneDeleteKeys })
+        }).catch(() => {});
+      }
+
+      return result;
+    } catch {
+      return baseMembers;
+    }
+  },
+
+  getMemberDailyReportCount: (memberName: string): number => {
+    const targetKey = DataStore.normalizeUserKey(memberName);
+    if (!targetKey) return 0;
+    const entries = DataStore.getEntries();
+    let count = 0;
+    for (const entry of entries) {
+      if (!entry || !entry.content || !String(entry.content).trim()) continue;
+      const membersArr = Array.isArray(entry.members) ? entry.members : [];
+      if (membersArr.some(m => DataStore.normalizeUserKey(m) === targetKey)) {
+        count++;
+      }
+    }
+    return count;
+  },
+
+  fetchCongTacUsers: async (): Promise<{ members: SheetMember[]; source: 'sheet' | 'cache'; error?: string }> => {
+    try {
+      const sheetId = DataStore.getSpreadsheetId() || DEFAULT_SPREADSHEET_ID;
+      let ctText = '';
+      const ctSheets = ['CongTac', 'Cong Tac', 'Công tác', 'Công Tác', 'Con Tác'];
+      for (const sheetName of ctSheets) {
+        try {
+          const t = await DataStore.fetchSheetCSV(sheetName, sheetId);
+          if (t && !t.includes('<html') && t.trim().length > 30) {
+            ctText = t;
+            break;
+          }
+        } catch {}
+      }
+
+      if (ctText) {
+        const ctData = Papa.parse(ctText, { header: false }).data as string[][];
+        let headerRowIdx = -1;
+        let sttColIdx = -1, msnvColIdx = -1, nameColIdx = -1, boPhanColIdx = -1, roleColIdx = -1, teamColIdx = -1, sinhNhatColIdx = -1, trangThaiColIdx = -1, nghiBuColIdx = -1;
+
+        for (let r = 0; r < Math.min(5, ctData.length); r++) {
+          const rowData = ctData[r];
+          if (!rowData) continue;
+          for (let c = 0; c < rowData.length; c++) {
+            const val = String(rowData[c] || '').toLowerCase().trim();
+            const cleanVal = val.replace(/\s+/g, '');
+            if (cleanVal === 'stt') sttColIdx = c;
+            if (cleanVal === 'msnv' || cleanVal === 'manv' || val.includes('mã nhân viên')) msnvColIdx = c;
+            if (val.includes('họ và tên') || val === 'họ tên' || cleanVal === 'họvàtên' || cleanVal === 'họtên') {
+              headerRowIdx = r;
+              nameColIdx = c;
+            }
+            if (val.includes('bộ phận') || val.includes('bo phan')) boPhanColIdx = c;
+            if (!val.includes('nội dung') && (cleanVal.includes('chứcdanh') || cleanVal.includes('chucdanh') || val.includes('chức vụ'))) roleColIdx = c;
+            if (!val.includes('bộ phận') && (val.includes('tổ công tác') || val.includes('khu vực') || val.includes('khu vuc'))) teamColIdx = c;
+            if (val.includes('sinh')) sinhNhatColIdx = c;
+            if (cleanVal === 'trangthai' || cleanVal.includes('trạngthái') || cleanVal.includes('trangthai')) trangThaiColIdx = c;
+            if (val.includes('nghỉ bù') || val.includes('nghibu') || val.includes('nghỉ phép')) nghiBuColIdx = c;
+          }
+          if (headerRowIdx !== -1) break;
+        }
+
+        if (headerRowIdx !== -1 && nameColIdx !== -1) {
+          if (sttColIdx === -1) sttColIdx = 0;
+          if (msnvColIdx === -1) msnvColIdx = 1;
+          if (boPhanColIdx === -1) boPhanColIdx = 3;
+          if (roleColIdx === -1) roleColIdx = 4;
+          if (teamColIdx === -1) teamColIdx = 5;
+          if (sinhNhatColIdx === -1) sinhNhatColIdx = 6;
+          if (trangThaiColIdx === -1) trangThaiColIdx = 7;
+
+          let parsedMembers: SheetMember[] = [];
+          const teamsSet = new Set<string>();
+          let currentTeam = '';
+          const localNghiBuMap = DataStore.getLocalNghiBuMap();
+
+          for (let i = headerRowIdx + 1; i < ctData.length; i++) {
+            const row = ctData[i];
+            if (!row || !row[nameColIdx]) continue;
+            const rawName = String(row[nameColIdx]).trim();
+            if (!rawName) continue;
+
+            const teamStr = row[teamColIdx] ? String(row[teamColIdx]).trim().replace(/\s+/g, ' ') : '';
+            if (teamStr && teamStr.toLowerCase() !== 'khu vực' && teamStr.toLowerCase() !== 'tổ công tác') {
+              currentTeam = teamStr;
+            }
+            const finalTeam = currentTeam || 'Không xác định';
+            if (finalTeam && finalTeam !== 'Không xác định') teamsSet.add(finalTeam);
+
+            let sinhNhat = '';
+            const rawSn = sinhNhatColIdx !== -1 && row[sinhNhatColIdx] ? String(row[sinhNhatColIdx]).trim() : '';
+            if (rawSn && rawSn !== '#N/A' && rawSn.toUpperCase() !== 'N/A') {
+              const sn = rawSn.replace(/[\-\.]/g, '/');
+              const p = sn.split('/');
+              if (p.length >= 2) {
+                sinhNhat = `${p[0].padStart(2, '0')}/${p[1].padStart(2, '0')}${p.length === 3 ? '/' + p[2] : ''}`;
+              } else {
+                sinhNhat = rawSn;
+              }
+            }
+
+            let memberNghiBu = 0;
+            if (nghiBuColIdx !== -1 && row[nghiBuColIdx]) {
+              const parsed = parseFloat(String(row[nghiBuColIdx]).replace(',', '.').trim());
+              if (!isNaN(parsed) && parsed >= 0) memberNghiBu = parsed;
+            }
+            if (localNghiBuMap && typeof localNghiBuMap[rawName] === 'number') {
+              memberNghiBu = Math.max(memberNghiBu, localNghiBuMap[rawName]);
+            }
+
+            const boPhan = boPhanColIdx !== -1 && row[boPhanColIdx] ? String(row[boPhanColIdx]).trim() : '';
+            parsedMembers.push({
+              stt: sttColIdx !== -1 && row[sttColIdx] !== undefined ? String(row[sttColIdx]).trim() : String(parsedMembers.length + 1),
+              msnv: msnvColIdx !== -1 && row[msnvColIdx] !== undefined ? String(row[msnvColIdx]).trim() : '',
+              name: rawName,
+              boPhanCongTac: boPhan,
+              boPhan,
+              role: roleColIdx !== -1 && row[roleColIdx] ? String(row[roleColIdx]).trim() : 'Nhân viên',
+              team: finalTeam,
+              sinhNhat,
+              trangThai: DataStore.normalizeTrangThai(trangThaiColIdx !== -1 ? row[trangThaiColIdx] : '1'),
+              nghiBu: memberNghiBu
+            });
+          }
+
+          parsedMembers = await DataStore.applyCongTacUserOverlays(parsedMembers);
+          parsedMembers.forEach(m => {
+            if (m.team && m.team !== 'Không xác định' && m.team !== 'Tổ công tác' && m.team !== 'Khu vực') {
+              teamsSet.add(m.team);
+            }
+          });
+          safeSetItem(MEMBERS_KEY, JSON.stringify(parsedMembers));
+          if (teamsSet.size > 0) {
+            safeSetItem(TEAMS_KEY, JSON.stringify(Array.from(teamsSet)));
+          }
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('workload_updated'));
+          }
+          return { members: parsedMembers, source: 'sheet' };
+        }
+      }
+      return { members: DataStore.getMembers(), source: 'cache', error: 'Không đọc được dữ liệu từ sheet CongTac' };
+    } catch (err: any) {
+      return { members: DataStore.getMembers(), source: 'cache', error: err?.message || 'Lỗi kết nối' };
+    }
+  },
+
+  saveCongTacUser: async (
+    subAction: 'add' | 'update' | 'toggle_lock' | 'delete',
+    params: {
+      user?: Partial<SheetMember>;
+      originalName?: string;
+      originalMsnv?: string;
+      trangThai?: '1' | '0';
+    }
+  ): Promise<{
+    success: boolean;
+    sheetSynced?: boolean;
+    needsScriptDeploy?: boolean;
+    reason?: string;
+    error?: string;
+    members: SheetMember[];
+  }> => {
+    const currentMembers = DataStore.getMembers();
+    const targetName = String(params.originalName || params.user?.name || '').trim();
+    const reportCount = subAction === 'delete' ? DataStore.getMemberDailyReportCount(targetName) : 0;
+
+    if (subAction === 'delete' && reportCount > 0) {
+      return {
+        success: false,
+        reason: 'has_daily_reports',
+        error: `Người dùng "${targetName}" đã có ${reportCount} dữ liệu báo cáo ngày, không thể xóa! Hãy dùng chức năng Khóa tài khoản thay thế.`,
+        members: currentMembers
+      };
+    }
+
+    try {
+      const res = await fetch('/api/congtac-users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subAction,
+          user: params.user,
+          originalName: params.originalName,
+          originalMsnv: params.originalMsnv,
+          trangThai: params.trangThai,
+          hasDailyReports: reportCount > 0
+        })
+      });
+
+      const json = await res.json();
+      if (!json || !json.success) {
+        return {
+          success: false,
+          reason: json?.reason,
+          error: json?.error || 'Không thể cập nhật người dùng.',
+          members: currentMembers
+        };
+      }
+
+      // Cập nhật ngay cache local MEMBERS_KEY
+      let updatedMembers = [...currentMembers];
+      const origKey = DataStore.normalizeUserKey(params.originalName || params.user?.name);
+      const u = params.user || {};
+
+      if (subAction === 'add') {
+        const newMember: SheetMember = {
+          stt: u.stt ?? (updatedMembers.length + 1),
+          msnv: String(u.msnv || '').trim(),
+          name: String(u.name || '').trim(),
+          boPhanCongTac: String(u.boPhanCongTac || '').trim(),
+          boPhan: String(u.boPhanCongTac || '').trim(),
+          role: String(u.role || 'Nhân viên').trim(),
+          team: String(u.team || 'Không xác định').trim(),
+          sinhNhat: String(u.sinhNhat || '').trim(),
+          trangThai: DataStore.normalizeTrangThai(u.trangThai ?? '1'),
+          nghiBu: 0
+        };
+        updatedMembers.push(newMember);
+      } else if (subAction === 'update') {
+        updatedMembers = updatedMembers.map((m) => {
+          if (DataStore.normalizeUserKey(m.name) === origKey) {
+            const nextBoPhan = u.boPhanCongTac !== undefined ? String(u.boPhanCongTac).trim() : (m.boPhanCongTac || '');
+            return {
+              ...m,
+              stt: u.stt !== undefined ? u.stt : m.stt,
+              msnv: u.msnv !== undefined ? String(u.msnv).trim() : m.msnv,
+              name: u.name ? String(u.name).trim() : m.name,
+              boPhanCongTac: nextBoPhan,
+              boPhan: nextBoPhan,
+              role: u.role !== undefined ? String(u.role).trim() : m.role,
+              team: u.team !== undefined ? String(u.team).trim() : m.team,
+              sinhNhat: u.sinhNhat !== undefined ? String(u.sinhNhat).trim() : m.sinhNhat,
+              trangThai: u.trangThai !== undefined ? DataStore.normalizeTrangThai(u.trangThai) : (m.trangThai || '1')
+            };
+          }
+          return m;
+        });
+      } else if (subAction === 'toggle_lock') {
+        const nextStatus = DataStore.normalizeTrangThai(params.trangThai);
+        updatedMembers = updatedMembers.map((m) =>
+          DataStore.normalizeUserKey(m.name) === origKey
+            ? { ...m, trangThai: nextStatus }
+            : m
+        );
+      } else if (subAction === 'delete') {
+        updatedMembers = updatedMembers.filter((m) => DataStore.normalizeUserKey(m.name) !== origKey);
+      }
+
+      safeSetItem(MEMBERS_KEY, JSON.stringify(updatedMembers));
+      const teamsSet = new Set<string>();
+      updatedMembers.forEach((m) => {
+        if (m.team && m.team !== 'Không xác định' && m.team !== 'Tổ công tác' && m.team !== 'Khu vực') {
+          teamsSet.add(m.team);
+        }
+      });
+      if (teamsSet.size > 0) {
+        safeSetItem(TEAMS_KEY, JSON.stringify(Array.from(teamsSet)));
+      }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('workload_updated'));
+      }
+
+      return {
+        success: true,
+        sheetSynced: !!json.sheetSynced,
+        needsScriptDeploy: !!json.needsScriptDeploy,
+        error: json.sheetError,
+        members: updatedMembers
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        error: err?.message || 'Lỗi kết nối khi lưu người dùng.',
+        members: currentMembers
+      };
     }
   },
 

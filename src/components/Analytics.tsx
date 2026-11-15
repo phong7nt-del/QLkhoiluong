@@ -65,16 +65,30 @@ export default function Analytics({ refreshToggle, sessionUser }: { refreshToggl
         displayDateLabel = `Tuần ${w.split('-W')[1]}/${w.split('-W')[0]}`;
     }
 
-    const allMembers = DataStore.getMembers().filter(m => !DataStore.isMemberExcludedFromProductivity(m));
+    const allMembers = DataStore.getMembers().filter(
+      m => DataStore.isMemberActive(m) && !DataStore.isMemberExcludedFromProductivity(m)
+    );
 
     const reportedMembers = new Set<string>();
+    const reportedKeys = new Set<string>();
     targetEntries.forEach(e => {
-        (e.members || []).forEach(m => reportedMembers.add(m));
+        (e.members || []).forEach(m => {
+            reportedMembers.add(m);
+            const k = DataStore.normalizeUserKey(m);
+            if (k) reportedKeys.add(k);
+        });
     });
+
+    const hasReported = (memberName?: string) => {
+        if (!memberName) return false;
+        if (reportedMembers.has(memberName)) return true;
+        const k = DataStore.normalizeUserKey(memberName);
+        return !!k && reportedKeys.has(k);
+    };
 
     if (isToPhoTruong && !isDoiPhoTruong && sessionUser.team) {
         const teamMembers = allMembers.filter(m => m.team === sessionUser.team);
-        const missing = teamMembers.filter(m => !reportedMembers.has(m.name));
+        const missing = teamMembers.filter(m => !hasReported(m.name));
         return {
             type: 'team',
             teamName: sessionUser.team,
@@ -88,7 +102,7 @@ export default function Analytics({ refreshToggle, sessionUser }: { refreshToggl
         const teamsMap = new Map<string, string[]>();
         allMembers.forEach(m => {
             if (!m.team || m.team === 'Đội') return;
-            if (!reportedMembers.has(m.name)) {
+            if (!hasReported(m.name)) {
                 if (!teamsMap.has(m.team)) teamsMap.set(m.team, []);
                 teamsMap.get(m.team).push(m.name);
             }
@@ -102,7 +116,7 @@ export default function Analytics({ refreshToggle, sessionUser }: { refreshToggl
     }
     
     return null;
-  }, [entries, filterMode, selectedDate, sessionUser]);
+  }, [entries, filterMode, selectedDate, selectedWeek, sessionUser, refreshToggle]);
 
   const handleDelete = (id: string) => {
     if (confirm('Bạn có chắc chắn muốn xóa tác nghiệp này?')) {

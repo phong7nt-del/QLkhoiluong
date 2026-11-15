@@ -508,7 +508,16 @@ export default function App() {
                 return mNorm === normPName;
             });
             if (freshMember) {
+                if (!DataStore.isMemberActive(freshMember)) {
+                    sessionStorage.removeItem('workload_user_session');
+                    setSessionUser(null);
+                    return () => window.removeEventListener('workload_updated', handleRefresh);
+                }
                 parsedUser = { ...parsedUser, ...freshMember };
+            } else if (!DataStore.isMemberActive(parsedUser)) {
+                sessionStorage.removeItem('workload_user_session');
+                setSessionUser(null);
+                return () => window.removeEventListener('workload_updated', handleRefresh);
             }
             if (normPName.includes('nguyen thanh phong') || normPName.includes('thanh phong') || parsedUser?.email?.includes('phong7nt')) {
                 parsedUser.role = 'Đội trưởng';
@@ -538,6 +547,19 @@ export default function App() {
     return () => window.removeEventListener('workload_updated', handleRefresh);
   }, []);
 
+  // Tự động đăng xuất nếu tài khoản bị khóa (TrangThai = 0) sau khi đồng bộ dữ liệu nền
+  useEffect(() => {
+    if (!sessionUser) return;
+    const members = DataStore.getMembers();
+    const targetKey = DataStore.normalizeUserKey(sessionUser.name);
+    if (!targetKey || members.length === 0) return;
+    const freshMember = members.find(m => DataStore.normalizeUserKey(m.name) === targetKey);
+    if (freshMember && !DataStore.isMemberActive(freshMember)) {
+      sessionStorage.removeItem('workload_user_session');
+      setSessionUser(null);
+    }
+  }, [refreshToggle, sessionUser]);
+
   const showTaskAlert = () => {
       const today = new Date();
       today.setHours(0,0,0,0);
@@ -566,6 +588,11 @@ export default function App() {
   };
 
   const handleLogin = (user: SheetMember) => {
+     if (!DataStore.isMemberActive(user)) {
+         sessionStorage.removeItem('workload_user_session');
+         setSessionUser(null);
+         return;
+     }
      const normUName = String(user?.name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'd').toLowerCase().trim();
      let effectiveUser = user;
      if (normUName.includes('nguyen thanh phong') || normUName.includes('thanh phong') || (user as any)?.email?.includes('phong7nt')) {
@@ -911,7 +938,7 @@ export default function App() {
                   <Tab963 sessionUser={sessionUser} refreshToggle={refreshToggle} />
                 )}
                 {activeTab === "system" && (
-                  <SystemTab />
+                  <SystemTab sessionUser={sessionUser} />
                 )}
               </div>
             </div>

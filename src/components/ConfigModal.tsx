@@ -46,16 +46,22 @@ function doGet(e) {
       var msnvIdx = -1;
       var roleIdx = -1;
       var sinhNhatIdx = -1;
+      var sttIdx = -1;
+      var boPhanIdx = -1;
+      var trangThaiIdx = -1;
       var startRow = 1;
 
       for (var r = 0; r < 5 && r < data.length; r++) {
         for (var c = 0; c < data[r].length; c++) {
           var val = String(data[r][c]).toLowerCase().trim();
           
-          var cleanVal = val.replace(/\s+/g, '');
+          var cleanVal = val.replace(/\\s+/g, '');
+          if (cleanVal === 'stt') sttIdx = c;
           if (cleanVal.includes('họvàtên') || cleanVal === 'họtên') nameIdx = c;
+          if (cleanVal.includes('bộphận') || cleanVal.includes('bophan')) boPhanIdx = c;
           if (cleanVal.includes('khuvực') || cleanVal === 'khuvuc' || cleanVal.includes('tổcôngtác')) teamIdx = c;
           if (cleanVal === 'msnv' || cleanVal.includes('mãnhânviên')) msnvIdx = c;
+          if (cleanVal === 'trangthai' || cleanVal.includes('trạngthái') || cleanVal.includes('trangthai')) trangThaiIdx = c;
           
           var isIgnoredDesc = val.indexOf('nội dung') !== -1 || val.indexOf('nhiệm vụ') !== -1 || val.indexOf('mô tả') !== -1 || val.indexOf('địa bàn') !== -1 || val.indexOf('thực hiện') !== -1;
           if (!isIgnoredDesc) {
@@ -76,11 +82,17 @@ function doGet(e) {
         }
       }
       
-      if (nameIdx === -1) { nameIdx = 1; startRow = 2; }
-            if (teamIdx === -1) { teamIdx = 2; }
+      if (nameIdx === -1) { nameIdx = 2; startRow = 1; }
+      if (teamIdx === -1) { teamIdx = 5; }
+      if (sttIdx === -1) { sttIdx = 0; }
+      if (msnvIdx === -1) { msnvIdx = 1; }
+      if (boPhanIdx === -1) { boPhanIdx = 3; }
+      if (roleIdx === -1) { roleIdx = 4; }
+      if (sinhNhatIdx === -1) { sinhNhatIdx = 6; }
+      if (trangThaiIdx === -1) { trangThaiIdx = 7; }
       
       var headerRowDebug = data[startRow > 1 ? startRow - 2 : 0] || [];
-      var debugPayload = { headerDebug: headerRowDebug, idxDebug: { nameIdx: nameIdx, teamIdx: teamIdx, msnvIdx: msnvIdx, roleIdx: roleIdx, sinhNhatIdx: sinhNhatIdx } };
+      var debugPayload = { headerDebug: headerRowDebug, idxDebug: { nameIdx: nameIdx, teamIdx: teamIdx, msnvIdx: msnvIdx, roleIdx: roleIdx, sinhNhatIdx: sinhNhatIdx, trangThaiIdx: trangThaiIdx } };
 
       var teams = [];
       var members = [];
@@ -103,33 +115,42 @@ function doGet(e) {
           if (teams.indexOf(assignTeam) === -1) {
              teams.push(assignTeam);
           }
-          var msnv = msnvIdx !== -1 ? String(data[i][msnvIdx]).trim() : '';
-        var role = roleIdx !== -1 ? String(data[i][roleIdx]).trim() : '';
-        var sinhNhat = sinhNhatIdx !== -1 ? data[i][sinhNhatIdx] : '';
-        var originalSinhNhat = sinhNhat; // DEBUG
-        
-        // Format SinhNhat to string dd/MM/yyyy if it's a date object
-        if (Object.prototype.toString.call(sinhNhat) === '[object Date]') {
-             sinhNhat = Utilities.formatDate(sinhNhat, Session.getScriptTimeZone(), "dd/MM/yyyy");
-        } else if (sinhNhat) {
-             sinhNhat = String(sinhNhat).trim().replace(/[\-\.]/g, '/');
-             var p = sinhNhat.split('/');
-             if (p.length >= 2) {
-                 var day = p[0].length === 1 ? '0' + p[0] : p[0];
-                 var month = p[1].length === 1 ? '0' + p[1] : p[1];
-                 sinhNhat = day + '/' + month + (p.length === 3 ? '/' + p[2] : '');
-             }
-        }
-        
-        var normName = name.toLowerCase().replace(/\s+/g, '');
-        if (normName.indexOf('nguyenthanhphong') !== -1 || normName.indexOf('thanhphong') !== -1) {
-          if (role.toLowerCase().indexOf('đội trưởng') === -1 && role.toLowerCase().indexOf('doi truong') === -1) {
-            role = role ? 'Đội trưởng, ' + role : 'Đội trưởng';
+          var sttVal = sttIdx !== -1 ? String(data[i][sttIdx] || '').trim() : '';
+          var msnv = msnvIdx !== -1 ? String(data[i][msnvIdx] || '').trim() : '';
+          var boPhanCongTac = boPhanIdx !== -1 ? String(data[i][boPhanIdx] || '').trim() : '';
+          var role = roleIdx !== -1 ? String(data[i][roleIdx] || '').trim() : '';
+          var sinhNhat = sinhNhatIdx !== -1 ? data[i][sinhNhatIdx] : '';
+          var trangThaiRaw = trangThaiIdx !== -1 ? String(data[i][trangThaiIdx] !== undefined ? data[i][trangThaiIdx] : '1').trim() : '1';
+          var trangThaiVal = trangThaiRaw === '0' ? '0' : '1';
+          var originalSinhNhat = sinhNhat; // DEBUG
+          
+          // Format SinhNhat to string dd/MM/yyyy if it's a date object
+          if (Object.prototype.toString.call(sinhNhat) === '[object Date]') {
+               sinhNhat = Utilities.formatDate(sinhNhat, Session.getScriptTimeZone(), "dd/MM/yyyy");
+          } else if (sinhNhat) {
+               sinhNhat = String(sinhNhat).trim();
+               if (sinhNhat === '#N/A' || sinhNhat === 'N/A') {
+                 sinhNhat = '';
+               } else {
+                 sinhNhat = sinhNhat.replace(/[\\-\\.]/g, '/');
+                 var p = sinhNhat.split('/');
+                 if (p.length >= 2) {
+                     var day = p[0].length === 1 ? '0' + p[0] : p[0];
+                     var month = p[1].length === 1 ? '0' + p[1] : p[1];
+                     sinhNhat = day + '/' + month + (p.length === 3 ? '/' + p[2] : '');
+                 }
+               }
           }
-        }
-        
-        members.push({ team: assignTeam, name: name, msnv: msnv, role: role, sinhNhat: sinhNhat, _rawSinhNhat: String(originalSinhNhat) });
-        memberTeamMap[name] = assignTeam;
+          
+          var normName = name.toLowerCase().replace(/\\s+/g, '');
+          if (normName.indexOf('nguyenthanhphong') !== -1 || normName.indexOf('thanhphong') !== -1) {
+            if (role.toLowerCase().indexOf('đội trưởng') === -1 && role.toLowerCase().indexOf('doi truong') === -1) {
+              role = role ? 'Đội trưởng, ' + role : 'Đội trưởng';
+            }
+          }
+          
+          members.push({ stt: sttVal, team: assignTeam, boPhanCongTac: boPhanCongTac, boPhan: boPhanCongTac, name: name, msnv: msnv, role: role, sinhNhat: sinhNhat, trangThai: trangThaiVal, _rawSinhNhat: String(originalSinhNhat) });
+          memberTeamMap[name] = assignTeam;
         }
       }
       
@@ -3473,6 +3494,206 @@ function doPost(e) {
         updatedCount: khItems.length,
         message: "Đã cập nhật " + khItems.length + " ngày kế hoạch vào sheet KHTuan"
       })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // ======== QUẢN LÝ NGƯỜI DÙNG (SHEET CongTac CỘT A ĐẾN H) ========
+    if (action === 'manage_congtac_user') {
+      var ssCt = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
+      var sheetCt = getSheetFlexibly(ssCt, ['CongTac', 'Cong Tac', 'Công tác', 'Công Tác', 'Con Tác']);
+      if (!sheetCt) {
+        return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Không tìm thấy sheet CongTac' })).setMimeType(ContentService.MimeType.JSON);
+      }
+
+      var subAction = String(payload.subAction || '').trim(); // 'add' | 'update' | 'toggle_lock' | 'delete'
+      var uData = payload.user || payload.data || {};
+      var sheetValues = sheetCt.getDataRange().getValues();
+
+      var headerRowIdx = 0;
+      var colMap = { stt: 0, msnv: 1, name: 2, boPhan: 3, role: 4, team: 5, sinhNhat: 6, trangThai: 7 };
+      var foundHeader = false;
+      for (var r = 0; r < 5 && r < sheetValues.length; r++) {
+        var rowArr = sheetValues[r] || [];
+        var hasName = false;
+        for (var c = 0; c < rowArr.length; c++) {
+          var h = String(rowArr[c] || '').toLowerCase().trim();
+          var hc = h.replace(/\\s+/g, '');
+          if (hc === 'stt') colMap.stt = c;
+          if (hc === 'msnv' || hc === 'manv' || h.indexOf('mã nhân viên') !== -1) colMap.msnv = c;
+          if (h.indexOf('họ và tên') !== -1 || h === 'họ tên' || hc === 'hovaten') { colMap.name = c; hasName = true; }
+          if (h.indexOf('bộ phận') !== -1 || h.indexOf('bo phan') !== -1) colMap.boPhan = c;
+          if (h.indexOf('chức danh') !== -1 || h.indexOf('chức vụ') !== -1) colMap.role = c;
+          if (h.indexOf('khu vực') !== -1 || h.indexOf('khu vuc') !== -1) colMap.team = c;
+          if (h.indexOf('sinh') !== -1) colMap.sinhNhat = c;
+          if (hc === 'trangthai' || h.indexOf('trạng thái') !== -1) colMap.trangThai = c;
+        }
+        if (hasName) {
+          headerRowIdx = r;
+          foundHeader = true;
+          break;
+        }
+      }
+      if (!foundHeader) headerRowIdx = 0;
+
+      // Đảm bảo tiêu đề TrangThai tồn tại ở cột H nếu chưa có
+      var headerCells = sheetValues[headerRowIdx] || [];
+      if (!String(headerCells[colMap.trangThai] || '').trim()) {
+        sheetCt.getRange(headerRowIdx + 1, colMap.trangThai + 1).setValue('TrangThai');
+      }
+
+      var normNameStr = function(s) {
+        return String(s || '').toLowerCase().replace(/\\s+/g, '');
+      };
+
+      var findUserRowIdx = function(targetName, targetMsnv) {
+        var normTarget = normNameStr(targetName);
+        if (normTarget) {
+          for (var r = headerRowIdx + 1; r < sheetValues.length; r++) {
+            if (normNameStr(sheetValues[r][colMap.name]) === normTarget) {
+              return r;
+            }
+          }
+        }
+        var cleanMsnv = String(targetMsnv || '').trim().toLowerCase();
+        if (cleanMsnv) {
+          for (var r2 = headerRowIdx + 1; r2 < sheetValues.length; r2++) {
+            if (String(sheetValues[r2][colMap.msnv] || '').trim().toLowerCase() === cleanMsnv) {
+              return r2;
+            }
+          }
+        }
+        return -1;
+      };
+
+      var asTextCell = function(val) {
+        var s = String(val === undefined || val === null ? '' : val).trim();
+        if (!s) return '';
+        return "'" + s;
+      };
+
+      if (subAction === 'add') {
+        var newName = String(uData.name || '').trim();
+        if (!newName) {
+          return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Thiếu Họ và tên nhân viên' })).setMimeType(ContentService.MimeType.JSON);
+        }
+        if (findUserRowIdx(newName, '') !== -1) {
+          return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Người dùng "' + newName + '" đã tồn tại trong sheet CongTac' })).setMimeType(ContentService.MimeType.JSON);
+        }
+
+        var maxStt = 0;
+        for (var rs = headerRowIdx + 1; rs < sheetValues.length; rs++) {
+          var vStt = parseInt(String(sheetValues[rs][colMap.stt] || '').replace(/[^0-9]/g, ''), 10);
+          if (!isNaN(vStt) && vStt > maxStt && String(sheetValues[rs][colMap.name] || '').trim()) {
+            maxStt = vStt;
+          }
+        }
+        var sttOut = uData.stt !== undefined && String(uData.stt).trim() !== '' ? uData.stt : (maxStt + 1);
+        var trangThaiOut = String(uData.trangThai !== undefined ? uData.trangThai : '1').trim() === '0' ? 0 : 1;
+
+        var newRowIndex = sheetCt.getLastRow() + 1;
+        sheetCt.getRange(newRowIndex, colMap.stt + 1).setValue(sttOut);
+        sheetCt.getRange(newRowIndex, colMap.msnv + 1).setNumberFormat('@').setValue(String(uData.msnv || '').trim());
+        sheetCt.getRange(newRowIndex, colMap.name + 1).setValue(newName);
+        sheetCt.getRange(newRowIndex, colMap.boPhan + 1).setValue(String(uData.boPhanCongTac || '').trim());
+        sheetCt.getRange(newRowIndex, colMap.role + 1).setValue(String(uData.role || 'Nhân viên').trim());
+        sheetCt.getRange(newRowIndex, colMap.team + 1).setValue(String(uData.team || '').trim());
+        sheetCt.getRange(newRowIndex, colMap.sinhNhat + 1).setNumberFormat('@').setValue(asTextCell(uData.sinhNhat || ''));
+        sheetCt.getRange(newRowIndex, colMap.trangThai + 1).setValue(trangThaiOut);
+
+        return ContentService.createTextOutput(JSON.stringify({ status: 'success', subAction: 'add', row: newRowIndex })).setMimeType(ContentService.MimeType.JSON);
+      }
+
+      if (subAction === 'update') {
+        var origName = String(payload.originalName || uData.name || '').trim();
+        var origMsnv = String(payload.originalMsnv || '').trim();
+        var targetIdx = findUserRowIdx(origName, origMsnv);
+        if (targetIdx === -1) {
+          return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Không tìm thấy người dùng "' + origName + '" trong sheet CongTac để cập nhật' })).setMimeType(ContentService.MimeType.JSON);
+        }
+        var targetSheetRow = targetIdx + 1;
+        if (uData.stt !== undefined && String(uData.stt).trim() !== '') {
+          sheetCt.getRange(targetSheetRow, colMap.stt + 1).setValue(uData.stt);
+        }
+        if (uData.msnv !== undefined) {
+          sheetCt.getRange(targetSheetRow, colMap.msnv + 1).setNumberFormat('@').setValue(String(uData.msnv || '').trim());
+        }
+        if (uData.name !== undefined && String(uData.name).trim()) {
+          sheetCt.getRange(targetSheetRow, colMap.name + 1).setValue(String(uData.name).trim());
+        }
+        if (uData.boPhanCongTac !== undefined) {
+          sheetCt.getRange(targetSheetRow, colMap.boPhan + 1).setValue(String(uData.boPhanCongTac || '').trim());
+        }
+        if (uData.role !== undefined) {
+          sheetCt.getRange(targetSheetRow, colMap.role + 1).setValue(String(uData.role || '').trim());
+        }
+        if (uData.team !== undefined) {
+          sheetCt.getRange(targetSheetRow, colMap.team + 1).setValue(String(uData.team || '').trim());
+        }
+        if (uData.sinhNhat !== undefined) {
+          sheetCt.getRange(targetSheetRow, colMap.sinhNhat + 1).setNumberFormat('@').setValue(asTextCell(uData.sinhNhat || ''));
+        }
+        if (uData.trangThai !== undefined) {
+          var tVal = String(uData.trangThai).trim() === '0' ? 0 : 1;
+          sheetCt.getRange(targetSheetRow, colMap.trangThai + 1).setValue(tVal);
+        }
+
+        return ContentService.createTextOutput(JSON.stringify({ status: 'success', subAction: 'update', row: targetSheetRow })).setMimeType(ContentService.MimeType.JSON);
+      }
+
+      if (subAction === 'toggle_lock') {
+        var lockName = String(payload.originalName || uData.name || '').trim();
+        var lockIdx = findUserRowIdx(lockName, payload.originalMsnv || uData.msnv);
+        if (lockIdx === -1) {
+          return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Không tìm thấy người dùng "' + lockName + '" trong sheet CongTac' })).setMimeType(ContentService.MimeType.JSON);
+        }
+        var nextStatus = String(payload.trangThai !== undefined ? payload.trangThai : (uData.trangThai !== undefined ? uData.trangThai : '1')).trim() === '0' ? 0 : 1;
+        sheetCt.getRange(lockIdx + 1, colMap.trangThai + 1).setValue(nextStatus);
+        return ContentService.createTextOutput(JSON.stringify({ status: 'success', subAction: 'toggle_lock', trangThai: String(nextStatus) })).setMimeType(ContentService.MimeType.JSON);
+      }
+
+      if (subAction === 'delete') {
+        var delName = String(payload.originalName || uData.name || '').trim();
+        var delIdx = findUserRowIdx(delName, payload.originalMsnv || uData.msnv);
+        if (delIdx === -1) {
+          return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Không tìm thấy người dùng "' + delName + '" trong sheet CongTac' })).setMimeType(ContentService.MimeType.JSON);
+        }
+
+        // Kiểm tra dữ liệu báo cáo ngày (các cột ngày có dạng dd/MM hoặc Date object)
+        var hdrRow = sheetValues[headerRowIdx] || [];
+        var userRow = sheetValues[delIdx] || [];
+        var hasDailyReport = false;
+        for (var dc = 0; dc < hdrRow.length; dc++) {
+          var hCell = hdrRow[dc];
+          var isDateCol = false;
+          if (Object.prototype.toString.call(hCell) === '[object Date]') {
+            isDateCol = true;
+          } else {
+            var hTxt = String(hCell || '').trim();
+            if (/\\d+\\/\\d+/.test(hTxt) || /^\\d{4}-\\d{1,2}-\\d{1,2}/.test(hTxt)) {
+              isDateCol = true;
+            }
+          }
+          if (isDateCol) {
+            var cellTxt = String(userRow[dc] || '').trim();
+            if (cellTxt !== '') {
+              hasDailyReport = true;
+              break;
+            }
+          }
+        }
+
+        if (hasDailyReport) {
+          return ContentService.createTextOutput(JSON.stringify({
+            status: 'error',
+            reason: 'has_daily_reports',
+            message: 'Người dùng "' + delName + '" đã có dữ liệu báo cáo ngày trong sheet CongTac, không thể xóa!'
+          })).setMimeType(ContentService.MimeType.JSON);
+        }
+
+        sheetCt.deleteRow(delIdx + 1);
+        return ContentService.createTextOutput(JSON.stringify({ status: 'success', subAction: 'delete' })).setMimeType(ContentService.MimeType.JSON);
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Unknown subAction: ' + subAction })).setMimeType(ContentService.MimeType.JSON);
     }
 
     return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Unknown action: ' + action })).setMimeType(ContentService.MimeType.JSON);

@@ -151,6 +151,7 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
       .map(r => r.normalize('NFC').toLowerCase().replace(/\s+/g, ''));
       
     const filterValidRoles = (m: any) => {
+        if (!DataStore.isMemberActive(m)) return false;
         const role = (m.role || '').normalize('NFC').toLowerCase().replace(/\s+/g, '');
         return !excludedRoles.includes(role);
     };
@@ -330,6 +331,21 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
     
     if (sessionUser && sessionUser.name && !members.includes(sessionUser.name)) {
       setMessage({ type: 'error', text: "Bạn chỉ được phép nhập báo cáo cho chính mình hoặc nhóm mà bạn là thành viên." });
+      setTimeout(() => setMessage(null), 5000);
+      return;
+    }
+
+    const lockedSelectedMembers = members.filter(mName => {
+      const found = allSheetMembers.find(
+        m => DataStore.normalizeUserKey(m.name) === DataStore.normalizeUserKey(mName)
+      );
+      return found ? !DataStore.isMemberActive(found) : false;
+    });
+    if (lockedSelectedMembers.length > 0) {
+      setMessage({
+        type: 'error',
+        text: `Thành viên ${lockedSelectedMembers.join(', ')} đang bị khóa (TrangThai = 0), không cần nhập báo cáo.`
+      });
       setTimeout(() => setMessage(null), 5000);
       return;
     }
@@ -534,7 +550,7 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
            const spokenName = nameMatch[2].replace(/[:,;\.]/g, '').trim().toLowerCase();
            let bestMatch = '';
            let bestMatchCount = 0;
-           allSheetMembers.forEach(m => {
+           allSheetMembers.filter(m => DataStore.isMemberActive(m)).forEach(m => {
               const lowerM = m.name.toLowerCase();
               if (lowerM.includes(spokenName)) {
                  bestMatch = m.name;
@@ -796,6 +812,11 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
                      if (val) {
                         const exactMatch = allSheetMembers.find(m => m.name.toLowerCase() === val.toLowerCase());
                         if (exactMatch) {
+                           if (!DataStore.isMemberActive(exactMatch)) {
+                              setMessage({ type: 'error', text: `Tài khoản "${exactMatch.name}" đang bị khóa (TrangThai = 0), không cần nhập báo cáo.` });
+                              setTimeout(() => setMessage(null), 5000);
+                              return;
+                           }
                            if (!members.includes(exactMatch.name)) {
                                setMembers(prev => [...prev, exactMatch.name]);
                            }

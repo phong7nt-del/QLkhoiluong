@@ -751,6 +751,210 @@ async function startServer() {
     }
   });
 
+  // =========================================================================
+  // CENTRALIZED USER MANAGEMENT STORE (SHEET CongTac CỘT A -> H)
+  // =========================================================================
+  const congTacUsersStorePath = path.join(process.cwd(), 'congtac_users_overrides.json');
+
+  interface CongTacUsersOverlayStore {
+    upserts: Record<string, any>;
+    deletes: Record<string, { name: string; sheetSynced: boolean; updatedAt: string }>;
+  }
+
+  let congTacUsersStore: CongTacUsersOverlayStore = { upserts: {}, deletes: {} };
+
+  const normalizeCongTacUserKey = (name: any): string =>
+    String(name || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/đ/g, 'd')
+      .replace(/Đ/g, 'd')
+      .toLowerCase()
+      .replace(/\s+/g, '');
+
+  const loadCongTacUsersStore = () => {
+    try {
+      if (fs.existsSync(congTacUsersStorePath)) {
+        const raw = fs.readFileSync(congTacUsersStorePath, 'utf8');
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          congTacUsersStore = {
+            upserts: parsed.upserts && typeof parsed.upserts === 'object' ? parsed.upserts : {},
+            deletes: parsed.deletes && typeof parsed.deletes === 'object' ? parsed.deletes : {}
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('Could not load congtac_users_overrides.json:', e);
+    }
+  };
+  loadCongTacUsersStore();
+
+  const saveCongTacUsersStore = () => {
+    try {
+      fs.writeFileSync(congTacUsersStorePath, JSON.stringify(congTacUsersStore, null, 2), 'utf8');
+    } catch (e) {
+      console.warn('Could not write congtac_users_overrides.json:', e);
+    }
+  };
+
+  app.get("/api/congtac-users", (req, res) => {
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    loadCongTacUsersStore();
+    res.json({ success: true, store: congTacUsersStore });
+  });
+
+  app.post("/api/congtac-users", async (req, res) => {
+    try {
+      loadCongTacUsersStore();
+      const { subAction, user, originalName, originalMsnv, trangThai, hasDailyReports, pruneUpsertKeys, pruneDeleteKeys } = req.body || {};
+
+      if (subAction === 'prune') {
+        let changed = false;
+        if (Array.isArray(pruneUpsertKeys)) {
+          for (const k of pruneUpsertKeys) {
+            if (congTacUsersStore.upserts[k]?.sheetSynced) {
+              delete congTacUsersStore.upserts[k];
+              changed = true;
+            }
+          }
+        }
+        if (Array.isArray(pruneDeleteKeys)) {
+          for (const k of pruneDeleteKeys) {
+            if (congTacUsersStore.deletes[k]?.sheetSynced) {
+              delete congTacUsersStore.deletes[k];
+              changed = true;
+            }
+          }
+        }
+        if (changed) saveCongTacUsersStore();
+        res.json({ success: true, store: congTacUsersStore });
+        return;
+      }
+
+      if (!['add', 'update', 'toggle_lock', 'delete'].includes(subAction)) {
+        res.status(400).json({ success: false, error: 'Thao tác không hợp lệ.' });
+        return;
+      }
+
+      if (subAction === 'delete' && hasDailyReports) {
+        res.json({
+          success: false,
+          reason: 'has_daily_reports',
+          error: `Người dùng "${originalName || user?.name || ''}" đã có dữ liệu báo cáo ngày, không thể xóa!`
+        });
+        return;
+      }
+
+      const cfg = getSharedConfig();
+      const targetUrl = cfg.appScriptUrl || CANONICAL_APP_SCRIPT_URL;
+      let sheetSynced = false;
+      let needsScriptDeploy = false;
+      let sheetError = '';
+
+      if (targetUrl && targetUrl.startsWith('http')) {
+        try {
+          const gRes = await fetch(targetUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({
+              action: 'manage_congtac_user',
+              subAction,
+              spreadsheetId: cfg.spreadsheetId || CANONICAL_SPREADSHEET_ID,
+              user,
+              originalName,
+              originalMsnv,
+              trangThai
+            })
+          });
+          const text = await gRes.text().catch(() => '');
+          try {
+            const j = JSON.parse(text);
+            if (j && j.status === 'success') {
+              sheetSynced = true;
+            } else if (j && j.reason === 'has_daily_reports') {
+              res.json({
+                success: false,
+                sheetSynced: false,
+                reason: 'has_daily_reports',
+                error: j.message || 'Người dùng đã có dữ liệu báo cáo ngày trong sheet CongTac, không thể xóa!'
+              });
+              return;
+            } else if (j && j.message && String(j.message).includes('Unknown action')) {
+              needsScriptDeploy = true;
+              sheetError = j.message;
+            } else if (j && j.status === 'error') {
+              res.json({
+                success: false,
+                sheetSynced: false,
+                error: j.message || 'Lỗi từ Google Apps Script'
+              });
+              return;
+            } else {
+              sheetError = j?.message || text;
+            }
+          } catch {
+            if (text.includes('Unknown action')) needsScriptDeploy = true;
+            else sheetError = text;
+          }
+        } catch (err: any) {
+          sheetError = err?.message || 'Không kết nối được Apps Script';
+        }
+      }
+
+      const nowIso = new Date().toISOString();
+      const targetName = String(user?.name || originalName || '').trim();
+      const origKey = normalizeCongTacUserKey(originalName || targetName);
+      const newKey = normalizeCongTacUserKey(targetName);
+
+      if (subAction === 'add' || subAction === 'update' || subAction === 'toggle_lock') {
+        if (subAction === 'update' && origKey && newKey && origKey !== newKey) {
+          delete congTacUsersStore.upserts[origKey];
+          congTacUsersStore.deletes[origKey] = {
+            name: String(originalName || ''),
+            sheetSynced,
+            updatedAt: nowIso
+          };
+        }
+        if (newKey) {
+          delete congTacUsersStore.deletes[newKey];
+          const prev = congTacUsersStore.upserts[newKey] || {};
+          congTacUsersStore.upserts[newKey] = {
+            ...prev,
+            ...(user || {}),
+            ...(subAction === 'toggle_lock' ? { trangThai: String(trangThai) === '0' ? '0' : '1' } : {}),
+            name: targetName || prev.name || originalName,
+            originalName: originalName || prev.originalName,
+            key: newKey,
+            sheetSynced,
+            updatedAt: nowIso
+          };
+        }
+      } else if (subAction === 'delete') {
+        if (origKey) {
+          delete congTacUsersStore.upserts[origKey];
+          congTacUsersStore.deletes[origKey] = {
+            name: targetName,
+            sheetSynced,
+            updatedAt: nowIso
+          };
+        }
+      }
+
+      saveCongTacUsersStore();
+      res.json({
+        success: true,
+        sheetSynced,
+        needsScriptDeploy,
+        sheetError: sheetSynced ? undefined : sheetError,
+        store: congTacUsersStore
+      });
+    } catch (err: any) {
+      console.warn('Error in /api/congtac-users:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   // Cache for sheet name -> gid mapping to prevent gviz active-filter truncation
   const gidCache = new Map<string, { map: Record<string, string>; timestamp: number }>();
 

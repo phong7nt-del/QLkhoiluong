@@ -209,6 +209,7 @@ export function calculateMemberProductivity(
   // Also include any members from DataStore.getMembers() if selectedTeam matches and not yet present
   allMembers.forEach(mem => {
     if (selectedTeam !== 'all' && mem.team !== selectedTeam) return;
+    if (!DataStore.isMemberActive(mem)) return;
     if (DataStore.isMemberExcludedFromProductivity(mem)) return;
     if (!stats[mem.name]) {
       // Members with 0 recorded entries in period
