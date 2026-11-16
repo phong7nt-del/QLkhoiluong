@@ -289,6 +289,7 @@ export default function Tab963DienKe({
     date?: string;
     category?: DrillDownCategory;
     label: string;
+    excludeCap110Rg?: boolean;
   } | null>(null);
 
   // Lắng nghe sự kiện cập nhật NhapDK963
@@ -343,10 +344,14 @@ export default function Tab963DienKe({
     }
   };
 
-  // Danh sách các khách hàng CẦN THAY trong Sheet 963 (loại trừ Thu hồi)
+  // Danh sách các khách hàng CẦN THAY trong Sheet 963 (loại trừ Thu hồi và công tơ có Cap 110, RG)
   const needReplaceWithCategory = useMemo(() => {
     return entries963
-      .filter(c => !(c.kSuDung && c.kSuDung.trim().toLowerCase().includes('thu hồi')))
+      .filter(c => {
+        if (c.kSuDung && c.kSuDung.trim().toLowerCase().includes('thu hồi')) return false;
+        if (isCap110OrRg(c)) return false;
+        return true;
+      })
       .map(c => {
         const cat = resolvePhaseCategory(c);
         return {
@@ -391,7 +396,7 @@ export default function Tab963DienKe({
   // TÍNH TOÁN KPI TỔNG HỢP TOÀN BỘ (ALL-TIME) - 5 CHỦNG LOẠI & TỶ LỆ SO VỚI TỔNG CẦN THAY
   // ==========================================
   const kpiTotals = useMemo(() => {
-    // 1. Tổng cần thay theo 5 chủng loại từ sheet 963 (không tính Thu hồi)
+    // 1. Tổng cần thay theo 5 chủng loại từ sheet 963 (không tính Thu hồi và không tính Cap 110, RG)
     let canThayTong = 0;
     let canThay1PTT = 0;
     let canThay1PGT = 0;
@@ -411,6 +416,30 @@ export default function Tab963DienKe({
     const canThay1P = canThay1PTT + canThay1PGT;
     const canThay3PGT = canThay3PGT_HT + canThay3PGT_TT;
     const canThay3P = canThay3PTT + canThay3PGT;
+
+    // Đếm riêng khối lượng Cap 110 và RG không tính vào Tổng Cần Thay (963) để hiển thị đối chiếu
+    let excludedNeedTong = 0;
+    let excludedNeed1PTT = 0;
+    let excludedNeed1PGT = 0;
+    let excludedNeed3PTT = 0;
+    let excludedNeed3PGT_HT = 0;
+    let excludedNeed3PGT_TT = 0;
+
+    entries963.forEach(c => {
+      if (c.kSuDung && c.kSuDung.trim().toLowerCase().includes('thu hồi')) return;
+      if (!isCap110OrRg(c)) return;
+      excludedNeedTong++;
+      const cat = resolvePhaseCategory(c);
+      if (cat.chiTiet === '1 Pha Trực Tiếp') excludedNeed1PTT++;
+      else if (cat.chiTiet === '1 Pha Gián Tiếp') excludedNeed1PGT++;
+      else if (cat.chiTiet === '3 Pha Trực Tiếp') excludedNeed3PTT++;
+      else if (cat.chiTiet === '3 Pha Gián Tiếp HT') excludedNeed3PGT_HT++;
+      else if (cat.chiTiet === '3 Pha Gián Tiếp TT') excludedNeed3PGT_TT++;
+    });
+
+    const excludedNeed1P = excludedNeed1PTT + excludedNeed1PGT;
+    const excludedNeed3PGT = excludedNeed3PGT_HT + excludedNeed3PGT_TT;
+    const excludedNeed3P = excludedNeed3PTT + excludedNeed3PGT;
 
     // 2. Tổng nhập theo 5 chủng loại từ NhapDK963
     let nhapTong = 0;
@@ -491,16 +520,16 @@ export default function Tab963DienKe({
     const tyLe3PGT_HT = pct(thayTruKho3PGT_HT, nhap3PGT_HT);
     const tyLe3PGT_TT = pct(thayTruKho3PGT_TT, nhap3PGT_TT);
 
-    // 5. Tỷ lệ % thay / tổng cần thay (963 - tính đủ cả 110 & RG)
-    const tyLeCanThayTong = pct(thayTong, canThayTong);
-    const tyLeCanThay1P = pct(thay1P, canThay1P);
-    const tyLeCanThay1PTT = pct(thay1PTT, canThay1PTT);
-    const tyLeCanThay1PGT = pct(thay1PGT, canThay1PGT);
-    const tyLeCanThay3P = pct(thay3P, canThay3P);
-    const tyLeCanThay3PTT = pct(thay3PTT, canThay3PTT);
-    const tyLeCanThay3PGT = pct(thay3PGT, canThay3PGT);
-    const tyLeCanThay3PGT_HT = pct(thay3PGT_HT, canThay3PGT_HT);
-    const tyLeCanThay3PGT_TT = pct(thay3PGT_TT, canThay3PGT_TT);
+    // 5. Tỷ lệ % thay / tổng cần thay (963 - đồng bộ loại trừ Cap 110 & RG ở cả 2 vế)
+    const tyLeCanThayTong = pct(thayTruKhoTong, canThayTong);
+    const tyLeCanThay1P = pct(thayTruKho1P, canThay1P);
+    const tyLeCanThay1PTT = pct(thayTruKho1PTT, canThay1PTT);
+    const tyLeCanThay1PGT = pct(thayTruKho1PGT, canThay1PGT);
+    const tyLeCanThay3P = pct(thayTruKho3P, canThay3P);
+    const tyLeCanThay3PTT = pct(thayTruKho3PTT, canThay3PTT);
+    const tyLeCanThay3PGT = pct(thayTruKho3PGT, canThay3PGT);
+    const tyLeCanThay3PGT_HT = pct(thayTruKho3PGT_HT, canThay3PGT_HT);
+    const tyLeCanThay3PGT_TT = pct(thayTruKho3PGT_TT, canThay3PGT_TT);
 
     // 6. Tồn kho chưa thay (Nhập - Đã thay trừ kho; không trừ Cap 110 & RG do phối hợp thay)
     const tonTong = nhapTong - thayTruKhoTong;
@@ -515,6 +544,7 @@ export default function Tab963DienKe({
 
     return {
       canThayTong, canThay1P, canThay1PTT, canThay1PGT, canThay3P, canThay3PTT, canThay3PGT, canThay3PGT_HT, canThay3PGT_TT,
+      excludedNeedTong, excludedNeed1P, excludedNeed1PTT, excludedNeed1PGT, excludedNeed3P, excludedNeed3PTT, excludedNeed3PGT, excludedNeed3PGT_HT, excludedNeed3PGT_TT,
       nhapTong, nhap1P, nhap1PTT, nhap1PGT, nhap3P, nhap3PTT, nhap3PGT, nhap3PGT_HT, nhap3PGT_TT,
       thayTong, thay1P, thay1PTT, thay1PGT, thay3P, thay3PTT, thay3PGT, thay3PGT_HT, thay3PGT_TT,
       thayTruKhoTong, thayTruKho1P, thayTruKho1PTT, thayTruKho1PGT, thayTruKho3P, thayTruKho3PTT, thayTruKho3PGT, thayTruKho3PGT_HT, thayTruKho3PGT_TT,
@@ -522,7 +552,7 @@ export default function Tab963DienKe({
       tyLeCanThayTong, tyLeCanThay1P, tyLeCanThay1PTT, tyLeCanThay1PGT, tyLeCanThay3P, tyLeCanThay3PTT, tyLeCanThay3PGT, tyLeCanThay3PGT_HT, tyLeCanThay3PGT_TT,
       tonTong, ton1P, ton1PTT, ton1PGT, ton3P, ton3PTT, ton3PGT, ton3PGT_HT, ton3PGT_TT
     };
-  }, [nhapList, completedWithNormalizedDate, needReplaceWithCategory]);
+  }, [entries963, nhapList, completedWithNormalizedDate, needReplaceWithCategory]);
 
   // ==========================================
   // BẢNG TỔNG HỢP CHI TIẾT THEO CHỦNG LOẠI (1 PHA, 3 PHA, 3 PHA GT HT/TT)
@@ -534,6 +564,7 @@ export default function Tab963DienKe({
         label: '1 Pha (Tổng 1 Pha)',
         level: 'group' as const,
         canThay: kpiTotals.canThay1P,
+        canThayExcluded: kpiTotals.excludedNeed1P,
         nhap: kpiTotals.nhap1P,
         thay: kpiTotals.thay1P,
         thayTruKho: kpiTotals.thayTruKho1P,
@@ -548,6 +579,7 @@ export default function Tab963DienKe({
         label: '1 Pha Trực Tiếp',
         level: 'sub' as const,
         canThay: kpiTotals.canThay1PTT,
+        canThayExcluded: kpiTotals.excludedNeed1PTT,
         nhap: kpiTotals.nhap1PTT,
         thay: kpiTotals.thay1PTT,
         thayTruKho: kpiTotals.thayTruKho1PTT,
@@ -562,6 +594,7 @@ export default function Tab963DienKe({
         label: '1 Pha Gián Tiếp',
         level: 'sub' as const,
         canThay: kpiTotals.canThay1PGT,
+        canThayExcluded: kpiTotals.excludedNeed1PGT,
         nhap: kpiTotals.nhap1PGT,
         thay: kpiTotals.thay1PGT,
         thayTruKho: kpiTotals.thayTruKho1PGT,
@@ -576,6 +609,7 @@ export default function Tab963DienKe({
         label: '3 Pha (Tổng 3 Pha)',
         level: 'group' as const,
         canThay: kpiTotals.canThay3P,
+        canThayExcluded: kpiTotals.excludedNeed3P,
         nhap: kpiTotals.nhap3P,
         thay: kpiTotals.thay3P,
         thayTruKho: kpiTotals.thayTruKho3P,
@@ -590,6 +624,7 @@ export default function Tab963DienKe({
         label: '3 Pha Trực Tiếp',
         level: 'sub' as const,
         canThay: kpiTotals.canThay3PTT,
+        canThayExcluded: kpiTotals.excludedNeed3PTT,
         nhap: kpiTotals.nhap3PTT,
         thay: kpiTotals.thay3PTT,
         thayTruKho: kpiTotals.thayTruKho3PTT,
@@ -604,6 +639,7 @@ export default function Tab963DienKe({
         label: '3 Pha Gián Tiếp (Tổng GT)',
         level: 'subGroup' as const,
         canThay: kpiTotals.canThay3PGT,
+        canThayExcluded: kpiTotals.excludedNeed3PGT,
         nhap: kpiTotals.nhap3PGT,
         thay: kpiTotals.thay3PGT,
         thayTruKho: kpiTotals.thayTruKho3PGT,
@@ -618,6 +654,7 @@ export default function Tab963DienKe({
         label: '3 Pha Gián Tiếp HT (Cap = HT)',
         level: 'leaf' as const,
         canThay: kpiTotals.canThay3PGT_HT,
+        canThayExcluded: kpiTotals.excludedNeed3PGT_HT,
         nhap: kpiTotals.nhap3PGT_HT,
         thay: kpiTotals.thay3PGT_HT,
         thayTruKho: kpiTotals.thayTruKho3PGT_HT,
@@ -629,9 +666,10 @@ export default function Tab963DienKe({
       },
       {
         key: '3PGT_TT',
-        label: '3 Pha Gián Tiếp TT (Cap = TT / 110)',
+        label: '3 Pha Gián Tiếp TT (Cap = TT)',
         level: 'leaf' as const,
         canThay: kpiTotals.canThay3PGT_TT,
+        canThayExcluded: kpiTotals.excludedNeed3PGT_TT,
         nhap: kpiTotals.nhap3PGT_TT,
         thay: kpiTotals.thay3PGT_TT,
         thayTruKho: kpiTotals.thayTruKho3PGT_TT,
@@ -802,7 +840,7 @@ export default function Tab963DienKe({
 
     return sorted.map(row => {
       const tyLeTong = row.nhapTong > 0 ? ((row.thayTruKhoTong / row.nhapTong) * 100).toFixed(1) : '-';
-      const tyLeCanThay = kpiTotals.canThayTong > 0 ? ((row.thayTong / kpiTotals.canThayTong) * 100).toFixed(1) : '-';
+      const tyLeCanThay = kpiTotals.canThayTong > 0 ? ((row.thayTruKhoTong / kpiTotals.canThayTong) * 100).toFixed(1) : '-';
       const tyLe1P = row.nhap1P > 0 ? ((row.thayTruKho1P / row.nhap1P) * 100).toFixed(1) : '-';
       const tyLe3P = row.nhap3P > 0 ? ((row.thayTruKho3P / row.nhap3P) * 100).toFixed(1) : '-';
       const tonLuyKe = cumulativeMap.get(row.date) ?? (row.nhapTong - row.thayTruKhoTong);
@@ -861,9 +899,10 @@ export default function Tab963DienKe({
   // Danh sách drill-down chi tiết khách hàng đã thay
   const drillDownCustomers = useMemo(() => {
     if (!selectedDrillDown) return [];
-    const { date, category } = selectedDrillDown;
+    const { date, category, excludeCap110Rg } = selectedDrillDown;
 
     return completedWithNormalizedDate.filter(c => {
+      if (excludeCap110Rg && c.isExcludedFromKho) return false;
       if (date && c.normDate !== date) return false;
       if (!category || category === 'all') return true;
       if (category === '1 Pha') return c.phaseGroup === '1 Pha';
@@ -991,25 +1030,27 @@ export default function Tab963DienKe({
     try {
       const wb = XLSX.utils.book_new();
 
-      // Sheet 1: Tổng hợp chi tiết theo 5 chủng loại & Tỷ lệ so với Tổng Cần Thay
+      // Sheet 1: Tổng hợp chi tiết theo 5 chủng loại & Tỷ lệ so với Tổng Cần Thay (không tính Cap 110 & RG)
       const summaryRows = categoryBreakdownRows.map(r => ({
         'Chủng Loại Điện Kế': r.label,
-        'Tổng Cần Thay (963)': r.canThay,
+        'Tổng Cần Thay (963 - trừ 110, RG)': r.canThay,
+        'Khối Lượng 110, RG (Không tính Cần Thay)': r.canThayExcluded,
         'Đã Nhập (Kho)': r.nhap,
-        'Đã Thay Xong (963)': r.thay,
-        'Đã Thay Trừ Kho (trừ 110, RG)': r.thayTruKho,
-        'Còn Phải Thay': Math.max(0, r.canThay - r.thay),
+        'Đã Thay Xong (trừ 110, RG)': r.thayTruKho,
+        'Phối Hợp Thay (Cap 110, RG)': Math.max(0, r.thay - r.thayTruKho),
+        'Còn Phải Thay': Math.max(0, r.canThay - r.thayTruKho),
         'Tồn Kho (Nhập - Thay)': r.tonKho,
         'Tỷ Lệ Thay / Đã Nhập': `${r.tyLeNhap}%`,
         'Tỷ Lệ Thay / Tổng Cần Thay': `${r.tyLeCanThay}%`
       }));
       summaryRows.push({
         'Chủng Loại Điện Kế': 'TỔNG CỘNG TOÀN ĐỘI',
-        'Tổng Cần Thay (963)': kpiTotals.canThayTong,
+        'Tổng Cần Thay (963 - trừ 110, RG)': kpiTotals.canThayTong,
+        'Khối Lượng 110, RG (Không tính Cần Thay)': kpiTotals.excludedNeedTong,
         'Đã Nhập (Kho)': kpiTotals.nhapTong,
-        'Đã Thay Xong (963)': kpiTotals.thayTong,
-        'Đã Thay Trừ Kho (trừ 110, RG)': kpiTotals.thayTruKhoTong,
-        'Còn Phải Thay': Math.max(0, kpiTotals.canThayTong - kpiTotals.thayTong),
+        'Đã Thay Xong (trừ 110, RG)': kpiTotals.thayTruKhoTong,
+        'Phối Hợp Thay (Cap 110, RG)': Math.max(0, kpiTotals.thayTong - kpiTotals.thayTruKhoTong),
+        'Còn Phải Thay': Math.max(0, kpiTotals.canThayTong - kpiTotals.thayTruKhoTong),
         'Tồn Kho (Nhập - Thay)': kpiTotals.tonTong,
         'Tỷ Lệ Thay / Đã Nhập': `${kpiTotals.tyLeTong}%`,
         'Tỷ Lệ Thay / Tổng Cần Thay': `${kpiTotals.tyLeCanThayTong}%`
@@ -1088,7 +1129,7 @@ export default function Tab963DienKe({
         'Tổng Nhập Ngày': sumNhapTong,
         'Tổng Đã Thay Ngày': sumThayTong,
         '% Thay / Nhập Ngày': sumNhapTong > 0 ? `${((sumThayTruKhoTong / sumNhapTong) * 100).toFixed(1)}%` : '-',
-        '% Thay / Tổng Cần Thay (963)': kpiTotals.canThayTong > 0 ? `${((sumThayTong / kpiTotals.canThayTong) * 100).toFixed(1)}%` : '-',
+        '% Thay / Tổng Cần Thay (963)': kpiTotals.canThayTong > 0 ? `${((sumThayTruKhoTong / kpiTotals.canThayTong) * 100).toFixed(1)}%` : '-',
         'Tồn Luỹ Kế Đến Ngày': sumNhapTong - sumThayTruKhoTong
       });
 
@@ -1258,6 +1299,11 @@ export default function Tab963DienKe({
               <div className="text-2xl font-black text-sky-950 mt-1">
                 {kpiTotals.canThayTong.toLocaleString('vi-VN')} <span className="text-xs font-semibold text-slate-500">KH</span>
               </div>
+              {kpiTotals.excludedNeedTong > 0 && (
+                <div className="text-[10px] font-semibold text-slate-500 mt-0.5">
+                  (không tính {kpiTotals.excludedNeedTong.toLocaleString('vi-VN')} Cap 110/RG)
+                </div>
+              )}
             </div>
             <div className="w-8 h-8 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center">
               <Target className="w-4 h-4" />
@@ -1318,8 +1364,13 @@ export default function Tab963DienKe({
                 Tổng Đã Thay Xong (963)
               </span>
               <div className="text-2xl font-black text-emerald-950 mt-1">
-                {kpiTotals.thayTong.toLocaleString('vi-VN')} <span className="text-xs font-semibold text-slate-500">công tơ</span>
+                {kpiTotals.thayTruKhoTong.toLocaleString('vi-VN')} <span className="text-xs font-semibold text-slate-500">công tơ</span>
               </div>
+              {kpiTotals.thayTong > kpiTotals.thayTruKhoTong && (
+                <div className="text-[10px] font-semibold text-slate-500 mt-0.5">
+                  (+{(kpiTotals.thayTong - kpiTotals.thayTruKhoTong).toLocaleString('vi-VN')} phối hợp 110/RG)
+                </div>
+              )}
             </div>
             <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center">
               <CheckCircle2 className="w-4 h-4" />
@@ -1329,13 +1380,13 @@ export default function Tab963DienKe({
             <div className="flex justify-between">
               <span>• 1 Pha:</span>
               <span className="font-bold text-slate-800">
-                {kpiTotals.thay1P} <span className="font-normal text-slate-500">(TT:{kpiTotals.thay1PTT} | GT:{kpiTotals.thay1PGT})</span>
+                {kpiTotals.thayTruKho1P} <span className="font-normal text-slate-500">(TT:{kpiTotals.thayTruKho1PTT} | GT:{kpiTotals.thayTruKho1PGT})</span>
               </span>
             </div>
             <div className="flex justify-between">
               <span>• 3 Pha:</span>
               <span className="font-bold text-slate-800">
-                {kpiTotals.thay3P} <span className="font-normal text-slate-500">(TT:{kpiTotals.thay3PTT} | HT:{kpiTotals.thay3PGT_HT} | TT:{kpiTotals.thay3PGT_TT})</span>
+                {kpiTotals.thayTruKho3P} <span className="font-normal text-slate-500">(TT:{kpiTotals.thayTruKho3PTT} | HT:{kpiTotals.thayTruKho3PGT_HT} | TT:{kpiTotals.thayTruKho3PGT_TT})</span>
               </span>
             </div>
           </div>
@@ -1351,7 +1402,7 @@ export default function Tab963DienKe({
               <div className="text-2xl font-black text-rose-950 mt-1">
                 {kpiTotals.tyLeCanThayTong}%
                 <span className="text-[11px] font-bold text-slate-500 ml-1.5">
-                  ({kpiTotals.thayTong}/{kpiTotals.canThayTong})
+                  ({kpiTotals.thayTruKhoTong}/{kpiTotals.canThayTong})
                 </span>
               </div>
             </div>
@@ -1425,7 +1476,7 @@ export default function Tab963DienKe({
                 Thống Kê Chi Tiết Số Lượng & Tỷ Lệ Theo Chủng Loại (1 Pha & 3 Pha - Căn Cứ SO_PHA, Phien & Cap)
               </h3>
               <p className="text-[10px] text-slate-300 mt-0.5">
-                Phân tách chi tiết 1 Pha &amp; 3 Pha (theo cột Cap) • Công tơ Cap 110 &amp; RG vẫn trừ vào <b>Tổng Cần Thay</b>, không trừ vào <b>Đã Nhập (Kho)</b> (do phối hợp thay)
+                Phân tách chi tiết 1 Pha &amp; 3 Pha (theo cột Cap) • Không thống kê các công tơ có Cap 110 và RG (do phối hợp thay)
               </p>
             </div>
           </div>
@@ -1439,10 +1490,10 @@ export default function Tab963DienKe({
             <thead>
               <tr className="bg-slate-100 text-slate-700 font-bold text-[10px] uppercase tracking-wider border-b border-slate-200">
                 <th className="p-2.5">Chủng Loại Điện Kế</th>
-                <th className="p-2.5 text-right text-sky-900">Tổng Cần Thay (963)</th>
+                <th className="p-2.5 text-right text-sky-900" title="Không thống kê Thu hồi và các công tơ có Cap = 110, RG">Tổng Cần Thay (963)</th>
                 <th className="p-2.5 text-right text-indigo-900">Đã Nhập (Kho)</th>
-                <th className="p-2.5 text-right text-emerald-800" title="Tổng số đã thay xong (bao gồm cả Cap 110 & RG để trừ Tổng Cần Thay)">Đã Thay Xong</th>
-                <th className="p-2.5 text-right text-slate-700" title="Tổng Cần Thay - Đã Thay Xong">Còn Phải Thay</th>
+                <th className="p-2.5 text-right text-emerald-800" title="Số đã thay xong trừ các công tơ phối hợp thay (Cap 110 & RG)">Đã Thay Xong</th>
+                <th className="p-2.5 text-right text-slate-700" title="Tổng Cần Thay - Đã Thay Xong (trừ 110, RG)">Còn Phải Thay</th>
                 <th className="p-2.5 text-right text-purple-900" title="Đã Nhập (Kho) - Đã Thay (không trừ Cap 110 & RG do phối hợp thay)">Tồn Kho (Nhập - Thay)</th>
                 <th className="p-2.5 text-center text-amber-900" title="Không tính Cap 110 & RG vào số trừ kho">% Thay / Đã Nhập</th>
                 <th className="p-2.5 text-center text-rose-900 min-w-[150px]">% Thay / Tổng Cần Thay</th>
@@ -1451,7 +1502,8 @@ export default function Tab963DienKe({
             </thead>
             <tbody className="divide-y divide-slate-100">
               {categoryBreakdownRows.map((row) => {
-                const remainingNeed = Math.max(0, row.canThay - row.thay);
+                const remainingNeed = Math.max(0, row.canThay - row.thayTruKho);
+                const coordCount = Math.max(0, row.thay - row.thayTruKho);
                 const pctCanThayNum = Math.min(100, Math.max(0, parseFloat(row.tyLeCanThay) || 0));
                 const isGroup = row.level === 'group';
                 const isSubGroup = row.level === 'subGroup';
@@ -1473,16 +1525,21 @@ export default function Tab963DienKe({
                       </div>
                     </td>
                     <td className="p-2.5 text-right font-mono font-bold text-sky-900">
-                      {row.canThay.toLocaleString('vi-VN')}
+                      <div>{row.canThay.toLocaleString('vi-VN')}</div>
+                      {row.canThayExcluded > 0 && (
+                        <div className="text-[10px] font-semibold text-slate-500" title="Khối lượng Cap 110 và RG đã loại trừ khỏi Tổng Cần Thay (963)">
+                          (không tính {row.canThayExcluded.toLocaleString('vi-VN')} 110/RG)
+                        </div>
+                      )}
                     </td>
                     <td className="p-2.5 text-right font-mono font-bold text-indigo-900">
                       {row.nhap.toLocaleString('vi-VN')}
                     </td>
                     <td className="p-2.5 text-right font-mono font-black text-emerald-700">
-                      <div>{row.thay.toLocaleString('vi-VN')}</div>
-                      {row.thayTruKho < row.thay && (
-                        <div className="text-[10px] font-semibold text-slate-500" title="Số lượng trừ vào kho đã nhập (đã loại Cap 110 & RG)">
-                          Trừ kho: {row.thayTruKho.toLocaleString('vi-VN')}
+                      <div>{row.thayTruKho.toLocaleString('vi-VN')}</div>
+                      {coordCount > 0 && (
+                        <div className="text-[10px] font-semibold text-slate-500" title="Công tơ phối hợp thay (Cap 110 & RG) không tính vào bảng thống kê này">
+                          (+{coordCount.toLocaleString('vi-VN')} phối hợp 110/RG)
                         </div>
                       )}
                     </td>
@@ -1517,17 +1574,18 @@ export default function Tab963DienKe({
                       </div>
                     </td>
                     <td className="p-2.5 text-center">
-                      {row.thay > 0 ? (
+                      {row.thayTruKho > 0 ? (
                         <button
                           type="button"
                           onClick={() => setSelectedDrillDown({
                             date: undefined,
                             category: row.drillCategory,
-                            label: row.label
+                            label: `${row.label} (không gồm Cap 110 & RG)`,
+                            excludeCap110Rg: true
                           })}
                           className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-[10px] rounded-md border border-indigo-200 cursor-pointer"
                         >
-                          Xem ({row.thay})
+                          Xem ({row.thayTruKho})
                         </button>
                       ) : (
                         <span className="text-slate-300 text-[10px]">—</span>
@@ -1540,27 +1598,35 @@ export default function Tab963DienKe({
             <tfoot className="bg-slate-900 text-white font-bold text-xs">
               <tr>
                 <td className="p-2.5 uppercase tracking-wide">TỔNG CỘNG TOÀN ĐỘI</td>
-                <td className="p-2.5 text-right font-mono text-sky-300">{kpiTotals.canThayTong.toLocaleString('vi-VN')}</td>
-                <td className="p-2.5 text-right font-mono text-indigo-300">{kpiTotals.nhapTong.toLocaleString('vi-VN')}</td>
-                <td className="p-2.5 text-right font-mono text-emerald-400">
-                  <div>{kpiTotals.thayTong.toLocaleString('vi-VN')}</div>
-                  {kpiTotals.thayTruKhoTong < kpiTotals.thayTong && (
+                <td className="p-2.5 text-right font-mono text-sky-300">
+                  <div>{kpiTotals.canThayTong.toLocaleString('vi-VN')}</div>
+                  {kpiTotals.excludedNeedTong > 0 && (
                     <div className="text-[10px] font-semibold text-slate-300">
-                      Trừ kho: {kpiTotals.thayTruKhoTong.toLocaleString('vi-VN')}
+                      (không tính {kpiTotals.excludedNeedTong.toLocaleString('vi-VN')} 110/RG)
                     </div>
                   )}
                 </td>
-                <td className="p-2.5 text-right font-mono text-slate-300">{Math.max(0, kpiTotals.canThayTong - kpiTotals.thayTong).toLocaleString('vi-VN')}</td>
+                <td className="p-2.5 text-right font-mono text-indigo-300">{kpiTotals.nhapTong.toLocaleString('vi-VN')}</td>
+                <td className="p-2.5 text-right font-mono text-emerald-400">
+                  <div>{kpiTotals.thayTruKhoTong.toLocaleString('vi-VN')}</div>
+                  {kpiTotals.thayTong > kpiTotals.thayTruKhoTong && (
+                    <div className="text-[10px] font-semibold text-slate-300">
+                      (+{(kpiTotals.thayTong - kpiTotals.thayTruKhoTong).toLocaleString('vi-VN')} phối hợp 110/RG)
+                    </div>
+                  )}
+                </td>
+                <td className="p-2.5 text-right font-mono text-slate-300">{Math.max(0, kpiTotals.canThayTong - kpiTotals.thayTruKhoTong).toLocaleString('vi-VN')}</td>
                 <td className="p-2.5 text-right font-mono text-purple-300">{kpiTotals.tonTong.toLocaleString('vi-VN')}</td>
                 <td className="p-2.5 text-center font-mono text-amber-300">{kpiTotals.tyLeTong}%</td>
-                <td className="p-2.5 text-center font-mono text-rose-300">{kpiTotals.tyLeCanThayTong}% ({kpiTotals.thayTong}/{kpiTotals.canThayTong})</td>
+                <td className="p-2.5 text-center font-mono text-rose-300">{kpiTotals.tyLeCanThayTong}% ({kpiTotals.thayTruKhoTong}/{kpiTotals.canThayTong})</td>
                 <td className="p-2.5 text-center">
                   <button
                     type="button"
                     onClick={() => setSelectedDrillDown({
                       date: undefined,
                       category: 'all',
-                      label: 'toàn bộ khách hàng đã thay xong'
+                      label: 'toàn bộ khách hàng đã thay xong (không gồm Cap 110 & RG)',
+                      excludeCap110Rg: true
                     })}
                     className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[10px] rounded-md cursor-pointer"
                   >
