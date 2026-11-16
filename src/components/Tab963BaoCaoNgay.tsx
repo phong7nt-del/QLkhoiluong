@@ -2,8 +2,8 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import * as XLSX from 'xlsx-js-style';
 import {
   Calendar, FileSpreadsheet, RotateCcw, ChevronLeft, ChevronRight,
-  Copy, Check, Eye, EyeOff, ClipboardList, Sparkles, Info,
-  Save, RefreshCw, Lock
+  ChevronDown, ChevronUp, Copy, Check, Eye, EyeOff, ClipboardList, Sparkles, Info,
+  Save, RefreshCw, Lock, MapPin, Users
 } from 'lucide-react';
 import { DataStore, Entry963, KhTuanEntry, SheetMember } from '../store/DataStore';
 import { resolvePhaseCategory, normalizeDateStr } from './Tab963DienKe';
@@ -90,6 +90,29 @@ const formatNum = (n: number, dashIfZero = false): string => {
   return n.toLocaleString('vi-VN');
 };
 
+const formatPct = (part: number, total: number): string => {
+  if (!total || total <= 0) return '0.0%';
+  return `${((part / total) * 100).toFixed(1)}%`;
+};
+
+const KV_FULL_NAMES: Record<string, string> = {
+  VT: 'Vũng Tàu (VT)',
+  BR: 'Bà Rịa (BR)',
+  PM: 'Phú Mỹ (PM)',
+  'CĐ': 'Côn Đảo (CĐ)',
+  CD: 'Côn Đảo (CĐ)'
+};
+
+const normalizeNameKey = (s?: string): string =>
+  String(s || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'd')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+
 const entriesToPlanMap = (items: KhTuanEntry[]): PlanStorageMap => {
   const map: PlanStorageMap = {};
   items.forEach((it) => {
@@ -116,6 +139,12 @@ export default function Tab963BaoCaoNgay({
   const [copiedSummary, setCopiedSummary] = useState<boolean>(false);
   const [isSavingKhTuan, setIsSavingKhTuan] = useState<boolean>(false);
   const [isLoadingKhTuan, setIsLoadingKhTuan] = useState<boolean>(false);
+
+  // Danh sách nhân viên & tổ/nhóm từ sheet CongTac
+  const [membersList, setMembersList] = useState<SheetMember[]>(() => DataStore.getMembers());
+  // Hiển thị bảng thống kê theo ngày của từng Khu vực
+  const [breakdownViewMode, setBreakdownViewMode] = useState<'daily' | 'category'>('daily');
+  const [expandedKvs, setExpandedKvs] = useState<Record<string, boolean>>({});
 
   // Dữ liệu đã lưu trên sheet KHTuan
   const [savedPlansMap, setSavedPlansMap] = useState<PlanStorageMap>(() =>
@@ -189,9 +218,24 @@ export default function Tab963BaoCaoNgay({
 
     const handleUpdated = () => syncSavedFromStore(false);
     window.addEventListener('kh_tuan_963_updated', handleUpdated);
+
+    // Đảm bảo nạp danh sách nhân viên & tổ công tác từ CongTac để gom nhóm chính xác
+    if (DataStore.getMembers().length === 0) {
+      DataStore.fetchCongTacUsers().then((r) => {
+        if (mounted && r && Array.isArray(r.members)) {
+          setMembersList(r.members);
+        }
+      }).catch(() => {});
+    }
+    const handleMembersUpdated = () => {
+      setMembersList(DataStore.getMembers());
+    };
+    window.addEventListener('workload_updated', handleMembersUpdated);
+
     return () => {
       mounted = false;
       window.removeEventListener('kh_tuan_963_updated', handleUpdated);
+      window.removeEventListener('workload_updated', handleMembersUpdated);
     };
   }, []);
 
@@ -345,6 +389,173 @@ export default function Tab963BaoCaoNgay({
       conLaiCuoi
     };
   }, [entries963, reportDateObj, reportDateNum, next7Days, plansByDate]);
+
+  // Thống kê theo ngày kết quả thay của từng Khu vực (KV) & từng Nhóm theo ngày được chọn
+  const breakdownStats = useMemo(() => {
+    const memberInfoMap = new Map<string, { group: string; team: string }>();
+    membersList.forEach((m) => {
+      const key = normalizeNameKey(m.name);
+      if (!key) return;
+      const grp = (m.boPhanCongTac || m.boPhan || m.team || '').trim();
+      const team = (m.team || '').trim();
+      if (grp && grp !== 'Không xác định') {
+        memberInfoMap.set(key, {
+          group: grp,
+          team: team && team !== 'Không xác định' ? team : ''
+        });
+      }
+    });
+
+    const resolveMemberInfo = (nvRaw: string): { group: string; team: string } | undefined => {
+      const nvKey = normalizeNameKey(nvRaw);
+      if (!nvKey) return undefined;
+      const exact = memberInfoMap.get(nvKey);
+      if (exact) return exact;
+      const parts = nvRaw.split(/[\-,\/+&]+/).map((p) => normalizeNameKey(p)).filter(Boolean);
+      for (const p of parts) {
+        const hit = memberInfoMap.get(p);
+        if (hit) return hit;
+      }
+      return undefined;
+    };
+
+    interface KvBucketData {
+      key: string;
+      label: string;
+      totalMustReplace: FourColCounts;
+      totalDoneUpToReportDate: FourColCounts;
+      byDate: Record<string, FourColCounts>;
+    }
+
+    interface GroupDailyBucket {
+      key: string;
+      groupName: string;
+      count: number;
+      kvCounts: Record<string, number>;
+    }
+
+    const kvMap = new Map<string, KvBucketData>();
+    const groupDailyMap = new Map<string, GroupDailyBucket>();
+
+    const getOrCreateKvBucket = (key: string, label: string): KvBucketData => {
+      let b = kvMap.get(key);
+      if (!b) {
+        b = {
+          key,
+          label,
+          totalMustReplace: emptyCounts(),
+          totalDoneUpToReportDate: emptyCounts(),
+          byDate: {}
+        };
+        kvMap.set(key, b);
+      }
+      return b;
+    };
+
+    const addCount = (target: FourColCounts, colKey: keyof FourColCounts) => {
+      target[colKey] += 1;
+    };
+
+    entries963.forEach((c) => {
+      const cat = resolvePhaseCategory(c);
+      let colKey: keyof FourColCounts = 'p1tt';
+      if (cat.soPhaGroup === '1 Pha') {
+        colKey = cat.kieuDo === 'Gián Tiếp' ? 'p1gt' : 'p1tt';
+      } else {
+        colKey = cat.kieuDo === 'Gián Tiếp' ? 'p3gt' : 'p3tt';
+      }
+
+      const rawKv = (c.kv || '').trim().toUpperCase();
+      const kvCode = rawKv || 'Khác';
+      const kvLabel = KV_FULL_NAMES[kvCode] || kvCode;
+      const kvBucket = getOrCreateKvBucket(kvCode, kvLabel);
+      addCount(kvBucket.totalMustReplace, colKey);
+
+      // Kiểm tra đã thay xong chưa
+      const kq = (c.ketQua || '').trim().toLowerCase();
+      const isDone = kq === 'xong' || kq.includes('xong');
+      if (!isDone) return;
+
+      const normStr = normalizeDateStr(c.ngayGio);
+      const entryNum = dateStrToNum(normStr);
+      if (entryNum === null || entryNum > reportDateNum) return;
+
+      const dateKey = String(entryNum);
+
+      // Cộng vào Khu vực
+      addCount(kvBucket.totalDoneUpToReportDate, colKey);
+      if (!kvBucket.byDate[dateKey]) kvBucket.byDate[dateKey] = emptyCounts();
+      addCount(kvBucket.byDate[dateKey], colKey);
+
+      // Bảng 2: Thống kê từng nhóm (NV đi thay: c.nv) tương ứng với đúng ngày đang chọn (reportDateNum)
+      if (entryNum === reportDateNum) {
+        const nvRaw = (c.nv || '').trim().replace(/\s+/g, ' ');
+        const memInfo = nvRaw ? resolveMemberInfo(nvRaw) : undefined;
+        const groupKey = nvRaw ? normalizeNameKey(nvRaw) : '__chua_ghi_nhan__';
+        const groupName = nvRaw || 'Chưa ghi nhận NV';
+        const areaDisplay = rawKv || memInfo?.team || 'Chưa rõ';
+
+        let gBucket = groupDailyMap.get(groupKey);
+        if (!gBucket) {
+          gBucket = {
+            key: groupKey,
+            groupName,
+            count: 0,
+            kvCounts: {}
+          };
+          groupDailyMap.set(groupKey, gBucket);
+        }
+        gBucket.count += 1;
+        gBucket.kvCounts[areaDisplay] = (gBucket.kvCounts[areaDisplay] || 0) + 1;
+      }
+    });
+
+    const kvOrder = ['VT', 'BR', 'PM', 'CĐ', 'CD'];
+    const kvRows = Array.from(kvMap.values()).sort((a, b) => {
+      const ia = kvOrder.indexOf(a.key);
+      const ib = kvOrder.indexOf(b.key);
+      if (ia !== -1 && ib !== -1) return ia - ib;
+      if (ia !== -1) return -1;
+      if (ib !== -1) return 1;
+      return a.label.localeCompare(b.label, 'vi');
+    });
+
+    const groupDailyRows = Array.from(groupDailyMap.values())
+      .map((g) => {
+        const kvEntries = Object.entries(g.kvCounts).sort((a, b) => {
+          if (b[1] !== a[1]) return b[1] - a[1];
+          const ia = kvOrder.indexOf(a[0]);
+          const ib = kvOrder.indexOf(b[0]);
+          if (ia !== -1 && ib !== -1) return ia - ib;
+          return a[0].localeCompare(b[0], 'vi');
+        });
+        const kvDisplay =
+          kvEntries.length === 1
+            ? (KV_FULL_NAMES[kvEntries[0][0]] || kvEntries[0][0])
+            : kvEntries.map(([k, cnt]) => `${k} (${cnt})`).join(', ');
+        return {
+          key: g.key,
+          groupName: g.groupName,
+          count: g.count,
+          kvDisplay
+        };
+      })
+      .sort((a, b) => {
+        const aOther = a.groupName.startsWith('Nhóm khác') || a.groupName.startsWith('Chưa');
+        const bOther = b.groupName.startsWith('Nhóm khác') || b.groupName.startsWith('Chưa');
+        if (aOther !== bOther) return aOther ? 1 : -1;
+        if (b.count !== a.count) return b.count - a.count;
+        return a.groupName.localeCompare(b.groupName, 'vi');
+      });
+
+    const totalGroupDoneOnDate = groupDailyRows.reduce((sum, g) => sum + g.count, 0);
+
+    return {
+      kvRows,
+      groupDailyRows,
+      totalGroupDoneOnDate
+    };
+  }, [entries963, membersList, reportDateNum]);
 
   const hasUnsavedChanges = useMemo(() => {
     return Object.keys(dirtyDates).some((iso) => {
@@ -511,19 +722,24 @@ export default function Tab963BaoCaoNgay({
 
   // Copy nội dung báo cáo nhanh (text/tab-separated để dán trực tiếp vào Zalo/Excel)
   const handleCopyTableText = () => {
+    const totalAll = sumRow(reportData.tongSo);
+    const totalTLuy = sumRow(reportData.tLuy);
+    const totalConLai = sumRow(reportData.conLai);
+    const totalConLaiCuoi = sumRow(reportData.conLaiCuoi);
+
     const lines: string[] = [
       ['Hạng mục / Ngày', '1P3G TT', '1P3G GT', '3P3G TT', '3P3G GT', 'Tổng'].join('\t'),
-      ['Tổng số', reportData.tongSo.p1tt, reportData.tongSo.p1gt, reportData.tongSo.p3tt, reportData.tongSo.p3gt, sumRow(reportData.tongSo)].join('\t'),
+      ['Tổng số', reportData.tongSo.p1tt, reportData.tongSo.p1gt, reportData.tongSo.p3tt, reportData.tongSo.p3gt, totalAll].join('\t'),
       [FIXED_BASELINE_LABEL, reportData.den12_11.p1tt, reportData.den12_11.p1gt, reportData.den12_11.p3tt, reportData.den12_11.p3gt, sumRow(reportData.den12_11)].join('\t'),
       ...reportData.dailyRows.map((dRow) =>
         [dRow.displayLabel, dRow.counts.p1tt, dRow.counts.p1gt, dRow.counts.p3tt, dRow.counts.p3gt, sumRow(dRow.counts)].join('\t')
       ),
-      ['T. Lũy', reportData.tLuy.p1tt, reportData.tLuy.p1gt, reportData.tLuy.p3tt, reportData.tLuy.p3gt, sumRow(reportData.tLuy)].join('\t'),
-      ['Còn lại', reportData.conLai.p1tt, reportData.conLai.p1gt, reportData.conLai.p3tt, reportData.conLai.p3gt, sumRow(reportData.conLai)].join('\t'),
+      ['T. Lũy', reportData.tLuy.p1tt, reportData.tLuy.p1gt, reportData.tLuy.p3tt, reportData.tLuy.p3gt, `${totalTLuy} (${formatPct(totalTLuy, totalAll)})`].join('\t'),
+      ['Còn lại', reportData.conLai.p1tt, reportData.conLai.p1gt, reportData.conLai.p3tt, reportData.conLai.p3gt, `${totalConLai} (${formatPct(totalConLai, totalAll)})`].join('\t'),
       ...reportData.planRows.map((r) =>
         [r.labelDDMM, r.plan.p1tt, r.plan.p1gt, r.plan.p3tt, r.plan.p3gt, sumRow(r.plan)].join('\t')
       ),
-      ['Còn lại (cuối)', reportData.conLaiCuoi.p1tt, reportData.conLaiCuoi.p1gt, reportData.conLaiCuoi.p3tt, reportData.conLaiCuoi.p3gt, sumRow(reportData.conLaiCuoi)].join('\t')
+      ['Còn lại (cuối)', reportData.conLaiCuoi.p1tt, reportData.conLaiCuoi.p1gt, reportData.conLaiCuoi.p3tt, reportData.conLaiCuoi.p3gt, `${totalConLaiCuoi} (${formatPct(totalConLaiCuoi, totalAll)})`].join('\t')
     ];
 
     navigator.clipboard.writeText(lines.join('\n')).then(() => {
@@ -535,14 +751,17 @@ export default function Tab963BaoCaoNgay({
     });
   };
 
-  // Xuất file Excel chuẩn theo mẫu hình
+  // Xuất file Excel chuẩn theo mẫu hình (kèm sheet Thống kê theo Khu vực & Nhóm theo ngày)
   const handleExportExcel = () => {
     try {
+      const totalAll = sumRow(reportData.tongSo);
       const headers = ['Hạng mục / Ngày', '1P3G TT', '1P3G GT', '3P3G TT', '3P3G GT', 'Tổng'];
       if (showGuideCol) headers.push('Cách báo cáo');
 
-      const makeRow = (label: string, c: FourColCounts, guide: string) => {
-        const arr: any[] = [label, c.p1tt, c.p1gt, c.p3tt, c.p3gt, sumRow(c)];
+      const makeRow = (label: string, c: FourColCounts, guide: string, showPctInTotal = false) => {
+        const s = sumRow(c);
+        const totalCell: any = showPctInTotal ? `${formatNum(s)} (${formatPct(s, totalAll)})` : s;
+        const arr: any[] = [label, c.p1tt, c.p1gt, c.p3tt, c.p3gt, totalCell];
         if (showGuideCol) arr.push(guide);
         return arr;
       };
@@ -560,10 +779,10 @@ export default function Tab963BaoCaoNgay({
         makeRow('Tổng số', reportData.tongSo, 'Tổng hợp từ số liệu phải thay (tính cả thu hồi)'),
         makeRow(FIXED_BASELINE_LABEL, reportData.den12_11, FIXED_BASELINE_GUIDE),
         ...dailyAoaRows,
-        makeRow('T. Lũy', reportData.tLuy, 'Lũy kế đã thay tính đến hết ngày báo cáo'),
-        makeRow('Còn lại', reportData.conLai, 'Số lượng còn lại tính đến ngày báo cáo'),
+        makeRow('T. Lũy', reportData.tLuy, 'Lũy kế đã thay tính đến hết ngày báo cáo', true),
+        makeRow('Còn lại', reportData.conLai, 'Số lượng còn lại tính đến ngày báo cáo', true),
         ...reportData.planRows.map((r) => makeRow(r.labelDDMM, r.plan, r.guideText)),
-        makeRow('Còn lại (cuối)', reportData.conLaiCuoi, 'Số liệu còn lại sau khi trừ kế hoạch sẽ làm trong 1 tuần')
+        makeRow('Còn lại (cuối)', reportData.conLaiCuoi, 'Số liệu còn lại sau khi trừ kế hoạch sẽ làm trong 1 tuần', true)
       ];
 
       const ws = XLSX.utils.aoa_to_sheet(aoa);
@@ -602,6 +821,7 @@ export default function Tab963BaoCaoNgay({
           const isConLai = R === conLaiRowIdx;
           const isConLaiCuoi = R === conLaiCuoiRowIdx;
           const isNumCol = C >= 1 && C <= 5;
+          const isNumericVal = typeof ws[addr].v === 'number';
 
           ws[addr].s = {
             font: {
@@ -626,7 +846,7 @@ export default function Tab963BaoCaoNgay({
               ? { fgColor: { rgb: 'F1F5F9' } }
               : undefined,
             border: borderThin,
-            numFmt: isNumCol && !isHeader ? '#,##0' : undefined
+            numFmt: isNumCol && !isHeader && isNumericVal ? '#,##0' : undefined
           };
         }
       }
@@ -637,12 +857,46 @@ export default function Tab963BaoCaoNgay({
         { wch: 12 },
         { wch: 12 },
         { wch: 12 },
-        { wch: 12 },
+        { wch: 18 },
         ...(showGuideCol ? [{ wch: 56 }] : [])
       ];
 
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'BaoCaoNgay_963');
+
+      // Sheet 2: Thống kê theo ngày theo từng Khu vực
+      const dateHeaders = reportData.dailyRows.map(d => formatDDMM(fromIsoDate(d.iso)));
+      const kvSheetRows = breakdownStats.kvRows.map((kv, i) => {
+        const mustTotal = sumRow(kv.totalMustReplace);
+        const doneTotal = sumRow(kv.totalDoneUpToReportDate);
+        const rowObj: Record<string, any> = {
+          'STT': i + 1,
+          'Khu Vực': kv.label
+        };
+        reportData.dailyRows.forEach((dRow, dIdx) => {
+          rowObj[`Ngày ${dateHeaders[dIdx]}`] = sumRow(kv.byDate[String(dRow.dateNum)] || emptyCounts());
+        });
+        rowObj[`Lũy kế đến ${formatDDMM(reportDateObj)}`] = doneTotal;
+        rowObj['Tổng phải thay (963)'] = mustTotal;
+        rowObj['Còn lại'] = Math.max(0, mustTotal - doneTotal);
+        rowObj['Tỷ lệ % HT'] = formatPct(doneTotal, mustTotal);
+        return rowObj;
+      });
+      if (kvSheetRows.length > 0) {
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(kvSheetRows), 'Theo_KhuVuc_TheoNgay');
+      }
+
+      // Sheet 3: Thống kê từng nhóm (NV đi thay) tương ứng với ngày được chọn
+      const groupSheetRows = breakdownStats.groupDailyRows.map((grp, i) => ({
+        'STT': i + 1,
+        'Tên nhóm (NV đi thay)': grp.groupName,
+        [`Số lượng đã thay (${formatDDMM(reportDateObj)})`]: grp.count,
+        'Khu vực': grp.kvDisplay
+      }));
+      if (groupSheetRows.length > 0) {
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(groupSheetRows), 'Theo_Nhom_Ngay');
+      }
+
       XLSX.writeFile(wb, `BaoCaoNgay_QD963_${formatDDMMYYYY(reportDateObj).replace(/\//g, '-')}.xlsx`);
       showToast('success', `Đã xuất file Excel Báo Cáo Ngày ${formatDDMMYYYY(reportDateObj)} thành công!`);
     } catch (err: any) {
@@ -954,8 +1208,11 @@ export default function Tab963BaoCaoNgay({
                 <td className="py-2.5 px-3 text-right font-mono border-r border-slate-300">
                   {formatNum(reportData.tLuy.p3gt)}
                 </td>
-                <td className="py-2.5 px-3 text-right font-mono border-r border-slate-300">
-                  {formatNum(sumRow(reportData.tLuy))}
+                <td className="py-2.5 px-3 text-right font-mono border-r border-slate-300 whitespace-nowrap">
+                  <span>{formatNum(sumRow(reportData.tLuy))}</span>
+                  <span className="ml-1.5 px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 text-[11px] font-bold">
+                    ({formatPct(sumRow(reportData.tLuy), sumRow(reportData.tongSo))})
+                  </span>
                 </td>
                 {showGuideCol && (
                   <td className="py-2.5 px-3.5 text-xs font-normal text-slate-700">
@@ -986,8 +1243,11 @@ export default function Tab963BaoCaoNgay({
                 <td className="py-2.5 px-3 text-right font-mono bg-yellow-300 text-slate-950 border-r border-slate-400">
                   {formatNum(reportData.conLai.p3gt)}
                 </td>
-                <td className="py-2.5 px-3 text-right font-mono bg-yellow-300 text-slate-950 border-r border-slate-400">
-                  {formatNum(sumRow(reportData.conLai))}
+                <td className="py-2.5 px-3 text-right font-mono bg-yellow-300 text-slate-950 border-r border-slate-400 whitespace-nowrap">
+                  <span>{formatNum(sumRow(reportData.conLai))}</span>
+                  <span className="ml-1.5 px-1.5 py-0.5 rounded bg-yellow-100/90 border border-amber-600/30 text-slate-900 text-[11px] font-bold">
+                    ({formatPct(sumRow(reportData.conLai), sumRow(reportData.tongSo))})
+                  </span>
                 </td>
                 {showGuideCol && (
                   <td className="py-2.5 px-3.5 text-xs font-normal bg-white text-slate-700">
@@ -1091,8 +1351,15 @@ export default function Tab963BaoCaoNgay({
                 <td className={`py-2.5 px-3 text-right font-mono border-r border-slate-300 ${reportData.conLaiCuoi.p3gt < 0 ? 'text-rose-600' : ''}`}>
                   {formatNum(reportData.conLaiCuoi.p3gt)}
                 </td>
-                <td className={`py-2.5 px-3 text-right font-mono border-r border-slate-300 ${sumRow(reportData.conLaiCuoi) < 0 ? 'text-rose-600' : 'text-indigo-950'}`}>
-                  {formatNum(sumRow(reportData.conLaiCuoi))}
+                <td className={`py-2.5 px-3 text-right font-mono border-r border-slate-300 whitespace-nowrap ${sumRow(reportData.conLaiCuoi) < 0 ? 'text-rose-600' : 'text-indigo-950'}`}>
+                  <span>{formatNum(sumRow(reportData.conLaiCuoi))}</span>
+                  <span className={`ml-1.5 px-1.5 py-0.5 rounded text-[11px] font-bold ${
+                    sumRow(reportData.conLaiCuoi) < 0
+                      ? 'bg-rose-100 text-rose-800'
+                      : 'bg-slate-200 text-slate-800'
+                  }`}>
+                    ({formatPct(sumRow(reportData.conLaiCuoi), sumRow(reportData.tongSo))})
+                  </span>
                 </td>
                 {showGuideCol && (
                   <td className="py-2.5 px-3.5 text-xs font-normal text-slate-700">
@@ -1102,6 +1369,391 @@ export default function Tab963BaoCaoNgay({
               </tr>
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* ========================================================= */}
+      {/* THỐNG KÊ THEO NGÀY KẾT QUẢ THAY CỦA TỪNG KHU VỰC & TỪNG NHÓM */}
+      {/* ========================================================= */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-4 space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+          <div>
+            <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+              <MapPin className="w-4 h-4 text-indigo-600" />
+              <span>Thống Kê Kết Quả Thay Theo Từng Khu Vực &amp; Từng Nhóm</span>
+            </h3>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Ngày báo cáo đang chọn: <b>{formatDDMMYYYY(reportDateObj)}</b>
+            </p>
+          </div>
+        </div>
+
+        {/* BẢNG 1: THỐNG KÊ THEO TỪNG KHU VỰC (VT, BR, PM, CĐ) */}
+        <div className="space-y-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <h4 className="text-xs font-black text-slate-800 uppercase flex items-center gap-1.5">
+              <MapPin className="w-3.5 h-3.5 text-amber-600" />
+              <span>1. Kết Quả Thay Theo Từng Khu Vực (KV)</span>
+              <span className="text-[11px] font-normal normal-case text-slate-500">
+                ({breakdownStats.kvRows.length} khu vực — bấm vào từng KV để xem 4 chủng loại)
+              </span>
+            </h4>
+            <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs self-start sm:self-auto">
+              <button
+                type="button"
+                onClick={() => setBreakdownViewMode('daily')}
+                className={`px-3 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                  breakdownViewMode === 'daily'
+                    ? 'bg-white text-indigo-800 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Theo từng ngày
+              </button>
+              <button
+                type="button"
+                onClick={() => setBreakdownViewMode('category')}
+                className={`px-3 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                  breakdownViewMode === 'category'
+                    ? 'bg-white text-indigo-800 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                4 chủng loại ({formatDDMM(reportDateObj)})
+              </button>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200 text-[11px]">
+                  <th className="py-2.5 px-3 text-left border-r border-slate-200 min-w-[165px]">
+                    Khu Vực
+                  </th>
+                  {breakdownViewMode === 'daily' ? (
+                    <>
+                      {reportData.dailyRows.map((dRow) => (
+                        <th
+                          key={dRow.iso}
+                          className={`py-2.5 px-2.5 text-right border-r border-slate-200 whitespace-nowrap ${
+                            dRow.isActiveReportDate ? 'bg-emerald-100/70 text-emerald-950' : ''
+                          }`}
+                        >
+                          {formatDDMM(fromIsoDate(dRow.iso))}
+                        </th>
+                      ))}
+                      <th className="py-2.5 px-3 text-right border-r border-slate-200 bg-indigo-50/70 text-indigo-950 whitespace-nowrap">
+                        Lũy kế (≤ {formatDDMM(reportDateObj)})
+                      </th>
+                      <th className="py-2.5 px-3 text-right border-r border-slate-200 whitespace-nowrap">
+                        Tổng phải thay
+                      </th>
+                      <th className="py-2.5 px-3 text-right border-r border-slate-200 whitespace-nowrap">
+                        Còn lại
+                      </th>
+                      <th className="py-2.5 px-3 text-right whitespace-nowrap">% HT</th>
+                    </>
+                  ) : (
+                    <>
+                      <th className="py-2.5 px-3 text-right border-r border-slate-200">1P3G TT</th>
+                      <th className="py-2.5 px-3 text-right border-r border-slate-200">1P3G GT</th>
+                      <th className="py-2.5 px-3 text-right border-r border-slate-200">3P3G TT</th>
+                      <th className="py-2.5 px-3 text-right border-r border-slate-200">3P3G GT</th>
+                      <th className="py-2.5 px-3 text-right border-r border-slate-200 bg-emerald-100/70 text-emerald-950 whitespace-nowrap">
+                        Tổng ngày {formatDDMM(reportDateObj)}
+                      </th>
+                      <th className="py-2.5 px-3 text-right border-r border-slate-200 bg-indigo-50/70 text-indigo-950 whitespace-nowrap">
+                        Lũy kế (≤ {formatDDMM(reportDateObj)})
+                      </th>
+                      <th className="py-2.5 px-3 text-right whitespace-nowrap">% HT</th>
+                    </>
+                  )}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 text-slate-800">
+                {breakdownStats.kvRows.map((kv) => {
+                  const isExpanded = !!expandedKvs[kv.key];
+                  const mustTotal = sumRow(kv.totalMustReplace);
+                  const doneTotal = sumRow(kv.totalDoneUpToReportDate);
+                  const remTotal = mustTotal - doneTotal;
+                  const activeDayCounts = kv.byDate[String(reportDateNum)] || emptyCounts();
+                  const colSpanAll =
+                    breakdownViewMode === 'daily'
+                      ? reportData.dailyRows.length + 5
+                      : 8;
+
+                  return (
+                    <React.Fragment key={kv.key}>
+                      <tr
+                        onClick={() =>
+                          setExpandedKvs((prev) => ({ ...prev, [kv.key]: !prev[kv.key] }))
+                        }
+                        className="hover:bg-amber-50/50 cursor-pointer transition-colors"
+                      >
+                        <td className="py-2 px-3 font-bold text-slate-900 border-r border-slate-200">
+                          <div className="flex items-center gap-1.5">
+                            {isExpanded ? (
+                              <ChevronUp className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                            ) : (
+                              <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            )}
+                            <span>{kv.label}</span>
+                          </div>
+                        </td>
+                        {breakdownViewMode === 'daily' ? (
+                          <>
+                            {reportData.dailyRows.map((dRow) => {
+                              const cnt = sumRow(kv.byDate[String(dRow.dateNum)] || emptyCounts());
+                              return (
+                                <td
+                                  key={dRow.iso}
+                                  className={`py-2 px-2.5 text-right font-mono font-semibold border-r border-slate-200 ${
+                                    dRow.isActiveReportDate ? 'bg-emerald-50/60 font-bold text-emerald-900' : ''
+                                  }`}
+                                >
+                                  {formatNum(cnt, true)}
+                                </td>
+                              );
+                            })}
+                            <td className="py-2 px-3 text-right font-mono font-black text-indigo-900 bg-indigo-50/40 border-r border-slate-200">
+                              {formatNum(doneTotal)}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono border-r border-slate-200">
+                              {formatNum(mustTotal)}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono font-semibold text-amber-800 border-r border-slate-200">
+                              {formatNum(remTotal)}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono font-bold text-emerald-700">
+                              {formatPct(doneTotal, mustTotal)}
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td className="py-2 px-3 text-right font-mono border-r border-slate-200">{formatNum(activeDayCounts.p1tt, true)}</td>
+                            <td className="py-2 px-3 text-right font-mono border-r border-slate-200">{formatNum(activeDayCounts.p1gt, true)}</td>
+                            <td className="py-2 px-3 text-right font-mono border-r border-slate-200">{formatNum(activeDayCounts.p3tt, true)}</td>
+                            <td className="py-2 px-3 text-right font-mono border-r border-slate-200">{formatNum(activeDayCounts.p3gt, true)}</td>
+                            <td className="py-2 px-3 text-right font-mono font-black bg-emerald-50/60 text-emerald-900 border-r border-slate-200">
+                              {formatNum(sumRow(activeDayCounts))}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono font-bold bg-indigo-50/40 text-indigo-900 border-r border-slate-200">
+                              {formatNum(doneTotal)}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono font-bold text-emerald-700">
+                              {formatPct(doneTotal, mustTotal)}
+                            </td>
+                          </>
+                        )}
+                      </tr>
+
+                      {isExpanded && (
+                        <tr className="bg-slate-50/80">
+                          <td colSpan={colSpanAll} className="p-2.5">
+                            <div className="text-[11px] font-bold text-slate-600 mb-1.5">
+                              Chi tiết 4 nhóm chủng loại tại {kv.label} theo từng ngày:
+                            </div>
+                            <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                              <table className="w-full text-[11px] border-collapse">
+                                <thead>
+                                  <tr className="bg-slate-100 text-slate-600 border-b border-slate-200">
+                                    <th className="py-1.5 px-2.5 text-left border-r border-slate-200">Chủng loại</th>
+                                    {reportData.dailyRows.map((dRow) => (
+                                      <th key={dRow.iso} className="py-1.5 px-2 text-right border-r border-slate-200">
+                                        {formatDDMM(fromIsoDate(dRow.iso))}
+                                      </th>
+                                    ))}
+                                    <th className="py-1.5 px-2.5 text-right border-r border-slate-200 font-bold text-indigo-900">Lũy kế</th>
+                                    <th className="py-1.5 px-2.5 text-right">Tổng phải thay</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                  {(
+                                    [
+                                      { field: 'p1tt', label: '1P3G TT' },
+                                      { field: 'p1gt', label: '1P3G GT' },
+                                      { field: 'p3tt', label: '3P3G TT' },
+                                      { field: 'p3gt', label: '3P3G GT' }
+                                    ] as const
+                                  ).map((catMeta) => (
+                                    <tr key={catMeta.field} className="hover:bg-slate-50">
+                                      <td className="py-1.5 px-2.5 font-semibold text-slate-700 border-r border-slate-200">
+                                        {catMeta.label}
+                                      </td>
+                                      {reportData.dailyRows.map((dRow) => {
+                                        const val = (kv.byDate[String(dRow.dateNum)] || emptyCounts())[catMeta.field];
+                                        return (
+                                          <td key={dRow.iso} className="py-1.5 px-2 text-right font-mono border-r border-slate-200">
+                                            {formatNum(val, true)}
+                                          </td>
+                                        );
+                                      })}
+                                      <td className="py-1.5 px-2.5 text-right font-mono font-bold text-indigo-900 border-r border-slate-200">
+                                        {formatNum(kv.totalDoneUpToReportDate[catMeta.field])}
+                                      </td>
+                                      <td className="py-1.5 px-2.5 text-right font-mono text-slate-600">
+                                        {formatNum(kv.totalMustReplace[catMeta.field])}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+                {/* Tổng cộng Khu vực */}
+                {breakdownStats.kvRows.length > 0 && (
+                  <tr className="bg-slate-100 font-black border-t-2 border-slate-300 text-slate-900">
+                    <td className="py-2 px-3 border-r border-slate-200">Tổng Cộng Khu Vực</td>
+                    {breakdownViewMode === 'daily' ? (
+                      <>
+                        {reportData.dailyRows.map((dRow) => {
+                          const totalD = breakdownStats.kvRows.reduce(
+                            (s, kv) => s + sumRow(kv.byDate[String(dRow.dateNum)] || emptyCounts()),
+                            0
+                          );
+                          return (
+                            <td
+                              key={dRow.iso}
+                              className={`py-2 px-2.5 text-right font-mono border-r border-slate-200 ${
+                                dRow.isActiveReportDate ? 'bg-emerald-100/70 text-emerald-950' : ''
+                              }`}
+                            >
+                              {formatNum(totalD)}
+                            </td>
+                          );
+                        })}
+                        <td className="py-2 px-3 text-right font-mono text-indigo-950 bg-indigo-100/60 border-r border-slate-200">
+                          {formatNum(
+                            breakdownStats.kvRows.reduce((s, kv) => s + sumRow(kv.totalDoneUpToReportDate), 0)
+                          )}
+                        </td>
+                        <td className="py-2 px-3 text-right font-mono border-r border-slate-200">
+                          {formatNum(sumRow(reportData.tongSo))}
+                        </td>
+                        <td className="py-2 px-3 text-right font-mono text-amber-900 border-r border-slate-200">
+                          {formatNum(
+                            sumRow(reportData.tongSo) -
+                              breakdownStats.kvRows.reduce((s, kv) => s + sumRow(kv.totalDoneUpToReportDate), 0)
+                          )}
+                        </td>
+                        <td className="py-2 px-3 text-right font-mono text-emerald-800">
+                          {formatPct(
+                            breakdownStats.kvRows.reduce((s, kv) => s + sumRow(kv.totalDoneUpToReportDate), 0),
+                            sumRow(reportData.tongSo)
+                          )}
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        {(['p1tt', 'p1gt', 'p3tt', 'p3gt'] as const).map((field) => (
+                          <td key={field} className="py-2 px-3 text-right font-mono border-r border-slate-200">
+                            {formatNum(
+                              breakdownStats.kvRows.reduce(
+                                (s, kv) => s + (kv.byDate[String(reportDateNum)] || emptyCounts())[field],
+                                0
+                              )
+                            )}
+                          </td>
+                        ))}
+                        <td className="py-2 px-3 text-right font-mono bg-emerald-100/70 text-emerald-950 border-r border-slate-200">
+                          {formatNum(
+                            breakdownStats.kvRows.reduce(
+                              (s, kv) => s + sumRow(kv.byDate[String(reportDateNum)] || emptyCounts()),
+                              0
+                            )
+                          )}
+                        </td>
+                        <td className="py-2 px-3 text-right font-mono bg-indigo-100/60 text-indigo-950 border-r border-slate-200">
+                          {formatNum(
+                            breakdownStats.kvRows.reduce((s, kv) => s + sumRow(kv.totalDoneUpToReportDate), 0)
+                          )}
+                        </td>
+                        <td className="py-2 px-3 text-right font-mono text-emerald-800">
+                          {formatPct(
+                            breakdownStats.kvRows.reduce((s, kv) => s + sumRow(kv.totalDoneUpToReportDate), 0),
+                            sumRow(reportData.tongSo)
+                          )}
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* BẢNG 2: THỐNG KÊ ĐƠN GIẢN THEO TỪNG NHÓM (NV ĐI THAY) TƯƠNG ỨNG NGÀY ĐƯỢC CHỌN */}
+        <div className="space-y-2 pt-1">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h4 className="text-xs font-black text-slate-800 uppercase flex items-center gap-1.5">
+              <Users className="w-3.5 h-3.5 text-indigo-600" />
+              <span>2. Kết Quả Thay Theo Từng Nhóm / NV Đi Thay (Ngày {formatDDMMYYYY(reportDateObj)})</span>
+            </h4>
+            <span className="text-[11px] text-slate-500">
+              {breakdownStats.groupDailyRows.length} nhóm (NV) thực hiện trong ngày {formatDDMM(reportDateObj)}
+            </span>
+          </div>
+
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200 text-[11px]">
+                  <th className="py-2.5 px-3 text-center border-r border-slate-200 w-14">STT</th>
+                  <th className="py-2.5 px-3.5 text-left border-r border-slate-200">Tên nhóm (NV đi thay)</th>
+                  <th className="py-2.5 px-3.5 text-right border-r border-slate-200 whitespace-nowrap w-44">
+                    Số lượng đã thay
+                  </th>
+                  <th className="py-2.5 px-3.5 text-left">Khu vực</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 text-slate-800">
+                {breakdownStats.groupDailyRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="py-5 text-center text-slate-400 italic">
+                      Chưa ghi nhận kết quả thay của nhóm nào trong ngày {formatDDMMYYYY(reportDateObj)}.
+                    </td>
+                  </tr>
+                ) : (
+                  breakdownStats.groupDailyRows.map((grp, idx) => (
+                    <tr key={grp.key} className="hover:bg-indigo-50/40 transition-colors">
+                      <td className="py-2 px-3 text-center font-mono text-slate-500 border-r border-slate-200">
+                        {idx + 1}
+                      </td>
+                      <td className="py-2 px-3.5 font-bold text-slate-900 border-r border-slate-200">
+                        {grp.groupName}
+                      </td>
+                      <td className="py-2 px-3.5 text-right font-mono font-black text-indigo-900 bg-indigo-50/30 border-r border-slate-200">
+                        {formatNum(grp.count)}
+                      </td>
+                      <td className="py-2 px-3.5 font-semibold text-slate-700">
+                        {grp.kvDisplay}
+                      </td>
+                    </tr>
+                  ))
+                )}
+                {breakdownStats.groupDailyRows.length > 0 && (
+                  <tr className="bg-slate-100 font-black border-t-2 border-slate-300 text-slate-900">
+                    <td colSpan={2} className="py-2 px-3.5 border-r border-slate-200">
+                      Tổng cộng ({formatDDMMYYYY(reportDateObj)})
+                    </td>
+                    <td className="py-2 px-3.5 text-right font-mono text-indigo-950 bg-indigo-100/60 border-r border-slate-200">
+                      {formatNum(breakdownStats.totalGroupDoneOnDate)}
+                    </td>
+                    <td className="py-2 px-3.5 text-slate-500 font-normal text-[11px]">
+                      {breakdownStats.groupDailyRows.length} nhóm
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
