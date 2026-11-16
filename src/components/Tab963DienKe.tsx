@@ -165,7 +165,13 @@ export const resolvePhaseCategory = (c: Entry963): {
     .trim();
 
   let capCode: 'HT' | 'TT' | '' = '';
-  if (capNorm === 'TT' || capNorm.includes('TT') || capNorm.includes('TRUNG THE')) {
+  if (
+    capNorm === 'TT' ||
+    capNorm.includes('TT') ||
+    capNorm.includes('TRUNG THE') ||
+    capNorm === '110' ||
+    capNorm.includes('110')
+  ) {
     capCode = 'TT';
   } else if (capNorm === 'HT' || capNorm.includes('HT') || capNorm.includes('HA THE')) {
     capCode = 'HT';
@@ -201,28 +207,32 @@ export const resolvePhaseCategory = (c: Entry963): {
   };
 };
 
-// Helper: Chuẩn hóa chủng loại từ đợt nhập (NhapDK963) về 1 trong 5 loại
-export const resolveNhapCategory = (clRaw?: string): MeterCategory5 => {
-  const s = String(clRaw || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/g, 'd')
-    .replace(/Đ/g, 'd')
-    .trim()
-    .toLowerCase();
+export const METER_CATEGORIES_5: MeterCategory5[] = [
+  '1 Pha Trực Tiếp',
+  '1 Pha Gián Tiếp',
+  '3 Pha Trực Tiếp',
+  '3 Pha Gián Tiếp HT',
+  '3 Pha Gián Tiếp TT'
+];
 
-  const is3P = s.includes('3') || s.includes('3p');
-  const isGT = s.includes('gian tiep') || s.includes('gt');
-
-  if (is3P) {
-    if (isGT) {
-      if (s.includes('tt') || s.includes('trung')) return '3 Pha Gián Tiếp TT';
-      return '3 Pha Gián Tiếp HT';
-    }
-    return '3 Pha Trực Tiếp';
-  } else {
-    return isGT ? '1 Pha Gián Tiếp' : '1 Pha Trực Tiếp';
+export const getMeterCategoryBadgeStyle = (cat: MeterCategory5): string => {
+  switch (cat) {
+    case '1 Pha Trực Tiếp':
+      return 'bg-sky-50 text-sky-800 border-sky-200';
+    case '1 Pha Gián Tiếp':
+      return 'bg-cyan-50 text-cyan-800 border-cyan-200';
+    case '3 Pha Trực Tiếp':
+      return 'bg-indigo-50 text-indigo-800 border-indigo-200';
+    case '3 Pha Gián Tiếp HT':
+      return 'bg-amber-50 text-amber-900 border-amber-300';
+    case '3 Pha Gián Tiếp TT':
+      return 'bg-rose-50 text-rose-900 border-rose-300';
   }
+};
+
+// Helper: Chuẩn hóa chủng loại từ đợt nhập (NhapDK963) về 1 trong 5 loại
+export const resolveNhapCategory = (clRaw?: string, idHint?: string): MeterCategory5 => {
+  return DataStore.normalizeNhapDkChungLoai(clRaw, idHint);
 };
 
 export default function Tab963DienKe({
@@ -248,9 +258,10 @@ export default function Tab963DienKe({
   const [formGhiChu, setFormGhiChu] = useState<string>('');
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  // Collapse sections
+  // Collapse sections & bộ lọc bảng lịch sử 5 chủng loại
   const [showInputSection, setShowInputSection] = useState<boolean>(true);
   const [showNhapListTable, setShowNhapListTable] = useState<boolean>(true);
+  const [nhapHistoryFilter, setNhapHistoryFilter] = useState<'all' | MeterCategory5>('all');
 
   // Bộ lọc bảng thống kê theo ngày
   const [dateRangePreset, setDateRangePreset] = useState<'all' | 'today' | '7days' | '30days'>('all');
@@ -395,7 +406,7 @@ export default function Tab963DienKe({
     nhapList.forEach(item => {
       const qty = Number(item.sl) || 0;
       nhapTong += qty;
-      const cat = resolveNhapCategory(item.chungLoai);
+      const cat = resolveNhapCategory(item.chungLoai, item.id);
       if (cat === '1 Pha Trực Tiếp') nhap1PTT += qty;
       else if (cat === '1 Pha Gián Tiếp') nhap1PGT += qty;
       else if (cat === '3 Pha Trực Tiếp') nhap3PTT += qty;
@@ -571,7 +582,7 @@ export default function Tab963DienKe({
       },
       {
         key: '3PGT_TT',
-        label: '3 Pha Gián Tiếp TT (Cap = TT)',
+        label: '3 Pha Gián Tiếp TT (Cap = TT / 110)',
         level: 'leaf' as const,
         canThay: kpiTotals.canThay3PGT_TT,
         nhap: kpiTotals.nhap3PGT_TT,
@@ -660,7 +671,7 @@ export default function Tab963DienKe({
       const qty = Number(item.sl) || 0;
       entry.nhapTong += qty;
 
-      const cat = resolveNhapCategory(item.chungLoai);
+      const cat = resolveNhapCategory(item.chungLoai, item.id);
       if (cat === '1 Pha Trực Tiếp') {
         entry.nhap1PTT += qty;
         entry.nhap1P += qty;
@@ -841,7 +852,7 @@ export default function Tab963DienKe({
         }
       } else {
         const existing = nhapList.find(
-          item => (item.ngay || '').trim() === dClean && (item.chungLoai || '').trim().toLowerCase() === formChungLoai.toLowerCase()
+          item => (item.ngay || '').trim() === dClean && resolveNhapCategory(item.chungLoai, item.id) === formChungLoai
         );
 
         if (existing && existing.sl === qty && (!formGhiChu.trim() || existing.ghiChu === formGhiChu.trim())) {
@@ -881,7 +892,7 @@ export default function Tab963DienKe({
   const handleEditEntry = (item: NhapDk963Entry) => {
     setEditingId(item.id);
     setFormNgay(item.ngay);
-    setFormChungLoai(resolveNhapCategory(item.chungLoai));
+    setFormChungLoai(resolveNhapCategory(item.chungLoai, item.id));
     setFormSl(String(item.sl));
     setFormGhiChu(item.ghiChu || '');
     setShowInputSection(true);
@@ -889,7 +900,8 @@ export default function Tab963DienKe({
   };
 
   const handleDeleteEntry = async (id: string, date: string, cl: string, sl: number) => {
-    if (!confirm(`Bạn có chắc chắn muốn xóa đợt nhập ngày ${date} (${cl}: ${sl} công tơ)?`)) return;
+    const resolvedCl = resolveNhapCategory(cl, id);
+    if (!confirm(`Bạn có chắc chắn muốn xóa đợt nhập ngày ${date} (${resolvedCl}: ${sl} công tơ)?`)) return;
 
     try {
       const res = await DataStore.deleteNhapDk963Entry(id);
@@ -1021,13 +1033,35 @@ export default function Tab963DienKe({
     }
   };
 
+  // Danh sách đợt nhập đã lọc theo 5 chủng loại & thống kê nhanh
+  const nhapSummaryByCategory = useMemo(() => {
+    const counts: Record<MeterCategory5, { batches: number; qty: number }> = {
+      '1 Pha Trực Tiếp': { batches: 0, qty: 0 },
+      '1 Pha Gián Tiếp': { batches: 0, qty: 0 },
+      '3 Pha Trực Tiếp': { batches: 0, qty: 0 },
+      '3 Pha Gián Tiếp HT': { batches: 0, qty: 0 },
+      '3 Pha Gián Tiếp TT': { batches: 0, qty: 0 }
+    };
+    nhapList.forEach(item => {
+      const cat = resolveNhapCategory(item.chungLoai, item.id);
+      counts[cat].batches += 1;
+      counts[cat].qty += Number(item.sl) || 0;
+    });
+    return counts;
+  }, [nhapList]);
+
+  const filteredNhapList = useMemo(() => {
+    if (nhapHistoryFilter === 'all') return nhapList;
+    return nhapList.filter(item => resolveNhapCategory(item.chungLoai, item.id) === nhapHistoryFilter);
+  }, [nhapList, nhapHistoryFilter]);
+
   // 2. Xuất Excel danh sách các đợt nhập (Sheet NhapDK963)
   const handleExportNhapListExcel = () => {
     try {
-      const rows = nhapList.map((item, idx) => ({
+      const rows = filteredNhapList.map((item, idx) => ({
         'STT': idx + 1,
         'Ngày Nhận (Ngay)': item.ngay,
-        'Chủng Loại (ChungLoai)': item.chungLoai,
+        'Chủng Loại (ChungLoai)': resolveNhapCategory(item.chungLoai, item.id),
         'Số Lượng (SL)': item.sl,
         'Ghi Chú': item.ghiChu || '',
         'Người Nhập': item.nguoiNhap || ''
@@ -1671,77 +1705,113 @@ export default function Tab963DienKe({
         </div>
 
         {showNhapListTable && (
-          <div className="overflow-x-auto max-h-[300px]">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead className="bg-slate-100 text-slate-600 font-bold sticky top-0 border-b border-slate-200 z-10 text-[11px]">
-                <tr>
-                  <th className="p-2.5 w-12 text-center">STT</th>
-                  <th className="p-2.5">Ngày Nhận (Ngay)</th>
-                  <th className="p-2.5">Chủng Loại (ChungLoai)</th>
-                  <th className="p-2.5 text-right">Số Lượng (SL)</th>
-                  <th className="p-2.5">Ghi Chú</th>
-                  <th className="p-2.5">Người Nhập</th>
-                  <th className="p-2.5 text-center w-24">Thao Tác</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
-                {nhapList.length === 0 ? (
+          <div>
+            {/* Thanh lọc & tóm tắt 5 chủng loại đồng bộ với phần nhập */}
+            <div className="px-3.5 py-2.5 bg-slate-50/60 border-b border-slate-200 flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setNhapHistoryFilter('all')}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all cursor-pointer ${
+                  nhapHistoryFilter === 'all'
+                    ? 'bg-slate-800 text-white border-slate-900 shadow-2xs'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                Tất cả ({nhapList.length} đợt — {kpiTotals.nhapTong.toLocaleString('vi-VN')})
+              </button>
+              {METER_CATEGORIES_5.map((cat) => {
+                const stat = nhapSummaryByCategory[cat];
+                const isSelected = nhapHistoryFilter === cat;
+                return (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setNhapHistoryFilter(cat)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all cursor-pointer ${
+                      isSelected
+                        ? 'bg-amber-500 text-white border-amber-600 shadow-2xs'
+                        : `${getMeterCategoryBadgeStyle(cat)} hover:opacity-85`
+                    }`}
+                  >
+                    {cat} ({stat.batches} đợt: {stat.qty.toLocaleString('vi-VN')})
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="overflow-x-auto max-h-[340px]">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="bg-slate-100 text-slate-600 font-bold sticky top-0 border-b border-slate-200 z-10 text-[11px]">
                   <tr>
-                    <td colSpan={7} className="p-6 text-center text-slate-400 italic">
-                      Chưa có dữ liệu đợt nhận điện kế nào trong sheet NhapDK963. Hãy nhập thêm ở biểu mẫu phía trên!
-                    </td>
+                    <th className="p-2.5 w-12 text-center">STT</th>
+                    <th className="p-2.5">Ngày Nhận (Ngay)</th>
+                    <th className="p-2.5">Chủng Loại (ChungLoai)</th>
+                    <th className="p-2.5 text-right">Số Lượng (SL)</th>
+                    <th className="p-2.5">Ghi Chú</th>
+                    <th className="p-2.5">Người Nhập</th>
+                    <th className="p-2.5 text-center w-24">Thao Tác</th>
                   </tr>
-                ) : (
-                  nhapList.map((item, idx) => (
-                    <tr key={item.id || idx} className="hover:bg-amber-50/40 transition-colors">
-                      <td className="p-2.5 text-center text-slate-400 font-mono text-[11px]">{idx + 1}</td>
-                      <td className="p-2.5 font-bold text-slate-800 flex items-center gap-1.5">
-                        <Calendar className="w-3 h-3 text-amber-600" />
-                        <span>{item.ngay}</span>
-                      </td>
-                      <td className="p-2.5">
-                        <span className={`px-2 py-0.5 rounded-md font-bold text-[11px] border ${
-                          item.chungLoai.includes('1') 
-                            ? 'bg-blue-50 text-blue-700 border-blue-200' 
-                            : 'bg-purple-50 text-purple-700 border-purple-200'
-                        }`}>
-                          {item.chungLoai}
-                        </span>
-                      </td>
-                      <td className="p-2.5 text-right font-black text-slate-900 text-sm">
-                        {Number(item.sl).toLocaleString('vi-VN')}
-                      </td>
-                      <td className="p-2.5 text-slate-500 max-w-xs truncate" title={item.ghiChu}>
-                        {item.ghiChu || '-'}
-                      </td>
-                      <td className="p-2.5 text-slate-600 text-[11px]">
-                        {item.nguoiNhap || '-'}
-                      </td>
-                      <td className="p-2.5 text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => handleEditEntry(item)}
-                            className="p-1 hover:bg-amber-100 rounded text-amber-700 transition-colors cursor-pointer"
-                            title="Sửa đợt nhập"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteEntry(item.id, item.ngay, item.chungLoai, item.sl)}
-                            className="p-1 hover:bg-rose-100 rounded text-rose-600 transition-colors cursor-pointer"
-                            title="Xóa đợt nhập"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {filteredNhapList.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="p-6 text-center text-slate-400 italic">
+                        {nhapList.length === 0
+                          ? 'Chưa có dữ liệu đợt nhận điện kế nào trong sheet NhapDK963. Hãy nhập thêm ở biểu mẫu phía trên!'
+                          : `Chưa có đợt nhận nào thuộc chủng loại "${nhapHistoryFilter}".`}
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (
+                    filteredNhapList.map((item, idx) => {
+                      const cat = resolveNhapCategory(item.chungLoai, item.id);
+                      return (
+                        <tr key={item.id || idx} className="hover:bg-amber-50/40 transition-colors">
+                          <td className="p-2.5 text-center text-slate-400 font-mono text-[11px]">{idx + 1}</td>
+                          <td className="p-2.5 font-bold text-slate-800 flex items-center gap-1.5">
+                            <Calendar className="w-3 h-3 text-amber-600" />
+                            <span>{item.ngay}</span>
+                          </td>
+                          <td className="p-2.5">
+                            <span className={`px-2 py-0.5 rounded-md font-bold text-[11px] border ${getMeterCategoryBadgeStyle(cat)}`}>
+                              {cat}
+                            </span>
+                          </td>
+                          <td className="p-2.5 text-right font-black text-slate-900 text-sm">
+                            {Number(item.sl).toLocaleString('vi-VN')}
+                          </td>
+                          <td className="p-2.5 text-slate-500 max-w-xs truncate" title={item.ghiChu}>
+                            {item.ghiChu || '-'}
+                          </td>
+                          <td className="p-2.5 text-slate-600 text-[11px]">
+                            {item.nguoiNhap || '-'}
+                          </td>
+                          <td className="p-2.5 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleEditEntry(item)}
+                                className="p-1 hover:bg-amber-100 rounded text-amber-700 transition-colors cursor-pointer"
+                                title="Sửa đợt nhập"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteEntry(item.id, item.ngay, cat, item.sl)}
+                                className="p-1 hover:bg-rose-100 rounded text-rose-600 transition-colors cursor-pointer"
+                                title="Xóa đợt nhập"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>

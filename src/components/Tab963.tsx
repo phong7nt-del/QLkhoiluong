@@ -208,8 +208,8 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
   const [expandedDots, setExpandedDots] = useState<Record<string, boolean>>({});
   const [expandedKvs, setExpandedKvs] = useState<Record<string, boolean>>({});
 
-  // Search state - 5 criteria: Mã KH, Tên KH, TI, TU, Chủng loại cần thay (ChungLoaiCanThay)
-  type SearchTargetField = 'all' | 'maKh' | 'tenKh' | 'ti' | 'tu' | 'cl';
+  // Search state - 6 criteria: Mã KH, Tên KH, TI, TU, Chủng loại cần thay, Cap
+  type SearchTargetField = 'all' | 'maKh' | 'tenKh' | 'ti' | 'tu' | 'cl' | 'cap';
   const [searchQuery, setSearchQuery] = useState('');
   const [searchTarget, setSearchTarget] = useState<SearchTargetField>('all');
   const [searchMode, setSearchMode] = useState<'fuzzy' | 'exact'>('fuzzy');
@@ -806,7 +806,25 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
     return String(item.tySoTu || item.raw?.['ty so_TU'] || item.raw?.['TU'] || item.raw?.['TSO_TU'] || item.raw?.['TYSO_TU'] || item.raw?.['ty_so_tu'] || '').trim();
   };
 
-  // Matcher for the 5 criteria: Mã KH, Tên KH, TI, TU, Chủng loại cần thay
+  const getCapValue = (item: Entry963): string => {
+    return String(item.cap || getRaw963Field(item, ['Cap', 'CAP', 'Cấp', 'cap', 'CAP_DIEN_AP', 'CapDienAp']) || '').trim();
+  };
+
+  // Distinct Cap options across all entries for quick Cap search chips
+  const uniqueCapOptions = useMemo(() => {
+    const map = new Map<string, number>();
+    entries.forEach(item => {
+      const capVal = String(item.cap || getRaw963Field(item, ['Cap', 'CAP', 'Cấp', 'cap', 'CAP_DIEN_AP', 'CapDienAp']) || '').trim();
+      if (capVal) {
+        map.set(capVal, (map.get(capVal) || 0) + 1);
+      }
+    });
+    return Array.from(map.entries())
+      .map(([value, count]) => ({ value, count }))
+      .sort((a, b) => a.value.localeCompare(b.value, 'vi'));
+  }, [entries]);
+
+  // Matcher for the 6 criteria: Mã KH, Tên KH, TI, TU, Chủng loại cần thay, Cap
   const matchesSearchCriteria = (
     item: Entry963,
     query: string,
@@ -823,6 +841,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
     const ti = getTiValue(item);
     const tu = getTuValue(item);
     const cl = item.chungLoaiCanThay || '';
+    const cap = getCapValue(item);
 
     const checkField = (val: string): boolean => {
       if (!val) return false;
@@ -837,12 +856,13 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
     if (target === 'ti') return checkField(ti);
     if (target === 'tu') return checkField(tu);
     if (target === 'cl') return checkField(cl);
+    if (target === 'cap') return checkField(cap);
 
-    // 'all': matches any of the 5 criteria
-    return checkField(maKh) || checkField(tenKh) || checkField(ti) || checkField(tu) || checkField(cl);
+    // 'all': matches any of the 6 criteria
+    return checkField(maKh) || checkField(tenKh) || checkField(ti) || checkField(tu) || checkField(cl) || checkField(cap);
   };
 
-  // Filtered entries based on Search Query (5 criteria: Mã KH, Tên KH, TI, TU, Chủng loại cần thay)
+  // Filtered entries based on Search Query (6 criteria: Mã KH, Tên KH, TI, TU, Chủng loại cần thay, Cap)
   const filteredEntries = useMemo(() => {
     if (!searchQuery.trim()) return entries;
     return entries.filter(item => matchesSearchCriteria(item, searchQuery, searchMode, searchTarget));
@@ -2697,7 +2717,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                 </div>
               </div>
 
-            {/* Tìm kiếm 5 tiêu chí: Mã KH, Tên KH, TI, TU, Chủng loại cần thay & Giọng nói */}
+            {/* Tìm kiếm 6 tiêu chí: Mã KH, Tên KH, TI, TU, Chủng loại cần thay, Cap & Giọng nói */}
             <div className="space-y-2">
               <div className="relative flex items-center">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3 pointer-events-none" />
@@ -2716,7 +2736,9 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                       ? 'Tìm theo Tỷ số TU...'
                       : searchTarget === 'cl'
                       ? 'Tìm theo Chủng loại cần thay...'
-                      : 'Tìm Mã KH, Tên KH, TI, TU, Chủng loại...'
+                      : searchTarget === 'cap'
+                      ? 'Tìm theo Cap (HT, TT, 110...)'
+                      : 'Tìm Mã KH, Tên KH, TI, TU, Chủng loại, Cap...'
                   }
                   className="w-full pl-9 pr-20 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white transition-all"
                 />
@@ -2746,8 +2768,8 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                 </div>
               </div>
 
-              {/* Tiêu chí tìm kiếm: Mã KH, Tên KH, TI, TU, Chủng loại cần thay */}
-              <div className="space-y-1">
+              {/* Tiêu chí tìm kiếm: Mã KH, Tên KH, TI, TU, Chủng loại cần thay, Cap */}
+              <div className="space-y-1.5">
                 <div className="flex items-center justify-between text-[11px] px-1 text-slate-500">
                   <span className="font-semibold text-slate-600">Tiêu chí:</span>
                   <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-[10px]">
@@ -2776,36 +2798,68 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-1">
+                <div className="grid grid-cols-4 gap-1">
                   {[
-                    { id: 'all', label: 'Tất cả' },
-                    { id: 'maKh', label: 'Mã KH' },
-                    { id: 'tenKh', label: 'Tên KH' },
-                    { id: 'ti', label: 'TI' },
-                    { id: 'tu', label: 'TU' },
-                    { id: 'cl', label: 'Chủng loại' },
+                    { id: 'all', label: 'Tất cả', span: 'col-span-2' },
+                    { id: 'maKh', label: 'Mã KH', span: '' },
+                    { id: 'tenKh', label: 'Tên KH', span: '' },
+                    { id: 'ti', label: 'TI', span: '' },
+                    { id: 'tu', label: 'TU', span: '' },
+                    { id: 'cl', label: 'Chủng loại', span: '' },
+                    { id: 'cap', label: 'Cap', span: '' },
                   ].map(tab => (
                     <button
                       key={tab.id}
                       type="button"
                       onClick={() => setSearchTarget(tab.id as SearchTargetField)}
-                      className={`px-1.5 py-1 rounded-lg text-center font-bold text-[10.5px] transition-all cursor-pointer border truncate ${
+                      className={`${tab.span} px-1.5 py-1 rounded-lg text-center font-bold text-[10.5px] transition-all cursor-pointer border truncate ${
                         searchTarget === tab.id
                           ? 'bg-amber-600 text-white border-amber-600 shadow-2xs'
                           : 'bg-white hover:bg-amber-50/60 text-slate-700 border-slate-200'
                       }`}
-                      title={tab.id === 'all' ? 'Tìm trên cả 5 tiêu chí: Mã KH, Tên KH, TI, TU, Chủng loại cần thay' : `Chỉ tìm theo ${tab.label}`}
+                      title={tab.id === 'all' ? 'Tìm trên cả 6 tiêu chí: Mã KH, Tên KH, TI, TU, Chủng loại cần thay, Cap' : `Chỉ tìm theo ${tab.label}`}
                     >
                       {tab.label}
                     </button>
                   ))}
                 </div>
+
+                {/* Gợi ý chọn nhanh giá trị Cap khi đang tìm theo Cap */}
+                {searchTarget === 'cap' && uniqueCapOptions.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1 pt-0.5 px-0.5">
+                    <span className="text-[10px] font-semibold text-slate-500 mr-0.5">Chọn nhanh Cap:</span>
+                    {uniqueCapOptions.map(opt => {
+                      const activeCap = searchQuery.trim().toLowerCase() === opt.value.toLowerCase();
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => {
+                            if (activeCap) {
+                              setSearchQuery('');
+                            } else {
+                              setSearchQuery(opt.value);
+                              setSearchMode('exact');
+                            }
+                          }}
+                          className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-all cursor-pointer ${
+                            activeCap
+                              ? 'bg-amber-600 text-white border-amber-700 shadow-2xs'
+                              : 'bg-amber-50/70 text-amber-900 border-amber-200 hover:bg-amber-100'
+                          }`}
+                        >
+                          {opt.value} ({opt.count})
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {isListening && (
                 <div className="text-[11px] text-rose-600 bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-lg flex items-center gap-2 animate-pulse">
                   <span className="w-2 h-2 rounded-full bg-rose-600"></span>
-                  <span>Đang lắng nghe... Nói Mã KH, Tên KH, TI, TU hoặc Chủng loại cần thay (khi bạn dừng nói, tìm kiếm sẽ tự thực hiện).</span>
+                  <span>Đang lắng nghe... Nói Mã KH, Tên KH, TI, TU, Chủng loại hoặc Cap (khi bạn dừng nói, tìm kiếm sẽ tự thực hiện).</span>
                 </div>
               )}
             </div>
@@ -3337,6 +3391,24 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                     <div>
                       <span className="text-[10px] text-slate-500 font-bold uppercase">Phiên</span>
                       <div className="font-medium text-slate-800 mt-0.5">{selectedCustomer.phien || '—'}</div>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 font-bold uppercase">Cấp (Cap)</span>
+                      <div className="mt-0.5">
+                        {getCapValue(selectedCustomer) ? (
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-md font-mono font-bold text-xs border ${
+                            getCapValue(selectedCustomer).toUpperCase().includes('TT') || getCapValue(selectedCustomer).includes('110')
+                              ? 'bg-rose-50 text-rose-800 border-rose-200'
+                              : getCapValue(selectedCustomer).toUpperCase().includes('HT')
+                              ? 'bg-amber-50 text-amber-800 border-amber-200'
+                              : 'bg-slate-100 text-slate-800 border-slate-300'
+                          }`}>
+                            {getCapValue(selectedCustomer)}
+                          </span>
+                        ) : (
+                          <span className="font-medium text-slate-400">—</span>
+                        )}
+                      </div>
                     </div>
                     <div>
                       <span className="text-[10px] text-slate-500 font-bold uppercase">MA_DS</span>

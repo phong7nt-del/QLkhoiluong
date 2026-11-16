@@ -379,6 +379,49 @@ async function startServer() {
 
   let nhapDkStore: any[] = [];
 
+  const normalizeNhapDkChungLoai = (raw?: string, idHint?: string): string => {
+    const s = String(raw || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/đ/g, 'd')
+      .replace(/Đ/g, 'd')
+      .trim()
+      .toLowerCase();
+    const idL = String(idHint || '').trim().toLowerCase();
+
+    const is3P =
+      s.includes('3') ||
+      s.includes('3p') ||
+      idL.includes('3pha') ||
+      idL.includes('3p');
+    const isGT =
+      s.includes('gian tiep') ||
+      /\bgt\b/.test(s) ||
+      s.includes('giantiep') ||
+      idL.includes('gintip') ||
+      idL.includes('giantiep') ||
+      idL.includes('1pgt') ||
+      idL.includes('3pgt');
+
+    if (is3P) {
+      if (isGT) {
+        if (
+          /\btt\b/.test(s) ||
+          s.includes('trung') ||
+          s.includes('giantieptt') ||
+          idL.includes('gintiptt') ||
+          idL.includes('giantieptt') ||
+          idL.includes('3pgttt')
+        ) {
+          return '3 Pha Gián Tiếp TT';
+        }
+        return '3 Pha Gián Tiếp HT';
+      }
+      return '3 Pha Trực Tiếp';
+    }
+    return isGT ? '1 Pha Gián Tiếp' : '1 Pha Trực Tiếp';
+  };
+
   // Helper deduplication by ID and compound business key (date + chungLoai + sl)
   const deduplicateNhapDkList = (items: any[]): any[] => {
     if (!Array.isArray(items)) return [];
@@ -388,17 +431,24 @@ async function startServer() {
     for (const it of items) {
       if (!it) continue;
       const ngay = String(it.ngay || it.Ngay || '').trim();
-      const chungLoai = String(it.chungLoai || it.ChungLoai || '').trim();
+      const rawChungLoai = String(it.chungLoai || it.ChungLoai || '').trim();
       const sl = Math.max(0, parseInt(String(it.sl !== undefined ? it.sl : (it.SL || 0)).replace(/[^0-9]/g, ''), 10) || 0);
       const ghiChu = String(it.ghiChu || it.GhiChu || '').trim();
       const nguoiNhap = String(it.nguoiNhap || it.NguoiNhap || '').trim();
       let id = String(it.id || it.Id || '').trim();
 
-      if (!ngay && !chungLoai && sl === 0) continue;
+      if (!ngay && !rawChungLoai && sl === 0) continue;
+
+      const chungLoai = normalizeNhapDkChungLoai(rawChungLoai, id);
 
       if (!id) {
         const cleanDate = ngay.replace(/[^0-9]/g, '');
-        const cleanLoai = chungLoai.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const cleanLoai = chungLoai
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/đ/g, 'd')
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, '');
         id = `ndk_${cleanDate}_${cleanLoai}_${sl}`;
       }
 
@@ -443,7 +493,12 @@ async function startServer() {
         const raw = fs.readFileSync(nhapDkStorePath, 'utf8');
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
-          nhapDkStore = deduplicateNhapDkList(parsed);
+          const deduped = deduplicateNhapDkList(parsed);
+          const changed = JSON.stringify(parsed.map(p => p?.chungLoai)) !== JSON.stringify(deduped.map(d => d?.chungLoai));
+          nhapDkStore = deduped;
+          if (changed) {
+            fs.writeFileSync(nhapDkStorePath, JSON.stringify(nhapDkStore, null, 2), 'utf8');
+          }
         }
       }
     } catch (e) {
@@ -520,16 +575,18 @@ async function startServer() {
       if (incoming.length > 0) {
         for (const inc of incoming) {
           const incNgay = String(inc.ngay || inc.Ngay || '').trim();
-          const incLoai = String(inc.chungLoai || inc.ChungLoai || '').trim().toLowerCase();
+          const incId = String(inc.id || inc.Id || '').trim();
+          const incChungLoaiNorm = normalizeNhapDkChungLoai(String(inc.chungLoai || inc.ChungLoai || '').trim(), incId);
+          const incLoai = incChungLoaiNorm.toLowerCase();
           const incSl = Math.max(0, parseInt(String(inc.sl !== undefined ? inc.sl : (inc.SL || 0)).replace(/[^0-9]/g, ''), 10) || 0);
 
           // Find by id first
-          let idx = nhapDkStore.findIndex((x: any) => x.id === inc.id);
+          let idx = nhapDkStore.findIndex((x: any) => x.id === incId);
           // If not found by id, find by exact business match (same date, same type, same quantity)
           if (idx === -1) {
             idx = nhapDkStore.findIndex((x: any) =>
               String(x.ngay || '').trim() === incNgay &&
-              String(x.chungLoai || '').trim().toLowerCase() === incLoai &&
+              normalizeNhapDkChungLoai(String(x.chungLoai || '').trim(), x.id).toLowerCase() === incLoai &&
               (Number(x.sl) || 0) === incSl
             );
           }
@@ -538,11 +595,12 @@ async function startServer() {
             nhapDkStore[idx] = {
               ...nhapDkStore[idx],
               ...inc,
+              chungLoai: incChungLoaiNorm,
               nguoiNhap: inc.nguoiNhap || nhapDkStore[idx].nguoiNhap || '',
               ghiChu: inc.ghiChu !== undefined ? inc.ghiChu : (nhapDkStore[idx].ghiChu || '')
             };
           } else {
-            nhapDkStore.unshift(inc);
+            nhapDkStore.unshift({ ...inc, chungLoai: incChungLoaiNorm });
           }
         }
         nhapDkStore = deduplicateNhapDkList(nhapDkStore);

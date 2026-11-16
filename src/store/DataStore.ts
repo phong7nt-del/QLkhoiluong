@@ -170,10 +170,17 @@ export interface Local963Update {
   synced: boolean;
 }
 
+export type MeterCategory5 =
+  | '1 Pha Trực Tiếp'
+  | '1 Pha Gián Tiếp'
+  | '3 Pha Trực Tiếp'
+  | '3 Pha Gián Tiếp HT'
+  | '3 Pha Gián Tiếp TT';
+
 export interface NhapDk963Entry {
   id: string;
   ngay: string; // dd/mm/yyyy
-  chungLoai: '1 Pha' | '3 Pha Trực Tiếp' | '3 Pha Gián Tiếp' | '3 Pha' | string;
+  chungLoai: MeterCategory5 | '1 Pha' | '3 Pha Gián Tiếp' | '3 Pha' | string;
   sl: number;
   ghiChu?: string;
   nguoiNhap?: string;
@@ -7928,14 +7935,62 @@ export const DataStore = {
   },
 
   // ======== QUẢN LÝ NHẬP ĐIỆN KẾ (SHEET NhapDK963) ========
+  normalizeNhapDkChungLoai: (raw?: string, idHint?: string): MeterCategory5 => {
+    const s = String(raw || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/đ/g, 'd')
+      .replace(/Đ/g, 'd')
+      .trim()
+      .toLowerCase();
+    const idL = String(idHint || '').trim().toLowerCase();
+
+    const is3P =
+      s.includes('3') ||
+      s.includes('3p') ||
+      idL.includes('3pha') ||
+      idL.includes('3p');
+    const isGT =
+      s.includes('gian tiep') ||
+      /\bgt\b/.test(s) ||
+      s.includes('giantiep') ||
+      idL.includes('gintip') ||
+      idL.includes('giantiep') ||
+      idL.includes('1pgt') ||
+      idL.includes('3pgt');
+
+    if (is3P) {
+      if (isGT) {
+        if (
+          /\btt\b/.test(s) ||
+          s.includes('trung') ||
+          s.includes('giantieptt') ||
+          idL.includes('gintiptt') ||
+          idL.includes('giantieptt') ||
+          idL.includes('3pgttt')
+        ) {
+          return '3 Pha Gián Tiếp TT';
+        }
+        return '3 Pha Gián Tiếp HT';
+      }
+      return '3 Pha Trực Tiếp';
+    }
+    return isGT ? '1 Pha Gián Tiếp' : '1 Pha Trực Tiếp';
+  },
+
   getNhapDk963Entries: (): NhapDk963Entry[] => {
-    if (memCacheNhapDk963List) return memCacheNhapDk963List;
+    if (memCacheNhapDk963List) {
+      return memCacheNhapDk963List.map(item => ({
+        ...item,
+        chungLoai: DataStore.normalizeNhapDkChungLoai(item.chungLoai, item.id)
+      }));
+    }
     try {
       const local = safeGetItem(SHEET_NHAP_DK_963_KEY);
       if (local) {
         const parsed = JSON.parse(local);
         if (Array.isArray(parsed)) {
-          memCacheNhapDk963List = parsed;
+          memCacheNhapDk963List = DataStore.deduplicateNhapDkEntries(parsed);
           return memCacheNhapDk963List;
         }
       }
@@ -7944,10 +7999,16 @@ export const DataStore = {
   },
 
   saveNhapDk963Entries: (entries: NhapDk963Entry[]) => {
-    memCacheNhapDk963List = entries;
+    const normalized = Array.isArray(entries)
+      ? entries.map(it => ({
+          ...it,
+          chungLoai: DataStore.normalizeNhapDkChungLoai(it.chungLoai, it.id)
+        }))
+      : [];
+    memCacheNhapDk963List = normalized;
     try {
-      safeSetItem(SHEET_NHAP_DK_963_KEY, JSON.stringify(entries));
-      set(SHEET_NHAP_DK_963_KEY, entries).catch(() => {});
+      safeSetItem(SHEET_NHAP_DK_963_KEY, JSON.stringify(normalized));
+      set(SHEET_NHAP_DK_963_KEY, normalized).catch(() => {});
     } catch (e) {
       console.warn('Could not persist NhapDK963:', e);
     }
@@ -7959,11 +8020,17 @@ export const DataStore = {
     const seenId = new Map<string, NhapDk963Entry>();
     const seenBiz = new Map<string, NhapDk963Entry>();
 
-    for (const item of entries) {
-      if (!item) continue;
-      const d = (item.ngay || '').trim();
-      const cl = (item.chungLoai || '').trim().toLowerCase();
-      const sl = Number(item.sl) || 0;
+    for (const rawItem of entries) {
+      if (!rawItem) continue;
+      const item: NhapDk963Entry = {
+        ...rawItem,
+        ngay: (rawItem.ngay || '').trim(),
+        chungLoai: DataStore.normalizeNhapDkChungLoai(rawItem.chungLoai, rawItem.id),
+        sl: Number(rawItem.sl) || 0
+      };
+      const d = item.ngay;
+      const cl = String(item.chungLoai).trim().toLowerCase();
+      const sl = item.sl;
       const bizKey = `${d}___${cl}___${sl}`;
 
       if (seenId.has(item.id)) {
@@ -8034,7 +8101,7 @@ export const DataStore = {
       for (let i = startRow; i < rawGrid.length; i++) {
         const r = rawGrid[i] || [];
         let ngayVal = String(r[idxNgay] || '').trim();
-        let chungLoaiVal = String(r[idxChungLoai] || '').trim();
+        const chungLoaiVal = String(r[idxChungLoai] || '').trim();
         const slRaw = r[idxSl];
         const slVal = Math.max(0, parseInt(String(slRaw || 0).replace(/[^0-9]/g, ''), 10) || 0);
 
@@ -8048,23 +8115,19 @@ export const DataStore = {
           }
         }
 
-        // Chuẩn hóa chủng loại điện kế
-        const clNorm = chungLoaiVal.toLowerCase();
-        let normalizedCl = chungLoaiVal || '1 Pha';
-        if (clNorm.includes('1') || clNorm.includes('1 pha') || clNorm === '1p') {
-          normalizedCl = '1 Pha';
-        } else if (clNorm.includes('gián tiếp') || clNorm.includes('gian tiep') || clNorm.includes('gt')) {
-          normalizedCl = '3 Pha Gián Tiếp';
-        } else if (clNorm.includes('trực tiếp') || clNorm.includes('truc tiep') || clNorm.includes('tt')) {
-          normalizedCl = '3 Pha Trực Tiếp';
-        } else if (clNorm.includes('3') || clNorm.includes('3 pha') || clNorm === '3p') {
-          normalizedCl = '3 Pha';
-        }
-
         const rawId = idxId > -1 && r[idxId] ? String(r[idxId]).trim() : '';
+
+        // Chuẩn hóa về đúng 5 chủng loại điện kế (hỗ trợ phục hồi từ rawId nếu sheet bị gộp cũ)
+        const normalizedCl = DataStore.normalizeNhapDkChungLoai(chungLoaiVal, rawId);
+
         // Tạo ID tất định dựa trên dữ liệu bản ghi, KHÔNG dùng Date.now() để tránh phát sinh ID mới ngẫu nhiên
         const cleanDate = ngayVal.replace(/[^0-9]/g, '');
-        const cleanLoai = normalizedCl.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const cleanLoai = normalizedCl
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/đ/g, 'd')
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, '');
         const idVal = rawId || `ndk_${cleanDate}_${cleanLoai}_${slVal}`;
 
         const ghiChuVal = idxGhiChu > -1 && r[idxGhiChu] ? String(r[idxGhiChu]).trim() : '';
@@ -8092,18 +8155,19 @@ export const DataStore = {
   fetchNhapDk963Data: async (forceRefresh?: boolean): Promise<NhapDk963Entry[]> => {
     // Strategy 1: Centralized Server Store (/api/nhap-dk-963)
     // Đồng bộ lập tức giữa các máy tính và thiết bị khác nhau
+    let serverItems: NhapDk963Entry[] = [];
     try {
       const serverRes = await fetch('/api/nhap-dk-963', {
         headers: { 'Cache-Control': 'no-cache' }
       });
       if (serverRes.ok) {
         const json = await serverRes.json();
-        if (json && json.success && Array.isArray(json.items)) {
-          if (json.items.length > 0) {
-            const dedupedServer = DataStore.deduplicateNhapDkEntries(json.items);
-            DataStore.saveNhapDk963Entries(dedupedServer);
+        if (json && json.success && Array.isArray(json.items) && json.items.length > 0) {
+          serverItems = DataStore.deduplicateNhapDkEntries(json.items);
+          if (!forceRefresh) {
+            DataStore.saveNhapDk963Entries(serverItems);
             window.dispatchEvent(new CustomEvent('nhap_dk_963_updated'));
-            return dedupedServer;
+            return serverItems;
           }
         }
       }
@@ -8111,7 +8175,7 @@ export const DataStore = {
       console.warn('Could not fetch /api/nhap-dk-963:', err);
     }
 
-    // Strategy 2: Google Sheets CSV export
+    // Strategy 2: Google Sheets CSV export (chạy khi server trống hoặc forceRefresh)
     try {
       const sheetId = DataStore.getSpreadsheetId() || DEFAULT_SPREADSHEET_ID;
       const possibleNames = ['NhapDK963', 'nhapdk963', 'Nhap_DK_963', 'NhapDK_963', 'Nhập ĐK 963', 'NhapDK'];
@@ -8128,21 +8192,32 @@ export const DataStore = {
         const parsed = DataStore.parseNhapDk963CSVData(csvText);
         if (parsed.length > 0) {
           const current = DataStore.getNhapDk963Entries();
-          const localOnly = current.filter(c => c.isLocal && !parsed.some(p => p.id === c.id));
-          const merged = DataStore.deduplicateNhapDkEntries([...parsed, ...localOnly]);
+          // Ưu tiên giữ các bản ghi đang có trên server (tránh ghi đè sửa/xóa trên app khi Sheet đồng bộ chậm), chỉ bổ sung các dòng mới thêm từ Sheet
+          const baseList = serverItems.length > 0 ? serverItems : current.filter(c => c.isLocal);
+          const extraFromSheet = serverItems.length > 0
+            ? parsed.filter(p => !serverItems.some(s => s.id === p.id))
+            : parsed;
+          const merged = DataStore.deduplicateNhapDkEntries([...baseList, ...extraFromSheet]);
           DataStore.saveNhapDk963Entries(merged);
-          // Đồng bộ lên server để các máy khác cùng nhận được
-          fetch('/api/nhap-dk-963', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'set_all', items: merged })
-          }).catch(() => {});
+          if (serverItems.length === 0 || extraFromSheet.length > 0) {
+            fetch('/api/nhap-dk-963', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'set_all', items: merged })
+            }).catch(() => {});
+          }
           window.dispatchEvent(new CustomEvent('nhap_dk_963_updated'));
           return merged;
         }
       }
     } catch (e) {
       console.warn('Lỗi khi fetch sheet NhapDK963:', e);
+    }
+
+    if (serverItems.length > 0) {
+      DataStore.saveNhapDk963Entries(serverItems);
+      window.dispatchEvent(new CustomEvent('nhap_dk_963_updated'));
+      return serverItems;
     }
     return DataStore.deduplicateNhapDkEntries(DataStore.getNhapDk963Entries());
   },
@@ -8153,11 +8228,14 @@ export const DataStore = {
     let list = DataStore.deduplicateNhapDkEntries(DataStore.getNhapDk963Entries());
 
     const normDate = (entry.ngay || '').trim();
-    const normCl = (entry.chungLoai || '').trim().toLowerCase();
+    const normClCanonical = DataStore.normalizeNhapDkChungLoai(entry.chungLoai);
+    const normClLower = normClCanonical.toLowerCase();
 
-    // Kiểm tra xem đã có đợt nhập nào cùng ngày và cùng chủng loại chưa
+    // Kiểm tra xem đã có đợt nhập nào cùng ngày và cùng chủng loại (trong 5 loại) chưa
     const existingIdx = list.findIndex(
-      e => (e.ngay || '').trim() === normDate && (e.chungLoai || '').trim().toLowerCase() === normCl
+      e =>
+        (e.ngay || '').trim() === normDate &&
+        DataStore.normalizeNhapDkChungLoai(e.chungLoai, e.id).toLowerCase() === normClLower
     );
 
     let savedEntry: NhapDk963Entry;
@@ -8166,16 +8244,25 @@ export const DataStore = {
       list[existingIdx] = {
         ...list[existingIdx],
         ...entry,
+        ngay: normDate,
+        chungLoai: normClCanonical,
         isLocal: true,
         timestamp: Date.now()
       };
       savedEntry = list[existingIdx];
     } else {
       const cleanDate = normDate.replace(/[^0-9]/g, '');
-      const cleanLoai = normCl.replace(/[^a-z0-9]/g, '');
+      const cleanLoai = normClCanonical
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/đ/g, 'd')
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '');
       const deterministicId = `ndk_${cleanDate}_${cleanLoai}_${entry.sl || 0}`;
       savedEntry = {
         ...entry,
+        ngay: normDate,
+        chungLoai: normClCanonical,
         id: deterministicId,
         timestamp: Date.now(),
         isLocal: true
@@ -8225,7 +8312,11 @@ export const DataStore = {
     if (idx === -1) {
       return { success: false, error: 'Không tìm thấy bản ghi nhập điện kế cần sửa' };
     }
-    list[idx] = { ...list[idx], ...updates, isLocal: true };
+    const mergedUpdates: Partial<NhapDk963Entry> = { ...updates };
+    if (updates.chungLoai !== undefined) {
+      mergedUpdates.chungLoai = DataStore.normalizeNhapDkChungLoai(updates.chungLoai, id);
+    }
+    list[idx] = { ...list[idx], ...mergedUpdates, isLocal: true };
     DataStore.saveNhapDk963Entries(list);
     window.dispatchEvent(new CustomEvent('nhap_dk_963_updated'));
 

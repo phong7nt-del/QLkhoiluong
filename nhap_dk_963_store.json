@@ -1,12 +1,62 @@
 [
   {
+    "id": "ndk_06112026_3phagintiptt_1",
+    "ngay": "06/11/2026",
+    "chungLoai": "3 Pha Gián Tiếp TT",
+    "sl": 1,
+    "ghiChu": "",
+    "nguoiNhap": "Trần Xuân Nhàn",
+    "timestamp": 1794813309542,
+    "isLocal": false
+  },
+  {
+    "id": "ndk_13112026_3phagintipht_30",
+    "ngay": "13/11/2026",
+    "chungLoai": "3 Pha Gián Tiếp HT",
+    "sl": 30,
+    "ghiChu": "",
+    "nguoiNhap": "Nguyễn Thành Phong",
+    "timestamp": 1794813310542,
+    "isLocal": false
+  },
+  {
+    "id": "ndk_13112026_3phatrctip_80",
+    "ngay": "13/11/2026",
+    "chungLoai": "3 Pha Trực Tiếp",
+    "sl": 80,
+    "ghiChu": "",
+    "nguoiNhap": "Nguyễn Thành Phong",
+    "timestamp": 1794813311542,
+    "isLocal": false
+  },
+  {
+    "id": "ndk_11112026_3phagintip_80",
+    "ngay": "11/11/2026",
+    "chungLoai": "3 Pha Gián Tiếp HT",
+    "sl": 80,
+    "ghiChu": "",
+    "nguoiNhap": "Nguyễn Thành Phong",
+    "timestamp": 1794813312542,
+    "isLocal": false
+  },
+  {
+    "id": "ndk_11112026_3phatrctip_100",
+    "ngay": "11/11/2026",
+    "chungLoai": "3 Pha Trực Tiếp",
+    "sl": 446,
+    "ghiChu": "",
+    "nguoiNhap": "Trần Xuân Nhàn",
+    "timestamp": 1794813313543,
+    "isLocal": false
+  },
+  {
     "id": "ndk_1794355189382_0",
     "ngay": "09/11/2026",
-    "chungLoai": "1 Pha",
-    "sl": 5,
+    "chungLoai": "1 Pha Trực Tiếp",
+    "sl": 54,
     "ghiChu": "",
-    "nguoiNhap": "",
-    "timestamp": 1794355183382,
+    "nguoiNhap": "Nguyễn Thành Phong",
+    "timestamp": 1794813314543,
     "isLocal": false
   },
   {
@@ -15,38 +65,28 @@
     "chungLoai": "3 Pha Trực Tiếp",
     "sl": 109,
     "ghiChu": "",
-    "nguoiNhap": "",
-    "timestamp": 1794355184382,
+    "nguoiNhap": "Trần Xuân Nhàn",
+    "timestamp": 1794813315543,
     "isLocal": false
   },
   {
     "id": "ndk_1794355189382_2",
     "ngay": "07/11/2026",
-    "chungLoai": "1 Pha",
+    "chungLoai": "1 Pha Trực Tiếp",
     "sl": 65,
     "ghiChu": "",
-    "nguoiNhap": "",
-    "timestamp": 1794355185382,
+    "nguoiNhap": "Nguyễn Thành Phong",
+    "timestamp": 1794813316543,
     "isLocal": false
   },
   {
     "id": "ndk_1794355189382_3",
     "ngay": "07/11/2026",
-    "chungLoai": "3 Pha Gián Tiếp",
+    "chungLoai": "3 Pha Gián Tiếp HT",
     "sl": 36,
     "ghiChu": "",
-    "nguoiNhap": "",
-    "timestamp": 1794355186382,
-    "isLocal": false
-  },
-  {
-    "id": "ndk_1794355189382_4",
-    "ngay": "06/11/2026",
-    "chungLoai": "3 Pha Gián Tiếp",
-    "sl": 1,
-    "ghiChu": "",
-    "nguoiNhap": "",
-    "timestamp": 1794355187382,
+    "nguoiNhap": "Trần Xuân Nhàn",
+    "timestamp": 1794813317543,
     "isLocal": false
   },
   {
@@ -55,8 +95,8 @@
     "chungLoai": "3 Pha Trực Tiếp",
     "sl": 15,
     "ghiChu": "",
-    "nguoiNhap": "",
-    "timestamp": 1794355188382,
+    "nguoiNhap": "Trần Xuân Nhàn",
+    "timestamp": 1794813318543,
     "isLocal": false
   }
 ]
