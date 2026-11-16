@@ -104,6 +104,21 @@ export const resolveEntryCap = (c: Entry963): string => {
   return '';
 };
 
+// Kiểm tra cột Cap có phải là 110 hoặc RG (Ranh giới) hay không
+export const isCap110OrRg = (c: Entry963): boolean => {
+  const capNorm = resolveEntryCap(c)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'd')
+    .toUpperCase()
+    .trim();
+  if (!capNorm) return false;
+  if (capNorm === '110' || capNorm.includes('110')) return true;
+  if (capNorm === 'RG' || /\bRG\b/.test(capNorm) || capNorm.includes('RANH GIOI')) return true;
+  return false;
+};
+
 const resolveRawField = (c: Entry963, keys: string[]): string => {
   if (!c?.raw) return '';
   for (const k of keys) {
@@ -345,7 +360,7 @@ export default function Tab963DienKe({
       });
   }, [entries963]);
 
-  // Danh sách các khách hàng ĐÃ THAY XONG trong Sheet 963
+  // Danh sách các khách hàng ĐÃ THAY XONG trong Sheet 963 (tính đầy đủ để trừ vào chỉ tiêu Tổng cần thay)
   const completedCustomers = useMemo(() => {
     return entries963.filter(c => {
       const kq = (c.ketQua || '').trim().toLowerCase();
@@ -365,7 +380,9 @@ export default function Tab963DienKe({
         kieuDo: cat.kieuDo,
         capCode: cat.capCode,
         capRaw: cat.capRaw,
-        phaseDetail: cat.chiTiet
+        phaseDetail: cat.chiTiet,
+        // Cap 110 và RG do phối hợp thay: vẫn trừ chỉ tiêu Tổng cần thay, không trừ điện kế đã nhập kho
+        isExcludedFromKho: isCap110OrRg(c)
       };
     });
   }, [completedCustomers]);
@@ -419,12 +436,21 @@ export default function Tab963DienKe({
     const nhap3P = nhap3PTT + nhap3PGT;
 
     // 3. Tổng đã thay theo 5 chủng loại từ sheet 963
+    // - thay*: toàn bộ công tơ đã thay xong (vẫn trừ vào chỉ tiêu Tổng cần thay, gồm cả Cap 110 & RG)
+    // - thayTruKho*: chỉ các công tơ trừ vào điện kế đã nhập kho (không tính Cap 110 & RG do phối hợp thay)
     let thayTong = 0;
     let thay1PTT = 0;
     let thay1PGT = 0;
     let thay3PTT = 0;
     let thay3PGT_HT = 0;
     let thay3PGT_TT = 0;
+
+    let thayTruKhoTong = 0;
+    let thayTruKho1PTT = 0;
+    let thayTruKho1PGT = 0;
+    let thayTruKho3PTT = 0;
+    let thayTruKho3PGT_HT = 0;
+    let thayTruKho3PGT_TT = 0;
 
     completedWithNormalizedDate.forEach(c => {
       thayTong++;
@@ -433,26 +459,39 @@ export default function Tab963DienKe({
       else if (c.phaseDetail === '3 Pha Trực Tiếp') thay3PTT++;
       else if (c.phaseDetail === '3 Pha Gián Tiếp HT') thay3PGT_HT++;
       else if (c.phaseDetail === '3 Pha Gián Tiếp TT') thay3PGT_TT++;
+
+      if (!c.isExcludedFromKho) {
+        thayTruKhoTong++;
+        if (c.phaseDetail === '1 Pha Trực Tiếp') thayTruKho1PTT++;
+        else if (c.phaseDetail === '1 Pha Gián Tiếp') thayTruKho1PGT++;
+        else if (c.phaseDetail === '3 Pha Trực Tiếp') thayTruKho3PTT++;
+        else if (c.phaseDetail === '3 Pha Gián Tiếp HT') thayTruKho3PGT_HT++;
+        else if (c.phaseDetail === '3 Pha Gián Tiếp TT') thayTruKho3PGT_TT++;
+      }
     });
 
     const thay1P = thay1PTT + thay1PGT;
     const thay3PGT = thay3PGT_HT + thay3PGT_TT;
     const thay3P = thay3PTT + thay3PGT;
 
+    const thayTruKho1P = thayTruKho1PTT + thayTruKho1PGT;
+    const thayTruKho3PGT = thayTruKho3PGT_HT + thayTruKho3PGT_TT;
+    const thayTruKho3P = thayTruKho3PTT + thayTruKho3PGT;
+
     const pct = (num: number, den: number) => (den > 0 ? ((num / den) * 100).toFixed(1) : '0.0');
 
-    // 4. Tỷ lệ % thay / nhập
-    const tyLeTong = pct(thayTong, nhapTong);
-    const tyLe1P = pct(thay1P, nhap1P);
-    const tyLe1PTT = pct(thay1PTT, nhap1PTT);
-    const tyLe1PGT = pct(thay1PGT, nhap1PGT);
-    const tyLe3P = pct(thay3P, nhap3P);
-    const tyLe3PTT = pct(thay3PTT, nhap3PTT);
-    const tyLe3PGT = pct(thay3PGT, nhap3PGT);
-    const tyLe3PGT_HT = pct(thay3PGT_HT, nhap3PGT_HT);
-    const tyLe3PGT_TT = pct(thay3PGT_TT, nhap3PGT_TT);
+    // 4. Tỷ lệ % thay (trừ kho) / nhập (không tính Cap 110 & RG)
+    const tyLeTong = pct(thayTruKhoTong, nhapTong);
+    const tyLe1P = pct(thayTruKho1P, nhap1P);
+    const tyLe1PTT = pct(thayTruKho1PTT, nhap1PTT);
+    const tyLe1PGT = pct(thayTruKho1PGT, nhap1PGT);
+    const tyLe3P = pct(thayTruKho3P, nhap3P);
+    const tyLe3PTT = pct(thayTruKho3PTT, nhap3PTT);
+    const tyLe3PGT = pct(thayTruKho3PGT, nhap3PGT);
+    const tyLe3PGT_HT = pct(thayTruKho3PGT_HT, nhap3PGT_HT);
+    const tyLe3PGT_TT = pct(thayTruKho3PGT_TT, nhap3PGT_TT);
 
-    // 5. Tỷ lệ % thay / tổng cần thay (963)
+    // 5. Tỷ lệ % thay / tổng cần thay (963 - tính đủ cả 110 & RG)
     const tyLeCanThayTong = pct(thayTong, canThayTong);
     const tyLeCanThay1P = pct(thay1P, canThay1P);
     const tyLeCanThay1PTT = pct(thay1PTT, canThay1PTT);
@@ -463,14 +502,14 @@ export default function Tab963DienKe({
     const tyLeCanThay3PGT_HT = pct(thay3PGT_HT, canThay3PGT_HT);
     const tyLeCanThay3PGT_TT = pct(thay3PGT_TT, canThay3PGT_TT);
 
-    // 6. Tồn kho chưa thay (Nhập - Thay)
-    const tonTong = nhapTong - thayTong;
-    const ton1PTT = nhap1PTT - thay1PTT;
-    const ton1PGT = nhap1PGT - thay1PGT;
+    // 6. Tồn kho chưa thay (Nhập - Đã thay trừ kho; không trừ Cap 110 & RG do phối hợp thay)
+    const tonTong = nhapTong - thayTruKhoTong;
+    const ton1PTT = nhap1PTT - thayTruKho1PTT;
+    const ton1PGT = nhap1PGT - thayTruKho1PGT;
     const ton1P = ton1PTT + ton1PGT;
-    const ton3PTT = nhap3PTT - thay3PTT;
-    const ton3PGT_HT = nhap3PGT_HT - thay3PGT_HT;
-    const ton3PGT_TT = nhap3PGT_TT - thay3PGT_TT;
+    const ton3PTT = nhap3PTT - thayTruKho3PTT;
+    const ton3PGT_HT = nhap3PGT_HT - thayTruKho3PGT_HT;
+    const ton3PGT_TT = nhap3PGT_TT - thayTruKho3PGT_TT;
     const ton3PGT = ton3PGT_HT + ton3PGT_TT;
     const ton3P = ton3PTT + ton3PGT;
 
@@ -478,6 +517,7 @@ export default function Tab963DienKe({
       canThayTong, canThay1P, canThay1PTT, canThay1PGT, canThay3P, canThay3PTT, canThay3PGT, canThay3PGT_HT, canThay3PGT_TT,
       nhapTong, nhap1P, nhap1PTT, nhap1PGT, nhap3P, nhap3PTT, nhap3PGT, nhap3PGT_HT, nhap3PGT_TT,
       thayTong, thay1P, thay1PTT, thay1PGT, thay3P, thay3PTT, thay3PGT, thay3PGT_HT, thay3PGT_TT,
+      thayTruKhoTong, thayTruKho1P, thayTruKho1PTT, thayTruKho1PGT, thayTruKho3P, thayTruKho3PTT, thayTruKho3PGT, thayTruKho3PGT_HT, thayTruKho3PGT_TT,
       tyLeTong, tyLe1P, tyLe1PTT, tyLe1PGT, tyLe3P, tyLe3PTT, tyLe3PGT, tyLe3PGT_HT, tyLe3PGT_TT,
       tyLeCanThayTong, tyLeCanThay1P, tyLeCanThay1PTT, tyLeCanThay1PGT, tyLeCanThay3P, tyLeCanThay3PTT, tyLeCanThay3PGT, tyLeCanThay3PGT_HT, tyLeCanThay3PGT_TT,
       tonTong, ton1P, ton1PTT, ton1PGT, ton3P, ton3PTT, ton3PGT, ton3PGT_HT, ton3PGT_TT
@@ -496,6 +536,7 @@ export default function Tab963DienKe({
         canThay: kpiTotals.canThay1P,
         nhap: kpiTotals.nhap1P,
         thay: kpiTotals.thay1P,
+        thayTruKho: kpiTotals.thayTruKho1P,
         tyLeNhap: kpiTotals.tyLe1P,
         tyLeCanThay: kpiTotals.tyLeCanThay1P,
         tonKho: kpiTotals.ton1P,
@@ -509,6 +550,7 @@ export default function Tab963DienKe({
         canThay: kpiTotals.canThay1PTT,
         nhap: kpiTotals.nhap1PTT,
         thay: kpiTotals.thay1PTT,
+        thayTruKho: kpiTotals.thayTruKho1PTT,
         tyLeNhap: kpiTotals.tyLe1PTT,
         tyLeCanThay: kpiTotals.tyLeCanThay1PTT,
         tonKho: kpiTotals.ton1PTT,
@@ -522,6 +564,7 @@ export default function Tab963DienKe({
         canThay: kpiTotals.canThay1PGT,
         nhap: kpiTotals.nhap1PGT,
         thay: kpiTotals.thay1PGT,
+        thayTruKho: kpiTotals.thayTruKho1PGT,
         tyLeNhap: kpiTotals.tyLe1PGT,
         tyLeCanThay: kpiTotals.tyLeCanThay1PGT,
         tonKho: kpiTotals.ton1PGT,
@@ -535,6 +578,7 @@ export default function Tab963DienKe({
         canThay: kpiTotals.canThay3P,
         nhap: kpiTotals.nhap3P,
         thay: kpiTotals.thay3P,
+        thayTruKho: kpiTotals.thayTruKho3P,
         tyLeNhap: kpiTotals.tyLe3P,
         tyLeCanThay: kpiTotals.tyLeCanThay3P,
         tonKho: kpiTotals.ton3P,
@@ -548,6 +592,7 @@ export default function Tab963DienKe({
         canThay: kpiTotals.canThay3PTT,
         nhap: kpiTotals.nhap3PTT,
         thay: kpiTotals.thay3PTT,
+        thayTruKho: kpiTotals.thayTruKho3PTT,
         tyLeNhap: kpiTotals.tyLe3PTT,
         tyLeCanThay: kpiTotals.tyLeCanThay3PTT,
         tonKho: kpiTotals.ton3PTT,
@@ -561,6 +606,7 @@ export default function Tab963DienKe({
         canThay: kpiTotals.canThay3PGT,
         nhap: kpiTotals.nhap3PGT,
         thay: kpiTotals.thay3PGT,
+        thayTruKho: kpiTotals.thayTruKho3PGT,
         tyLeNhap: kpiTotals.tyLe3PGT,
         tyLeCanThay: kpiTotals.tyLeCanThay3PGT,
         tonKho: kpiTotals.ton3PGT,
@@ -574,6 +620,7 @@ export default function Tab963DienKe({
         canThay: kpiTotals.canThay3PGT_HT,
         nhap: kpiTotals.nhap3PGT_HT,
         thay: kpiTotals.thay3PGT_HT,
+        thayTruKho: kpiTotals.thayTruKho3PGT_HT,
         tyLeNhap: kpiTotals.tyLe3PGT_HT,
         tyLeCanThay: kpiTotals.tyLeCanThay3PGT_HT,
         tonKho: kpiTotals.ton3PGT_HT,
@@ -587,6 +634,7 @@ export default function Tab963DienKe({
         canThay: kpiTotals.canThay3PGT_TT,
         nhap: kpiTotals.nhap3PGT_TT,
         thay: kpiTotals.thay3PGT_TT,
+        thayTruKho: kpiTotals.thayTruKho3PGT_TT,
         tyLeNhap: kpiTotals.tyLe3PGT_TT,
         tyLeCanThay: kpiTotals.tyLeCanThay3PGT_TT,
         tonKho: kpiTotals.ton3PGT_TT,
@@ -613,7 +661,7 @@ export default function Tab963DienKe({
       nhap3PGT: number;
       nhap3P: number;
       nhapTong: number;
-      // Thay xong 5 loại
+      // Thay xong 5 loại (tính đủ cả 110 & RG để đối chiếu Tổng cần thay)
       thay1PTT: number;
       thay1PGT: number;
       thay1P: number;
@@ -623,6 +671,10 @@ export default function Tab963DienKe({
       thay3PGT: number;
       thay3P: number;
       thayTong: number;
+      // Thay xong trừ kho (không tính Cap 110 & RG do phối hợp thay)
+      thayTruKho1P: number;
+      thayTruKho3P: number;
+      thayTruKhoTong: number;
       customersReplaced: typeof completedWithNormalizedDate;
     }>();
 
@@ -655,6 +707,9 @@ export default function Tab963DienKe({
           thay3PGT: 0,
           thay3P: 0,
           thayTong: 0,
+          thayTruKho1P: 0,
+          thayTruKho3P: 0,
+          thayTruKhoTong: 0,
           customersReplaced: []
         });
       }
@@ -701,48 +756,56 @@ export default function Tab963DienKe({
 
       entry.thayTong++;
       entry.customersReplaced.push(c);
+      if (!c.isExcludedFromKho) {
+        entry.thayTruKhoTong++;
+      }
 
       if (c.phaseDetail === '1 Pha Trực Tiếp') {
         entry.thay1PTT++;
         entry.thay1P++;
+        if (!c.isExcludedFromKho) entry.thayTruKho1P++;
       } else if (c.phaseDetail === '1 Pha Gián Tiếp') {
         entry.thay1PGT++;
         entry.thay1P++;
+        if (!c.isExcludedFromKho) entry.thayTruKho1P++;
       } else if (c.phaseDetail === '3 Pha Trực Tiếp') {
         entry.thay3PTT++;
         entry.thay3P++;
+        if (!c.isExcludedFromKho) entry.thayTruKho3P++;
       } else if (c.phaseDetail === '3 Pha Gián Tiếp HT') {
         entry.thay3PGT_HT++;
         entry.thay3PGT++;
         entry.thay3P++;
+        if (!c.isExcludedFromKho) entry.thayTruKho3P++;
       } else if (c.phaseDetail === '3 Pha Gián Tiếp TT') {
         entry.thay3PGT_TT++;
         entry.thay3PGT++;
         entry.thay3P++;
+        if (!c.isExcludedFromKho) entry.thayTruKho3P++;
       }
     });
 
     // Sắp xếp ngày giảm dần (ngày mới nhất lên đầu)
     const sorted = Array.from(dateMap.values()).sort((a, b) => b.rawDateSort - a.rawDateSort);
 
-    // Tính tồn luỹ kế theo thời gian
+    // Tính tồn luỹ kế theo thời gian (chỉ trừ điện kế kho, không trừ Cap 110 & RG)
     let runningCumulativeNhap = 0;
-    let runningCumulativeThay = 0;
+    let runningCumulativeThayTruKho = 0;
     const chronological = [...sorted].sort((a, b) => a.rawDateSort - b.rawDateSort);
     const cumulativeMap = new Map<string, number>();
 
     chronological.forEach(item => {
       runningCumulativeNhap += item.nhapTong;
-      runningCumulativeThay += item.thayTong;
-      cumulativeMap.set(item.date, runningCumulativeNhap - runningCumulativeThay);
+      runningCumulativeThayTruKho += item.thayTruKhoTong;
+      cumulativeMap.set(item.date, runningCumulativeNhap - runningCumulativeThayTruKho);
     });
 
     return sorted.map(row => {
-      const tyLeTong = row.nhapTong > 0 ? ((row.thayTong / row.nhapTong) * 100).toFixed(1) : '-';
+      const tyLeTong = row.nhapTong > 0 ? ((row.thayTruKhoTong / row.nhapTong) * 100).toFixed(1) : '-';
       const tyLeCanThay = kpiTotals.canThayTong > 0 ? ((row.thayTong / kpiTotals.canThayTong) * 100).toFixed(1) : '-';
-      const tyLe1P = row.nhap1P > 0 ? ((row.thay1P / row.nhap1P) * 100).toFixed(1) : '-';
-      const tyLe3P = row.nhap3P > 0 ? ((row.thay3P / row.nhap3P) * 100).toFixed(1) : '-';
-      const tonLuyKe = cumulativeMap.get(row.date) ?? (row.nhapTong - row.thayTong);
+      const tyLe1P = row.nhap1P > 0 ? ((row.thayTruKho1P / row.nhap1P) * 100).toFixed(1) : '-';
+      const tyLe3P = row.nhap3P > 0 ? ((row.thayTruKho3P / row.nhap3P) * 100).toFixed(1) : '-';
+      const tonLuyKe = cumulativeMap.get(row.date) ?? (row.nhapTong - row.thayTruKhoTong);
 
       return {
         ...row,
@@ -934,6 +997,7 @@ export default function Tab963DienKe({
         'Tổng Cần Thay (963)': r.canThay,
         'Đã Nhập (Kho)': r.nhap,
         'Đã Thay Xong (963)': r.thay,
+        'Đã Thay Trừ Kho (trừ 110, RG)': r.thayTruKho,
         'Còn Phải Thay': Math.max(0, r.canThay - r.thay),
         'Tồn Kho (Nhập - Thay)': r.tonKho,
         'Tỷ Lệ Thay / Đã Nhập': `${r.tyLeNhap}%`,
@@ -944,6 +1008,7 @@ export default function Tab963DienKe({
         'Tổng Cần Thay (963)': kpiTotals.canThayTong,
         'Đã Nhập (Kho)': kpiTotals.nhapTong,
         'Đã Thay Xong (963)': kpiTotals.thayTong,
+        'Đã Thay Trừ Kho (trừ 110, RG)': kpiTotals.thayTruKhoTong,
         'Còn Phải Thay': Math.max(0, kpiTotals.canThayTong - kpiTotals.thayTong),
         'Tồn Kho (Nhập - Thay)': kpiTotals.tonTong,
         'Tỷ Lệ Thay / Đã Nhập': `${kpiTotals.tyLeTong}%`,
@@ -985,6 +1050,7 @@ export default function Tab963DienKe({
       const sumThay1PTT = filteredDailyStats.reduce((s, r) => s + r.thay1PTT, 0);
       const sumThay1PGT = filteredDailyStats.reduce((s, r) => s + r.thay1PGT, 0);
       const sumThay1P = filteredDailyStats.reduce((s, r) => s + r.thay1P, 0);
+      const sumThayTruKho1P = filteredDailyStats.reduce((s, r) => s + r.thayTruKho1P, 0);
 
       const sumNhap3PTT = filteredDailyStats.reduce((s, r) => s + r.nhap3PTT, 0);
       const sumNhap3PGT_HT = filteredDailyStats.reduce((s, r) => s + r.nhap3PGT_HT, 0);
@@ -994,9 +1060,11 @@ export default function Tab963DienKe({
       const sumThay3PGT_HT = filteredDailyStats.reduce((s, r) => s + r.thay3PGT_HT, 0);
       const sumThay3PGT_TT = filteredDailyStats.reduce((s, r) => s + r.thay3PGT_TT, 0);
       const sumThay3P = filteredDailyStats.reduce((s, r) => s + r.thay3P, 0);
+      const sumThayTruKho3P = filteredDailyStats.reduce((s, r) => s + r.thayTruKho3P, 0);
 
       const sumNhapTong = filteredDailyStats.reduce((s, r) => s + r.nhapTong, 0);
       const sumThayTong = filteredDailyStats.reduce((s, r) => s + r.thayTong, 0);
+      const sumThayTruKhoTong = filteredDailyStats.reduce((s, r) => s + r.thayTruKhoTong, 0);
 
       exportRows.push({
         'STT': 'TỔNG CỘNG' as any,
@@ -1007,7 +1075,7 @@ export default function Tab963DienKe({
         '1P Trực Tiếp - Đã Thay': sumThay1PTT,
         '1P Gián Tiếp - Đã Thay': sumThay1PGT,
         '1 Pha - Tổng Đã Thay': sumThay1P,
-        '1 Pha - % Thay/Nhập': sumNhap1P > 0 ? `${((sumThay1P / sumNhap1P) * 100).toFixed(1)}%` : '-',
+        '1 Pha - % Thay/Nhập': sumNhap1P > 0 ? `${((sumThayTruKho1P / sumNhap1P) * 100).toFixed(1)}%` : '-',
         '3P Trực Tiếp - Nhập': sumNhap3PTT,
         '3P Gián Tiếp HT - Nhập': sumNhap3PGT_HT,
         '3P Gián Tiếp TT - Nhập': sumNhap3PGT_TT,
@@ -1016,12 +1084,12 @@ export default function Tab963DienKe({
         '3P Gián Tiếp HT - Đã Thay': sumThay3PGT_HT,
         '3P Gián Tiếp TT - Đã Thay': sumThay3PGT_TT,
         '3 Pha - Tổng Đã Thay': sumThay3P,
-        '3 Pha - % Thay/Nhập': sumNhap3P > 0 ? `${((sumThay3P / sumNhap3P) * 100).toFixed(1)}%` : '-',
+        '3 Pha - % Thay/Nhập': sumNhap3P > 0 ? `${((sumThayTruKho3P / sumNhap3P) * 100).toFixed(1)}%` : '-',
         'Tổng Nhập Ngày': sumNhapTong,
         'Tổng Đã Thay Ngày': sumThayTong,
-        '% Thay / Nhập Ngày': sumNhapTong > 0 ? `${((sumThayTong / sumNhapTong) * 100).toFixed(1)}%` : '-',
+        '% Thay / Nhập Ngày': sumNhapTong > 0 ? `${((sumThayTruKhoTong / sumNhapTong) * 100).toFixed(1)}%` : '-',
         '% Thay / Tổng Cần Thay (963)': kpiTotals.canThayTong > 0 ? `${((sumThayTong / kpiTotals.canThayTong) * 100).toFixed(1)}%` : '-',
-        'Tồn Luỹ Kế Đến Ngày': sumNhapTong - sumThayTong
+        'Tồn Luỹ Kế Đến Ngày': sumNhapTong - sumThayTruKhoTong
       });
 
       const ws = XLSX.utils.json_to_sheet(exportRows);
@@ -1357,7 +1425,7 @@ export default function Tab963DienKe({
                 Thống Kê Chi Tiết Số Lượng & Tỷ Lệ Theo Chủng Loại (1 Pha & 3 Pha - Căn Cứ SO_PHA, Phien & Cap)
               </h3>
               <p className="text-[10px] text-slate-300 mt-0.5">
-                Phân tách chi tiết 1 Pha (Trực tiếp / Gián tiếp) & 3 Pha (Trực tiếp / Gián tiếp HT &amp; Gián tiếp TT theo cột Cap)
+                Phân tách chi tiết 1 Pha &amp; 3 Pha (theo cột Cap) • Công tơ Cap 110 &amp; RG vẫn trừ vào <b>Tổng Cần Thay</b>, không trừ vào <b>Đã Nhập (Kho)</b> (do phối hợp thay)
               </p>
             </div>
           </div>
@@ -1373,10 +1441,10 @@ export default function Tab963DienKe({
                 <th className="p-2.5">Chủng Loại Điện Kế</th>
                 <th className="p-2.5 text-right text-sky-900">Tổng Cần Thay (963)</th>
                 <th className="p-2.5 text-right text-indigo-900">Đã Nhập (Kho)</th>
-                <th className="p-2.5 text-right text-emerald-800">Đã Thay Xong</th>
-                <th className="p-2.5 text-right text-slate-700">Còn Phải Thay</th>
-                <th className="p-2.5 text-right text-purple-900">Tồn Kho (Nhập - Thay)</th>
-                <th className="p-2.5 text-center text-amber-900">% Thay / Đã Nhập</th>
+                <th className="p-2.5 text-right text-emerald-800" title="Tổng số đã thay xong (bao gồm cả Cap 110 & RG để trừ Tổng Cần Thay)">Đã Thay Xong</th>
+                <th className="p-2.5 text-right text-slate-700" title="Tổng Cần Thay - Đã Thay Xong">Còn Phải Thay</th>
+                <th className="p-2.5 text-right text-purple-900" title="Đã Nhập (Kho) - Đã Thay (không trừ Cap 110 & RG do phối hợp thay)">Tồn Kho (Nhập - Thay)</th>
+                <th className="p-2.5 text-center text-amber-900" title="Không tính Cap 110 & RG vào số trừ kho">% Thay / Đã Nhập</th>
                 <th className="p-2.5 text-center text-rose-900 min-w-[150px]">% Thay / Tổng Cần Thay</th>
                 <th className="p-2.5 text-center w-20">Chi Tiết</th>
               </tr>
@@ -1411,7 +1479,12 @@ export default function Tab963DienKe({
                       {row.nhap.toLocaleString('vi-VN')}
                     </td>
                     <td className="p-2.5 text-right font-mono font-black text-emerald-700">
-                      {row.thay.toLocaleString('vi-VN')}
+                      <div>{row.thay.toLocaleString('vi-VN')}</div>
+                      {row.thayTruKho < row.thay && (
+                        <div className="text-[10px] font-semibold text-slate-500" title="Số lượng trừ vào kho đã nhập (đã loại Cap 110 & RG)">
+                          Trừ kho: {row.thayTruKho.toLocaleString('vi-VN')}
+                        </div>
+                      )}
                     </td>
                     <td className="p-2.5 text-right font-mono font-semibold text-slate-600">
                       {remainingNeed.toLocaleString('vi-VN')}
@@ -1469,7 +1542,14 @@ export default function Tab963DienKe({
                 <td className="p-2.5 uppercase tracking-wide">TỔNG CỘNG TOÀN ĐỘI</td>
                 <td className="p-2.5 text-right font-mono text-sky-300">{kpiTotals.canThayTong.toLocaleString('vi-VN')}</td>
                 <td className="p-2.5 text-right font-mono text-indigo-300">{kpiTotals.nhapTong.toLocaleString('vi-VN')}</td>
-                <td className="p-2.5 text-right font-mono text-emerald-400">{kpiTotals.thayTong.toLocaleString('vi-VN')}</td>
+                <td className="p-2.5 text-right font-mono text-emerald-400">
+                  <div>{kpiTotals.thayTong.toLocaleString('vi-VN')}</div>
+                  {kpiTotals.thayTruKhoTong < kpiTotals.thayTong && (
+                    <div className="text-[10px] font-semibold text-slate-300">
+                      Trừ kho: {kpiTotals.thayTruKhoTong.toLocaleString('vi-VN')}
+                    </div>
+                  )}
+                </td>
                 <td className="p-2.5 text-right font-mono text-slate-300">{Math.max(0, kpiTotals.canThayTong - kpiTotals.thayTong).toLocaleString('vi-VN')}</td>
                 <td className="p-2.5 text-right font-mono text-purple-300">{kpiTotals.tonTong.toLocaleString('vi-VN')}</td>
                 <td className="p-2.5 text-center font-mono text-amber-300">{kpiTotals.tyLeTong}%</td>
