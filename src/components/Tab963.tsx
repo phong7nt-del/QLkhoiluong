@@ -247,6 +247,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
   const [meterPicSizeKb, setMeterPicSizeKb] = useState<number>(0);
   const [isProcessingPic, setIsProcessingPic] = useState<boolean>(false);
   const [isSubmittingPic, setIsSubmittingPic] = useState<boolean>(false);
+  const [isDraggingPic, setIsDraggingPic] = useState<boolean>(false);
   const [addPicModalCustomer, setAddPicModalCustomer] = useState<Entry963 | null>(null);
   const [zoomPicUrl, setZoomPicUrl] = useState<{ url: string; title: string } | null>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -265,6 +266,10 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
 
   const handleProcessImageFile = async (file: File) => {
     if (!file) return;
+    if (!file.type.startsWith('image/') && !/\.(jpg|jpeg|png|webp|gif|bmp|heic|heif)$/i.test(file.name)) {
+      showToast('error', 'Vui lòng chỉ chọn hoặc kéo thả tệp hình ảnh (JPG, PNG, WEBP...).');
+      return;
+    }
     setIsProcessingPic(true);
     try {
       const { base64, sizeKb } = await compressImageFile(file, 1200, 1200, 0.7);
@@ -277,6 +282,50 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
       showToast('error', 'Không thể xử lý ảnh: ' + (e?.message || 'Có lỗi xảy ra'));
     } finally {
       setIsProcessingPic(false);
+    }
+  };
+
+  const handleDragOverPic = (e: React.DragEvent<HTMLElement>, enabled: boolean = true) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!enabled || isProcessingPic || isSubmittingPic) return;
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    if (!isDraggingPic) setIsDraggingPic(true);
+  };
+
+  const handleDragLeavePic = (e: React.DragEvent<HTMLElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const nextTarget = e.relatedTarget as Node | null;
+    if (!nextTarget || !e.currentTarget.contains(nextTarget)) {
+      setIsDraggingPic(false);
+    }
+  };
+
+  const handleDropPic = (e: React.DragEvent<HTMLElement>, enabled: boolean = true) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingPic(false);
+    if (!enabled || isProcessingPic || isSubmittingPic) return;
+    const files = e.dataTransfer?.files;
+    if (files && files.length > 0) {
+      handleProcessImageFile(files[0]);
+    }
+  };
+
+  const handlePastePic = (e: React.ClipboardEvent<HTMLElement>, enabled: boolean = true) => {
+    if (!enabled || isProcessingPic || isSubmittingPic) return;
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.startsWith('image/')) {
+        const file = items[i].getAsFile();
+        if (file) {
+          e.preventDefault();
+          handleProcessImageFile(file);
+          break;
+        }
+      }
     }
   };
 
@@ -3455,8 +3504,19 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                       </div>
                     </div>
 
-                    {/* Phần Chụp / Tải ảnh công tơ sau khi thay (kèm sơ đồ đấu dây) */}
-                    <div className="p-3.5 bg-white rounded-xl border border-amber-200/90 shadow-2xs space-y-3">
+                    {/* Phần Chụp / Tải / Kéo thả ảnh công tơ sau khi thay (kèm sơ đồ đấu dây) */}
+                    <div
+                      onDragEnter={(e) => handleDragOverPic(e, !Boolean(selectedCustomer.ketQua?.toLowerCase().includes('xong')) || !selectedCustomer.pic)}
+                      onDragOver={(e) => handleDragOverPic(e, !Boolean(selectedCustomer.ketQua?.toLowerCase().includes('xong')) || !selectedCustomer.pic)}
+                      onDragLeave={handleDragLeavePic}
+                      onDrop={(e) => handleDropPic(e, !Boolean(selectedCustomer.ketQua?.toLowerCase().includes('xong')) || !selectedCustomer.pic)}
+                      onPaste={(e) => handlePastePic(e, !Boolean(selectedCustomer.ketQua?.toLowerCase().includes('xong')) || !selectedCustomer.pic)}
+                      className={`p-3.5 rounded-xl border shadow-2xs space-y-3 transition-all ${
+                        isDraggingPic && (!Boolean(selectedCustomer.ketQua?.toLowerCase().includes('xong')) || !selectedCustomer.pic)
+                          ? 'bg-amber-50 border-amber-500 ring-2 ring-amber-400/50'
+                          : 'bg-white border-amber-200/90'
+                      }`}
+                    >
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
                         <div className="flex items-center gap-2">
                           <div className="w-7 h-7 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-700 shrink-0">
@@ -3637,7 +3697,7 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                             </div>
                           )}
 
-                          <div className="flex flex-wrap items-center gap-2">
+                          <div className="flex flex-wrap items-stretch gap-2">
                             {/* Default Action: Chụp ảnh công tơ bằng Camera */}
                             <button
                               type="button"
@@ -3660,8 +3720,36 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                               <span>Tải ảnh từ máy</span>
                             </button>
 
+                            {/* Drag & Drop Zone right alongside Capture & Upload */}
+                            <div
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => !(isProcessingPic || isSubmittingPic) && fileInputRef.current?.click()}
+                              onKeyDown={(e) => {
+                                if ((e.key === 'Enter' || e.key === ' ') && !(isProcessingPic || isSubmittingPic)) {
+                                  e.preventDefault();
+                                  fileInputRef.current?.click();
+                                }
+                              }}
+                              onDragEnter={(e) => handleDragOverPic(e, true)}
+                              onDragOver={(e) => handleDragOverPic(e, true)}
+                              onDragLeave={handleDragLeavePic}
+                              onDrop={(e) => handleDropPic(e, true)}
+                              className={`flex-1 min-w-[200px] px-3.5 py-2 rounded-xl border-2 border-dashed flex items-center justify-center gap-2 text-xs font-semibold transition-all cursor-pointer select-none ${
+                                isDraggingPic
+                                  ? 'border-amber-600 bg-amber-100/90 text-amber-950 scale-[1.01] shadow-sm'
+                                  : 'border-amber-300 bg-amber-50/50 hover:bg-amber-50 hover:border-amber-400 text-amber-900'
+                              } ${isProcessingPic || isSubmittingPic ? 'opacity-50 pointer-events-none' : ''}`}
+                              title="Kéo tệp ảnh từ máy tính thả vào đây hoặc bấm để chọn ảnh"
+                            >
+                              <ImageIcon className={`w-4 h-4 shrink-0 ${isDraggingPic ? 'text-amber-700 animate-bounce' : 'text-amber-600'}`} />
+                              <span>
+                                {isDraggingPic ? 'Thả ảnh vào đây để tải lên...' : 'Kéo ảnh thả vào đây (hoặc Ctrl+V)'}
+                              </span>
+                            </div>
+
                             {isProcessingPic && (
-                              <span className="text-xs text-amber-800 font-medium flex items-center gap-1.5 animate-pulse ml-2">
+                              <span className="text-xs text-amber-800 font-medium flex items-center gap-1.5 animate-pulse ml-1">
                                 <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-600" />
                                 Đang nén tối ưu dung lượng siêu nhẹ...
                               </span>
@@ -7234,13 +7322,28 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                   </div>
                 </div>
               ) : (
-                <div className="p-6 border-2 border-dashed border-amber-300 bg-amber-50/40 rounded-xl text-center space-y-3">
+                <div
+                  onDragEnter={(e) => handleDragOverPic(e, true)}
+                  onDragOver={(e) => handleDragOverPic(e, true)}
+                  onDragLeave={handleDragLeavePic}
+                  onDrop={(e) => handleDropPic(e, true)}
+                  onPaste={(e) => handlePastePic(e, true)}
+                  className={`p-6 border-2 border-dashed rounded-xl text-center space-y-3 transition-all ${
+                    isDraggingPic
+                      ? 'border-amber-600 bg-amber-100/80 ring-2 ring-amber-400/40'
+                      : 'border-amber-300 bg-amber-50/40'
+                  }`}
+                >
                   <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center mx-auto">
                     <Camera className="w-6 h-6" />
                   </div>
                   <div className="space-y-1">
-                    <p className="text-xs font-bold text-slate-800">Chưa có ảnh công tơ cho khách hàng này</p>
-                    <p className="text-[11px] text-slate-500">Chụp ảnh công tơ rõ nét số hiệu, chỉ số và sơ đồ đấu dây</p>
+                    <p className="text-xs font-bold text-slate-800">
+                      {isDraggingPic ? 'Thả ảnh công tơ vào đây để tải lên' : 'Chưa có ảnh công tơ cho khách hàng này'}
+                    </p>
+                    <p className="text-[11px] text-slate-500">
+                      Chụp ảnh, tải từ máy hoặc kéo &amp; thả ảnh công tơ rõ nét số hiệu, chỉ số và sơ đồ đấu dây
+                    </p>
                   </div>
                   <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
                     <button
@@ -7261,6 +7364,21 @@ export default function Tab963({ sessionUser, refreshToggle = 0 }: Tab963Props) 
                       <Upload className="w-4 h-4 text-slate-600" />
                       <span>Tải ảnh từ máy</span>
                     </button>
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => !isProcessingPic && fileInputRef.current?.click()}
+                      onKeyDown={(e) => {
+                        if ((e.key === 'Enter' || e.key === ' ') && !isProcessingPic) {
+                          e.preventDefault();
+                          fileInputRef.current?.click();
+                        }
+                      }}
+                      className="px-4 py-2 bg-amber-100/70 hover:bg-amber-100 text-amber-900 border-2 border-dashed border-amber-400 font-semibold text-xs rounded-xl flex items-center gap-2 cursor-pointer select-none"
+                    >
+                      <ImageIcon className="w-4 h-4 text-amber-700" />
+                      <span>Kéo ảnh vào đây</span>
+                    </div>
                   </div>
                   {isProcessingPic && (
                     <div className="text-xs text-amber-800 font-medium flex items-center justify-center gap-1.5 animate-pulse pt-2">
