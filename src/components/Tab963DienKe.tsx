@@ -273,10 +273,14 @@ export default function Tab963DienKe({
   const [formGhiChu, setFormGhiChu] = useState<string>('');
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  // Collapse sections & bộ lọc bảng lịch sử 5 chủng loại
+  // Collapse sections & bộ lọc + sắp xếp bảng lịch sử 5 chủng loại
   const [showInputSection, setShowInputSection] = useState<boolean>(true);
   const [showNhapListTable, setShowNhapListTable] = useState<boolean>(true);
   const [nhapHistoryFilter, setNhapHistoryFilter] = useState<'all' | MeterCategory5>('all');
+  const [nhapSort, setNhapSort] = useState<{
+    key: 'ngay' | 'chungLoai' | 'sl' | 'ghiChu' | 'nguoiNhap';
+    dir: 'asc' | 'desc';
+  } | null>(null);
 
   // Bộ lọc bảng thống kê theo ngày
   const [dateRangePreset, setDateRangePreset] = useState<'all' | 'today' | '7days' | '30days'>('all');
@@ -1159,10 +1163,63 @@ export default function Tab963DienKe({
     return counts;
   }, [nhapList]);
 
+  const handleToggleNhapSort = (key: 'ngay' | 'chungLoai' | 'sl' | 'ghiChu' | 'nguoiNhap') => {
+    setNhapSort(prev => {
+      if (!prev || prev.key !== key) return { key, dir: 'asc' };
+      if (prev.dir === 'asc') return { key, dir: 'desc' };
+      return null;
+    });
+  };
+
+  const renderNhapSortTriangles = (key: 'ngay' | 'chungLoai' | 'sl' | 'ghiChu' | 'nguoiNhap') => {
+    const isAsc = nhapSort?.key === key && nhapSort.dir === 'asc';
+    const isDesc = nhapSort?.key === key && nhapSort.dir === 'desc';
+    return (
+      <span className="inline-flex flex-col items-center justify-center ml-1.5 leading-none gap-[2px] shrink-0" aria-hidden="true">
+        <svg viewBox="0 0 10 6" className={`w-2 h-1.5 transition-colors ${isAsc ? 'text-amber-600' : 'text-slate-300 group-hover:text-slate-400'}`}>
+          <polygon points="5,0 10,6 0,6" fill="currentColor" />
+        </svg>
+        <svg viewBox="0 0 10 6" className={`w-2 h-1.5 transition-colors ${isDesc ? 'text-amber-600' : 'text-slate-300 group-hover:text-slate-400'}`}>
+          <polygon points="0,0 10,0 5,6" fill="currentColor" />
+        </svg>
+      </span>
+    );
+  };
+
   const filteredNhapList = useMemo(() => {
-    if (nhapHistoryFilter === 'all') return nhapList;
-    return nhapList.filter(item => resolveNhapCategory(item.chungLoai, item.id) === nhapHistoryFilter);
-  }, [nhapList, nhapHistoryFilter]);
+    const base = nhapHistoryFilter === 'all'
+      ? [...nhapList]
+      : nhapList.filter(item => resolveNhapCategory(item.chungLoai, item.id) === nhapHistoryFilter);
+
+    if (!nhapSort) return base;
+
+    const parseDateTs = (raw: string | undefined): number => {
+      const norm = normalizeDateStr(raw);
+      const parts = norm.split('/');
+      if (parts.length === 3) {
+        const ts = new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10)).getTime();
+        if (!isNaN(ts)) return ts;
+      }
+      return 0;
+    };
+
+    const dirMul = nhapSort.dir === 'asc' ? 1 : -1;
+    return base.sort((a, b) => {
+      let cmp = 0;
+      if (nhapSort.key === 'ngay') {
+        cmp = parseDateTs(a.ngay) - parseDateTs(b.ngay);
+      } else if (nhapSort.key === 'sl') {
+        cmp = (Number(a.sl) || 0) - (Number(b.sl) || 0);
+      } else if (nhapSort.key === 'chungLoai') {
+        cmp = resolveNhapCategory(a.chungLoai, a.id).localeCompare(resolveNhapCategory(b.chungLoai, b.id), 'vi');
+      } else if (nhapSort.key === 'ghiChu') {
+        cmp = (a.ghiChu || '').localeCompare(b.ghiChu || '', 'vi');
+      } else if (nhapSort.key === 'nguoiNhap') {
+        cmp = (a.nguoiNhap || '').localeCompare(b.nguoiNhap || '', 'vi');
+      }
+      return cmp * dirMul;
+    });
+  }, [nhapList, nhapHistoryFilter, nhapSort]);
 
   // 2. Xuất Excel danh sách các đợt nhập (Sheet NhapDK963)
   const handleExportNhapListExcel = () => {
@@ -1890,11 +1947,61 @@ export default function Tab963DienKe({
                 <thead className="bg-slate-100 text-slate-600 font-bold sticky top-0 border-b border-slate-200 z-10 text-[11px]">
                   <tr>
                     <th className="p-2.5 w-12 text-center">STT</th>
-                    <th className="p-2.5">Ngày Nhận (Ngay)</th>
-                    <th className="p-2.5">Chủng Loại (ChungLoai)</th>
-                    <th className="p-2.5 text-right">Số Lượng (SL)</th>
-                    <th className="p-2.5">Ghi Chú</th>
-                    <th className="p-2.5">Người Nhập</th>
+                    <th className="p-2.5">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleNhapSort('ngay')}
+                        className="group inline-flex items-center hover:text-slate-900 cursor-pointer select-none"
+                        title="Sắp xếp theo Ngày Nhận"
+                      >
+                        <span>Ngày Nhận (Ngay)</span>
+                        {renderNhapSortTriangles('ngay')}
+                      </button>
+                    </th>
+                    <th className="p-2.5">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleNhapSort('chungLoai')}
+                        className="group inline-flex items-center hover:text-slate-900 cursor-pointer select-none"
+                        title="Sắp xếp theo Chủng Loại"
+                      >
+                        <span>Chủng Loại (ChungLoai)</span>
+                        {renderNhapSortTriangles('chungLoai')}
+                      </button>
+                    </th>
+                    <th className="p-2.5 text-right">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleNhapSort('sl')}
+                        className="group inline-flex items-center justify-end w-full hover:text-slate-900 cursor-pointer select-none"
+                        title="Sắp xếp theo Số Lượng"
+                      >
+                        <span>Số Lượng (SL)</span>
+                        {renderNhapSortTriangles('sl')}
+                      </button>
+                    </th>
+                    <th className="p-2.5">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleNhapSort('ghiChu')}
+                        className="group inline-flex items-center hover:text-slate-900 cursor-pointer select-none"
+                        title="Sắp xếp theo Ghi Chú"
+                      >
+                        <span>Ghi Chú</span>
+                        {renderNhapSortTriangles('ghiChu')}
+                      </button>
+                    </th>
+                    <th className="p-2.5">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleNhapSort('nguoiNhap')}
+                        className="group inline-flex items-center hover:text-slate-900 cursor-pointer select-none"
+                        title="Sắp xếp theo Người Nhập"
+                      >
+                        <span>Người Nhập</span>
+                        {renderNhapSortTriangles('nguoiNhap')}
+                      </button>
+                    </th>
                     <th className="p-2.5 text-center w-24">Thao Tác</th>
                   </tr>
                 </thead>
