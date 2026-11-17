@@ -10,9 +10,12 @@ import {
   MapPin, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Trash2, UploadCloud,
   BarChart3, PieChart, Phone, RotateCcw
 } from 'lucide-react';
-import { DataStore, SheetMember, DvkhEntry } from '../store/DataStore';
+import { DataStore, SheetMember, DvkhEntry, normalizeDvkhStatus } from '../store/DataStore';
 import { PermissionStore, normalizeRoleStr } from '../store/PermissionStore';
 import { SCRIPT_TEMPLATE } from './ConfigModal';
+
+const getNormalizedStatus = (e: DvkhEntry) =>
+  normalizeDvkhStatus(e.trangThai, e.ketQua, e.ngayGiao, e.nguoiThucHien, e.ngayNhan, e.nguoiNhan);
 
 // Cấu trúc khu vực & phường xã theo phân cấp DVKH:
 // Vũng Tàu: Phường Vũng Tàu, Phường Tam Thắng, Phường Rạch Dừa, Phường Phước Thắng, Xã Long Sơn
@@ -357,6 +360,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     let isMounted = true;
     const fetchLatest = async () => {
       try {
+        await DataStore.syncPendingDvkhUpdates().catch(() => 0);
         await DataStore.fetchDvkhData();
         await DataStore.syncMasterData();
         if (isMounted) {
@@ -375,9 +379,13 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
 
   // Tải lại dữ liệu khi người dùng chuyển giữa Tab 1, Tab 2, Tab 3
   useEffect(() => {
-    DataStore.fetchDvkhData().then(() => {
-      setDvkhList(DataStore.getDvkhEntries());
-    }).catch(() => {});
+    DataStore.syncPendingDvkhUpdates()
+      .catch(() => 0)
+      .then(() => DataStore.fetchDvkhData())
+      .then(() => {
+        setDvkhList(DataStore.getDvkhEntries());
+      })
+      .catch(() => {});
   }, [activeSubTab]);
 
   // Current User Role & Department Analysis
@@ -563,10 +571,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
 
   // Tab 1 records waiting to be delivered (state 'Chưa giao')
   const tab1PendingRecords = useMemo(() => {
-    return dvkhList.filter(e => {
-      const st = String(e.trangThai || '').trim().toLowerCase();
-      return st === 'chưa giao' || st === 'chua giao' || (!st && !e.nguoiNhan && !e.ngayGiao && !e.nguoiThucHien && e.ketQua !== 'Xong');
-    });
+    return dvkhList.filter(e => getNormalizedStatus(e) === 'Chưa giao');
   }, [dvkhList]);
 
   // Tab 1 records waiting to be delivered lọc theo Khu vực & Phường/xã
@@ -583,31 +588,33 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
 
   // Sub-tab 2 badge count: hồ sơ tồn chưa giao cho đi thực hiện (đã nhận nhưng chưa giao thi công: 'Đã Nhận')
   const countTab2Pending = useMemo(() => {
-    return dvkhList.filter(e => e.trangThai === 'Đã Nhận').length;
+    return dvkhList.filter(e => getNormalizedStatus(e) === 'Đã Nhận').length;
+  }, [dvkhList]);
+
+  // Header KPI count: Tổng hồ sơ đang thi công toàn đội ('Đã Giao thi công' + 'Trở ngại')
+  const countDangThiCongTotal = useMemo(() => {
+    return dvkhList.filter(e => {
+      const st = getNormalizedStatus(e);
+      return st === 'Đã Giao thi công' || st === 'Trở ngại';
+    }).length;
   }, [dvkhList]);
 
   // Sub-tab 3 badge count: hồ sơ đã giao chưa hoàn tất ('Đã Giao thi công' hoặc 'Trở ngại')
   const countTab3Pending = useMemo(() => {
-    if (isDvkhUser) {
-      return dvkhList.filter(e => e.trangThai === 'Đã Giao thi công' || e.trangThai === 'Trở ngại').length;
+    if (isDvkhUser || isDoiLeader || isToLeader) {
+      return countDangThiCongTotal;
     }
-    // If regular employee, only show their own assigned incomplete records
-    if (!isDoiLeader && !isToLeader) {
-      const myName = (sessionUser?.name || '').trim().toLowerCase();
-      return dvkhList.filter(e => {
-        const assignedName = (e.nguoiThucHien || e.nguoiNhan || '').trim().toLowerCase();
-        return assignedName === myName && (e.trangThai === 'Đã Giao thi công' || e.trangThai === 'Trở ngại');
-      }).length;
-    }
-    return dvkhList.filter(e => e.trangThai === 'Đã Giao thi công' || e.trangThai === 'Trở ngại').length;
-  }, [dvkhList, isDvkhUser, isDoiLeader, isToLeader, sessionUser?.name]);
-
-  // Tab 1 records waiting for QLHTĐĐ confirmation ('Chờ nhận' or already delivered by DVKH)
-  const tab1DeliveredWaitingConfirm = useMemo(() => {
+    const myName = (sessionUser?.name || '').trim().toLowerCase();
     return dvkhList.filter(e => {
-      const st = String(e.trangThai || '').trim().toLowerCase();
-      return st === 'chờ nhận' || st === 'cho nhan';
-    });
+      const st = getNormalizedStatus(e);
+      const assignedName = (e.nguoiThucHien || e.nguoiNhan || '').trim().toLowerCase();
+      return assignedName === myName && (st === 'Đã Giao thi công' || st === 'Trở ngại');
+    }).length;
+  }, [dvkhList, countDangThiCongTotal, isDvkhUser, isDoiLeader, isToLeader, sessionUser?.name]);
+
+  // Tab 1 records waiting for QLHTĐĐ confirmation ('Chờ nhận')
+  const tab1DeliveredWaitingConfirm = useMemo(() => {
+    return dvkhList.filter(e => getNormalizedStatus(e) === 'Chờ nhận');
   }, [dvkhList]);
 
   // Tab 1 danh sách tiếp nhận được lọc theo Khu vực & Phường/xã
@@ -652,7 +659,8 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     }
 
     // Check duplicate MaKH
-    const exists = dvkhList.some(item => item.maKh.trim().toLowerCase() === newMaKh.trim().toLowerCase());
+    const latestList = DataStore.getDvkhEntries();
+    const exists = latestList.some(item => String(item.maKh || '').trim().toLowerCase() === newMaKh.trim().toLowerCase());
     if (exists) {
       alert(`Mã khách hàng "${newMaKh}" đã tồn tại trong danh sách! Vui lòng kiểm tra lại.`);
       return;
@@ -666,16 +674,16 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
       tenKh: newTenKh.trim(),
       diaChi: newDiaChi.trim(),
       sdt: newSdt.trim(),
-      loaiYeuCau: newLoaiYeuCau || 'Gắn mới', // Loại yêu cầu đưa vào cột Loại (trường Loai)
-      ngayNhan: nowStr, // Ngày tạo hồ sơ để giao sang QLHTĐĐ cập nhật vào cột ngày nhận (trường NgayNhan)
+      loaiYeuCau: newLoaiYeuCau || 'Gắn mới',
+      ngayNhan: '',
       ngayTao: nowStr,
-      nguoiGiao: '', // Đối với Người giao luôn là người của DVKH nên không cần thiết phải lưu
+      nguoiGiao: '',
       nguoiTao: sessionUser?.name || 'DVKH',
-      trangThai: 'Chưa giao', // Cập nhật trạng thái "Chưa giao" vào cột trạng thái (trường TrangThai)
-      ghiChu: newGhiChu.trim() // Phần nội dung ghi chú ban đầu đưa vào ghi chú (trường GhiChu)
+      trangThai: 'Chưa giao',
+      ghiChu: newGhiChu.trim()
     };
 
-    await DataStore.addDvkhEntry(newEntry);
+    const { synced } = await DataStore.addDvkhEntry(newEntry);
     setDvkhList([...DataStore.getDvkhEntries()]);
     setNewMaKh('');
     setNewTenKh('');
@@ -683,7 +691,11 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     setNewSdt('');
     setNewGhiChu('');
     setIsAddingNew(false);
-    showToast('success', `Đã thêm hồ sơ KH "${newEntry.tenKh}" (${newEntry.maKh}) với STT #${newEntry.stt} vào danh sách chưa giao!`);
+    if (synced) {
+      showToast('success', `Đã thêm hồ sơ KH "${newEntry.tenKh}" (${newEntry.maKh}) với STT #${newEntry.stt} và đồng bộ lên Google Sheet!`);
+    } else {
+      showToast('info', `Đã lưu hồ sơ KH "${newEntry.tenKh}" (${newEntry.maKh}) trên máy và tự động xếp hàng chờ đồng bộ Google Sheet.`);
+    }
   };
 
   // Download template Excel file for Import
@@ -843,12 +855,12 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
           tenKh: cleanTenKh,
           diaChi,
           sdt,
-          loaiYeuCau, // Đưa vào cột Loại (trường Loai)
-          ghiChu: ghiChu || '', // Ghi chú ban đầu đưa vào ghi chú (trường GhiChu)
-          trangThai: 'Chưa giao', // Trạng thái "Chưa giao" đưa vào cột trạng thái (trường TrangThai)
-          ngayNhan: nowStr, // Ngày tạo hồ sơ để giao sang QLHTĐĐ cập nhật vào cột ngày nhận (trường NgayNhan)
+          loaiYeuCau,
+          ghiChu: ghiChu || '',
+          trangThai: 'Chưa giao',
+          ngayNhan: '',
           ngayTao: nowStr,
-          nguoiGiao: '', // Đối với Người giao luôn là người của DVKH nên không cần thiết phải lưu
+          nguoiGiao: '',
           nguoiTao: creatorName
         });
       }
@@ -861,14 +873,16 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
         return;
       }
 
-      await DataStore.addDvkhEntries(importedEntries);
+      const { synced } = await DataStore.addDvkhEntries(importedEntries);
       const updatedList = DataStore.getDvkhEntries();
       setDvkhList([...updatedList]);
       setTab1SelectedMaKhs([]);
 
-      let successMsg = `Đã import thành công ${importedEntries.length} hồ sơ mới (STT từ #${startStt} đến #${currentMaxStt}) vào danh sách chưa giao!`;
+      let successMsg = synced
+        ? `Đã import thành công ${importedEntries.length} hồ sơ mới (STT từ #${startStt} đến #${currentMaxStt}) và đồng bộ Google Sheet!`
+        : `Đã import ${importedEntries.length} hồ sơ mới trên máy (đang tự động đồng bộ lên Google Sheet)!`;
       if (skippedDuplicates > 0) successMsg += ` (Bỏ qua ${skippedDuplicates} mã đã trùng)`;
-      showToast('success', successMsg);
+      showToast(synced ? 'success' : 'info', successMsg);
     } catch (err: any) {
       console.error('Import error:', err);
       alert('Lỗi đọc file: ' + (err.message || 'Không thể xử lý file import'));
@@ -890,10 +904,23 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
       return;
     }
 
-    const count = tab1SelectedMaKhs.length;
+    const latestEntries = DataStore.getDvkhEntries();
+    const eligibleKeys = tab1SelectedMaKhs.filter(maKh => {
+      const rec = latestEntries.find(e => String(e.maKh || '').trim().toLowerCase() === String(maKh || '').trim().toLowerCase());
+      return rec && getNormalizedStatus(rec) === 'Chưa giao';
+    });
+
+    if (eligibleKeys.length === 0) {
+      setDvkhList(latestEntries);
+      setTab1SelectedMaKhs([]);
+      alert('Các hồ sơ đã chọn đã được xử lý hoặc giao trước đó. Danh sách vừa được làm mới!');
+      return;
+    }
+
+    const count = eligibleKeys.length;
     const nowStr = getCurrentDateTimeStr();
     showToast('info', `Đang giao ${count} hồ sơ sang Đội QLHTĐĐ và đồng bộ...`);
-    const ok = await DataStore.batchUpdateDvkh(tab1SelectedMaKhs, {
+    const ok = await DataStore.batchUpdateDvkh(eligibleKeys, {
       ngayNhan: nowStr,
       trangThai: 'Chờ nhận'
     });
@@ -913,8 +940,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
       alert('Chỉ nhân sự thuộc Bộ phận DVKH, Đội trưởng hoặc Quản trị mới có quyền xóa hồ sơ chưa giao!');
       return;
     }
-    const st = String(item.trangThai || '').trim().toLowerCase();
-    if (st !== 'chưa giao' && st !== 'chua giao') {
+    if (getNormalizedStatus(item) !== 'Chưa giao') {
       alert('Chỉ có thể xóa các hồ sơ ở trạng thái "Chưa giao" sang QLHTĐĐ!');
       return;
     }
@@ -962,9 +988,20 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     if (tab1SelectedMaKhs.length === 0) return;
     try {
       setIsProcessingDelete(true);
-      const count = tab1SelectedMaKhs.length;
-      const keysToDelete = [...tab1SelectedMaKhs];
+      const latestEntries = DataStore.getDvkhEntries();
+      const keysToDelete = tab1SelectedMaKhs.filter(maKh => {
+        const rec = latestEntries.find(e => String(e.maKh || '').trim().toLowerCase() === String(maKh || '').trim().toLowerCase());
+        return rec && getNormalizedStatus(rec) === 'Chưa giao';
+      });
+      if (keysToDelete.length === 0) {
+        setDvkhList(latestEntries);
+        setTab1SelectedMaKhs([]);
+        setIsDeletingBatch(false);
+        alert('Không còn hồ sơ hợp lệ ở trạng thái "Chưa giao" để xóa!');
+        return;
+      }
 
+      const count = keysToDelete.length;
       const ok = await DataStore.batchDeleteDvkh(keysToDelete);
       setDvkhList(DataStore.getDvkhEntries());
       setTab1SelectedMaKhs([]);
@@ -986,6 +1023,14 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
   const handleConfirmReceipt = async (maKh: string) => {
     if (!canConfirmReceipt) {
       alert('Chỉ Tổ trưởng Treo tháo, Tổ phó treo tháo, Đội trưởng hoặc Đội phó mới có quyền xác nhận tiếp nhận hồ sơ!');
+      return;
+    }
+
+    const latest = DataStore.getDvkhEntries();
+    const currentItem = latest.find(e => String(e.maKh || '').trim().toLowerCase() === String(maKh || '').trim().toLowerCase());
+    if (!currentItem || getNormalizedStatus(currentItem) !== 'Chờ nhận') {
+      setDvkhList(latest);
+      alert(`Hồ sơ "${maKh}" đã thay đổi trạng thái trước đó (hiện tại: ${currentItem ? getNormalizedStatus(currentItem) : 'Không tồn tại'}). Danh sách đã được cập nhật!`);
       return;
     }
 
@@ -1013,8 +1058,17 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
       return;
     }
 
-    const pendingKeys = filteredTab1DeliveredWaitingConfirm.map(e => e.maKh);
-    if (pendingKeys.length === 0) return;
+    const latest = DataStore.getDvkhEntries();
+    const pendingKeys = filteredTab1DeliveredWaitingConfirm
+      .map(e => e.maKh)
+      .filter(maKh => {
+        const rec = latest.find(x => String(x.maKh || '').trim().toLowerCase() === String(maKh || '').trim().toLowerCase());
+        return rec && getNormalizedStatus(rec) === 'Chờ nhận';
+      });
+    if (pendingKeys.length === 0) {
+      setDvkhList(latest);
+      return;
+    }
 
     const count = pendingKeys.length;
     const nowStr = getCurrentDateTimeStr();
@@ -1028,6 +1082,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     });
 
     setDvkhList(DataStore.getDvkhEntries());
+    setTab1SelectedReceiptMaKhs([]);
     if (ok) {
       showToast('success', `Đã tiếp nhận ${count} hồ sơ vào Đội QLHTĐĐ và đồng bộ lên Google Sheet!`);
     } else {
@@ -1057,11 +1112,21 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
       alert('Chỉ Tổ trưởng Treo tháo, Tổ phó treo tháo, Đội trưởng hoặc Đội phó mới có quyền xác nhận tiếp nhận hồ sơ!');
       return;
     }
-    const targetKeys = tab1SelectedReceiptMaKhs.length > 0 
+    const rawKeys = tab1SelectedReceiptMaKhs.length > 0 
       ? tab1SelectedReceiptMaKhs 
       : filteredTab1DeliveredWaitingConfirm.map(e => e.maKh);
 
-    if (targetKeys.length === 0) return;
+    const latest = DataStore.getDvkhEntries();
+    const targetKeys = rawKeys.filter(maKh => {
+      const rec = latest.find(x => String(x.maKh || '').trim().toLowerCase() === String(maKh || '').trim().toLowerCase());
+      return rec && getNormalizedStatus(rec) === 'Chờ nhận';
+    });
+
+    if (targetKeys.length === 0) {
+      setDvkhList(latest);
+      setTab1SelectedReceiptMaKhs([]);
+      return;
+    }
 
     const count = targetKeys.length;
     const nowStr = getCurrentDateTimeStr();
@@ -1106,23 +1171,19 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     if (!returnReceiptTarget || returnReceiptTarget.maKhs.length === 0) return;
     try {
       setIsProcessingReturnReceipt(true);
-      const targetKeys = returnReceiptTarget.maKhs;
-      const count = targetKeys.length;
-      const reasonClean = returnReceiptReason.trim();
-
-      showToast('info', `Đang xác nhận trả ${count} hồ sơ về DVKH...`);
-
-      // Chuẩn bị danh sách cập nhật về 'Chưa giao'
       const list = DataStore.getDvkhEntries();
-      const setKeys = new Set(targetKeys.map(k => String(k || '').trim().toLowerCase()));
+      const setKeys = new Set(returnReceiptTarget.maKhs.map(k => String(k || '').trim().toLowerCase()));
+      const reasonClean = returnReceiptReason.trim();
       const updatedItems: DvkhEntry[] = [];
 
       list.forEach(item => {
-        if (setKeys.has(String(item.maKh || '').trim().toLowerCase())) {
+        if (setKeys.has(String(item.maKh || '').trim().toLowerCase()) && getNormalizedStatus(item) === 'Chờ nhận') {
           let updatedNote = item.ghiChu || '';
           if (reasonClean) {
             const tag = `[Trả DVKH: ${reasonClean}]`;
-            updatedNote = updatedNote ? `${updatedNote} | ${tag}` : tag;
+            if (!updatedNote.includes(tag)) {
+              updatedNote = updatedNote ? `${updatedNote} | ${tag}` : tag;
+            }
           }
           updatedItems.push({
             ...item,
@@ -1132,21 +1193,26 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
             ngayGiao: '',
             nguoiGiao: '',
             nguoiThucHien: '',
+            ngayHoanTat: '',
+            ketQua: '',
             ghiChu: updatedNote
           });
         }
       });
 
-      // Ghi nhận và đồng bộ lên Cloud & Google Sheet
-      const ok = await DataStore.batchUpdateDvkh(targetKeys, {
-        trangThai: 'Chưa giao',
-        nguoiNhan: '',
-        ngayNhan: '',
-        ngayGiao: '',
-        nguoiGiao: '',
-        nguoiThucHien: '',
-        ...(reasonClean ? { ghiChu: updatedItems[0]?.ghiChu } : {})
-      });
+      if (updatedItems.length === 0) {
+        setDvkhList(list);
+        setTab1SelectedReceiptMaKhs([]);
+        setReturnReceiptTarget(null);
+        alert('Các hồ sơ đã chọn đã thay đổi trạng thái trước đó. Danh sách vừa được làm mới!');
+        return;
+      }
+
+      const count = updatedItems.length;
+      showToast('info', `Đang xác nhận trả ${count} hồ sơ về DVKH...`);
+
+      // Cập nhật từng hồ sơ để bảo toàn ghi chú riêng của từng khách hàng và đồng bộ lên Cloud & Google Sheet
+      const ok = await DataStore.batchUpdateDvkhEntries(updatedItems);
 
       setDvkhList(DataStore.getDvkhEntries());
       setTab1SelectedReceiptMaKhs(prev => prev.filter(k => !setKeys.has(String(k || '').trim().toLowerCase())));
@@ -1189,7 +1255,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
 
   // Tab 2 records: 'Đã Nhận' (tồn chưa giao thi công)
   const tab2Records = useMemo(() => {
-    return dvkhList.filter(e => e.trangThai === 'Đã Nhận');
+    return dvkhList.filter(e => getNormalizedStatus(e) === 'Đã Nhận');
   }, [dvkhList]);
 
   // Phân trang Tab 2: 10 khách hàng trên trang theo yêu cầu
@@ -1217,13 +1283,26 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
       return;
     }
 
-    const count = tab2SelectedMaKhs.length;
+    const latest = DataStore.getDvkhEntries();
+    const eligibleKeys = tab2SelectedMaKhs.filter(maKh => {
+      const rec = latest.find(e => String(e.maKh || '').trim().toLowerCase() === String(maKh || '').trim().toLowerCase());
+      return rec && getNormalizedStatus(rec) === 'Đã Nhận';
+    });
+
+    if (eligibleKeys.length === 0) {
+      setDvkhList(latest);
+      setTab2SelectedMaKhs([]);
+      alert('Các hồ sơ đã chọn không còn ở trạng thái "Đã Nhận". Danh sách đã được cập nhật!');
+      return;
+    }
+
+    const count = eligibleKeys.length;
     const assignee = selectedAssignee;
     const nowStr = getCurrentDateTimeStr();
     const currentUserName = sessionUser?.name || 'Tổ trưởng/Đội trưởng';
 
     showToast('info', `Đang giao ${count} hồ sơ cho "${assignee}" và đồng bộ lên Google Sheet...`);
-    const ok = await DataStore.batchUpdateDvkh(tab2SelectedMaKhs, {
+    const ok = await DataStore.batchUpdateDvkh(eligibleKeys, {
       ngayGiao: nowStr,
       nguoiGiao: currentUserName,
       // Không cập nhật cột người nhận (giữ nguyên người nhận của Đội QLHTĐĐ)
@@ -1247,19 +1326,35 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
       alert('Vui lòng chọn ít nhất 1 hồ sơ đã nhận để trả về DVKH!');
       return;
     }
-    const count = tab2SelectedMaKhs.length;
+
+    const latest = DataStore.getDvkhEntries();
+    const eligibleKeys = tab2SelectedMaKhs.filter(maKh => {
+      const rec = latest.find(e => String(e.maKh || '').trim().toLowerCase() === String(maKh || '').trim().toLowerCase());
+      return rec && getNormalizedStatus(rec) === 'Đã Nhận';
+    });
+
+    if (eligibleKeys.length === 0) {
+      setDvkhList(latest);
+      setTab2SelectedMaKhs([]);
+      alert('Các hồ sơ đã chọn không còn ở trạng thái "Đã Nhận". Danh sách đã được cập nhật!');
+      return;
+    }
+
+    const count = eligibleKeys.length;
     if (!window.confirm(`Bạn có chắc chắn muốn trả ${count} hồ sơ đã nhận về lại cho bộ phận DVKH (chuyển về trạng thái "Chờ nhận", xóa Người nhận và Ngày giao)?`)) {
       return;
     }
 
     showToast('info', `Đang trả ${count} hồ sơ về DVKH và đồng bộ lên Google Sheet...`);
-    const ok = await DataStore.batchUpdateDvkh(tab2SelectedMaKhs, {
+    const ok = await DataStore.batchUpdateDvkh(eligibleKeys, {
       trangThai: 'Chờ nhận',
       nguoiNhan: '',
       ngayGiao: '',
       ngayNhan: '',
       nguoiGiao: '',
-      nguoiThucHien: ''
+      nguoiThucHien: '',
+      ngayHoanTat: '',
+      ketQua: ''
     });
 
     setDvkhList(DataStore.getDvkhEntries());
@@ -1272,6 +1367,14 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
   };
 
   const handleReturnSingleToDvkh = async (maKh: string) => {
+    const latest = DataStore.getDvkhEntries();
+    const currentItem = latest.find(e => String(e.maKh || '').trim().toLowerCase() === String(maKh || '').trim().toLowerCase());
+    if (!currentItem || getNormalizedStatus(currentItem) !== 'Đã Nhận') {
+      setDvkhList(latest);
+      alert(`Hồ sơ "${maKh}" hiện không ở trạng thái "Đã Nhận". Danh sách đã được cập nhật!`);
+      return;
+    }
+
     if (!window.confirm(`Bạn có chắc chắn muốn trả hồ sơ "${maKh}" về lại cho bộ phận DVKH (chuyển về trạng thái "Chờ nhận", xóa Người nhận và Ngày giao)?`)) {
       return;
     }
@@ -1283,7 +1386,9 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
       ngayGiao: '',
       ngayNhan: '',
       nguoiGiao: '',
-      nguoiThucHien: ''
+      nguoiThucHien: '',
+      ngayHoanTat: '',
+      ketQua: ''
     });
 
     setDvkhList(DataStore.getDvkhEntries());
@@ -1320,7 +1425,10 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
   // Tab 3 visible records:
   // Requirement 4: "Chỉ nhân viên được giao thực hiện mới thấy được hồ sơ đã giao, và gắn rồi cập nhật kết quả."
   const tab3Records = useMemo(() => {
-    const incompleteRecords = dvkhList.filter(e => e.trangThai === 'Đã Giao thi công' || e.trangThai === 'Trở ngại');
+    const incompleteRecords = dvkhList.filter(e => {
+      const st = getNormalizedStatus(e);
+      return st === 'Đã Giao thi công' || st === 'Trở ngại';
+    });
     
     // If DVKH user: they cannot update, but can monitor
     if (isDvkhUser) {
@@ -1550,11 +1658,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
 
   // Tổng số hồ sơ hoàn tất trong hệ thống
   const countCompletedRecords = useMemo(() => {
-    return dvkhList.filter(e => {
-      const st = String(e.trangThai || '').trim().toLowerCase();
-      const kq = String(e.ketQua || '').trim().toLowerCase();
-      return st === 'xong' || kq === 'xong';
-    }).length;
+    return dvkhList.filter(e => getNormalizedStatus(e) === 'Xong').length;
   }, [dvkhList]);
 
   // Phân trang danh sách toàn bộ hồ sơ: 10 khách hàng trên trang theo yêu cầu
@@ -1563,13 +1667,11 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
 
   const bottomFilteredList = useMemo(() => {
     return dvkhList.filter(item => {
+      const normalizedStatus = getNormalizedStatus(item);
+
       // Ẩn hồ sơ hoàn tất nếu option được bật (mặc định bật)
-      if (hideCompletedBottomList) {
-        const st = String(item.trangThai || '').trim().toLowerCase();
-        const kq = String(item.ketQua || '').trim().toLowerCase();
-        if (st === 'xong' || kq === 'xong') {
-          return false;
-        }
+      if (hideCompletedBottomList && normalizedStatus === 'Xong') {
+        return false;
       }
 
       // Search text
@@ -1586,7 +1688,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
       }
 
       // Status filter
-      if (filterTrangThai !== 'ALL' && item.trangThai !== filterTrangThai) {
+      if (filterTrangThai !== 'ALL' && normalizedStatus !== filterTrangThai) {
         return false;
       }
 
@@ -1719,15 +1821,14 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
       let troNgai = 0;
 
       items.forEach(item => {
-        const st = String(item.trangThai || '').trim().toLowerCase();
-        const kq = String(item.ketQua || '').trim().toLowerCase();
-        if (st === 'xong' || kq === 'xong') {
+        const st = getNormalizedStatus(item);
+        if (st === 'Xong') {
           hoanTat++;
-        } else if (st === 'trở ngại' || st === 'tro ngai') {
+        } else if (st === 'Trở ngại') {
           troNgai++;
-        } else if (st === 'đã giao thi công' || st === 'da giao thi cong') {
+        } else if (st === 'Đã Giao thi công') {
           daGiao++;
-        } else if (st === 'đã nhận' || st === 'da nhan') {
+        } else if (st === 'Đã Nhận') {
           daNhan++;
         }
       });
@@ -1790,12 +1891,11 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
       }
 
       // 2. Lọc theo chỉ tiêu trạng thái
-      const st = String(item.trangThai || '').trim().toLowerCase();
-      const kq = String(item.ketQua || '').trim().toLowerCase();
-      const isHoanTat = st === 'xong' || kq === 'xong';
-      const isTroNgai = st === 'trở ngại' || st === 'tro ngai';
-      const isDaNhan = st === 'đã nhận' || st === 'da nhan';
-      const isDaGiao = st === 'đã giao thi công' || st === 'da giao thi cong';
+      const st = getNormalizedStatus(item);
+      const isHoanTat = st === 'Xong';
+      const isTroNgai = st === 'Trở ngại';
+      const isDaNhan = st === 'Đã Nhận';
+      const isDaGiao = st === 'Đã Giao thi công';
       const isChuaHoanTat = isDaNhan || isDaGiao;
 
       if (reportSelection.metric === 'hoan_tat' && !isHoanTat) return false;
@@ -1845,12 +1945,16 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
   // Sync with Google Sheets manually
   const handleManualSync = async () => {
     setIsLoading(true);
-    showToast('info', 'Đang đồng bộ dữ liệu với Google Sheets...');
+    showToast('info', 'Đang đối soát và đồng bộ dữ liệu chuẩn xác với Google Sheets...');
     try {
+      const flushed = await DataStore.syncPendingDvkhUpdates().catch(() => 0);
       await DataStore.syncMasterData();
-      await DataStore.fetchDvkhData(true);
-      setDvkhList(DataStore.getDvkhEntries());
-      showToast('success', 'Đã cập nhật dữ liệu mới nhất từ máy chủ Google Sheets!');
+      const freshList = await DataStore.fetchDvkhData(true);
+      setDvkhList(freshList);
+      showToast(
+        'success',
+        `Đã đối soát đồng bộ chuẩn xác (${freshList.length} hồ sơ${flushed > 0 ? `, đã đẩy ${flushed} cập nhật chờ` : ''}) từ Google Sheets!`
+      );
     } catch (e: any) {
       showToast('error', 'Lỗi đồng bộ máy chủ: ' + (e.message || 'Mất kết nối'));
     } finally {
@@ -2017,9 +2121,9 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
       item.diaChi || '',
       item.sdt || '',
       item.loaiYeuCau || 'Gắn mới',
-      item.ngayNhan || '',
+      item.ngayTao || item.ngayNhan || '',
       item.ghiChu || '',
-      item.trangThai || 'Chưa giao'
+      getNormalizedStatus(item)
     ]);
     exportDvkhToExcelFile(
       'Danh Sách Hồ Sơ DVKH Chưa Giao Sang QLHTĐĐ',
@@ -2045,8 +2149,8 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
       item.diaChi || '',
       item.sdt || '',
       item.loaiYeuCau || 'Gắn mới',
-      item.ngayGiao || '',
-      item.trangThai || 'Chờ nhận'
+      item.ngayNhan || item.ngayTao || item.ngayGiao || '',
+      getNormalizedStatus(item)
     ]);
     exportDvkhToExcelFile(
       'Danh Sách Hồ Sơ DVKH Chờ Xác Nhận Tiếp Nhận Vào QLHTĐĐ',
@@ -2489,11 +2593,11 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
           </div>
           <div className="px-3.5 py-1.5 flex items-center justify-between">
             <span className="text-purple-700 font-medium text-[11px]">Đang thi công</span>
-            <span className="font-bold text-purple-700 text-xs sm:text-sm bg-purple-100/70 px-2 py-0.5 rounded-md">{countTab3Pending}</span>
+            <span className="font-bold text-purple-700 text-xs sm:text-sm bg-purple-100/70 px-2 py-0.5 rounded-md">{countDangThiCongTotal}</span>
           </div>
           <div className="px-3.5 py-1.5 flex items-center justify-between">
             <span className="text-emerald-700 font-medium text-[11px]">Hoàn tất</span>
-            <span className="font-bold text-emerald-700 text-xs sm:text-sm bg-emerald-100/70 px-2 py-0.5 rounded-md">{dvkhList.filter(e => e.trangThai === 'Xong').length}</span>
+            <span className="font-bold text-emerald-700 text-xs sm:text-sm bg-emerald-100/70 px-2 py-0.5 rounded-md">{countCompletedRecords}</span>
           </div>
         </div>
       </div>
@@ -2652,7 +2756,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
 
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs text-slate-500 font-semibold hidden lg:inline mr-1">
-                  STT kế tiếp: <b className="text-purple-700">{dvkhList.length + 1}</b>
+                  STT kế tiếp: <b className="text-purple-700">{nextStt}</b>
                 </span>
 
                 {/* DIRECT DOWNLOAD TEMPLATE BUTTON */}
@@ -4580,7 +4684,8 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                     <tbody className="divide-y divide-slate-100">
                       {paginatedReportDetailList.map((item, idx) => {
                         const areaName = getDvkhItemArea(item.diaChi).name;
-                        const isDaNhan = item.trangThai === 'Đã Nhận';
+                        const normStatus = getNormalizedStatus(item);
+                        const isDaNhan = normStatus === 'Đã Nhận';
                         return (
                           <tr key={`report_${item.maKh}_${idx}`} className="hover:bg-slate-50 transition-colors">
                             <td className="px-3 py-2 text-center text-slate-500 font-mono">
@@ -4613,7 +4718,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                               </span>
                             </td>
                             <td className="px-3 py-2 text-center">
-                              {renderStatusBadge(item.trangThai)}
+                              {renderStatusBadge(normStatus)}
                             </td>
                             <td className="px-3 py-2 text-slate-700">
                               <div className="font-semibold">{item.nguoiNhan || '-'}</div>
@@ -4624,12 +4729,12 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                               {item.ngayGiao && <div className="text-[10px] text-slate-500 font-mono">{item.ngayGiao}</div>}
                             </td>
                             <td className="px-3 py-2 text-center">
-                              {item.ketQua === 'Xong' ? (
+                              {normStatus === 'Xong' ? (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
                                   <CheckCircle2 className="w-3 h-3 text-emerald-600" />
                                   <span>Xong</span>
                                 </span>
-                              ) : item.trangThai === 'Trở ngại' ? (
+                              ) : normStatus === 'Trở ngại' ? (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
                                   <AlertTriangle className="w-3 h-3 text-rose-600" />
                                   <span>Trở ngại</span>
@@ -4691,7 +4796,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                 Danh Sách Toàn Bộ Hồ Sơ DVKH ({bottomFilteredList.length} / {dvkhList.length})
               </h3>
               <p className="text-[11px] text-slate-500">
-                Hiển thị tối đa 20 hồ sơ trên mỗi trang. Hỗ trợ lọc theo từng khu vực và phường/xã.
+                Hiển thị tối đa 10 hồ sơ trên mỗi trang. Hỗ trợ lọc theo từng khu vực và phường/xã.
               </p>
             </div>
           </div>
@@ -5005,14 +5110,14 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                           )}
                         </td>
                         <td className="px-3 py-2.5 text-center">
-                          {renderStatusBadge(item.trangThai)}
+                          {renderStatusBadge(getNormalizedStatus(item))}
                         </td>
                         <td className="px-3 py-2.5 font-semibold text-slate-700">
                           {item.nguoiThucHien || item.nguoiNhan || '-'}
                         </td>
                         {canDeletePendingRecord && (
                           <td className="px-3 py-2.5 text-center">
-                            {(item.trangThai === 'Chưa giao' || item.trangThai === 'Chờ giao') ? (
+                            {getNormalizedStatus(item) === 'Chưa giao' ? (
                               <button
                                 type="button"
                                 onClick={() => handleDeleteSinglePending(item)}

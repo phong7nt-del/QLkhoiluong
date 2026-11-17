@@ -1,6 +1,7 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import Papa from "papaparse";
 import { createServer as createViteServer } from "vite";
 
 async function startServer() {
@@ -13,6 +14,61 @@ async function startServer() {
   // API route for version info (always no-cache to ensure clients detect new releases immediately)
   const CANONICAL_APP_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyFzMY2hA8LOgPix7FoN0n9nB3LAUlhuppc5KopO_ZD0fYU-uj4gpAZn5FnedGWr5vg2A/exec";
   const CANONICAL_SPREADSHEET_ID = "1WyhxKyJ85WjighfivYGflfFXbpX4RpzVMlZ1biPKCAQ";
+
+  // Cache for sheet name -> gid mapping to prevent gviz active-filter truncation
+  const gidCache = new Map<string, { map: Record<string, string>; timestamp: number }>();
+
+  // Known fallback GIDs for default spreadsheet
+  const KNOWN_GIDS: Record<string, string> = {
+    'quahan': '934231421',
+    'quahan_nam': '1033408965',
+    'quahannam': '1033408965',
+    'tu': '790591569',
+    'tu_nam': '496168149',
+    'tunam': '496168149',
+    'ti': '602741776',
+    'ti_nam': '569727721',
+    'tinam': '569727721',
+    'tuti': '1705590920',
+    'kthtdd': '407625431',
+    'tiến độ': '917699178',
+    'định mức': '936341266',
+    'congtac': '85248088',
+    'dvkh': '110014365',
+    'khuvuc': '945183392',
+    'xulydoxa': '1559330970',
+    'dcu': '1436390261',
+    'sangtai': '2131392389',
+    'kho': '230876420',
+    'vttb': '1481390126',
+    'cbcnv': '1318742136',
+    '963': '1690879549'
+  };
+
+  async function getGidForSheet(sheetId: string, sheetName: string): Promise<string | null> {
+    const cleanName = sheetName.trim().toLowerCase();
+    const cached = gidCache.get(sheetId);
+    if (cached && Date.now() - cached.timestamp < 300000 && cached.map[cleanName]) {
+      return cached.map[cleanName];
+    }
+    try {
+      const url = `https://docs.google.com/spreadsheets/d/${sheetId}/htmlview`;
+      const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      if (res.ok) {
+        const text = await res.text();
+        const map: Record<string, string> = {};
+        const regex = /items\.push\({\s*name:\s*"([^"]+)",[^}]+gid:\s*"([0-9]+)"/g;
+        let m;
+        while ((m = regex.exec(text)) !== null) {
+          map[m[1].toLowerCase()] = m[2];
+          map[m[1]] = m[2];
+        }
+        gidCache.set(sheetId, { map, timestamp: Date.now() });
+        if (map[cleanName]) return map[cleanName];
+      }
+    } catch(e) {}
+    return KNOWN_GIDS[cleanName] || null;
+  }
 
   // Shared server configuration (synchronizes Apps Script URL and Spreadsheet ID across all devices)
   const sharedConfigPath = path.join(process.cwd(), 'shared_config.json');
@@ -140,17 +196,229 @@ async function startServer() {
   // REAL-TIME DVKH LIVE STORE & MULTI-DEVICE INSTANT SYNCHRONIZATION HUB
   // =========================================================================
   const dvkhStorePath = path.join(process.cwd(), 'dvkh_live_store.json');
-  
+
+  type CanonicalDvkhStatus = 'Chưa giao' | 'Chờ nhận' | 'Đã Nhận' | 'Đã Giao thi công' | 'Trở ngại' | 'Xong';
+
+  interface PendingDvkhSave {
+    item: any;
+    ts: number;
+    sheetSynced: boolean;
+  }
+
   interface DvkhLiveStore {
     version: number;
     items: any[];
+    pendingSaves: Record<string, PendingDvkhSave>;
+    deletedTombstones: Record<string, number>;
+    lastSheetSyncAt: number;
     updatedAt: string;
   }
 
   let dvkhStore: DvkhLiveStore = {
     version: 1,
     items: [],
+    pendingSaves: {},
+    deletedTombstones: {},
+    lastSheetSyncAt: 0,
     updatedAt: new Date().toISOString()
+  };
+
+  const normKeyServer = (k: any): string =>
+    String(k || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/đ/g, 'd')
+      .replace(/[\s_]+/g, '');
+
+  const normalizeDvkhStatusServer = (
+    rawStatus?: string,
+    ketQua?: string,
+    ngayGiao?: string,
+    nguoiThucHien?: string,
+    ngayNhan?: string,
+    nguoiNhan?: string
+  ): CanonicalDvkhStatus => {
+    const normStatus = normKeyServer(rawStatus);
+    const normKq = normKeyServer(ketQua);
+
+    if (normStatus === 'xong' || normStatus.includes('hoantat') || normStatus.includes('hoanthanh') || normKq === 'xong') {
+      return 'Xong';
+    }
+    if (normStatus.includes('trongai') || normKq === 'chua') {
+      return 'Trở ngại';
+    }
+    if (normStatus.includes('giaothicong') || normStatus === 'dagiao') {
+      return 'Đã Giao thi công';
+    }
+    if (normStatus === 'danhan' || normStatus === 'datiepnhan' || normStatus.includes('datiepnhan')) {
+      return 'Đã Nhận';
+    }
+    if (normStatus === 'chonhan' || normStatus === 'chotiepnhan' || normStatus.includes('chotiepnhan')) {
+      return 'Chờ nhận';
+    }
+    if (normStatus === 'chuagiao' || normStatus === 'chogiao') {
+      return 'Chưa giao';
+    }
+    if (!String(rawStatus || '').trim()) {
+      if (String(ngayGiao || '').trim() && String(nguoiThucHien || '').trim()) return 'Đã Giao thi công';
+      if (String(ngayNhan || '').trim() && String(nguoiNhan || '').trim()) return 'Đã Nhận';
+      if (String(ngayNhan || '').trim()) return 'Chờ nhận';
+    }
+    return 'Chưa giao';
+  };
+
+  const normalizeDvkhRecordServer = (raw: any, fallbackStt?: number): any | null => {
+    const maKh = String(raw?.maKh || '').trim();
+    if (!maKh) return null;
+    const ketQuaRaw = String(raw?.ketQua || '').trim();
+    const kqLow = normKeyServer(ketQuaRaw);
+    const ketQua: 'Chưa' | 'Xong' | '' = kqLow.includes('xong') ? 'Xong' : (kqLow.includes('chua') ? 'Chưa' : '');
+    const ngayNhan = String(raw?.ngayNhan || '').trim();
+    const nguoiNhan = String(raw?.nguoiNhan || '').trim();
+    const ngayGiao = String(raw?.ngayGiao || '').trim();
+    const nguoiThucHien = String(raw?.nguoiThucHien || '').trim();
+    const trangThai = normalizeDvkhStatusServer(
+      raw?.trangThai,
+      ketQua,
+      ngayGiao,
+      nguoiThucHien,
+      ngayNhan,
+      nguoiNhan
+    );
+    const parsedStt = typeof raw?.stt === 'number' ? raw.stt : parseInt(String(raw?.stt || 0).trim(), 10);
+    return {
+      stt: (!isNaN(parsedStt) && parsedStt > 0) ? parsedStt : (fallbackStt || 1),
+      maKh,
+      tenKh: String(raw?.tenKh || 'Khách hàng').trim(),
+      diaChi: String(raw?.diaChi || '').trim(),
+      sdt: String(raw?.sdt || '').trim(),
+      pic: String(raw?.pic || '').trim(),
+      khuVuc: String(raw?.khuVuc || '').trim(),
+      ngayNhan,
+      nguoiNhan,
+      ngayGiao,
+      nguoiGiao: '',
+      nguoiThucHien,
+      ngayHoanTat: String(raw?.ngayHoanTat || '').trim(),
+      ketQua,
+      ghiChu: String(raw?.ghiChu || '').trim(),
+      trangThai,
+      loaiYeuCau: String(raw?.loaiYeuCau || raw?.loai || 'Gắn mới').trim(),
+      ngayTao: String(raw?.ngayTao || '').trim(),
+      nguoiTao: String(raw?.nguoiTao || '').trim()
+    };
+  };
+
+  const parseDvkhCsvServer = (csvText: string): any[] => {
+    if (!csvText || csvText.includes('<html')) return [];
+    const parsed = Papa.parse(csvText, { header: false, skipEmptyLines: true });
+    const allRows = (parsed.data as any[]) || [];
+    if (allRows.length === 0) return [];
+
+    let headerRowIdx = 0;
+    for (let r = 0; r < Math.min(10, allRows.length); r++) {
+      const rowNorm = (allRows[r] || []).map((c: any) => normKeyServer(c)).join(' ');
+      if (rowNorm.includes('makh') || (rowNorm.includes('ma') && rowNorm.includes('ten'))) {
+        headerRowIdx = r;
+        break;
+      }
+    }
+
+    const headers = (allRows[headerRowIdx] || []).map((c: any) => String(c || '').trim());
+    const rows = allRows.slice(headerRowIdx + 1);
+    const seen = new Set<string>();
+    const results: any[] = [];
+
+    for (let idx = 0; idx < rows.length; idx++) {
+      const rArr = rows[idx] as any[];
+      const rowObj: Record<string, any> = {};
+      headers.forEach((h: string, cIdx: number) => {
+        if (h) rowObj[h] = rArr[cIdx];
+      });
+      const keys = Object.keys(rowObj);
+      const getVal = (aliases: string[]) => {
+        for (const alias of aliases) {
+          const normAlias = normKeyServer(alias);
+          for (const k of keys) {
+            if (normKeyServer(k) === normAlias) {
+              return String(rowObj[k] || '').trim();
+            }
+          }
+        }
+        return '';
+      };
+
+      const maKh = getVal(['makh', 'ma khach hang', 'ma kh', 'ma_kh', 'ma', 'shs', 'so ho so']);
+      const key = maKh.toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+
+      const sttRaw = getVal(['stt', 'so thu tu', 'so_thu_tu', 'sothutu', 'sott', 'tt', 'stt_hs', 'sttkh', 'thu tu']);
+      const tenKh = getVal(['tenkh', 'ten khach hang', 'ten kh', 'ho va ten', 'ho ten', 'ten']);
+      const diaChi = getVal(['diachi', 'dia chi khach hang', 'dia chi']);
+      const loaiYeuCau = getVal(['loai', 'loaiyeucau', 'loai yeu cau', 'yeu cau', 'loai hs', 'loaiyeucauhs']);
+      const ngayNhan = getVal(['ngaynhan', 'ngay nhan', 'ngay tiep nhan', 'ngaytiepnhan']);
+      const nguoiNhan = getVal(['nguoinhan', 'nguoi nhan', 'nguoi tiep nhan', 'nguoitiepnhan', 'lanh dao nhan', 'lanhdaonhan']);
+      const ngayGiao = getVal(['ngaygiao', 'ngay giao', 'ngay phan cong', 'ngayphancong']);
+      const nguoiThucHien = getVal(['nguoithuchien', 'nguoi thuc hien', 'nhan vien thuc hien', 'nhanvienthuchien', 'nhan vien', 'nhanvien', 'nguoi thi cong', 'nguoithicong', 'nhan vien thi cong', 'nhanvienthicong', 'ky thuat vien', 'kythuatvien', 'nguoith', 'nvth']);
+      const ngayHoanTat = getVal(['ngayhoantat', 'ngay hoan tat', 'ngay xong', 'ngay hoan thanh']);
+      const ketQua = getVal(['ketqua', 'ket qua']);
+      let ghiChu = getVal(['ghichu', 'ghi chu', 'noi dung ghi chu', 'tro ngai', 'noidungghichu', 'ghi chu tro ngai']);
+      const trangThaiRaw = getVal(['trangthai', 'trang thai', 'tinh trang', 'tinhtrang', 'trang thai ho so', 'trangthaihoso']);
+      const sdt = getVal(['sdt', 'so dien thoai', 'dien thoai', 'phone', 'tel']);
+      const pic = getVal(['pic', 'hinhanh', 'hinh anh', 'anh', 'anh chung minh', 'anh tro ngai', 'anhtrongai']);
+      const khuVuc = getVal(['khuvuc', 'khu vuc', 'phuong xa', 'phuongxa', 'dia ban', 'diaban']);
+      const ngayTao = getVal(['ngaytao', 'ngay tao']);
+      const nguoiTao = getVal(['nguoitao', 'nguoi tao']);
+
+      const normTt = normKeyServer(trangThaiRaw);
+      const isRecognizedStatus =
+        !trangThaiRaw ||
+        normTt.includes('xong') ||
+        normTt.includes('hoantat') ||
+        normTt.includes('hoanthanh') ||
+        normTt.includes('trongai') ||
+        normTt.includes('giaothicong') ||
+        normTt.includes('dagiao') ||
+        normTt.includes('danhan') ||
+        normTt.includes('datiepnhan') ||
+        normTt.includes('chonhan') ||
+        normTt.includes('chotiepnhan') ||
+        normTt.includes('chuagiao') ||
+        normTt.includes('chogiao');
+      if (!isRecognizedStatus && !ghiChu && trangThaiRaw) {
+        ghiChu = trangThaiRaw;
+      }
+
+      const normalized = normalizeDvkhRecordServer(
+        {
+          stt: sttRaw,
+          maKh,
+          tenKh,
+          diaChi,
+          sdt,
+          pic,
+          khuVuc,
+          ngayNhan,
+          nguoiNhan,
+          ngayGiao,
+          nguoiGiao: '',
+          nguoiThucHien,
+          ngayHoanTat,
+          ketQua,
+          ghiChu,
+          trangThai: isRecognizedStatus ? trangThaiRaw : '',
+          loaiYeuCau,
+          ngayTao,
+          nguoiTao
+        },
+        idx + 1
+      );
+      if (normalized) results.push(normalized);
+    }
+
+    return results;
   };
 
   const loadDvkhStore = () => {
@@ -159,9 +427,23 @@ async function startServer() {
         const raw = fs.readFileSync(dvkhStorePath, 'utf8');
         const parsed = JSON.parse(raw);
         if (parsed && Array.isArray(parsed.items)) {
+          const seen = new Set<string>();
+          const cleaned: any[] = [];
+          for (let i = 0; i < parsed.items.length; i++) {
+            const norm = normalizeDvkhRecordServer(parsed.items[i], i + 1);
+            if (!norm) continue;
+            const k = norm.maKh.toLowerCase();
+            if (!seen.has(k)) {
+              seen.add(k);
+              cleaned.push(norm);
+            }
+          }
           dvkhStore = {
             version: Number(parsed.version) || 1,
-            items: parsed.items,
+            items: cleaned,
+            pendingSaves: (parsed.pendingSaves && typeof parsed.pendingSaves === 'object') ? parsed.pendingSaves : {},
+            deletedTombstones: (parsed.deletedTombstones && typeof parsed.deletedTombstones === 'object') ? parsed.deletedTombstones : {},
+            lastSheetSyncAt: Number(parsed.lastSheetSyncAt) || 0,
             updatedAt: parsed.updatedAt || new Date().toISOString()
           };
         }
@@ -193,6 +475,146 @@ async function startServer() {
       }
     }
   };
+
+  // Fetch canonical DVKH CSV directly from Google Sheets and reconcile dvkhStore
+  let dvkhReconcileInFlight: Promise<void> | null = null;
+  const reconcileDvkhStoreWithSheet = async (forceRefresh = false): Promise<void> => {
+    if (!forceRefresh && dvkhStore.items.length > 0 && Date.now() - dvkhStore.lastSheetSyncAt < 10000) {
+      return;
+    }
+    if (dvkhReconcileInFlight) {
+      return dvkhReconcileInFlight;
+    }
+
+    dvkhReconcileInFlight = (async () => {
+      try {
+        const cfg = getSharedConfig();
+        const sheetId = cfg.spreadsheetId || CANONICAL_SPREADSHEET_ID;
+        const gid = (await getGidForSheet(sheetId, 'DVKH')) || KNOWN_GIDS['dvkh'] || '110014365';
+
+        let csvText = '';
+        const candidateUrls = [
+          `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}&_t=${Date.now()}`,
+          `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=DVKH&_t=${Date.now()}`
+        ];
+
+        for (const url of candidateUrls) {
+          try {
+            const resp = await fetch(url, {
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache'
+              }
+            });
+            if (resp.ok) {
+              const txt = await resp.text();
+              if (txt && !txt.includes('<html') && txt.trim().length > 20) {
+                csvText = txt;
+                break;
+              }
+            }
+          } catch {}
+        }
+
+        if (!csvText) return;
+
+        const sheetItems = parseDvkhCsvServer(csvText);
+        if (sheetItems.length === 0) return;
+
+        const now = Date.now();
+        const sheetMap = new Map<string, any>();
+        for (const it of sheetItems) {
+          sheetMap.set(it.maKh.toLowerCase(), it);
+        }
+
+        // 1. Prune tombstones that are already absent from Sheet OR expired (> 120s)
+        const nextTombstones: Record<string, number> = {};
+        for (const [k, delTs] of Object.entries(dvkhStore.deletedTombstones || {})) {
+          if (sheetMap.has(k) && now - Number(delTs) < 120000) {
+            nextTombstones[k] = Number(delTs);
+          }
+        }
+        dvkhStore.deletedTombstones = nextTombstones;
+
+        // 2. Reconcile pendingSaves (keep only fresh unpropagated edits within 90s/300s)
+        const nextPending: Record<string, PendingDvkhSave> = {};
+        for (const [k, p] of Object.entries(dvkhStore.pendingSaves || {})) {
+          if (nextTombstones[k]) continue;
+          const age = now - Number(p.ts || 0);
+          const maxHold = p.sheetSynced ? 25000 : 180000;
+          const sItem = sheetMap.get(k);
+          if (age < maxHold) {
+            // If Sheet already reflects the exact state, we can retire this pending override immediately
+            const matchesSheet = sItem &&
+              String(sItem.trangThai || '') === String(p.item?.trangThai || '') &&
+              String(sItem.nguoiNhan || '') === String(p.item?.nguoiNhan || '') &&
+              String(sItem.nguoiThucHien || '') === String(p.item?.nguoiThucHien || '') &&
+              String(sItem.ketQua || '') === String(p.item?.ketQua || '');
+            if (!matchesSheet) {
+              nextPending[k] = p;
+            }
+          }
+        }
+        dvkhStore.pendingSaves = nextPending;
+
+        // 3. Build canonical item list: active new pending items + canonical Sheet items (with active pending overlays)
+        const finalItems: any[] = [];
+        const seen = new Set<string>();
+
+        for (const [k, p] of Object.entries(nextPending)) {
+          if (!sheetMap.has(k) && !nextTombstones[k]) {
+            const normP = normalizeDvkhRecordServer(p.item);
+            if (normP) {
+              finalItems.push(normP);
+              seen.add(k);
+            }
+          }
+        }
+
+        for (const sItem of sheetItems) {
+          const k = sItem.maKh.toLowerCase();
+          if (seen.has(k) || nextTombstones[k]) continue;
+          seen.add(k);
+          const pending = nextPending[k];
+          if (pending && pending.item) {
+            const merged = normalizeDvkhRecordServer({ ...sItem, ...pending.item }, sItem.stt);
+            finalItems.push(merged || sItem);
+          } else {
+            finalItems.push(sItem);
+          }
+        }
+
+        const prevSerialized = JSON.stringify(dvkhStore.items);
+        const nextSerialized = JSON.stringify(finalItems);
+        dvkhStore.lastSheetSyncAt = now;
+
+        if (prevSerialized !== nextSerialized) {
+          dvkhStore.items = finalItems;
+          dvkhStore.version++;
+          dvkhStore.updatedAt = new Date().toISOString();
+          saveDvkhStore();
+          broadcastDvkhEvent({
+            type: 'dvkh_full_sync',
+            version: dvkhStore.version,
+            items: dvkhStore.items,
+            timestamp: now
+          });
+        } else {
+          saveDvkhStore();
+        }
+      } catch (err) {
+        console.warn('reconcileDvkhStoreWithSheet error:', err);
+      } finally {
+        dvkhReconcileInFlight = null;
+      }
+    })();
+
+    return dvkhReconcileInFlight;
+  };
+
+  // Reconcile immediately on startup (non-blocking) so disk store heals automatically
+  reconcileDvkhStoreWithSheet(true).catch(() => {});
 
   // Asynchronously and safely forward updates to Google Apps Script
   const forwardDvkhToGoogleSheet = async (payload: { action: 'save_dvkh' | 'delete_dvkh'; items?: any[]; maKhs?: any[] }) => {
@@ -251,37 +673,55 @@ async function startServer() {
   // 2. Instant Sync Mutation Endpoint (Called whenever any user on any machine adds, edits, assigns, or deletes)
   app.post("/api/dvkh/sync", async (req, res) => {
     try {
-      const { action, items, maKhs, senderId } = req.body || {};
-      let changed = false;
+      const { action, items, maKhs, senderId, skipSheetForward, sheetSynced } = req.body || {};
+      const now = Date.now();
+
+      if (action === 'mark_synced') {
+        const keys = Array.isArray(maKhs) ? maKhs : [];
+        let touched = false;
+        for (const m of keys) {
+          const k = String(m || '').trim().toLowerCase();
+          if (k && dvkhStore.pendingSaves[k]) {
+            dvkhStore.pendingSaves[k].sheetSynced = true;
+            dvkhStore.pendingSaves[k].ts = now;
+            touched = true;
+          }
+        }
+        if (touched) saveDvkhStore();
+        res.json({ success: true, version: dvkhStore.version, count: dvkhStore.items.length });
+        return;
+      }
 
       if (action === 'delete') {
-        const targetKeys = new Set((maKhs || []).map((k: any) => String(k || '').trim().toLowerCase()));
+        const targetKeys = new Set<string>(
+          (Array.isArray(maKhs) ? maKhs : []).map((k: any) => String(k || '').trim().toLowerCase()).filter(Boolean)
+        );
         if (targetKeys.size > 0) {
-          const initialLen = dvkhStore.items.length;
           dvkhStore.items = dvkhStore.items.filter((item: any) => !targetKeys.has(String(item.maKh || '').trim().toLowerCase()));
-          if (dvkhStore.items.length !== initialLen) {
-            changed = true;
+          for (const k of targetKeys) {
+            delete dvkhStore.pendingSaves[k];
+            dvkhStore.deletedTombstones[k] = now;
           }
         }
         dvkhStore.version++;
         dvkhStore.updatedAt = new Date().toISOString();
         saveDvkhStore();
 
-        // Broadcast to all other devices immediately
         broadcastDvkhEvent({
           type: 'dvkh_change',
           action: 'delete',
           maKhs,
           version: dvkhStore.version,
           senderId,
-          timestamp: Date.now()
+          timestamp: now
         });
 
-        // Forward to Google Sheet in background
-        forwardDvkhToGoogleSheet({
-          action: 'delete_dvkh',
-          maKhs: maKhs
-        }).catch(() => {});
+        if (!skipSheetForward) {
+          forwardDvkhToGoogleSheet({
+            action: 'delete_dvkh',
+            maKhs
+          }).catch(() => {});
+        }
 
         res.json({ success: true, version: dvkhStore.version, count: dvkhStore.items.length });
         return;
@@ -296,19 +736,32 @@ async function startServer() {
           if (k) itemMap.set(k, idx);
         });
 
+        const normalizedIncoming: any[] = [];
         const newItems: any[] = [];
         for (const inc of incomingItems) {
-          const k = String(inc.maKh || '').trim().toLowerCase();
-          if (!k) continue;
+          const normInc = normalizeDvkhRecordServer(inc);
+          if (!normInc) continue;
+          const k = normInc.maKh.toLowerCase();
+
+          // If explicitly saved/re-added, clear any tombstone
+          delete dvkhStore.deletedTombstones[k];
+          dvkhStore.pendingSaves[k] = {
+            item: normInc,
+            ts: now,
+            sheetSynced: Boolean(sheetSynced)
+          };
+          normalizedIncoming.push(normInc);
 
           if (itemMap.has(k)) {
             const existingIdx = itemMap.get(k)!;
-            dvkhStore.items[existingIdx] = { ...dvkhStore.items[existingIdx], ...inc };
+            dvkhStore.items[existingIdx] = normalizeDvkhRecordServer(
+              { ...dvkhStore.items[existingIdx], ...normInc },
+              dvkhStore.items[existingIdx].stt
+            );
           } else {
-            newItems.push(inc);
+            newItems.push(normInc);
             itemMap.set(k, -1);
           }
-          changed = true;
         }
 
         if (newItems.length > 0) {
@@ -319,21 +772,21 @@ async function startServer() {
         dvkhStore.updatedAt = new Date().toISOString();
         saveDvkhStore();
 
-        // Broadcast to all other devices immediately (<10ms!)
         broadcastDvkhEvent({
           type: 'dvkh_change',
           action: 'save',
-          items: incomingItems,
+          items: normalizedIncoming,
           version: dvkhStore.version,
           senderId,
-          timestamp: Date.now()
+          timestamp: now
         });
 
-        // Forward to Google Sheet in background
-        forwardDvkhToGoogleSheet({
-          action: 'save_dvkh',
-          items: incomingItems
-        }).catch(() => {});
+        if (!skipSheetForward && normalizedIncoming.length > 0) {
+          forwardDvkhToGoogleSheet({
+            action: 'save_dvkh',
+            items: normalizedIncoming
+          }).catch(() => {});
+        }
       }
 
       res.json({ success: true, version: dvkhStore.version, count: dvkhStore.items.length });
@@ -343,19 +796,35 @@ async function startServer() {
     }
   });
 
-  // 3. Get Full Consolidated DVKH Dataset
-  app.get("/api/dvkh/data", (req, res) => {
+  // 3. Get Full Consolidated DVKH Dataset (auto-reconciled with Google Sheets)
+  app.get("/api/dvkh/data", async (req, res) => {
     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    const forceRefresh = req.query.refresh === '1' || req.query.force === '1';
+    await reconcileDvkhStoreWithSheet(forceRefresh);
     res.json({
       version: dvkhStore.version,
       items: dvkhStore.items,
-      updatedAt: dvkhStore.updatedAt
+      updatedAt: dvkhStore.updatedAt,
+      lastSheetSyncAt: dvkhStore.lastSheetSyncAt
+    });
+  });
+
+  // Explicit force refresh endpoint
+  app.post("/api/dvkh/refresh", async (req, res) => {
+    await reconcileDvkhStoreWithSheet(true);
+    res.json({
+      success: true,
+      version: dvkhStore.version,
+      items: dvkhStore.items,
+      updatedAt: dvkhStore.updatedAt,
+      lastSheetSyncAt: dvkhStore.lastSheetSyncAt
     });
   });
 
   // 4. Fast Polling Endpoint (Fallback for mobile or reconnecting tabs)
-  app.get("/api/dvkh/poll", (req, res) => {
+  app.get("/api/dvkh/poll", async (req, res) => {
     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    await reconcileDvkhStoreWithSheet(false);
     const since = Number(req.query.since) || 0;
     if (dvkhStore.version > since) {
       res.json({
@@ -1012,61 +1481,6 @@ async function startServer() {
       res.status(500).json({ success: false, error: err.message });
     }
   });
-
-  // Cache for sheet name -> gid mapping to prevent gviz active-filter truncation
-  const gidCache = new Map<string, { map: Record<string, string>; timestamp: number }>();
-
-  // Known fallback GIDs for default spreadsheet
-  const KNOWN_GIDS: Record<string, string> = {
-    'quahan': '934231421',
-    'quahan_nam': '1033408965',
-    'quahannam': '1033408965',
-    'tu': '790591569',
-    'tu_nam': '496168149',
-    'tunam': '496168149',
-    'ti': '602741776',
-    'ti_nam': '569727721',
-    'tinam': '569727721',
-    'tuti': '1705590920',
-    'kthtdd': '407625431',
-    'tiến độ': '917699178',
-    'định mức': '936341266',
-    'congtac': '85248088',
-    'dvkh': '110014365',
-    'khuvuc': '945183392',
-    'xulydoxa': '1559330970',
-    'dcu': '1436390261',
-    'sangtai': '2131392389',
-    'kho': '230876420',
-    'vttb': '1481390126',
-    'cbcnv': '1318742136',
-    '963': '1690879549'
-  };
-
-  async function getGidForSheet(sheetId: string, sheetName: string): Promise<string | null> {
-    const cleanName = sheetName.trim().toLowerCase();
-    const cached = gidCache.get(sheetId);
-    if (cached && Date.now() - cached.timestamp < 300000 && cached.map[cleanName]) {
-      return cached.map[cleanName];
-    }
-    try {
-      const url = `https://docs.google.com/spreadsheets/d/${sheetId}/htmlview`;
-      const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-      if (res.ok) {
-        const text = await res.text();
-        const map: Record<string, string> = {};
-        const regex = /items\.push\({\s*name:\s*"([^"]+)",[^}]+gid:\s*"([0-9]+)"/g;
-        let m;
-        while ((m = regex.exec(text)) !== null) {
-          map[m[1].toLowerCase()] = m[2];
-          map[m[1]] = m[2];
-        }
-        gidCache.set(sheetId, { map, timestamp: Date.now() });
-        if (map[cleanName]) return map[cleanName];
-      }
-    } catch(e) {}
-    return KNOWN_GIDS[cleanName] || null;
-  }
 
   // API route to proxy Google Sheets requests (supports full export by GID to avoid filter truncation)
   app.get("/api/proxy/gviz", async (req, res) => {
