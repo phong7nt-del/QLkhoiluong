@@ -825,7 +825,7 @@ export default function Analytics({ refreshToggle, sessionUser }: { refreshToggl
                 className="bg-transparent border-b border-[#141414] pb-1 font-mono text-sm focus:outline-none pr-4 w-full sm:w-auto"
               >
                 <option value="all">TẤT CẢ</option>
-                {uniqueMembers.map(m => <option key={m} value={m}>{m}</option>)}
+                {uniqueMembers.map((m, idx) => <option key={`${m}_${idx}`} value={m}>{m}</option>)}
               </select>
             </div>
             <div className="flex gap-2 mt-2 sm:mt-0">
@@ -861,7 +861,7 @@ export default function Analytics({ refreshToggle, sessionUser }: { refreshToggl
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                 {summaryStats.map(([name, qty], idx) => (
-                  <div key={name} className="flex justify-between items-center text-sm border-b border-dashed border-[#141414]/20 pb-1">
+                  <div key={`${name}_${idx}`} className="flex justify-between items-center text-sm border-b border-dashed border-[#141414]/20 pb-1">
                     <span className="font-medium text-[#141414]/80">{idx + 1}. {name}</span>
                     <span className="font-bold">{qty}</span>
                   </div>
@@ -924,7 +924,7 @@ export default function Analytics({ refreshToggle, sessionUser }: { refreshToggl
                             <td className="py-3 px-4 border-r border-[#141414]/10 align-top whitespace-nowrap font-mono">{displayDate}</td>
                             <td className="py-3 px-4 border-r border-[#141414]/10 align-top font-bold">
                                <div className="flex flex-col gap-1">
-                                 {e.members?.map(m => <span key={m}>{m}</span>)}
+                                 {e.members?.map((m, mIdx) => <span key={`${m}_${mIdx}`}>{m}</span>)}
                                </div>
                             </td>
                             <td className="py-3 px-4 border-r border-[#141414]/10 align-top opacity-70">{e.team}</td>
@@ -1028,7 +1028,7 @@ export default function Analytics({ refreshToggle, sessionUser }: { refreshToggl
                                  {activeMembers.map((member, i) => {
                                     const memberEntries = dateEntries.filter(e => e.members?.includes(member));
                                     return (
-                                       <tr key={member} className={`border-b border-[#141414]/10 hover:bg-[#E4E3E0]/30 transition-colors ${i % 2 === 0 ? 'bg-white' : 'bg-[#F9F9F9]'}`}>
+                                       <tr key={`${member}_${i}`} className={`border-b border-[#141414]/10 hover:bg-[#E4E3E0]/30 transition-colors ${i % 2 === 0 ? 'bg-white' : 'bg-[#F9F9F9]'}`}>
                                           <td className="py-3 px-4 text-center font-bold opacity-60 border-r border-[#141414]/10 align-top">{i + 1}</td>
                                           <td className="py-3 px-4 font-bold border-r border-[#141414]/10 align-top">
                                              {member}

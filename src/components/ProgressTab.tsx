@@ -442,9 +442,9 @@ export default function ProgressTab({ refreshToggle, sessionUser, theme }: { ref
                   </div>
                   {searchAssignee && newAssignee === searchAssignee && filteredMembers.length > 0 && (
                      <div className="absolute z-10 w-full mt-2 bg-white border border-slate-200 rounded-xl max-h-48 overflow-y-auto shadow-xl shadow-slate-200/50">
-                        {filteredMembers.map(m => (
+                        {filteredMembers.map((m, idx) => (
                            <div 
-                              key={m} 
+                              key={`${m}_${idx}`} 
                               className="px-5 py-3 hover:bg-blue-50 cursor-pointer text-sm font-medium border-b border-slate-100 last:border-0 transition-colors text-slate-700"
                               onClick={() => { setNewAssignee(m); setSearchAssignee(''); }}
                            >

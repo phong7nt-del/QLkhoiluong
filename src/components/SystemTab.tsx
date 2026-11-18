@@ -2918,8 +2918,8 @@ export default function SystemTab({ sessionUser }: { sessionUser?: SheetMember |
                                 <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-purple-50 text-purple-700 rounded-lg text-xs font-bold border border-purple-200">
                                     👑 Đội trưởng / Giám đốc (Tự động)
                                 </span>
-                                {congDoanLeaders.map(name => (
-                                    <span key={name} className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-rose-50 text-rose-700 rounded-lg text-xs font-bold border border-rose-200 shadow-sm">
+                                {congDoanLeaders.map((name, idx) => (
+                                    <span key={`${name}_${idx}`} className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-rose-50 text-rose-700 rounded-lg text-xs font-bold border border-rose-200 shadow-sm">
                                         <span>{name}</span>
                                         {name.includes('Thụy') || name.includes('Thuy') ? (
                                             <span className="text-[10px] text-rose-500 font-normal">(Tổ trưởng CĐ)</span>
@@ -3051,8 +3051,8 @@ export default function SystemTab({ sessionUser }: { sessionUser?: SheetMember |
                                             className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-rose-500 focus:outline-none"
                                         >
                                             <option value="">-- Chọn nhân sự cần loại trừ --</option>
-                                            {allMembers.map(m => (
-                                                <option key={m.name} value={m.name}>
+                                            {allMembers.map((m, idx) => (
+                                                <option key={`${m.msnv || ''}_${m.name}_${m.team || ''}_${idx}`} value={m.name}>
                                                     {m.name} ({m.team || 'Đo xa'})
                                                 </option>
                                             ))}
@@ -3542,7 +3542,7 @@ export default function SystemTab({ sessionUser }: { sessionUser?: SheetMember |
                                                             else effectiveDesc = `Chỉ ${resolvedArea} (Mặc định)`;
 
                                                             return (
-                                                                <tr key={m.name} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
+                                                                <tr key={`${m.msnv || ''}_${m.name}_${m.team || ''}_${idx}`} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
                                                                     <td className="px-3 py-2 text-center text-slate-400 font-medium">
                                                                         {idx + 1}
                                                                     </td>

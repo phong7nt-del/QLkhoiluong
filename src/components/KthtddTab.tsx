@@ -4306,8 +4306,8 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                         className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs outline-none focus:border-[#005a9c]"
                       >
                         <option value="ALL">Tất cả người TH</option>
-                        {allAssigneesForFilter.map(name => (
-                          <option key={name} value={name}>
+                        {allAssigneesForFilter.map((name, idx) => (
+                          <option key={`${name}_${idx}`} value={name}>
                             {name}
                           </option>
                         ))}
@@ -5138,8 +5138,8 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                             </td>
                           </tr>
                         ) : (
-                          statsData.assigneeList.map(item => (
-                            <tr key={item.name} className="hover:bg-slate-50">
+                          statsData.assigneeList.map((item, idx) => (
+                            <tr key={`${item.name}_${idx}`} className="hover:bg-slate-50">
                               <td className="py-2 px-3 font-semibold text-slate-800">{item.name}</td>
                               <td className="py-2 px-3 text-right font-mono font-bold text-[#005a9c]">
                                 {item.doneCount.toLocaleString('vi-VN')}
@@ -5349,11 +5349,11 @@ export default function KthtddTab({ sessionUser, refreshToggle = 0 }: KthtddTabP
                 )}
 
                 <div className="max-h-52 overflow-y-auto space-y-1.5 p-2 bg-slate-50/80 rounded-xl border border-slate-200">
-                  {displayedAssigneeMembers.map(member => {
+                  {displayedAssigneeMembers.map((member, idx) => {
                     const isChecked = selectedAssignees.includes(member.name);
                     return (
                       <label
-                        key={member.name}
+                        key={`${member.msnv || ''}_${member.name}_${member.team || ''}_${idx}`}
                         className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all border ${
                           isChecked ? 'bg-teal-50 border-teal-300 text-teal-900 font-bold' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
                         }`}

@@ -125,6 +125,7 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
   const [importFileName, setImportFileName] = useState('');
   const [importError, setImportError] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState<string | null>(null);
 
   // Check RBAC permission for import_htdd_data
   const canImport = PermissionStore.hasActionAccess('import_htdd_data', sessionUser?.role || '', sessionUser);
@@ -1058,7 +1059,7 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
         const wb = XLSX.read(data, { type: 'binary' });
         const firstSheetName = wb.SheetNames[0];
         const ws = wb.Sheets[firstSheetName];
-        const rawJson: any[] = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        const rawJson: any[] = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
 
         if (!rawJson || rawJson.length === 0) {
           setImportError('File tải lên không có dữ liệu (sheet trống)!');
@@ -1097,6 +1098,8 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
   const handleConfirmImport = async () => {
     if (!parsedImportData || parsedImportData.length === 0) return;
     setIsImporting(true);
+    setImportError(null);
+    setImportProgress('Đang xử lý dữ liệu nội bộ...');
     try {
       const targetSheet = isCuoiNam
         ? (importType === 'dienke' ? 'QuaHan_Nam' : importType === 'tu' ? 'TU_Nam' : 'TI_Nam')
@@ -1143,12 +1146,22 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
         }
       }
 
-      // ĐỒNG BỘ LÊN GOOGLE SHEETS QUA APPS SCRIPT (NẾU ĐÃ CẤU HÌNH URL):
-      // Gọi lệnh xóa sạch sheet cũ (clearContents()) và chèn chính xác số dòng mới vào Google Sheet
-      try {
-        await DataStore.syncHtddSheetToGoogleSheet(targetSheet, requiredCols, parsedImportData);
-      } catch (errSync) {
-        console.warn('Lưu ý đồng bộ Google Sheets nền:', errSync);
+      // ĐỒNG BỘ LÊN GOOGLE SHEETS QUA APPS SCRIPT (Xóa sạch sheet cũ và ghi đè từng gói dữ liệu mới)
+      setImportProgress(`Đang đồng bộ lên Google Sheet ${targetSheet}...`);
+      const syncResult = await DataStore.syncHtddSheetToGoogleSheet(
+        targetSheet,
+        requiredCols,
+        parsedImportData,
+        (current, total, percent) => {
+          setImportProgress(`Đang ghi dữ liệu vào Google Sheet ${targetSheet} (gói ${current}/${total} - ${percent ?? Math.round((current / total) * 100)}%)...`);
+        }
+      );
+
+      if (!syncResult.success) {
+        setImportError(
+          `Đã cập nhật ${parsedImportData.length.toLocaleString()} dòng trên ứng dụng nhưng đồng bộ lên Google Sheet ${targetSheet} chưa thành công: ${syncResult.error || 'Lỗi không xác định'}`
+        );
+        return;
       }
 
       showToast(`Đã xóa sạch dữ liệu cũ và nạp ${parsedImportData.length.toLocaleString()} dòng mới vào sheet ${targetSheet}!`);
@@ -1162,6 +1175,7 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
       setImportError('Lỗi trong quá trình xử lý: ' + (err.message || 'Lỗi không xác định'));
     } finally {
       setIsImporting(false);
+      setImportProgress(null);
     }
   };
 
@@ -2112,7 +2126,11 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
             </div>
 
             {/* Modal Footer */}
-            <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-2.5">
+            <div className="pt-4 border-t border-slate-100 flex items-center justify-between gap-2.5">
+              <div className="text-[11px] font-semibold text-indigo-700 truncate">
+                {importProgress || ''}
+              </div>
+              <div className="flex items-center gap-2.5 shrink-0">
               <button
                 type="button"
                 onClick={() => {
@@ -2131,8 +2149,9 @@ export default function QuaHanSubTab({ refreshToggle, sessionUser, mode = 'quaha
                 className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs shadow-md shadow-rose-600/20 active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer"
               >
                 <Upload className="w-4 h-4" />
-                <span>{isImporting ? 'Đang xử lý...' : 'Xóa dữ liệu cũ & Nạp dữ liệu mới'}</span>
+                <span>{isImporting ? 'Đang đồng bộ...' : 'Xóa dữ liệu cũ & Nạp dữ liệu mới'}</span>
               </button>
+              </div>
             </div>
           </div>
         </div>

@@ -1,5 +1,5 @@
 {
-  "version": 6,
+  "version": 7,
   "items": [
     {
       "stt": 1,
@@ -140,10 +140,10 @@
       "ngayGiao": "05/11/2026 15:58:48",
       "nguoiGiao": "",
       "nguoiThucHien": "Đặng Quốc Phương",
-      "ngayHoanTat": "",
-      "ketQua": "",
-      "ghiChu": "",
-      "trangThai": "Đã Giao thi công",
+      "ngayHoanTat": "17/11/2026",
+      "ketQua": "Xong",
+      "ghiChu": "HS bị thiếu mã KH & DV đã hủy. Đã TC theo mã mới",
+      "trangThai": "Xong",
       "loaiYeuCau": "Gắn mới",
       "ngayTao": "",
       "nguoiTao": ""
@@ -6598,6 +6598,6 @@
   ],
   "pendingSaves": {},
   "deletedTombstones": {},
-  "lastSheetSyncAt": 1794886205301,
-  "updatedAt": "2026-11-17T03:30:04.129Z"
+  "lastSheetSyncAt": 1794889124332,
+  "updatedAt": "2026-11-17T04:18:44.336Z"
 }

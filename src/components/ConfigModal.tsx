@@ -775,7 +775,7 @@ function doPost(e) {
     }
 
     // ======== XỬ LÝ ĐỒNG BỘ GHI ĐÈ SHEET DỮ LIỆU (KHUVUC / MATKETNOI / CHITIETMKN / HTDD) ========
-    if (action === 'overwrite_sheet' || action === 'update_khuvuc' || action === 'overwrite_khuvuc' || action === 'overwrite_htdd_sheet') {
+    if (action === 'overwrite_sheet' || action === 'update_khuvuc' || action === 'overwrite_khuvuc' || action === 'overwrite_htdd_sheet' || action === 'import_htdd_sheet') {
       var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
       var targetSheetName = payload.sheetName || "KhuVuc";
       var possibleNames = [targetSheetName];
@@ -787,6 +787,18 @@ function doPost(e) {
         possibleNames = ['MatKetNoi', 'Mat Ket Noi', 'Mất Kết Nối', 'matketnoi'];
       } else if (lowerName === 'chitietmkn' || lowerName === 'chi tiet mkn') {
         possibleNames = ['ChiTietMKN', 'Chi Tiet MKN', 'Chi Tiết MKN', 'chitietmkn'];
+      } else if (lowerName === 'quahan' || lowerName === 'qua han' || lowerName === 'quá hạn') {
+        possibleNames = ['QuaHan', 'QUAHAN', 'quahan', 'Quá hạn', 'Qua Han', 'Qua_Han'];
+      } else if (lowerName === 'quahan_nam' || lowerName === 'quahannam') {
+        possibleNames = ['QuaHan_Nam', 'QUAHAN_NAM', 'quahan_nam', 'QuaHanNam', 'Quá hạn năm', 'Qua_Han_Nam'];
+      } else if (lowerName === 'tu') {
+        possibleNames = ['TU', 'tu', 'Sheet_TU', 'SheetTU'];
+      } else if (lowerName === 'tu_nam' || lowerName === 'tunam') {
+        possibleNames = ['TU_Nam', 'TU_NAM', 'tu_nam', 'TUNam', 'TU Nam', 'TU_nam'];
+      } else if (lowerName === 'ti') {
+        possibleNames = ['TI', 'ti', 'Sheet_TI', 'SheetTI'];
+      } else if (lowerName === 'ti_nam' || lowerName === 'tinam') {
+        possibleNames = ['TI_Nam', 'TI_NAM', 'ti_nam', 'TINam', 'TI Nam', 'TI_nam'];
       }
       
       var sheet = getSheetFlexibly(ss, possibleNames);
@@ -797,23 +809,36 @@ function doPost(e) {
       var chunkIndex = payload.chunkIndex || 0;
       var totalChunks = payload.totalChunks || 1;
       var headers = payload.headers || [];
-      var rows = payload.rows || []; // Array of arrays [[val1, val2, ...], ...]
+      var rows = payload.rows || []; // Array of arrays [[val1, val2, ...], ...] hoặc array of objects
       
       // Nếu là payload dạng data objects ({ data: [...] })
       if ((!rows || rows.length === 0) && payload.data && Array.isArray(payload.data) && payload.data.length > 0) {
+        rows = payload.data;
+      }
+
+      // Chuyển đổi an toàn nếu rows chứa array of objects thay vì array of arrays
+      if (rows && rows.length > 0 && !Array.isArray(rows[0])) {
         if (!headers || headers.length === 0) {
-          headers = Object.keys(payload.data[0]);
+          headers = Object.keys(rows[0]);
         }
-        rows = [];
-        for (var d = 0; d < payload.data.length; d++) {
-          var itemObj = payload.data[d];
+        var convertedRows = [];
+        for (var d = 0; d < rows.length; d++) {
+          var itemObj = rows[d] || {};
           var rowArr = [];
           for (var h = 0; h < headers.length; h++) {
-            var val = itemObj[headers[h]];
+            var hName = headers[h];
+            var val = itemObj[hName];
+            if (val === undefined || val === null) {
+              val = itemObj[String(hName).toLowerCase()];
+            }
+            if (val === undefined || val === null) {
+              val = itemObj[String(hName).toUpperCase()];
+            }
             rowArr.push(val !== undefined && val !== null ? String(val) : '');
           }
-          rows.push(rowArr);
+          convertedRows.push(rowArr);
         }
+        rows = convertedRows;
       }
       
       // Nếu là chunk đầu tiên (hoặc không chia chunk), xóa sạch dữ liệu cũ và ghi headers
@@ -826,7 +851,7 @@ function doPost(e) {
       }
       
       // Ghi các dòng dữ liệu mới
-      if (rows && rows.length > 0) {
+      if (rows && rows.length > 0 && rows[0] && rows[0].length > 0) {
         var startRow = sheet.getLastRow() + 1;
         var numCols = rows[0].length;
         sheet.getRange(startRow, 1, rows.length, numCols).setValues(rows);
@@ -2449,46 +2474,7 @@ function doPost(e) {
        }
     }
 
-    // ======== XÓA SẠCH DỮ LIỆU CŨ VÀ ĐƯA DỮ LIỆU MỚI VÀO SHEET HTDD (QUAHAN, TU, TI, QUAHAN_NAM, TU_NAM, TI_NAM) ========
-    if (action === 'overwrite_htdd_sheet' || action === 'import_htdd_sheet') {
-       var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));
-       var sheetName = payload.sheetName;
-       if (!sheetName) {
-           return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Thiếu tên sheet' })).setMimeType(ContentService.MimeType.JSON);
-       }
-       var sheet = getSheetFlexibly(ss, [sheetName]);
-       if (!sheet) {
-           sheet = ss.insertSheet(sheetName);
-       }
-       // 1. XÓA SẠCH HẾT NỘI DUNG VÀ DÒNG CŨ CỦA SHEET ĐỂ TRÁNH DỮ LIỆU THỪA LƯU LẠI
-       sheet.clearContents();
-       var headers = payload.headers || [];
-       var rows = payload.rows || [];
-       if (headers.length > 0 && rows.length > 0) {
-           var matrix = [headers];
-           for (var r = 0; r < rows.length; r++) {
-               var rowItem = rows[r];
-               var rowValues = [];
-               for (var c = 0; c < headers.length; c++) {
-                   var h = headers[c];
-                   var val = rowItem[h];
-                   if (val === undefined || val === null) {
-                       val = rowItem[h.toLowerCase()] !== undefined ? rowItem[h.toLowerCase()] : '';
-                   }
-                   rowValues.push(String(val));
-               }
-               matrix.push(rowValues);
-           }
-           sheet.getRange(1, 1, matrix.length, headers.length).setValues(matrix);
-       } else if (headers.length > 0) {
-           sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-       }
-       return ContentService.createTextOutput(JSON.stringify({ 
-           status: 'success', 
-           message: 'Đã xóa sạch sheet cũ và đưa ' + rows.length + ' dòng mới vào sheet ' + sheetName, 
-           rowCount: rows.length 
-       })).setMimeType(ContentService.MimeType.JSON);
-    }
+    // Ghi đè sheet HTDD (overwrite_htdd_sheet / import_htdd_sheet) đã được xử lý thống nhất ở nhánh overwrite_sheet phía trên.
 
     if (action === 'import_dcu') {
        var ss = (SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID));

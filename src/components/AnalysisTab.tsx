@@ -936,7 +936,7 @@ export default function AnalysisTab({ refreshToggle, sessionUser }: { refreshTog
                              }
 
                              return (
-                                <tr key={m.member} className="hover:bg-[#141414]/5 transition-colors">
+                                <tr key={`${m.member}_${idx}`} className="hover:bg-[#141414]/5 transition-colors">
                                    <td className="px-4 py-3 text-center">
                                       <div className={`inline-flex w-7 h-7 items-center justify-center font-black font-mono text-xs border-2 ${idx === 0 ? 'bg-[#FFF4E5] border-orange-400 text-orange-600' : idx === 1 ? 'bg-gray-100 border-gray-400 text-gray-600' : idx === 2 ? 'bg-yellow-900/10 border-yellow-900/40 text-yellow-900' : 'bg-transparent border-transparent text-[#141414]'}`}>
                                          {idx + 1}

@@ -5458,25 +5458,32 @@ export const DataStore = {
      window.dispatchEvent(new Event('htdd_data_updated'));
   },
 
-  syncHtddSheetToGoogleSheet: async (sheetName: string, headers: string[], rows: any[]): Promise<boolean> => {
-    try {
-      const url = DataStore.getAppScriptUrl();
-      if (!url) return false;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          action: 'overwrite_htdd_sheet',
-          sheetName,
-          headers,
-          rows
-        })
+  syncHtddSheetToGoogleSheet: async (
+    sheetName: string,
+    headers: string[],
+    rows: any[],
+    onProgress?: (current: number, total: number, percent?: number) => void
+  ): Promise<{ success: boolean; error?: string; message?: string }> => {
+    // Chuẩn hóa key của từng dòng (trim & khớp không phân biệt hoa thường với headers)
+    const normalizedRows = (rows || []).map((rowItem) => {
+      if (!rowItem || typeof rowItem !== 'object' || Array.isArray(rowItem)) return rowItem;
+      const obj: Record<string, any> = {};
+      const upperLookup = new Map<string, any>();
+      Object.keys(rowItem).forEach((k) => {
+        upperLookup.set(k.trim().toUpperCase(), rowItem[k]);
       });
-      return res.ok;
-    } catch (e) {
-      console.warn('Could not sync HTDD sheet to Google Sheet:', e);
-      return false;
-    }
+      headers.forEach((h) => {
+        if (rowItem[h] !== undefined && rowItem[h] !== null) {
+          obj[h] = rowItem[h];
+        } else {
+          const matched = upperLookup.get(h.trim().toUpperCase());
+          obj[h] = matched !== undefined && matched !== null ? matched : '';
+        }
+      });
+      return obj;
+    });
+
+    return DataStore.syncSheetToGoogleSheet(sheetName, headers, normalizedRows, onProgress);
   },
 
   syncSheetToGoogleSheet: async (
@@ -5491,13 +5498,28 @@ export const DataStore = {
         return { success: false, error: 'Chưa cấu hình URL Google Apps Script trong Cài đặt / Hệ thống.' };
       }
 
-      // Format data rows matching headers
-      const rows2D = data.map(item => 
-        headers.map(h => (item[h] !== undefined && item[h] !== null) ? String(item[h]) : '')
-      );
+      // Format data rows matching headers (hỗ trợ cả mảng 2D, khớp chính xác, hoặc khớp không phân biệt hoa thường/khoảng trắng)
+      const rows2D = (data || []).map(item => {
+        if (Array.isArray(item)) {
+          return headers.map((_, idx) => (item[idx] !== undefined && item[idx] !== null) ? String(item[idx]) : '');
+        }
+        const safeItem = item || {};
+        let upperLookup: Map<string, any> | null = null;
+        return headers.map(h => {
+          let val = safeItem[h];
+          if (val === undefined) {
+            if (!upperLookup) {
+              upperLookup = new Map<string, any>();
+              Object.keys(safeItem).forEach(k => upperLookup!.set(k.trim().toUpperCase(), safeItem[k]));
+            }
+            val = upperLookup.get(h.trim().toUpperCase());
+          }
+          return (val !== undefined && val !== null) ? String(val) : '';
+        });
+      });
 
-      // Tối ưu kích thước gói 2.500 dòng/gói để giảm số lượt gọi mạng tới 70% mà vẫn an toàn
-      const CHUNK_SIZE = 2500;
+      // Kích thước gói 1.500 dòng/gói an toàn cho cả các sheet nhiều cột như QuaHan (33 cột)
+      const CHUNK_SIZE = 1500;
       const totalChunks = Math.max(1, Math.ceil(rows2D.length / CHUNK_SIZE));
 
       for (let i = 0; i < totalChunks; i++) {

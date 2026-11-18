@@ -795,8 +795,8 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
           <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Họ và Tên (Nhóm Công Tác)</label>
           <p className="text-xs text-orange-600 mb-2 italic">Lưu ý: Nhập 1 người nếu công tác 1 mình; nhập 1 lượt tất cả các thành viên nhóm nếu công tác chung nhóm của ngày đó.</p>
           <div className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 flex flex-wrap gap-2 min-h-[50px] items-center text-sm font-medium focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-500/50 focus-within:border-blue-500 transition-all">
-             {members.map(m => (
-               <div key={m} className="bg-blue-100 text-blue-700 px-3 py-1.5 rounded-md flex items-center gap-1.5 text-xs font-bold shadow-sm border border-blue-200">
+             {members.map((m, idx) => (
+               <div key={`${m}_${idx}`} className="bg-blue-100 text-blue-700 px-3 py-1.5 rounded-md flex items-center gap-1.5 text-xs font-bold shadow-sm border border-blue-200">
                   {m}
                   <button type="button" onClick={() => setMembers(prev => prev.filter(x => x !== m))} className="opacity-60 hover:opacity-100 hover:text-red-500 transition-colors bg-blue-200/50 rounded-full w-4 h-4 flex items-center justify-center">×</button>
                </div>

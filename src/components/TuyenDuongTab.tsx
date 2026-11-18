@@ -1166,13 +1166,13 @@ function CustomCommendationModal({
                     onChange={e => handleMemberSelect(m.rank, e.target.value)}
                     className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    {allMembers.map(mem => {
+                    {allMembers.map((mem, idx) => {
                       const exclDetails = (selectedYear !== undefined && selectedMonth !== undefined)
                         ? DataStore.getExclusionDetails(mem.name, selectedYear, selectedMonth)
                         : null;
                       return (
                         <option 
-                          key={mem.name} 
+                          key={`${mem.msnv || ''}_${mem.name}_${mem.team || ''}_${idx}`} 
                           value={mem.name}
                           disabled={!!exclDetails}
                           className={exclDetails ? 'text-rose-600 bg-rose-50' : ''}

@@ -616,7 +616,7 @@ export default function BirthdayTab({ sessionUser }: BirthdayTabProps) {
                 const isPassed = mcStep > stepNum;
                 return (
                   <button
-                    key={m.name}
+                    key={`${m.msnv || ''}_${m.name}_${idx}`}
                     type="button"
                     onClick={() => {
                       setMcStep(stepNum);

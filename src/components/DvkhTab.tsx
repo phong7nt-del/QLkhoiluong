@@ -3,16 +3,24 @@ import * as XLSX from 'xlsx-js-style';
 import Papa from 'papaparse';
 import { 
   FileText, Plus, CheckSquare, Square, Send, UserCheck, 
-  Clock, AlertTriangle, CheckCircle2, Mic, MicOff, Filter, 
-  Search, RefreshCw, X, Calendar, User, ChevronDown, ChevronUp,
+  Clock, AlertTriangle, CheckCircle2, Mic, MicOff, 
+  RefreshCw, X, User, ChevronDown, ChevronUp,
   Download, Sparkles, Shield, AlertCircle, Eye, EyeOff, Layers, Headphones,
   Upload, FileSpreadsheet, HelpCircle, Camera, Image as ImageIcon, ExternalLink, Maximize2,
-  MapPin, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Trash2, UploadCloud,
-  BarChart3, PieChart, Phone, RotateCcw
+  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Trash2, UploadCloud,
+  BarChart3, PieChart, Phone, RotateCcw, FilterX
 } from 'lucide-react';
 import { DataStore, SheetMember, DvkhEntry, normalizeDvkhStatus } from '../store/DataStore';
 import { PermissionStore, normalizeRoleStr } from '../store/PermissionStore';
 import { SCRIPT_TEMPLATE } from './ConfigModal';
+import {
+  ColumnFilterHeader,
+  TableFilterState,
+  TableSortState,
+  ColumnValueExtractors,
+  applyColumnFiltersAndSort,
+  countActiveColumnFilters
+} from './TableColumnFilter';
 
 const getNormalizedStatus = (e: DvkhEntry) =>
   normalizeDvkhStatus(e.trangThai, e.ketQua, e.ngayGiao, e.nguoiThucHien, e.ngayNhan, e.nguoiNhan);
@@ -546,11 +554,11 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
   const [isSectionTab3Open, setIsSectionTab3Open] = useState(true);
   const [isSectionBottomListOpen, setIsSectionBottomListOpen] = useState(true);
 
-  // Bộ lọc khu vực & phường xã cho Danh sách Chưa giao & Danh sách Tiếp nhận ở Tab 1
-  const [tab1PendingAreaFilter, setTab1PendingAreaFilter] = useState('ALL');
-  const [tab1PendingWardFilter, setTab1PendingWardFilter] = useState('ALL');
-  const [tab1ReceiptAreaFilter, setTab1ReceiptAreaFilter] = useState('ALL');
-  const [tab1ReceiptWardFilter, setTab1ReceiptWardFilter] = useState('ALL');
+  // Phễu lọc tại từng cột của các bảng ở Tab 1
+  const [tab1PendingFilters, setTab1PendingFilters] = useState<TableFilterState>({});
+  const [tab1PendingSort, setTab1PendingSort] = useState<TableSortState | null>(null);
+  const [tab1ReceiptFilters, setTab1ReceiptFilters] = useState<TableFilterState>({});
+  const [tab1ReceiptSort, setTab1ReceiptSort] = useState<TableSortState | null>(null);
 
   // State chọn nhiều hồ sơ trong Danh sách Tiếp nhận ở Tab 1
   const [tab1SelectedReceiptMaKhs, setTab1SelectedReceiptMaKhs] = useState<string[]>([]);
@@ -574,12 +582,22 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     return dvkhList.filter(e => getNormalizedStatus(e) === 'Chưa giao');
   }, [dvkhList]);
 
-  // Tab 1 records waiting to be delivered lọc theo Khu vực & Phường/xã
+  const tab1PendingExtractors = useMemo<ColumnValueExtractors<DvkhEntry>>(() => ({
+    stt: (item) => item.stt ?? '',
+    maKh: (item) => item.maKh || '',
+    tenKh: (item) => item.tenKh || '',
+    diaChi: (item) => item.diaChi || '',
+    sdt: (item) => item.sdt || '',
+    loaiYeuCau: (item) => item.loaiYeuCau || 'Gắn mới',
+    ngay: (item) => item.ngayNhan || item.ngayTao || '',
+    ghiChu: (item) => item.ghiChu || '',
+    trangThai: (item) => getNormalizedStatus(item)
+  }), []);
+
+  // Tab 1 records waiting to be delivered lọc theo phễu cột tại header
   const filteredTab1PendingRecords = useMemo(() => {
-    return tab1PendingRecords.filter(item => 
-      filterRecordByAreaAndWard(item.diaChi, tab1PendingAreaFilter, tab1PendingWardFilter)
-    );
-  }, [tab1PendingRecords, tab1PendingAreaFilter, tab1PendingWardFilter]);
+    return applyColumnFiltersAndSort(tab1PendingRecords, tab1PendingExtractors, tab1PendingFilters, tab1PendingSort);
+  }, [tab1PendingRecords, tab1PendingExtractors, tab1PendingFilters, tab1PendingSort]);
 
   // Sub-tab 1 badge count: số hồ sơ đã nhập chuẩn bị giao (trạng thái 'Chưa giao')
   const countTab1Pending = useMemo(() => {
@@ -617,12 +635,19 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     return dvkhList.filter(e => getNormalizedStatus(e) === 'Chờ nhận');
   }, [dvkhList]);
 
-  // Tab 1 danh sách tiếp nhận được lọc theo Khu vực & Phường/xã
+  const tab1ReceiptExtractors = useMemo<ColumnValueExtractors<DvkhEntry>>(() => ({
+    stt: (item) => item.stt ?? '',
+    maKh: (item) => item.maKh || '',
+    tenKh: (item) => item.tenKh || '',
+    diaChi: (item) => item.diaChi || '',
+    ngayNhan: (item) => item.ngayNhan || '',
+    trangThai: (item) => getNormalizedStatus(item)
+  }), []);
+
+  // Tab 1 danh sách tiếp nhận được lọc theo phễu cột tại header
   const filteredTab1DeliveredWaitingConfirm = useMemo(() => {
-    return tab1DeliveredWaitingConfirm.filter(item => 
-      filterRecordByAreaAndWard(item.diaChi, tab1ReceiptAreaFilter, tab1ReceiptWardFilter)
-    );
-  }, [tab1DeliveredWaitingConfirm, tab1ReceiptAreaFilter, tab1ReceiptWardFilter]);
+    return applyColumnFiltersAndSort(tab1DeliveredWaitingConfirm, tab1ReceiptExtractors, tab1ReceiptFilters, tab1ReceiptSort);
+  }, [tab1DeliveredWaitingConfirm, tab1ReceiptExtractors, tab1ReceiptFilters, tab1ReceiptSort]);
 
   // Phân trang Tab 1: 10 khách hàng trên trang theo yêu cầu
   const TAB1_PENDING_PAGE_SIZE = 10;
@@ -645,11 +670,11 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
 
   useEffect(() => {
     setTab1PendingPage(1);
-  }, [tab1PendingAreaFilter, tab1PendingWardFilter]);
+  }, [tab1PendingFilters, tab1PendingSort]);
 
   useEffect(() => {
     setTab1ReceiptPage(1);
-  }, [tab1ReceiptAreaFilter, tab1ReceiptWardFilter]);
+  }, [tab1ReceiptFilters, tab1ReceiptSort]);
 
   const handleAddNewRecord = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1253,20 +1278,42 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     return [];
   }, [isDoiLeader, isToLeader, sessionUser?.team]);
 
-  // Tab 2 records: 'Đã Nhận' (tồn chưa giao thi công)
+  // Tab 2 records: 'Đã Nhận' (tồn chưa giao thi công) + phễu lọc cột header
+  const [tab2Filters, setTab2Filters] = useState<TableFilterState>({});
+  const [tab2Sort, setTab2Sort] = useState<TableSortState | null>(null);
+
   const tab2Records = useMemo(() => {
     return dvkhList.filter(e => getNormalizedStatus(e) === 'Đã Nhận');
   }, [dvkhList]);
 
+  const tab2Extractors = useMemo<ColumnValueExtractors<DvkhEntry>>(() => ({
+    stt: (item) => item.stt ?? '',
+    maKh: (item) => item.maKh || '',
+    tenKh: (item) => item.tenKh || '',
+    diaChi: (item) => item.diaChi || '',
+    loaiYeuCau: (item) => item.loaiYeuCau || 'Gắn mới',
+    ngayNhan: (item) => item.ngayNhan || '',
+    nguoiNhan: (item) => item.nguoiNhan || '',
+    trangThai: (item) => getNormalizedStatus(item)
+  }), []);
+
+  const filteredTab2Records = useMemo(() => {
+    return applyColumnFiltersAndSort(tab2Records, tab2Extractors, tab2Filters, tab2Sort);
+  }, [tab2Records, tab2Extractors, tab2Filters, tab2Sort]);
+
   // Phân trang Tab 2: 10 khách hàng trên trang theo yêu cầu
   const TAB2_PAGE_SIZE = 10;
   const [tab2Page, setTab2Page] = useState(1);
-  const totalTab2Pages = Math.max(1, Math.ceil(tab2Records.length / TAB2_PAGE_SIZE));
+  const totalTab2Pages = Math.max(1, Math.ceil(filteredTab2Records.length / TAB2_PAGE_SIZE));
   const currentTab2Page = Math.min(tab2Page, totalTab2Pages);
   const paginatedTab2Records = useMemo(() => {
     const start = (currentTab2Page - 1) * TAB2_PAGE_SIZE;
-    return tab2Records.slice(start, start + TAB2_PAGE_SIZE);
-  }, [tab2Records, currentTab2Page]);
+    return filteredTab2Records.slice(start, start + TAB2_PAGE_SIZE);
+  }, [filteredTab2Records, currentTab2Page]);
+
+  useEffect(() => {
+    setTab2Page(1);
+  }, [tab2Filters, tab2Sort]);
 
   const handleAssignToTechnician = async () => {
     if (tab2SelectedMaKhs.length === 0) {
@@ -1422,6 +1469,9 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
   const fileInputPicRef = useRef<HTMLInputElement>(null);
   const [viewingImageModal, setViewingImageModal] = useState<{ url: string; title: string } | null>(null);
 
+  const [tab3Filters, setTab3Filters] = useState<TableFilterState>({});
+  const [tab3Sort, setTab3Sort] = useState<TableSortState | null>(null);
+
   // Tab 3 visible records:
   // Requirement 4: "Chỉ nhân viên được giao thực hiện mới thấy được hồ sơ đã giao, và gắn rồi cập nhật kết quả."
   const tab3Records = useMemo(() => {
@@ -1448,15 +1498,35 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     });
   }, [dvkhList, isDvkhUser, isDoiLeader, isToLeader, managerViewAllTab3, sessionUser?.name]);
 
+  const tab3Extractors = useMemo<ColumnValueExtractors<DvkhEntry>>(() => ({
+    stt: (item) => item.stt ?? '',
+    maKh: (item) => item.maKh || '',
+    tenKh: (item) => item.tenKh || '',
+    diaChi: (item) => item.diaChi || '',
+    nguoiThucHien: (item) => item.nguoiThucHien || item.nguoiNhan || '',
+    ngayGiao: (item) => item.ngayGiao || '',
+    trangThai: (item) => getNormalizedStatus(item),
+    ghiChu: (item) => item.ghiChu || '',
+    pic: (item) => (item.pic ? 'Có ảnh' : 'Chưa có ảnh')
+  }), []);
+
+  const filteredTab3Records = useMemo(() => {
+    return applyColumnFiltersAndSort(tab3Records, tab3Extractors, tab3Filters, tab3Sort);
+  }, [tab3Records, tab3Extractors, tab3Filters, tab3Sort]);
+
   // Phân trang Tab 3: 10 khách hàng trên trang theo yêu cầu
   const TAB3_PAGE_SIZE = 10;
   const [tab3Page, setTab3Page] = useState(1);
-  const totalTab3Pages = Math.max(1, Math.ceil(tab3Records.length / TAB3_PAGE_SIZE));
+  const totalTab3Pages = Math.max(1, Math.ceil(filteredTab3Records.length / TAB3_PAGE_SIZE));
   const currentTab3Page = Math.min(tab3Page, totalTab3Pages);
   const paginatedTab3Records = useMemo(() => {
     const start = (currentTab3Page - 1) * TAB3_PAGE_SIZE;
-    return tab3Records.slice(start, start + TAB3_PAGE_SIZE);
-  }, [tab3Records, currentTab3Page]);
+    return filteredTab3Records.slice(start, start + TAB3_PAGE_SIZE);
+  }, [filteredTab3Records, currentTab3Page]);
+
+  useEffect(() => {
+    setTab3Page(1);
+  }, [tab3Filters, tab3Sort]);
 
   const openUpdateModal = (record: DvkhEntry) => {
     if (isDvkhUser && !isDoiLeader) {
@@ -1643,20 +1713,12 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
   }, []);
 
   // ==============================================================
-  // PHẦN DƯỚI TAB DVKH: DANH SÁCH TỔNG HỢP VỚI BỘ LỌC HÌNH PHỄU
+  // PHẦN DƯỚI TAB DVKH: DANH SÁCH TỔNG HỢP VỚI PHỄU LỌC CỘT HEADER
   // ==============================================================
-  const [showFilterDrawer, setShowFilterDrawer] = useState(false);
-  const [filterSearch, setFilterSearch] = useState('');
-  const [filterTrangThai, setFilterTrangThai] = useState('ALL');
-  const [filterFromDate, setFilterFromDate] = useState('');
-  const [filterToDate, setFilterToDate] = useState('');
-  const [filterAssignee, setFilterAssignee] = useState('ALL');
-  const [filterArea, setFilterArea] = useState('ALL');
-  const [filterWard, setFilterWard] = useState('ALL');
-  // Option Ẩn hồ sơ hoàn tất (mặc định là true: ẩn hs hoàn tất)
-  const [hideCompletedBottomList, setHideCompletedBottomList] = useState<boolean>(true);
+  const [bottomFilters, setBottomFilters] = useState<TableFilterState>({});
+  const [bottomSort, setBottomSort] = useState<TableSortState | null>(null);
 
-  // Tổng số hồ sơ hoàn tất trong hệ thống
+  // Tổng số hồ sơ hoàn tất trong hệ thống (hiển thị KPI header)
   const countCompletedRecords = useMemo(() => {
     return dvkhList.filter(e => getNormalizedStatus(e) === 'Xong').length;
   }, [dvkhList]);
@@ -1665,77 +1727,28 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
   const BOTTOM_PAGE_SIZE = 10;
   const [bottomPage, setBottomPage] = useState(1);
 
+  const bottomExtractors = useMemo<ColumnValueExtractors<DvkhEntry>>(() => ({
+    stt: (item) => item.stt ?? '',
+    maKh: (item) => item.maKh || '',
+    tenKh: (item) => item.tenKh || '',
+    diaChi: (item) => item.diaChi || '',
+    loaiYeuCau: (item) => item.loaiYeuCau || 'Gắn mới',
+    ngayNhan: (item) => item.ngayNhan || item.ngayTao || '',
+    ngayHoanTat: (item) => item.ngayHoanTat || '',
+    ghiChu: (item) => item.ghiChu || '',
+    pic: (item) => (item.pic ? 'Có ảnh' : 'Chưa có ảnh'),
+    trangThai: (item) => getNormalizedStatus(item),
+    nguoiThucHien: (item) => item.nguoiThucHien || item.nguoiNhan || ''
+  }), []);
+
   const bottomFilteredList = useMemo(() => {
-    return dvkhList.filter(item => {
-      const normalizedStatus = getNormalizedStatus(item);
-
-      // Ẩn hồ sơ hoàn tất nếu option được bật (mặc định bật)
-      if (hideCompletedBottomList && normalizedStatus === 'Xong') {
-        return false;
-      }
-
-      // Search text
-      if (filterSearch.trim()) {
-        const q = filterSearch.trim().toLowerCase();
-        const matchName = (item.tenKh || '').toLowerCase().includes(q);
-        const matchMa = (item.maKh || '').toLowerCase().includes(q);
-        const matchAddr = (item.diaChi || '').toLowerCase().includes(q);
-        const matchNote = (item.ghiChu || '').toLowerCase().includes(q);
-        const matchAssignee = (item.nguoiThucHien || item.nguoiNhan || '').toLowerCase().includes(q);
-        if (!matchName && !matchMa && !matchAddr && !matchNote && !matchAssignee) {
-          return false;
-        }
-      }
-
-      // Status filter
-      if (filterTrangThai !== 'ALL' && normalizedStatus !== filterTrangThai) {
-        return false;
-      }
-
-      // Assignee filter
-      if (filterAssignee !== 'ALL') {
-        const assigned = item.nguoiThucHien || item.nguoiNhan || '';
-        if (assigned !== filterAssignee) return false;
-      }
-
-      // Area & Ward filter (Vũng Tàu, Bà Rịa, Phú Mỹ, Côn Đảo)
-      if (filterArea !== 'ALL') {
-        if (!filterRecordByAreaAndWard(item.diaChi, filterArea, filterWard)) {
-          return false;
-        }
-      }
-
-      // Date range filter based on ngayNhan (dd/mm/yyyy ...)
-      if (filterFromDate || filterToDate) {
-        const parseDate = (dStr?: string) => {
-          if (!dStr) return null;
-          const parts = dStr.split(' ')[0].split('/');
-          if (parts.length >= 3) {
-            return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0])).getTime();
-          }
-          return null;
-        };
-        const recordDate = parseDate(item.ngayNhan || item.ngayTao);
-        if (recordDate) {
-          if (filterFromDate) {
-            const fromTime = new Date(filterFromDate).getTime();
-            if (recordDate < fromTime) return false;
-          }
-          if (filterToDate) {
-            const toTime = new Date(filterToDate).getTime() + 24 * 60 * 60 * 1000;
-            if (recordDate > toTime) return false;
-          }
-        }
-      }
-
-      return true;
-    });
-  }, [dvkhList, filterSearch, filterTrangThai, filterAssignee, filterArea, filterWard, filterFromDate, filterToDate, hideCompletedBottomList]);
+    return applyColumnFiltersAndSort(dvkhList, bottomExtractors, bottomFilters, bottomSort);
+  }, [dvkhList, bottomExtractors, bottomFilters, bottomSort]);
 
   // Tự động chuyển về trang 1 khi thay đổi điều kiện lọc
   useEffect(() => {
     setBottomPage(1);
-  }, [filterSearch, filterTrangThai, filterAssignee, filterArea, filterWard, filterFromDate, filterToDate, hideCompletedBottomList]);
+  }, [bottomFilters, bottomSort]);
 
   const totalBottomPages = Math.max(1, Math.ceil(bottomFilteredList.length / BOTTOM_PAGE_SIZE));
   const currentBottomPage = Math.min(bottomPage, totalBottomPages);
@@ -1747,11 +1760,12 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
   // ==============================================================
   // TAB CON BÁO CÁO THỐNG KÊ (THEO KHU VỰC VÀ CẢ ĐỘI)
   // ==============================================================
-  const [reportFromDate, setReportFromDate] = useState('');
-  const [reportToDate, setReportToDate] = useState('');
-  const [reportDetailSearch, setReportDetailSearch] = useState('');
   const [reportDetailPage, setReportDetailPage] = useState(1);
   const REPORT_DETAIL_PAGE_SIZE = 10;
+  const [reportMatrixFilters, setReportMatrixFilters] = useState<TableFilterState>({});
+  const [reportMatrixSort, setReportMatrixSort] = useState<TableSortState | null>(null);
+  const [reportDetailFilters, setReportDetailFilters] = useState<TableFilterState>({});
+  const [reportDetailSort, setReportDetailSort] = useState<TableSortState | null>(null);
 
   // Tiêu chí người dùng đang chọn để xem danh sách chi tiết bên dưới
   const [reportSelection, setReportSelection] = useState<{
@@ -1766,37 +1780,9 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     metricLabel: 'Tất cả hồ sơ'
   });
 
-  // Dữ liệu gốc báo cáo (có thể lọc theo thời gian)
-  const reportBaseList = useMemo(() => {
-    if (!reportFromDate && !reportToDate) return dvkhList;
-
-    const parseDate = (dStr?: string) => {
-      if (!dStr) return null;
-      const parts = dStr.split(' ')[0].split('/');
-      if (parts.length >= 3) {
-        return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0])).getTime();
-      }
-      return null;
-    };
-
-    return dvkhList.filter(item => {
-      const recordDate = parseDate(item.ngayNhan || item.ngayTao || item.ngayGiao);
-      if (recordDate) {
-        if (reportFromDate) {
-          const fromTime = new Date(reportFromDate).getTime();
-          if (recordDate < fromTime) return false;
-        }
-        if (reportToDate) {
-          const toTime = new Date(reportToDate).getTime() + 24 * 60 * 60 * 1000;
-          if (recordDate > toTime) return false;
-        }
-      }
-      return true;
-    });
-  }, [dvkhList, reportFromDate, reportToDate]);
-
   // Ma trận thống kê từng khu vực và Cả Đội
   interface AreaReportRow {
+    stt: number;
     areaId: string;
     areaName: string;
     total: number;
@@ -1813,7 +1799,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
   }
 
   const reportMatrix = useMemo(() => {
-    const calcRow = (areaId: string, areaName: string, items: DvkhEntry[]): AreaReportRow => {
+    const calcRow = (stt: number, areaId: string, areaName: string, items: DvkhEntry[]): AreaReportRow => {
       const total = items.length;
       let daNhan = 0;
       let daGiao = 0;
@@ -1833,12 +1819,11 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
         }
       });
 
-      // Chưa hoàn tất (đã nhận và đã giao thi công) theo đúng chỉ đạo yêu cầu
       const chuaHoanTat = daNhan + daGiao;
-
       const calcPct = (val: number) => (total > 0 ? Math.round((val / total) * 1000) / 10 : 0);
 
       return {
+        stt,
         areaId,
         areaName,
         total,
@@ -1855,30 +1840,82 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
       };
     };
 
-    // Các khu vực chính
-    const areaRows: AreaReportRow[] = DVKH_AREAS.map(area => {
-      const areaItems = reportBaseList.filter(item => filterRecordByAreaAndWard(item.diaChi, area.id, 'ALL'));
-      return calcRow(area.id, area.name, areaItems);
+    const areaRows: AreaReportRow[] = DVKH_AREAS.map((area, idx) => {
+      const areaItems = dvkhList.filter(item => filterRecordByAreaAndWard(item.diaChi, area.id, 'ALL'));
+      return calcRow(idx + 1, area.id, area.name, areaItems);
     });
 
-    // Khu vực khác (nếu có)
-    const otherItems = reportBaseList.filter(item => {
+    const otherItems = dvkhList.filter(item => {
       return !DVKH_AREAS.some(a => filterRecordByAreaAndWard(item.diaChi, a.id, 'ALL'));
     });
     if (otherItems.length > 0) {
-      areaRows.push(calcRow('khac', 'Khu vực khác', otherItems));
+      areaRows.push(calcRow(areaRows.length + 1, 'khac', 'Khu vực khác', otherItems));
     }
 
-    // Dòng tổng cộng: CẢ ĐỘI
-    const totalRow = calcRow('ALL', 'CẢ ĐỘI (TỔNG CỘNG)', reportBaseList);
-
+    const totalRow = calcRow(0, 'ALL', 'CẢ ĐỘI (TỔNG CỘNG)', dvkhList);
     return { areaRows, totalRow };
-  }, [reportBaseList]);
+  }, [dvkhList]);
 
-  // Danh sách hồ sơ chi tiết khi người dùng bấm vào chỉ tiêu thống kê
-  const filteredReportDetailList = useMemo(() => {
-    return reportBaseList.filter(item => {
-      // 1. Lọc theo khu vực
+  const reportMatrixExtractors = useMemo<ColumnValueExtractors<AreaReportRow>>(() => ({
+    stt: (row) => row.stt,
+    areaName: (row) => row.areaName,
+    total: (row) => row.total,
+    daNhan: (row) => row.daNhan,
+    daNhanPct: (row) => `${row.daNhanPct}%`,
+    daGiao: (row) => row.daGiao,
+    daGiaoPct: (row) => `${row.daGiaoPct}%`,
+    hoanTat: (row) => row.hoanTat,
+    hoanTatPct: (row) => `${row.hoanTatPct}%`,
+    troNgai: (row) => row.troNgai,
+    troNgaiPct: (row) => `${row.troNgaiPct}%`,
+    chuaHoanTat: (row) => row.chuaHoanTat,
+    chuaHoanTatPct: (row) => `${row.chuaHoanTatPct}%`
+  }), []);
+
+  const filteredReportAreaRows = useMemo(() => {
+    return applyColumnFiltersAndSort(
+      reportMatrix.areaRows,
+      reportMatrixExtractors,
+      reportMatrixFilters,
+      reportMatrixSort
+    );
+  }, [reportMatrix.areaRows, reportMatrixExtractors, reportMatrixFilters, reportMatrixSort]);
+
+  const displayReportTotalRow = useMemo<AreaReportRow>(() => {
+    if (
+      Object.keys(reportMatrixFilters).length === 0 &&
+      filteredReportAreaRows.length === reportMatrix.areaRows.length
+    ) {
+      return reportMatrix.totalRow;
+    }
+    const total = filteredReportAreaRows.reduce((s, r) => s + r.total, 0);
+    const daNhan = filteredReportAreaRows.reduce((s, r) => s + r.daNhan, 0);
+    const daGiao = filteredReportAreaRows.reduce((s, r) => s + r.daGiao, 0);
+    const hoanTat = filteredReportAreaRows.reduce((s, r) => s + r.hoanTat, 0);
+    const troNgai = filteredReportAreaRows.reduce((s, r) => s + r.troNgai, 0);
+    const chuaHoanTat = filteredReportAreaRows.reduce((s, r) => s + r.chuaHoanTat, 0);
+    const calcPct = (val: number) => (total > 0 ? Math.round((val / total) * 1000) / 10 : 0);
+    return {
+      stt: 0,
+      areaId: 'ALL',
+      areaName: 'TỔNG CỘNG (ĐÃ LỌC)',
+      total,
+      daNhan,
+      daNhanPct: calcPct(daNhan),
+      daGiao,
+      daGiaoPct: calcPct(daGiao),
+      hoanTat,
+      hoanTatPct: calcPct(hoanTat),
+      troNgai,
+      troNgaiPct: calcPct(troNgai),
+      chuaHoanTat,
+      chuaHoanTatPct: calcPct(chuaHoanTat)
+    };
+  }, [filteredReportAreaRows, reportMatrix.areaRows.length, reportMatrix.totalRow, reportMatrixFilters]);
+
+  // Danh sách hồ sơ gốc tương ứng với ô thống kê được chọn trong Tab 4
+  const reportDetailBaseList = useMemo(() => {
+    return dvkhList.filter(item => {
       if (reportSelection.areaId !== 'ALL') {
         if (reportSelection.areaId === 'khac') {
           const isKnownArea = DVKH_AREAS.some(a => filterRecordByAreaAndWard(item.diaChi, a.id, 'ALL'));
@@ -1890,42 +1927,44 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
         }
       }
 
-      // 2. Lọc theo chỉ tiêu trạng thái
       const st = getNormalizedStatus(item);
-      const isHoanTat = st === 'Xong';
-      const isTroNgai = st === 'Trở ngại';
-      const isDaNhan = st === 'Đã Nhận';
-      const isDaGiao = st === 'Đã Giao thi công';
-      const isChuaHoanTat = isDaNhan || isDaGiao;
-
-      if (reportSelection.metric === 'hoan_tat' && !isHoanTat) return false;
-      if (reportSelection.metric === 'tro_ngai' && !isTroNgai) return false;
-      if (reportSelection.metric === 'da_nhan' && !isDaNhan) return false;
-      if (reportSelection.metric === 'da_giao' && !isDaGiao) return false;
-      if (reportSelection.metric === 'chua_hoan_tat' && !isChuaHoanTat) return false;
-
-      // 3. Tìm kiếm trong danh sách chi tiết
-      if (reportDetailSearch.trim()) {
-        const q = reportDetailSearch.trim().toLowerCase();
-        const matchName = (item.tenKh || '').toLowerCase().includes(q);
-        const matchMa = (item.maKh || '').toLowerCase().includes(q);
-        const matchAddr = (item.diaChi || '').toLowerCase().includes(q);
-        const matchNote = (item.ghiChu || '').toLowerCase().includes(q);
-        const matchSdt = (item.sdt || '').toLowerCase().includes(q);
-        const matchAssignee = (item.nguoiThucHien || item.nguoiNhan || '').toLowerCase().includes(q);
-        if (!matchName && !matchMa && !matchAddr && !matchNote && !matchSdt && !matchAssignee) {
-          return false;
-        }
-      }
-
+      if (reportSelection.metric === 'hoan_tat') return st === 'Xong';
+      if (reportSelection.metric === 'tro_ngai') return st === 'Trở ngại';
+      if (reportSelection.metric === 'da_nhan') return st === 'Đã Nhận';
+      if (reportSelection.metric === 'da_giao') return st === 'Đã Giao thi công';
+      if (reportSelection.metric === 'chua_hoan_tat') return st === 'Đã Nhận' || st === 'Đã Giao thi công';
       return true;
     });
-  }, [reportBaseList, reportSelection, reportDetailSearch]);
+  }, [dvkhList, reportSelection]);
 
-  // Reset trang danh sách chi tiết khi thay đổi lựa chọn
+  const reportDetailExtractors = useMemo<ColumnValueExtractors<DvkhEntry>>(() => ({
+    stt: (item) => item.stt ?? '',
+    maKh: (item) => item.maKh || '',
+    tenKh: (item) => item.tenKh || '',
+    sdt: (item) => item.sdt || '',
+    diaChi: (item) => `${item.diaChi ? item.diaChi + ' - ' : ''}${getDvkhItemArea(item.diaChi).name}`,
+    trangThai: (item) => getNormalizedStatus(item),
+    nguoiNhan: (item) => (item.nguoiNhan ? (item.ngayNhan ? `${item.nguoiNhan} (${item.ngayNhan})` : item.nguoiNhan) : (item.ngayNhan || '')),
+    nguoiThucHien: (item) => (item.nguoiThucHien ? (item.ngayGiao ? `${item.nguoiThucHien} (${item.ngayGiao})` : item.nguoiThucHien) : (item.ngayGiao || '')),
+    ketQua: (item) => {
+      const st = getNormalizedStatus(item);
+      return st === 'Xong' ? 'Xong' : st === 'Trở ngại' ? 'Trở ngại' : '';
+    }
+  }), []);
+
+  const filteredReportDetailList = useMemo(() => {
+    return applyColumnFiltersAndSort(
+      reportDetailBaseList,
+      reportDetailExtractors,
+      reportDetailFilters,
+      reportDetailSort
+    );
+  }, [reportDetailBaseList, reportDetailExtractors, reportDetailFilters, reportDetailSort]);
+
+  // Reset trang danh sách chi tiết khi thay đổi lựa chọn hoặc lọc cột
   useEffect(() => {
     setReportDetailPage(1);
-  }, [reportSelection, reportDetailSearch]);
+  }, [reportSelection, reportDetailFilters, reportDetailSort]);
 
   const totalReportDetailPages = Math.max(1, Math.ceil(filteredReportDetailList.length / REPORT_DETAIL_PAGE_SIZE));
   const currentReportDetailPage = Math.min(reportDetailPage, totalReportDetailPages);
@@ -2163,7 +2202,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
 
   // 3. Xuất Excel Bảng 3: Hồ sơ đã tiếp nhận chờ phân công thi công (Tab 2)
   const handleExportExcelTab2 = () => {
-    const list = tab2Records;
+    const list = filteredTab2Records;
     if (list.length === 0) {
       showToast('error', 'Không có hồ sơ chờ phân công để xuất file Excel!');
       return;
@@ -2189,9 +2228,9 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     );
   };
 
-  // 4. Xuất Excel Bảng 4: Hồ sơ đang thực hiện / có trở ngại (Tab 2)
+  // 4. Xuất Excel Bảng 4: Hồ sơ đang thực hiện / có trở ngại (Tab 3)
   const handleExportExcelTab3 = () => {
-    const list = tab3Records;
+    const list = filteredTab3Records;
     if (list.length === 0) {
       showToast('error', 'Không có hồ sơ đang thực hiện để xuất file Excel!');
       return;
@@ -2263,7 +2302,8 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
 
   // Xuất Excel Báo cáo tổng hợp theo khu vực & Cả Đội
   const handleExportExcelReportSummary = () => {
-    const { areaRows, totalRow } = reportMatrix;
+    const areaRows = filteredReportAreaRows;
+    const totalRow = displayReportTotalRow;
     const timeStr = getCurrentDateTimeStr();
 
     const headers = [
@@ -2282,8 +2322,8 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
       'Chưa Hoàn Tất (%)'
     ];
 
-    const dataRows = areaRows.map((row, idx) => [
-      idx + 1,
+    const dataRows = areaRows.map((row) => [
+      row.stt,
       row.areaName,
       row.total,
       row.daNhan,
@@ -3018,38 +3058,19 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                {/* Bộ lọc Khu vực cho HS chưa giao */}
-                <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 rounded-xl border border-slate-300 text-xs">
-                  <MapPin className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                  <select
-                    value={tab1PendingAreaFilter}
-                    onChange={(e) => {
-                      setTab1PendingAreaFilter(e.target.value);
-                      setTab1PendingWardFilter('ALL');
+                {countActiveColumnFilters(tab1PendingFilters, tab1PendingSort) > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTab1PendingFilters({});
+                      setTab1PendingSort(null);
                     }}
-                    className="bg-transparent font-bold text-slate-700 outline-none text-xs cursor-pointer"
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 text-xs font-bold transition-colors cursor-pointer"
+                    title="Xóa toàn bộ bộ lọc cột đang bật"
                   >
-                    <option value="ALL">Tất cả khu vực</option>
-                    {DVKH_AREAS.map(a => (
-                      <option key={a.id} value={a.id}>{a.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Phường/Xã phụ thuộc khu vực đã chọn */}
-                {tab1PendingAreaFilter !== 'ALL' && (
-                  <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 rounded-xl border border-slate-300 text-xs">
-                    <select
-                      value={tab1PendingWardFilter}
-                      onChange={(e) => setTab1PendingWardFilter(e.target.value)}
-                      className="bg-transparent font-bold text-slate-700 outline-none text-xs cursor-pointer"
-                    >
-                      <option value="ALL">Tất cả phường/xã</option>
-                      {DVKH_AREAS.find(a => a.id === tab1PendingAreaFilter)?.wards.map(w => (
-                        <option key={w.id} value={w.id}>{w.name}</option>
-                      ))}
-                    </select>
-                  </div>
+                    <FilterX className="w-3.5 h-3.5" />
+                    <span>Bỏ lọc ({countActiveColumnFilters(tab1PendingFilters, tab1PendingSort)})</span>
+                  </button>
                 )}
 
                 <button
@@ -3114,11 +3135,9 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
             </div>
 
             {isSectionPendingOpen && (
-              filteredTab1PendingRecords.length === 0 ? (
+              tab1PendingRecords.length === 0 ? (
                 <div className="py-10 text-center text-slate-400 text-xs italic">
-                  {tab1PendingRecords.length > 0 
-                    ? 'Không tìm thấy hồ sơ chưa giao phù hợp với khu vực / phường xã đã chọn.'
-                    : 'Chưa có hồ sơ nào ở trạng thái chưa giao. Bạn có thể bấm "Thêm" hoặc "Import File" ở trên để đưa hồ sơ mới vào hệ thống.'}
+                  Chưa có hồ sơ nào ở trạng thái chưa giao. Bạn có thể bấm "Thêm" hoặc "Import File" ở trên để đưa hồ sơ mới vào hệ thống.
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -3140,22 +3159,53 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                               className="rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
                             />
                           </th>
-                          <th className="px-3 py-2.5 border-b border-slate-200 w-12 text-center">STT</th>
-                          <th className="px-3 py-2.5 border-b border-slate-200">Mã KH</th>
-                          <th className="px-3 py-2.5 border-b border-slate-200">Tên Khách Hàng</th>
-                          <th className="px-3 py-2.5 border-b border-slate-200">Địa Chỉ</th>
-                          <th className="px-3 py-2.5 border-b border-slate-200">SĐT</th>
-                          <th className="px-3 py-2.5 border-b border-slate-200">Loại</th>
-                          <th className="px-3 py-2.5 border-b border-slate-200">Ngày Nhận</th>
-                          <th className="px-3 py-2.5 border-b border-slate-200">Ghi Chú</th>
-                          <th className="px-3 py-2.5 border-b border-slate-200 text-center">Trạng Thái</th>
+                          <th className="px-3 py-2.5 border-b border-slate-200 w-16 text-center">
+                            <ColumnFilterHeader label="STT" columnKey="stt" allRows={tab1PendingRecords} extractors={tab1PendingExtractors} filters={tab1PendingFilters} onChangeFilters={setTab1PendingFilters} sortState={tab1PendingSort} onChangeSort={setTab1PendingSort} align="center" />
+                          </th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">
+                            <ColumnFilterHeader label="Mã KH" columnKey="maKh" allRows={tab1PendingRecords} extractors={tab1PendingExtractors} filters={tab1PendingFilters} onChangeFilters={setTab1PendingFilters} sortState={tab1PendingSort} onChangeSort={setTab1PendingSort} />
+                          </th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">
+                            <ColumnFilterHeader label="Tên Khách Hàng" columnKey="tenKh" allRows={tab1PendingRecords} extractors={tab1PendingExtractors} filters={tab1PendingFilters} onChangeFilters={setTab1PendingFilters} sortState={tab1PendingSort} onChangeSort={setTab1PendingSort} />
+                          </th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">
+                            <ColumnFilterHeader label="Địa Chỉ" columnKey="diaChi" allRows={tab1PendingRecords} extractors={tab1PendingExtractors} filters={tab1PendingFilters} onChangeFilters={setTab1PendingFilters} sortState={tab1PendingSort} onChangeSort={setTab1PendingSort} />
+                          </th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">
+                            <ColumnFilterHeader label="SĐT" columnKey="sdt" allRows={tab1PendingRecords} extractors={tab1PendingExtractors} filters={tab1PendingFilters} onChangeFilters={setTab1PendingFilters} sortState={tab1PendingSort} onChangeSort={setTab1PendingSort} />
+                          </th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">
+                            <ColumnFilterHeader label="Loại" columnKey="loaiYeuCau" allRows={tab1PendingRecords} extractors={tab1PendingExtractors} filters={tab1PendingFilters} onChangeFilters={setTab1PendingFilters} sortState={tab1PendingSort} onChangeSort={setTab1PendingSort} />
+                          </th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">
+                            <ColumnFilterHeader label="Ngày Nhận" columnKey="ngay" allRows={tab1PendingRecords} extractors={tab1PendingExtractors} filters={tab1PendingFilters} onChangeFilters={setTab1PendingFilters} sortState={tab1PendingSort} onChangeSort={setTab1PendingSort} />
+                          </th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">
+                            <ColumnFilterHeader label="Ghi Chú" columnKey="ghiChu" allRows={tab1PendingRecords} extractors={tab1PendingExtractors} filters={tab1PendingFilters} onChangeFilters={setTab1PendingFilters} sortState={tab1PendingSort} onChangeSort={setTab1PendingSort} />
+                          </th>
+                          <th className="px-3 py-2.5 border-b border-slate-200 text-center">
+                            <ColumnFilterHeader label="Trạng Thái" columnKey="trangThai" allRows={tab1PendingRecords} extractors={tab1PendingExtractors} filters={tab1PendingFilters} onChangeFilters={setTab1PendingFilters} sortState={tab1PendingSort} onChangeSort={setTab1PendingSort} align="center" />
+                          </th>
                           {canDeletePendingRecord && (
                             <th className="px-3 py-2.5 border-b border-slate-200 text-center w-14">Xóa</th>
                           )}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {paginatedTab1PendingRecords.map((item, idx) => {
+                        {filteredTab1PendingRecords.length === 0 ? (
+                          <tr>
+                            <td colSpan={canDeletePendingRecord ? 11 : 10} className="py-8 text-center text-slate-400 text-xs italic">
+                              Không tìm thấy hồ sơ chưa giao phù hợp với phễu lọc cột hiện tại.{' '}
+                              <button
+                                type="button"
+                                onClick={() => { setTab1PendingFilters({}); setTab1PendingSort(null); }}
+                                className="text-purple-700 font-semibold underline hover:text-purple-900 cursor-pointer ml-1"
+                              >
+                                Bỏ lọc
+                              </button>
+                            </td>
+                          </tr>
+                        ) : paginatedTab1PendingRecords.map((item, idx) => {
                           const isSelected = tab1SelectedMaKhs.includes(item.maKh);
                           return (
                             <tr key={`${item.maKh}_${item.stt || idx}`} className={isSelected ? 'bg-purple-50/50' : 'hover:bg-slate-50'}>
@@ -3255,40 +3305,19 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                {/* Bộ lọc Khu vực cho danh sách tiếp nhận theo yêu cầu */}
-                <div className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-xl border border-sky-300 text-xs shadow-2xs">
-                  <MapPin className="w-3.5 h-3.5 text-sky-600 shrink-0" />
-                  <span className="font-semibold text-slate-600 text-[11px]">Khu vực:</span>
-                  <select
-                    value={tab1ReceiptAreaFilter}
-                    onChange={(e) => {
-                      setTab1ReceiptAreaFilter(e.target.value);
-                      setTab1ReceiptWardFilter('ALL');
+                {countActiveColumnFilters(tab1ReceiptFilters, tab1ReceiptSort) > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTab1ReceiptFilters({});
+                      setTab1ReceiptSort(null);
                     }}
-                    className="bg-transparent font-bold text-sky-900 outline-none text-xs cursor-pointer"
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-sky-100 hover:bg-sky-200 text-sky-800 border border-sky-300 text-xs font-bold transition-colors cursor-pointer"
+                    title="Xóa toàn bộ bộ lọc cột đang bật"
                   >
-                    <option value="ALL">Tất cả khu vực</option>
-                    {DVKH_AREAS.map(a => (
-                      <option key={a.id} value={a.id}>{a.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Lọc Phường/Xã cho danh sách tiếp nhận */}
-                {tab1ReceiptAreaFilter !== 'ALL' && (
-                  <div className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-xl border border-sky-300 text-xs shadow-2xs">
-                    <span className="font-semibold text-slate-600 text-[11px]">Phường/Xã:</span>
-                    <select
-                      value={tab1ReceiptWardFilter}
-                      onChange={(e) => setTab1ReceiptWardFilter(e.target.value)}
-                      className="bg-transparent font-bold text-sky-900 outline-none text-xs cursor-pointer"
-                    >
-                      <option value="ALL">Tất cả phường/xã</option>
-                      {DVKH_AREAS.find(a => a.id === tab1ReceiptAreaFilter)?.wards.map(w => (
-                        <option key={w.id} value={w.id}>{w.name}</option>
-                      ))}
-                    </select>
-                  </div>
+                    <FilterX className="w-3.5 h-3.5" />
+                    <span>Bỏ lọc ({countActiveColumnFilters(tab1ReceiptFilters, tab1ReceiptSort)})</span>
+                  </button>
                 )}
 
                 {canConfirmReceipt && filteredTab1DeliveredWaitingConfirm.length > 0 && (
@@ -3353,11 +3382,9 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
             </div>
 
             {isSectionReceiptOpen && (
-              filteredTab1DeliveredWaitingConfirm.length === 0 ? (
+              tab1DeliveredWaitingConfirm.length === 0 ? (
                 <div className="py-8 text-center text-slate-400 text-xs italic">
-                  {tab1DeliveredWaitingConfirm.length > 0
-                    ? 'Không có hồ sơ chờ tiếp nhận nào thuộc khu vực / phường xã đã chọn.'
-                    : 'Hiện không có hồ sơ nào đang chờ xác nhận tiếp nhận vào QLHTĐĐ.'}
+                  Hiện không có hồ sơ nào đang chờ xác nhận tiếp nhận vào QLHTĐĐ.
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -3374,17 +3401,42 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                               title="Chọn tất cả hồ sơ"
                             />
                           </th>
-                          <th className="px-3 py-2.5 border-b border-sky-200 w-12 text-center">STT</th>
-                          <th className="px-3 py-2.5 border-b border-sky-200">Mã KH</th>
-                          <th className="px-3 py-2.5 border-b border-sky-200">Tên Khách Hàng</th>
-                          <th className="px-3 py-2.5 border-b border-sky-200">Địa Chỉ</th>
-                          <th className="px-3 py-2.5 border-b border-sky-200">Ngày Giao Từ DVKH</th>
-                          <th className="px-3 py-2.5 border-b border-sky-200 text-center">Trạng Thái</th>
+                          <th className="px-3 py-2.5 border-b border-sky-200 w-16 text-center">
+                            <ColumnFilterHeader label="STT" columnKey="stt" allRows={tab1DeliveredWaitingConfirm} extractors={tab1ReceiptExtractors} filters={tab1ReceiptFilters} onChangeFilters={setTab1ReceiptFilters} sortState={tab1ReceiptSort} onChangeSort={setTab1ReceiptSort} align="center" />
+                          </th>
+                          <th className="px-3 py-2.5 border-b border-sky-200">
+                            <ColumnFilterHeader label="Mã KH" columnKey="maKh" allRows={tab1DeliveredWaitingConfirm} extractors={tab1ReceiptExtractors} filters={tab1ReceiptFilters} onChangeFilters={setTab1ReceiptFilters} sortState={tab1ReceiptSort} onChangeSort={setTab1ReceiptSort} />
+                          </th>
+                          <th className="px-3 py-2.5 border-b border-sky-200">
+                            <ColumnFilterHeader label="Tên Khách Hàng" columnKey="tenKh" allRows={tab1DeliveredWaitingConfirm} extractors={tab1ReceiptExtractors} filters={tab1ReceiptFilters} onChangeFilters={setTab1ReceiptFilters} sortState={tab1ReceiptSort} onChangeSort={setTab1ReceiptSort} />
+                          </th>
+                          <th className="px-3 py-2.5 border-b border-sky-200">
+                            <ColumnFilterHeader label="Địa Chỉ" columnKey="diaChi" allRows={tab1DeliveredWaitingConfirm} extractors={tab1ReceiptExtractors} filters={tab1ReceiptFilters} onChangeFilters={setTab1ReceiptFilters} sortState={tab1ReceiptSort} onChangeSort={setTab1ReceiptSort} />
+                          </th>
+                          <th className="px-3 py-2.5 border-b border-sky-200">
+                            <ColumnFilterHeader label="Ngày Giao Từ DVKH" columnKey="ngayNhan" allRows={tab1DeliveredWaitingConfirm} extractors={tab1ReceiptExtractors} filters={tab1ReceiptFilters} onChangeFilters={setTab1ReceiptFilters} sortState={tab1ReceiptSort} onChangeSort={setTab1ReceiptSort} />
+                          </th>
+                          <th className="px-3 py-2.5 border-b border-sky-200 text-center">
+                            <ColumnFilterHeader label="Trạng Thái" columnKey="trangThai" allRows={tab1DeliveredWaitingConfirm} extractors={tab1ReceiptExtractors} filters={tab1ReceiptFilters} onChangeFilters={setTab1ReceiptFilters} sortState={tab1ReceiptSort} onChangeSort={setTab1ReceiptSort} align="center" />
+                          </th>
                           <th className="px-3 py-2.5 border-b border-sky-200 text-center w-52">Thao Tác</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-sky-100">
-                        {paginatedTab1DeliveredWaitingConfirm.map((item, idx) => {
+                        {filteredTab1DeliveredWaitingConfirm.length === 0 ? (
+                          <tr>
+                            <td colSpan={8} className="py-8 text-center text-slate-400 text-xs italic">
+                              Không có hồ sơ chờ tiếp nhận nào phù hợp với phễu lọc cột hiện tại.{' '}
+                              <button
+                                type="button"
+                                onClick={() => { setTab1ReceiptFilters({}); setTab1ReceiptSort(null); }}
+                                className="text-sky-700 font-semibold underline hover:text-sky-900 cursor-pointer ml-1"
+                              >
+                                Bỏ lọc
+                              </button>
+                            </td>
+                          </tr>
+                        ) : paginatedTab1DeliveredWaitingConfirm.map((item, idx) => {
                           const isSelected = tab1SelectedReceiptMaKhs.includes(item.maKh);
                           return (
                             <tr key={`${item.maKh}_${item.stt || idx}`} className={`hover:bg-sky-50/50 ${isSelected ? 'bg-sky-50/80' : ''}`}>
@@ -3490,7 +3542,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                   <span className="p-1.5 rounded-lg bg-blue-100 text-blue-700">
                     <UserCheck className="w-4 h-4" />
                   </span>
-                  <span>Hồ Sơ Đã Nhận Tồn Chưa Giao Thi Công ({tab2Records.length})</span>
+                  <span>Hồ Sơ Đã Nhận Tồn Chưa Giao Thi Công ({filteredTab2Records.length}{tab2Records.length !== filteredTab2Records.length ? ` / ${tab2Records.length}` : ''})</span>
                 </h3>
                 <p className="text-[11px] text-slate-500 mt-0.5">
                   Chọn hồ sơ và chọn nhân viên thực hiện để giao thi công (cập nhật Trạng thái = "Đã Giao thi công", Ngày giao = hiện tại).
@@ -3499,6 +3551,21 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
 
               {/* Assignment controls */}
               <div className="flex flex-wrap items-center gap-2">
+                {countActiveColumnFilters(tab2Filters, tab2Sort) > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTab2Filters({});
+                      setTab2Sort(null);
+                    }}
+                    className="flex items-center gap-1 px-2.5 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 text-xs font-bold transition-colors cursor-pointer"
+                    title="Xóa toàn bộ bộ lọc cột đang bật"
+                  >
+                    <FilterX className="w-3.5 h-3.5" />
+                    <span>Bỏ lọc ({countActiveColumnFilters(tab2Filters, tab2Sort)})</span>
+                  </button>
+                )}
+
                 <select
                   value={selectedAssignee}
                   onChange={(e) => setSelectedAssignee(e.target.value)}
@@ -3506,8 +3573,8 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                   className="px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-white min-w-48 disabled:bg-slate-100"
                 >
                   <option value="">-- Chọn nhân viên thi công --</option>
-                  {eligibleAssignees.map(m => (
-                    <option key={m.name} value={m.name}>
+                  {eligibleAssignees.map((m, idx) => (
+                    <option key={`${m.msnv || ''}_${m.name}_${m.team || ''}_${idx}`} value={m.name}>
                       {m.name} ({m.team})
                     </option>
                   ))}
@@ -3538,12 +3605,12 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                 <button
                   type="button"
                   onClick={handleExportExcelTab2}
-                  disabled={tab2Records.length === 0}
+                  disabled={filteredTab2Records.length === 0}
                   className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-2xs active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                   title="Xuất file Excel danh sách hồ sơ chờ phân công"
                 >
                   <FileSpreadsheet className="w-3.5 h-3.5" />
-                  <span>Xuất Excel ({tab2Records.length})</span>
+                  <span>Xuất Excel ({filteredTab2Records.length})</span>
                 </button>
 
                 {/* Nút Thu gọn / Mở rộng */}
@@ -3573,10 +3640,10 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                           <th className="px-3 py-2.5 border-b border-slate-200 w-10 text-center">
                             <input
                               type="checkbox"
-                              checked={tab2SelectedMaKhs.length === tab2Records.length && tab2Records.length > 0}
+                              checked={tab2SelectedMaKhs.length === filteredTab2Records.length && filteredTab2Records.length > 0}
                               onChange={(e) => {
                                 if (e.target.checked) {
-                                  setTab2SelectedMaKhs(tab2Records.map(r => r.maKh));
+                                  setTab2SelectedMaKhs(filteredTab2Records.map(r => r.maKh));
                                 } else {
                                   setTab2SelectedMaKhs([]);
                                 }
@@ -3584,19 +3651,48 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                               className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                             />
                           </th>
-                          <th className="px-3 py-2.5 border-b border-slate-200 w-12 text-center">STT</th>
-                          <th className="px-3 py-2.5 border-b border-slate-200">Mã KH</th>
-                          <th className="px-3 py-2.5 border-b border-slate-200">Tên Khách Hàng</th>
-                          <th className="px-3 py-2.5 border-b border-slate-200">Địa Chỉ</th>
-                          <th className="px-3 py-2.5 border-b border-slate-200">Loại Yêu Cầu</th>
-                          <th className="px-3 py-2.5 border-b border-slate-200">Ngày Tiếp Nhận</th>
-                          <th className="px-3 py-2.5 border-b border-slate-200">Người Tiếp Nhận</th>
-                          <th className="px-3 py-2.5 border-b border-slate-200 text-center">Trạng Thái</th>
+                          <th className="px-3 py-2.5 border-b border-slate-200 w-16 text-center">
+                            <ColumnFilterHeader label="STT" columnKey="stt" allRows={tab2Records} extractors={tab2Extractors} filters={tab2Filters} onChangeFilters={setTab2Filters} sortState={tab2Sort} onChangeSort={setTab2Sort} align="center" />
+                          </th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">
+                            <ColumnFilterHeader label="Mã KH" columnKey="maKh" allRows={tab2Records} extractors={tab2Extractors} filters={tab2Filters} onChangeFilters={setTab2Filters} sortState={tab2Sort} onChangeSort={setTab2Sort} />
+                          </th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">
+                            <ColumnFilterHeader label="Tên Khách Hàng" columnKey="tenKh" allRows={tab2Records} extractors={tab2Extractors} filters={tab2Filters} onChangeFilters={setTab2Filters} sortState={tab2Sort} onChangeSort={setTab2Sort} />
+                          </th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">
+                            <ColumnFilterHeader label="Địa Chỉ" columnKey="diaChi" allRows={tab2Records} extractors={tab2Extractors} filters={tab2Filters} onChangeFilters={setTab2Filters} sortState={tab2Sort} onChangeSort={setTab2Sort} />
+                          </th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">
+                            <ColumnFilterHeader label="Loại Yêu Cầu" columnKey="loaiYeuCau" allRows={tab2Records} extractors={tab2Extractors} filters={tab2Filters} onChangeFilters={setTab2Filters} sortState={tab2Sort} onChangeSort={setTab2Sort} />
+                          </th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">
+                            <ColumnFilterHeader label="Ngày Tiếp Nhận" columnKey="ngayNhan" allRows={tab2Records} extractors={tab2Extractors} filters={tab2Filters} onChangeFilters={setTab2Filters} sortState={tab2Sort} onChangeSort={setTab2Sort} />
+                          </th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">
+                            <ColumnFilterHeader label="Người Tiếp Nhận" columnKey="nguoiNhan" allRows={tab2Records} extractors={tab2Extractors} filters={tab2Filters} onChangeFilters={setTab2Filters} sortState={tab2Sort} onChangeSort={setTab2Sort} />
+                          </th>
+                          <th className="px-3 py-2.5 border-b border-slate-200 text-center">
+                            <ColumnFilterHeader label="Trạng Thái" columnKey="trangThai" allRows={tab2Records} extractors={tab2Extractors} filters={tab2Filters} onChangeFilters={setTab2Filters} sortState={tab2Sort} onChangeSort={setTab2Sort} align="center" />
+                          </th>
                           <th className="px-3 py-2.5 border-b border-slate-200 text-center">Thao Tác</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {paginatedTab2Records.map((item, idx) => {
+                        {filteredTab2Records.length === 0 ? (
+                          <tr>
+                            <td colSpan={10} className="py-8 text-center text-slate-400 text-xs italic">
+                              Không tìm thấy hồ sơ tồn phù hợp với phễu lọc cột hiện tại.{' '}
+                              <button
+                                type="button"
+                                onClick={() => { setTab2Filters({}); setTab2Sort(null); }}
+                                className="text-blue-700 font-semibold underline hover:text-blue-900 cursor-pointer ml-1"
+                              >
+                                Bỏ lọc
+                              </button>
+                            </td>
+                          </tr>
+                        ) : paginatedTab2Records.map((item, idx) => {
                           const isSelected = tab2SelectedMaKhs.includes(item.maKh);
                           return (
                             <tr key={`${item.maKh}_${item.stt || idx}`} className={isSelected ? 'bg-blue-50/50' : 'hover:bg-slate-50'}>
@@ -3661,7 +3757,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                   <DvkhPagination
                     currentPage={currentTab2Page}
                     totalPages={totalTab2Pages}
-                    totalItems={tab2Records.length}
+                    totalItems={filteredTab2Records.length}
                     pageSize={TAB2_PAGE_SIZE}
                     onPageChange={setTab2Page}
                     accentColor="blue"
@@ -3713,14 +3809,29 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                   <span className="p-1.5 rounded-lg bg-rose-100 text-rose-700">
                     <CheckSquare className="w-4 h-4" />
                   </span>
-                  <span>Hồ Sơ Đã Giao Chưa Hoàn Tất ({tab3Records.length})</span>
+                  <span>Hồ Sơ Đã Giao Chưa Hoàn Tất ({filteredTab3Records.length}{tab3Records.length !== filteredTab3Records.length ? ` / ${tab3Records.length}` : ''})</span>
                 </h3>
                 <p className="text-[11px] text-slate-500 mt-0.5">
                   Bấm vào nút "Cập nhật kết quả" trên từng dòng để báo cáo hoàn tất (Xong) hoặc ghi nhận trở ngại (kèm ghi chú bằng giọng nói).
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {countActiveColumnFilters(tab3Filters, tab3Sort) > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTab3Filters({});
+                      setTab3Sort(null);
+                    }}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold transition-colors cursor-pointer"
+                    title="Xóa toàn bộ bộ lọc cột đang bật"
+                  >
+                    <FilterX className="w-3.5 h-3.5" />
+                    <span>Bỏ lọc ({countActiveColumnFilters(tab3Filters, tab3Sort)})</span>
+                  </button>
+                )}
+
                 <div className="text-[11px] text-slate-500 hidden sm:block">
                   Chính sách ngày hoàn tất:{' '}
                   <b>{allowCustomNgayHoanTat ? 'Cho phép chọn ngày' : 'Cố định ngày hiện tại'}</b>
@@ -3729,12 +3840,12 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                 <button
                   type="button"
                   onClick={handleExportExcelTab3}
-                  disabled={tab3Records.length === 0}
+                  disabled={filteredTab3Records.length === 0}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-2xs active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                   title="Xuất file Excel danh sách hồ sơ đang thi công hoặc có trở ngại"
                 >
                   <FileSpreadsheet className="w-3.5 h-3.5" />
-                  <span>Xuất Excel ({tab3Records.length})</span>
+                  <span>Xuất Excel ({filteredTab3Records.length})</span>
                 </button>
 
                 {/* Nút Thu gọn / Mở rộng */}
@@ -3763,20 +3874,51 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                     <table className="w-full text-xs text-left">
                       <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px]">
                         <tr>
-                          <th className="px-3 py-2.5 border-b border-slate-200 w-12 text-center">STT</th>
-                          <th className="px-3 py-2.5 border-b border-slate-200">Mã KH</th>
-                          <th className="px-3 py-2.5 border-b border-slate-200">Tên Khách Hàng</th>
-                          <th className="px-3 py-2.5 border-b border-slate-200">Địa Chỉ</th>
-                          <th className="px-3 py-2.5 border-b border-slate-200">Người Thực Hiện</th>
-                          <th className="px-3 py-2.5 border-b border-slate-200">Ngày Giao</th>
-                          <th className="px-3 py-2.5 border-b border-slate-200 text-center">Trạng Thái</th>
-                          <th className="px-3 py-2.5 border-b border-slate-200">Ghi Chú</th>
-                          <th className="px-3 py-2.5 border-b border-slate-200 text-center w-24">Ảnh</th>
+                          <th className="px-3 py-2.5 border-b border-slate-200 w-16 text-center">
+                            <ColumnFilterHeader label="STT" columnKey="stt" allRows={tab3Records} extractors={tab3Extractors} filters={tab3Filters} onChangeFilters={setTab3Filters} sortState={tab3Sort} onChangeSort={setTab3Sort} align="center" />
+                          </th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">
+                            <ColumnFilterHeader label="Mã KH" columnKey="maKh" allRows={tab3Records} extractors={tab3Extractors} filters={tab3Filters} onChangeFilters={setTab3Filters} sortState={tab3Sort} onChangeSort={setTab3Sort} />
+                          </th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">
+                            <ColumnFilterHeader label="Tên Khách Hàng" columnKey="tenKh" allRows={tab3Records} extractors={tab3Extractors} filters={tab3Filters} onChangeFilters={setTab3Filters} sortState={tab3Sort} onChangeSort={setTab3Sort} />
+                          </th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">
+                            <ColumnFilterHeader label="Địa Chỉ" columnKey="diaChi" allRows={tab3Records} extractors={tab3Extractors} filters={tab3Filters} onChangeFilters={setTab3Filters} sortState={tab3Sort} onChangeSort={setTab3Sort} />
+                          </th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">
+                            <ColumnFilterHeader label="Người Thực Hiện" columnKey="nguoiThucHien" allRows={tab3Records} extractors={tab3Extractors} filters={tab3Filters} onChangeFilters={setTab3Filters} sortState={tab3Sort} onChangeSort={setTab3Sort} />
+                          </th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">
+                            <ColumnFilterHeader label="Ngày Giao" columnKey="ngayGiao" allRows={tab3Records} extractors={tab3Extractors} filters={tab3Filters} onChangeFilters={setTab3Filters} sortState={tab3Sort} onChangeSort={setTab3Sort} />
+                          </th>
+                          <th className="px-3 py-2.5 border-b border-slate-200 text-center">
+                            <ColumnFilterHeader label="Trạng Thái" columnKey="trangThai" allRows={tab3Records} extractors={tab3Extractors} filters={tab3Filters} onChangeFilters={setTab3Filters} sortState={tab3Sort} onChangeSort={setTab3Sort} align="center" />
+                          </th>
+                          <th className="px-3 py-2.5 border-b border-slate-200">
+                            <ColumnFilterHeader label="Ghi Chú" columnKey="ghiChu" allRows={tab3Records} extractors={tab3Extractors} filters={tab3Filters} onChangeFilters={setTab3Filters} sortState={tab3Sort} onChangeSort={setTab3Sort} />
+                          </th>
+                          <th className="px-3 py-2.5 border-b border-slate-200 text-center w-24">
+                            <ColumnFilterHeader label="Ảnh" columnKey="pic" allRows={tab3Records} extractors={tab3Extractors} filters={tab3Filters} onChangeFilters={setTab3Filters} sortState={tab3Sort} onChangeSort={setTab3Sort} align="center" />
+                          </th>
                           <th className="px-3 py-2.5 border-b border-slate-200 text-center w-32">Thao Tác</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {paginatedTab3Records.map((item, idx) => (
+                        {filteredTab3Records.length === 0 ? (
+                          <tr>
+                            <td colSpan={10} className="py-8 text-center text-slate-400 text-xs italic">
+                              Không tìm thấy hồ sơ thi công phù hợp với phễu lọc cột hiện tại.{' '}
+                              <button
+                                type="button"
+                                onClick={() => { setTab3Filters({}); setTab3Sort(null); }}
+                                className="text-rose-700 font-semibold underline hover:text-rose-900 cursor-pointer ml-1"
+                              >
+                                Bỏ lọc
+                              </button>
+                            </td>
+                          </tr>
+                        ) : paginatedTab3Records.map((item, idx) => (
                           <tr key={`${item.maKh}_${item.stt || idx}`} className="hover:bg-slate-50">
                             <td className="px-3 py-2 text-center text-slate-500 font-mono">
                               {item.stt || ((currentTab3Page - 1) * TAB3_PAGE_SIZE + idx + 1)}
@@ -3836,7 +3978,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                   <DvkhPagination
                     currentPage={currentTab3Page}
                     totalPages={totalTab3Pages}
-                    totalItems={tab3Records.length}
+                    totalItems={filteredTab3Records.length}
                     pageSize={TAB3_PAGE_SIZE}
                     onPageChange={setTab3Page}
                     accentColor="rose"
@@ -4181,80 +4323,6 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
               </div>
             </div>
 
-            {/* Quick Time Range Filter */}
-            <div className="flex flex-wrap items-center gap-3 pt-1 text-xs">
-              <span className="font-bold text-slate-700 flex items-center gap-1.5">
-                <Calendar className="w-4 h-4 text-purple-600" />
-                <span>Khoảng thời gian:</span>
-              </span>
-              <div className="flex items-center gap-2">
-                <input
-                  type="date"
-                  value={reportFromDate}
-                  onChange={(e) => setReportFromDate(e.target.value)}
-                  className="px-2.5 py-1.5 border border-slate-300 rounded-xl text-xs outline-none focus:ring-2 focus:ring-purple-500 bg-white"
-                  title="Từ ngày"
-                />
-                <span className="text-slate-400">→</span>
-                <input
-                  type="date"
-                  value={reportToDate}
-                  onChange={(e) => setReportToDate(e.target.value)}
-                  className="px-2.5 py-1.5 border border-slate-300 rounded-xl text-xs outline-none focus:ring-2 focus:ring-purple-500 bg-white"
-                  title="Đến ngày"
-                />
-              </div>
-
-              {/* Quick filter chips */}
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => { setReportFromDate(''); setReportToDate(''); }}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                    !reportFromDate && !reportToDate
-                      ? 'bg-purple-700 text-white shadow-2xs'
-                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                  }`}
-                >
-                  Tất cả thời gian
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const today = new Date().toISOString().split('T')[0];
-                    setReportFromDate(today);
-                    setReportToDate(today);
-                  }}
-                  className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 text-xs font-semibold transition-all cursor-pointer"
-                >
-                  Hôm nay
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const now = new Date();
-                    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-                    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
-                    setReportFromDate(firstDay);
-                    setReportToDate(lastDay);
-                  }}
-                  className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 text-xs font-semibold transition-all cursor-pointer"
-                >
-                  Tháng này
-                </button>
-              </div>
-
-              {(reportFromDate || reportToDate) && (
-                <button
-                  type="button"
-                  onClick={() => { setReportFromDate(''); setReportToDate(''); }}
-                  className="text-xs text-rose-600 hover:text-rose-800 underline font-semibold cursor-pointer ml-auto"
-                >
-                  Xóa lọc ngày
-                </button>
-              )}
-            </div>
-
             {/* Quick KPI summary cards */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-2">
               <button
@@ -4346,12 +4414,28 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
           {/* BẢNG MA TRẬN BÁO CÁO TỔNG HỢP (TỪNG KHU VỰC VÀ CẢ ĐỘI) */}
           <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2">
-              <h4 className="text-sm font-bold text-slate-800 uppercase flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-purple-600"></span>
-                <span>Bảng Thống Kê Chi Tiết Từng Khu Vực & Cả Đội</span>
-              </h4>
+              <div className="flex flex-wrap items-center gap-2">
+                <h4 className="text-sm font-bold text-slate-800 uppercase flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-purple-600"></span>
+                  <span>Bảng Thống Kê Chi Tiết Từng Khu Vực & Cả Đội</span>
+                </h4>
+                {countActiveColumnFilters(reportMatrixFilters, reportMatrixSort) > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReportMatrixFilters({});
+                      setReportMatrixSort(null);
+                    }}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 text-xs font-bold transition-colors cursor-pointer"
+                    title="Xóa toàn bộ bộ lọc cột đang bật"
+                  >
+                    <FilterX className="w-3.5 h-3.5" />
+                    <span>Bỏ lọc ({countActiveColumnFilters(reportMatrixFilters, reportMatrixSort)})</span>
+                  </button>
+                )}
+              </div>
               <span className="text-[11px] text-slate-500 italic">
-                * Click vào bất kỳ ô số lượng nào để lọc danh sách hồ sơ tương ứng ở bảng phía dưới
+                * Click vào bất kỳ ô số lượng nào để xem danh sách hồ sơ tương ứng ở bảng phía dưới
               </span>
             </div>
 
@@ -4359,9 +4443,15 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
               <table className="w-full text-xs text-left border-collapse">
                 <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px]">
                   <tr>
-                    <th rowSpan={2} className="px-3 py-3 border-b border-r border-slate-200 w-12 text-center bg-slate-100">STT</th>
-                    <th rowSpan={2} className="px-4 py-3 border-b border-r border-slate-200 min-w-36 bg-slate-100">Khu Vực</th>
-                    <th rowSpan={2} className="px-3 py-3 border-b border-r border-slate-200 text-center bg-slate-100">Tổng HS</th>
+                    <th rowSpan={2} className="px-3 py-3 border-b border-r border-slate-200 w-16 text-center bg-slate-100">
+                      <ColumnFilterHeader label="STT" columnKey="stt" allRows={reportMatrix.areaRows} extractors={reportMatrixExtractors} filters={reportMatrixFilters} onChangeFilters={setReportMatrixFilters} sortState={reportMatrixSort} onChangeSort={setReportMatrixSort} align="center" />
+                    </th>
+                    <th rowSpan={2} className="px-4 py-3 border-b border-r border-slate-200 min-w-40 bg-slate-100">
+                      <ColumnFilterHeader label="Khu Vực" columnKey="areaName" allRows={reportMatrix.areaRows} extractors={reportMatrixExtractors} filters={reportMatrixFilters} onChangeFilters={setReportMatrixFilters} sortState={reportMatrixSort} onChangeSort={setReportMatrixSort} />
+                    </th>
+                    <th rowSpan={2} className="px-3 py-3 border-b border-r border-slate-200 text-center bg-slate-100">
+                      <ColumnFilterHeader label="Tổng HS" columnKey="total" allRows={reportMatrix.areaRows} extractors={reportMatrixExtractors} filters={reportMatrixFilters} onChangeFilters={setReportMatrixFilters} sortState={reportMatrixSort} onChangeSort={setReportMatrixSort} align="center" />
+                    </th>
                     <th colSpan={2} className="px-3 py-2 border-b border-r border-slate-200 text-center bg-sky-50 text-sky-900">Đã Nhận</th>
                     <th colSpan={2} className="px-3 py-2 border-b border-r border-slate-200 text-center bg-indigo-50 text-indigo-900">Đã Giao Thi Công</th>
                     <th colSpan={2} className="px-3 py-2 border-b border-r border-slate-200 text-center bg-emerald-50 text-emerald-900">Hoàn Tất (Xong)</th>
@@ -4369,24 +4459,57 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                     <th colSpan={2} className="px-3 py-2 border-b border-slate-200 text-center bg-amber-50 text-amber-950 font-black">Chưa Hoàn Tất (Nhận + Giao)</th>
                   </tr>
                   <tr className="border-b border-slate-200">
-                    <th className="px-2 py-1.5 text-center bg-sky-50/70 border-r border-slate-200 text-[10px] text-sky-800">SL</th>
-                    <th className="px-2 py-1.5 text-center bg-sky-50/70 border-r border-slate-200 text-[10px] text-sky-800">%</th>
-                    <th className="px-2 py-1.5 text-center bg-indigo-50/70 border-r border-slate-200 text-[10px] text-indigo-800">SL</th>
-                    <th className="px-2 py-1.5 text-center bg-indigo-50/70 border-r border-slate-200 text-[10px] text-indigo-800">%</th>
-                    <th className="px-2 py-1.5 text-center bg-emerald-50/70 border-r border-slate-200 text-[10px] text-emerald-800">SL</th>
-                    <th className="px-2 py-1.5 text-center bg-emerald-50/70 border-r border-slate-200 text-[10px] text-emerald-800">%</th>
-                    <th className="px-2 py-1.5 text-center bg-rose-50/70 border-r border-slate-200 text-[10px] text-rose-800">SL</th>
-                    <th className="px-2 py-1.5 text-center bg-rose-50/70 border-r border-slate-200 text-[10px] text-rose-800">%</th>
-                    <th className="px-2 py-1.5 text-center bg-amber-50/70 border-r border-slate-200 text-[10px] text-amber-900 font-bold">SL</th>
-                    <th className="px-2 py-1.5 text-center bg-amber-50/70 text-[10px] text-amber-900 font-bold">%</th>
+                    <th className="px-2 py-1.5 text-center bg-sky-50/70 border-r border-slate-200 text-[10px] text-sky-800">
+                      <ColumnFilterHeader label="SL" columnKey="daNhan" allRows={reportMatrix.areaRows} extractors={reportMatrixExtractors} filters={reportMatrixFilters} onChangeFilters={setReportMatrixFilters} sortState={reportMatrixSort} onChangeSort={setReportMatrixSort} align="center" />
+                    </th>
+                    <th className="px-2 py-1.5 text-center bg-sky-50/70 border-r border-slate-200 text-[10px] text-sky-800">
+                      <ColumnFilterHeader label="%" columnKey="daNhanPct" allRows={reportMatrix.areaRows} extractors={reportMatrixExtractors} filters={reportMatrixFilters} onChangeFilters={setReportMatrixFilters} sortState={reportMatrixSort} onChangeSort={setReportMatrixSort} align="center" />
+                    </th>
+                    <th className="px-2 py-1.5 text-center bg-indigo-50/70 border-r border-slate-200 text-[10px] text-indigo-800">
+                      <ColumnFilterHeader label="SL" columnKey="daGiao" allRows={reportMatrix.areaRows} extractors={reportMatrixExtractors} filters={reportMatrixFilters} onChangeFilters={setReportMatrixFilters} sortState={reportMatrixSort} onChangeSort={setReportMatrixSort} align="center" />
+                    </th>
+                    <th className="px-2 py-1.5 text-center bg-indigo-50/70 border-r border-slate-200 text-[10px] text-indigo-800">
+                      <ColumnFilterHeader label="%" columnKey="daGiaoPct" allRows={reportMatrix.areaRows} extractors={reportMatrixExtractors} filters={reportMatrixFilters} onChangeFilters={setReportMatrixFilters} sortState={reportMatrixSort} onChangeSort={setReportMatrixSort} align="center" />
+                    </th>
+                    <th className="px-2 py-1.5 text-center bg-emerald-50/70 border-r border-slate-200 text-[10px] text-emerald-800">
+                      <ColumnFilterHeader label="SL" columnKey="hoanTat" allRows={reportMatrix.areaRows} extractors={reportMatrixExtractors} filters={reportMatrixFilters} onChangeFilters={setReportMatrixFilters} sortState={reportMatrixSort} onChangeSort={setReportMatrixSort} align="center" />
+                    </th>
+                    <th className="px-2 py-1.5 text-center bg-emerald-50/70 border-r border-slate-200 text-[10px] text-emerald-800">
+                      <ColumnFilterHeader label="%" columnKey="hoanTatPct" allRows={reportMatrix.areaRows} extractors={reportMatrixExtractors} filters={reportMatrixFilters} onChangeFilters={setReportMatrixFilters} sortState={reportMatrixSort} onChangeSort={setReportMatrixSort} align="center" />
+                    </th>
+                    <th className="px-2 py-1.5 text-center bg-rose-50/70 border-r border-slate-200 text-[10px] text-rose-800">
+                      <ColumnFilterHeader label="SL" columnKey="troNgai" allRows={reportMatrix.areaRows} extractors={reportMatrixExtractors} filters={reportMatrixFilters} onChangeFilters={setReportMatrixFilters} sortState={reportMatrixSort} onChangeSort={setReportMatrixSort} align="center" />
+                    </th>
+                    <th className="px-2 py-1.5 text-center bg-rose-50/70 border-r border-slate-200 text-[10px] text-rose-800">
+                      <ColumnFilterHeader label="%" columnKey="troNgaiPct" allRows={reportMatrix.areaRows} extractors={reportMatrixExtractors} filters={reportMatrixFilters} onChangeFilters={setReportMatrixFilters} sortState={reportMatrixSort} onChangeSort={setReportMatrixSort} align="center" />
+                    </th>
+                    <th className="px-2 py-1.5 text-center bg-amber-50/70 border-r border-slate-200 text-[10px] text-amber-900 font-bold">
+                      <ColumnFilterHeader label="SL" columnKey="chuaHoanTat" allRows={reportMatrix.areaRows} extractors={reportMatrixExtractors} filters={reportMatrixFilters} onChangeFilters={setReportMatrixFilters} sortState={reportMatrixSort} onChangeSort={setReportMatrixSort} align="center" />
+                    </th>
+                    <th className="px-2 py-1.5 text-center bg-amber-50/70 text-[10px] text-amber-900 font-bold">
+                      <ColumnFilterHeader label="%" columnKey="chuaHoanTatPct" allRows={reportMatrix.areaRows} extractors={reportMatrixExtractors} filters={reportMatrixFilters} onChangeFilters={setReportMatrixFilters} sortState={reportMatrixSort} onChangeSort={setReportMatrixSort} align="center" />
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {reportMatrix.areaRows.map((row, idx) => {
+                  {filteredReportAreaRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={13} className="py-8 text-center text-slate-400 text-xs italic">
+                        Không có khu vực nào phù hợp với phễu lọc cột hiện tại.{' '}
+                        <button
+                          type="button"
+                          onClick={() => { setReportMatrixFilters({}); setReportMatrixSort(null); }}
+                          className="text-purple-700 font-semibold underline hover:text-purple-900 cursor-pointer ml-1"
+                        >
+                          Bỏ lọc
+                        </button>
+                      </td>
+                    </tr>
+                  ) : filteredReportAreaRows.map((row) => {
                     const isAreaSelected = reportSelection.areaId === row.areaId;
                     return (
                       <tr key={row.areaId} className={`hover:bg-slate-50 transition-colors ${isAreaSelected ? 'bg-purple-50/40' : ''}`}>
-                        <td className="px-3 py-2.5 text-center text-slate-500 font-mono border-r border-slate-200">{idx + 1}</td>
+                        <td className="px-3 py-2.5 text-center text-slate-500 font-mono border-r border-slate-200">{row.stt}</td>
                         <td className="px-4 py-2.5 font-bold text-slate-800 border-r border-slate-200">
                           <button
                             type="button"
@@ -4494,7 +4617,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                         onClick={() => setReportSelection({ areaId: 'ALL', areaName: 'Cả Đội', metric: 'all', metricLabel: 'Tất cả cả Đội' })}
                         className="hover:underline cursor-pointer text-left font-black"
                       >
-                        {reportMatrix.totalRow.areaName}
+                        {displayReportTotalRow.areaName}
                       </button>
                     </td>
                     <td className="px-3 py-3 text-center font-mono font-black text-purple-950 border-r border-purple-200">
@@ -4503,7 +4626,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                         onClick={() => setReportSelection({ areaId: 'ALL', areaName: 'Cả Đội', metric: 'all', metricLabel: 'Tất cả cả Đội' })}
                         className="px-2.5 py-0.5 rounded-lg bg-purple-200/80 hover:bg-purple-300 transition-colors cursor-pointer"
                       >
-                        {reportMatrix.totalRow.total}
+                        {displayReportTotalRow.total}
                       </button>
                     </td>
                     {/* Đã nhận */}
@@ -4517,10 +4640,10 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                             : 'text-sky-900 bg-sky-100 hover:bg-sky-200'
                         }`}
                       >
-                        {reportMatrix.totalRow.daNhan}
+                        {displayReportTotalRow.daNhan}
                       </button>
                     </td>
-                    <td className="px-2 py-3 text-center font-mono text-[11px] text-purple-900 border-r border-purple-200">{reportMatrix.totalRow.daNhanPct}%</td>
+                    <td className="px-2 py-3 text-center font-mono text-[11px] text-purple-900 border-r border-purple-200">{displayReportTotalRow.daNhanPct}%</td>
                     {/* Đã giao */}
                     <td className="px-2 py-3 text-center font-mono border-r border-purple-200">
                       <button
@@ -4532,10 +4655,10 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                             : 'text-indigo-900 bg-indigo-100 hover:bg-indigo-200'
                         }`}
                       >
-                        {reportMatrix.totalRow.daGiao}
+                        {displayReportTotalRow.daGiao}
                       </button>
                     </td>
-                    <td className="px-2 py-3 text-center font-mono text-[11px] text-purple-900 border-r border-purple-200">{reportMatrix.totalRow.daGiaoPct}%</td>
+                    <td className="px-2 py-3 text-center font-mono text-[11px] text-purple-900 border-r border-purple-200">{displayReportTotalRow.daGiaoPct}%</td>
                     {/* Hoàn tất */}
                     <td className="px-2 py-3 text-center font-mono border-r border-purple-200">
                       <button
@@ -4547,10 +4670,10 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                             : 'text-emerald-900 bg-emerald-100 hover:bg-emerald-200'
                         }`}
                       >
-                        {reportMatrix.totalRow.hoanTat}
+                        {displayReportTotalRow.hoanTat}
                       </button>
                     </td>
-                    <td className="px-2 py-3 text-center font-mono text-[11px] text-purple-900 border-r border-purple-200">{reportMatrix.totalRow.hoanTatPct}%</td>
+                    <td className="px-2 py-3 text-center font-mono text-[11px] text-purple-900 border-r border-purple-200">{displayReportTotalRow.hoanTatPct}%</td>
                     {/* Trở ngại */}
                     <td className="px-2 py-3 text-center font-mono border-r border-purple-200">
                       <button
@@ -4562,10 +4685,10 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                             : 'text-rose-900 bg-rose-100 hover:bg-rose-200'
                         }`}
                       >
-                        {reportMatrix.totalRow.troNgai}
+                        {displayReportTotalRow.troNgai}
                       </button>
                     </td>
-                    <td className="px-2 py-3 text-center font-mono text-[11px] text-purple-900 border-r border-purple-200">{reportMatrix.totalRow.troNgaiPct}%</td>
+                    <td className="px-2 py-3 text-center font-mono text-[11px] text-purple-900 border-r border-purple-200">{displayReportTotalRow.troNgaiPct}%</td>
                     {/* Chưa hoàn tất */}
                     <td className="px-2 py-3 text-center font-mono border-r border-purple-200">
                       <button
@@ -4577,10 +4700,10 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                             : 'text-amber-950 bg-amber-200 hover:bg-amber-300'
                         }`}
                       >
-                        {reportMatrix.totalRow.chuaHoanTat}
+                        {displayReportTotalRow.chuaHoanTat}
                       </button>
                     </td>
-                    <td className="px-2 py-3 text-center font-mono text-[11px] font-black text-amber-950">{reportMatrix.totalRow.chuaHoanTatPct}%</td>
+                    <td className="px-2 py-3 text-center font-mono text-[11px] font-black text-amber-950">{displayReportTotalRow.chuaHoanTatPct}%</td>
                   </tr>
                 </tbody>
               </table>
@@ -4605,35 +4728,33 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                       {reportSelection.metricLabel}
                     </span>
                     <span className="text-slate-400 font-mono text-xs">
-                      ({filteredReportDetailList.length} hồ sơ)
+                      ({filteredReportDetailList.length}{reportDetailBaseList.length !== filteredReportDetailList.length ? ` / ${reportDetailBaseList.length}` : ''} hồ sơ)
                     </span>
                   </h4>
                   <p className="text-[11px] text-slate-500 mt-0.5">
-                    Hiển thị thông tin chi tiết các hồ sơ theo chỉ tiêu thống kê đang được chọn.
+                    Hiển thị thông tin chi tiết các hồ sơ theo chỉ tiêu thống kê đang được chọn. Bấm biểu tượng phễu trên từng cột để lọc nhanh.
                   </p>
                 </div>
               </div>
 
               {/* Toolbar controls for drill-down list */}
               <div className="flex flex-wrap items-center gap-2">
-                {/* Search in drill-down list */}
-                <div className="relative">
-                  <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input
-                    type="text"
-                    value={reportDetailSearch}
-                    onChange={(e) => setReportDetailSearch(e.target.value)}
-                    placeholder="Tìm tên, mã, số ĐT, địa chỉ..."
-                    className="pl-8 pr-3 py-1.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none w-48 sm:w-60"
-                  />
-                  {reportDetailSearch && (
-                    <button onClick={() => setReportDetailSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                      <X className="w-3 h-3" />
-                    </button>
-                  )}
-                </div>
+                {countActiveColumnFilters(reportDetailFilters, reportDetailSort) > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReportDetailFilters({});
+                      setReportDetailSort(null);
+                    }}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 text-xs font-bold transition-colors cursor-pointer"
+                    title="Xóa toàn bộ bộ lọc cột đang bật"
+                  >
+                    <FilterX className="w-3.5 h-3.5" />
+                    <span>Bỏ lọc ({countActiveColumnFilters(reportDetailFilters, reportDetailSort)})</span>
+                  </button>
+                )}
 
-                {/* Reset button if filtered */}
+                {/* Reset button if narrowed */}
                 {(reportSelection.areaId !== 'ALL' || reportSelection.metric !== 'all') && (
                   <button
                     type="button"
@@ -4659,9 +4780,9 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
             </div>
 
             {/* Drill-down Table */}
-            {filteredReportDetailList.length === 0 ? (
+            {reportDetailBaseList.length === 0 ? (
               <div className="py-12 text-center text-slate-400 text-xs italic">
-                Không tìm thấy hồ sơ nào phù hợp với điều kiện thống kê đã chọn.
+                Không có hồ sơ nào trong chỉ tiêu thống kê đang chọn.
               </div>
             ) : (
               <div className="space-y-3">
@@ -4669,20 +4790,51 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                   <table className="w-full text-xs text-left">
                     <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px]">
                       <tr>
-                        <th className="px-3 py-2.5 border-b border-slate-200 w-12 text-center">STT</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200">Mã KH</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200">Tên Khách Hàng</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200">SĐT</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200">Địa Chỉ & Khu Vực</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200 text-center">Trạng Thái</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200">Người Nhận / Ngày</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200">Thi Công / Ngày Giao</th>
-                        <th className="px-3 py-2.5 border-b border-slate-200 text-center">Kết Quả</th>
+                        <th className="px-3 py-2.5 border-b border-slate-200 w-16 text-center">
+                          <ColumnFilterHeader label="STT" columnKey="stt" allRows={reportDetailBaseList} extractors={reportDetailExtractors} filters={reportDetailFilters} onChangeFilters={setReportDetailFilters} sortState={reportDetailSort} onChangeSort={setReportDetailSort} align="center" />
+                        </th>
+                        <th className="px-3 py-2.5 border-b border-slate-200">
+                          <ColumnFilterHeader label="Mã KH" columnKey="maKh" allRows={reportDetailBaseList} extractors={reportDetailExtractors} filters={reportDetailFilters} onChangeFilters={setReportDetailFilters} sortState={reportDetailSort} onChangeSort={setReportDetailSort} />
+                        </th>
+                        <th className="px-3 py-2.5 border-b border-slate-200">
+                          <ColumnFilterHeader label="Tên Khách Hàng" columnKey="tenKh" allRows={reportDetailBaseList} extractors={reportDetailExtractors} filters={reportDetailFilters} onChangeFilters={setReportDetailFilters} sortState={reportDetailSort} onChangeSort={setReportDetailSort} />
+                        </th>
+                        <th className="px-3 py-2.5 border-b border-slate-200">
+                          <ColumnFilterHeader label="SĐT" columnKey="sdt" allRows={reportDetailBaseList} extractors={reportDetailExtractors} filters={reportDetailFilters} onChangeFilters={setReportDetailFilters} sortState={reportDetailSort} onChangeSort={setReportDetailSort} />
+                        </th>
+                        <th className="px-3 py-2.5 border-b border-slate-200">
+                          <ColumnFilterHeader label="Địa Chỉ & Khu Vực" columnKey="diaChi" allRows={reportDetailBaseList} extractors={reportDetailExtractors} filters={reportDetailFilters} onChangeFilters={setReportDetailFilters} sortState={reportDetailSort} onChangeSort={setReportDetailSort} />
+                        </th>
+                        <th className="px-3 py-2.5 border-b border-slate-200 text-center">
+                          <ColumnFilterHeader label="Trạng Thái" columnKey="trangThai" allRows={reportDetailBaseList} extractors={reportDetailExtractors} filters={reportDetailFilters} onChangeFilters={setReportDetailFilters} sortState={reportDetailSort} onChangeSort={setReportDetailSort} align="center" />
+                        </th>
+                        <th className="px-3 py-2.5 border-b border-slate-200">
+                          <ColumnFilterHeader label="Người Nhận / Ngày" columnKey="nguoiNhan" allRows={reportDetailBaseList} extractors={reportDetailExtractors} filters={reportDetailFilters} onChangeFilters={setReportDetailFilters} sortState={reportDetailSort} onChangeSort={setReportDetailSort} />
+                        </th>
+                        <th className="px-3 py-2.5 border-b border-slate-200">
+                          <ColumnFilterHeader label="Thi Công / Ngày Giao" columnKey="nguoiThucHien" allRows={reportDetailBaseList} extractors={reportDetailExtractors} filters={reportDetailFilters} onChangeFilters={setReportDetailFilters} sortState={reportDetailSort} onChangeSort={setReportDetailSort} />
+                        </th>
+                        <th className="px-3 py-2.5 border-b border-slate-200 text-center">
+                          <ColumnFilterHeader label="Kết Quả" columnKey="ketQua" allRows={reportDetailBaseList} extractors={reportDetailExtractors} filters={reportDetailFilters} onChangeFilters={setReportDetailFilters} sortState={reportDetailSort} onChangeSort={setReportDetailSort} align="center" />
+                        </th>
                         <th className="px-3 py-2.5 border-b border-slate-200 text-center">Thao Tác</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {paginatedReportDetailList.map((item, idx) => {
+                      {filteredReportDetailList.length === 0 ? (
+                        <tr>
+                          <td colSpan={10} className="py-8 text-center text-slate-400 text-xs italic">
+                            Không tìm thấy hồ sơ nào phù hợp với phễu lọc cột hiện tại.{' '}
+                            <button
+                              type="button"
+                              onClick={() => { setReportDetailFilters({}); setReportDetailSort(null); }}
+                              className="text-purple-700 font-semibold underline hover:text-purple-900 cursor-pointer ml-1"
+                            >
+                              Bỏ lọc
+                            </button>
+                          </td>
+                        </tr>
+                      ) : paginatedReportDetailList.map((item, idx) => {
                         const areaName = getDvkhItemArea(item.diaChi).name;
                         const normStatus = getNormalizedStatus(item);
                         const isDaNhan = normStatus === 'Đã Nhận';
@@ -4781,7 +4933,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
       )}
 
       {/* ========================================================= */}
-      {/* 2. PHẦN DƯỚI TAB DVKH: DANH SÁCH TỔNG HỢP & BỘ LỌC HÌNH PHỄU */}
+      {/* 2. PHẦN DƯỚI TAB DVKH: DANH SÁCH TỔNG HỢP & PHỄU LỌC CỘT */}
       {/* ========================================================= */}
       {activeSubTab !== 'report' && (
       <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
@@ -4796,93 +4948,26 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                 Danh Sách Toàn Bộ Hồ Sơ DVKH ({bottomFilteredList.length} / {dvkhList.length})
               </h3>
               <p className="text-[11px] text-slate-500">
-                Hiển thị tối đa 10 hồ sơ trên mỗi trang. Hỗ trợ lọc theo từng khu vực và phường/xã.
+                Hiển thị tối đa 10 hồ sơ trên mỗi trang. Bấm biểu tượng phễu tại tiêu đề từng cột để lọc và sắp xếp.
               </p>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {/* Bộ lọc nhanh Khu vực */}
-            <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 rounded-xl border border-slate-300 text-xs">
-              <MapPin className="w-3.5 h-3.5 text-purple-600 shrink-0" />
-              <select
-                value={filterArea}
-                onChange={(e) => {
-                  setFilterArea(e.target.value);
-                  setFilterWard('ALL');
+            {countActiveColumnFilters(bottomFilters, bottomSort) > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setBottomFilters({});
+                  setBottomSort(null);
                 }}
-                className="bg-transparent font-bold text-slate-700 outline-none text-xs cursor-pointer"
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 text-xs font-bold transition-colors cursor-pointer"
+                title="Xóa toàn bộ bộ lọc cột đang bật"
               >
-                <option value="ALL">Tất cả khu vực</option>
-                {DVKH_AREAS.map(a => (
-                  <option key={a.id} value={a.id}>{a.name}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Phường/Xã nếu đã chọn khu vực cụ thể */}
-            {filterArea !== 'ALL' && (
-              <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 rounded-xl border border-slate-300 text-xs">
-                <select
-                  value={filterWard}
-                  onChange={(e) => setFilterWard(e.target.value)}
-                  className="bg-transparent font-bold text-slate-700 outline-none text-xs cursor-pointer"
-                >
-                  <option value="ALL">Tất cả phường/xã</option>
-                  {DVKH_AREAS.find(a => a.id === filterArea)?.wards.map(w => (
-                    <option key={w.id} value={w.id}>{w.name}</option>
-                  ))}
-                </select>
-              </div>
+                <FilterX className="w-3.5 h-3.5" />
+                <span>Bỏ lọc ({countActiveColumnFilters(bottomFilters, bottomSort)})</span>
+              </button>
             )}
-
-            {/* Quick search */}
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                value={filterSearch}
-                onChange={(e) => setFilterSearch(e.target.value)}
-                placeholder="Tìm tên, mã, địa chỉ..."
-                className="pl-8 pr-3 py-1.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none w-36 sm:w-48"
-              />
-              {filterSearch && (
-                <button onClick={() => setFilterSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                  <X className="w-3 h-3" />
-                </button>
-              )}
-            </div>
-
-            {/* Funnel Filter Button */}
-            <button
-              type="button"
-              onClick={() => setShowFilterDrawer(!showFilterDrawer)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all shadow-2xs cursor-pointer ${
-                showFilterDrawer || filterTrangThai !== 'ALL' || filterAssignee !== 'ALL' || filterFromDate || filterToDate
-                  ? 'bg-purple-700 text-white border-purple-700'
-                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
-              }`}
-              title="Mở bộ lọc tìm kiếm nâng cao"
-            >
-              <Filter className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Bộ lọc</span>
-            </button>
-
-            {/* Option Ẩn hồ sơ hoàn tất (mặc định là true) */}
-            <label className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-slate-300 bg-slate-50 hover:bg-slate-100 text-xs font-semibold text-slate-700 cursor-pointer select-none transition-all shadow-2xs">
-              <input
-                type="checkbox"
-                checked={hideCompletedBottomList}
-                onChange={(e) => setHideCompletedBottomList(e.target.checked)}
-                className="w-3.5 h-3.5 rounded text-purple-600 focus:ring-purple-500 border-slate-300 cursor-pointer"
-              />
-              <span className="whitespace-nowrap">Ẩn hs hoàn tất</span>
-              {countCompletedRecords > 0 && (
-                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-200 text-slate-600 font-mono font-bold">
-                  {countCompletedRecords}
-                </span>
-              )}
-            </label>
 
             {/* Export Excel */}
             <button
@@ -4911,162 +4996,69 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
 
         {isSectionBottomListOpen && (
           <div className="space-y-4 animate-in fade-in duration-200">
-            {/* Expandable Funnel Filter Panel */}
-            {showFilterDrawer && (
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3 animate-in fade-in slide-in-from-top-1 text-xs">
-                <div className="flex items-center justify-between pb-2 border-b border-slate-200">
-                  <span className="font-bold text-slate-700 flex items-center gap-1.5">
-                    <Filter className="w-4 h-4 text-purple-600" />
-                    <span>Tiêu Chí Lọc Nâng Cao</span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFilterTrangThai('ALL');
-                      setFilterAssignee('ALL');
-                      setFilterArea('ALL');
-                      setFilterWard('ALL');
-                      setFilterFromDate('');
-                      setFilterToDate('');
-                      setFilterSearch('');
-                    }}
-                    className="text-purple-700 hover:text-purple-900 font-semibold cursor-pointer text-[11px]"
-                  >
-                    Đặt lại bộ lọc
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-                  {/* Lọc Khu vực trong drawer */}
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                      Khu vực
-                    </label>
-                    <select
-                      value={filterArea}
-                      onChange={(e) => {
-                        setFilterArea(e.target.value);
-                        setFilterWard('ALL');
-                      }}
-                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg outline-none bg-white font-semibold"
-                    >
-                      <option value="ALL">-- Tất cả khu vực --</option>
-                      {DVKH_AREAS.map(a => (
-                        <option key={a.id} value={a.id}>{a.name}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Lọc Phường/Xã trong drawer */}
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                      Phường / Xã
-                    </label>
-                    <select
-                      value={filterWard}
-                      onChange={(e) => setFilterWard(e.target.value)}
-                      disabled={filterArea === 'ALL'}
-                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg outline-none bg-white font-semibold disabled:bg-slate-100 disabled:text-slate-400"
-                    >
-                      <option value="ALL">-- Tất cả phường/xã --</option>
-                      {filterArea !== 'ALL' && DVKH_AREAS.find(a => a.id === filterArea)?.wards.map(w => (
-                        <option key={w.id} value={w.id}>{w.name}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                      Trạng thái hồ sơ
-                    </label>
-                    <select
-                      value={filterTrangThai}
-                      onChange={(e) => setFilterTrangThai(e.target.value)}
-                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg outline-none bg-white"
-                    >
-                      <option value="ALL">-- Tất cả trạng thái --</option>
-                      <option value="Chưa giao">Chưa giao</option>
-                      <option value="Chờ nhận">Chờ nhận</option>
-                      <option value="Đã Nhận">Đã Nhận</option>
-                      <option value="Đã Giao thi công">Đã Giao thi công</option>
-                      <option value="Trở ngại">Trở ngại</option>
-                      <option value="Xong">Xong</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                      Người thực hiện / Nhận
-                    </label>
-                    <select
-                      value={filterAssignee}
-                      onChange={(e) => setFilterAssignee(e.target.value)}
-                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg outline-none bg-white"
-                    >
-                      <option value="ALL">-- Tất cả nhân viên --</option>
-                      {Array.from(new Set(dvkhList.map(e => e.nguoiThucHien || e.nguoiNhan).filter(Boolean))).map(name => (
-                        <option key={name} value={name}>{name}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                      Từ ngày (Nhận / Tạo)
-                    </label>
-                    <input
-                      type="date"
-                      value={filterFromDate}
-                      onChange={(e) => setFilterFromDate(e.target.value)}
-                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg outline-none bg-white"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                      Đến ngày
-                    </label>
-                    <input
-                      type="date"
-                      value={filterToDate}
-                      onChange={(e) => setFilterToDate(e.target.value)}
-                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg outline-none bg-white"
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-
             {/* The Main Data Table */}
-            {bottomFilteredList.length === 0 ? (
+            {dvkhList.length === 0 ? (
               <div className="py-12 text-center text-slate-400 text-xs italic">
-                {dvkhList.length > 0
-                  ? 'Không tìm thấy hồ sơ nào phù hợp với bộ lọc hiện tại. Hãy thử chọn lại khu vực hoặc từ khóa tìm kiếm.'
-                  : 'Chưa có hồ sơ nào trong danh sách. Dữ liệu sẽ xuất hiện khi bạn thêm mới, import file hoặc khi đồng bộ từ Google Sheets.'}
+                Chưa có hồ sơ nào trong danh sách. Dữ liệu sẽ xuất hiện khi bạn thêm mới, import file hoặc khi đồng bộ từ Google Sheets.
               </div>
             ) : (
               <div className="overflow-x-auto rounded-xl border border-slate-200">
                 <table className="w-full text-xs text-left">
                   <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px]">
                     <tr>
-                      <th className="px-3 py-2.5 border-b border-slate-200 w-12 text-center">STT</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200">Mã KH</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200">Tên Khách Hàng</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200">Địa Chỉ</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200">Loại</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200">Ngày Nhận</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200">Ngày Hoàn Tất</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200">Ghi Chú</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200 text-center">Ảnh</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200 text-center">Trạng Thái HS</th>
-                      <th className="px-3 py-2.5 border-b border-slate-200">Người Thực Hiện</th>
+                      <th className="px-3 py-2.5 border-b border-slate-200 w-16 text-center">
+                        <ColumnFilterHeader label="STT" columnKey="stt" allRows={dvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} align="center" />
+                      </th>
+                      <th className="px-3 py-2.5 border-b border-slate-200">
+                        <ColumnFilterHeader label="Mã KH" columnKey="maKh" allRows={dvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} />
+                      </th>
+                      <th className="px-3 py-2.5 border-b border-slate-200">
+                        <ColumnFilterHeader label="Tên Khách Hàng" columnKey="tenKh" allRows={dvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} />
+                      </th>
+                      <th className="px-3 py-2.5 border-b border-slate-200">
+                        <ColumnFilterHeader label="Địa Chỉ" columnKey="diaChi" allRows={dvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} />
+                      </th>
+                      <th className="px-3 py-2.5 border-b border-slate-200">
+                        <ColumnFilterHeader label="Loại" columnKey="loaiYeuCau" allRows={dvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} />
+                      </th>
+                      <th className="px-3 py-2.5 border-b border-slate-200">
+                        <ColumnFilterHeader label="Ngày Nhận" columnKey="ngayNhan" allRows={dvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} />
+                      </th>
+                      <th className="px-3 py-2.5 border-b border-slate-200">
+                        <ColumnFilterHeader label="Ngày Hoàn Tất" columnKey="ngayHoanTat" allRows={dvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} />
+                      </th>
+                      <th className="px-3 py-2.5 border-b border-slate-200">
+                        <ColumnFilterHeader label="Ghi Chú" columnKey="ghiChu" allRows={dvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} />
+                      </th>
+                      <th className="px-3 py-2.5 border-b border-slate-200 text-center">
+                        <ColumnFilterHeader label="Ảnh" columnKey="pic" allRows={dvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} align="center" />
+                      </th>
+                      <th className="px-3 py-2.5 border-b border-slate-200 text-center">
+                        <ColumnFilterHeader label="Trạng Thái HS" columnKey="trangThai" allRows={dvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} align="center" />
+                      </th>
+                      <th className="px-3 py-2.5 border-b border-slate-200">
+                        <ColumnFilterHeader label="Người Thực Hiện" columnKey="nguoiThucHien" allRows={dvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} />
+                      </th>
                       {canDeletePendingRecord && (
                         <th className="px-3 py-2.5 border-b border-slate-200 text-center w-14">Xóa</th>
                       )}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {paginatedBottomList.map((item, idx) => (
+                    {bottomFilteredList.length === 0 ? (
+                      <tr>
+                        <td colSpan={canDeletePendingRecord ? 12 : 11} className="py-10 text-center text-slate-400 text-xs italic">
+                          Không tìm thấy hồ sơ nào phù hợp với phễu lọc cột hiện tại.{' '}
+                          <button
+                            type="button"
+                            onClick={() => { setBottomFilters({}); setBottomSort(null); }}
+                            className="text-purple-700 font-semibold underline hover:text-purple-900 cursor-pointer ml-1"
+                          >
+                            Bỏ lọc
+                          </button>
+                        </td>
+                      </tr>
+                    ) : paginatedBottomList.map((item, idx) => (
                       <tr key={`${item.maKh}_${item.stt || idx}`} className="hover:bg-slate-50 transition-colors">
                         <td className="px-3 py-2.5 text-center text-slate-500 font-mono font-bold">
                           {item.stt || ((currentBottomPage - 1) * BOTTOM_PAGE_SIZE + idx + 1)}
@@ -5316,8 +5308,8 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                       Danh sách {returnReceiptTarget.maKhs.length} mã khách hàng:
                     </div>
                     <div className="max-h-28 overflow-y-auto font-mono text-[11px] text-slate-700 flex flex-wrap gap-1">
-                      {returnReceiptTarget.maKhs.map(k => (
-                        <span key={k} className="px-1.5 py-0.5 bg-white border border-rose-200 rounded text-rose-900 font-bold">
+                      {returnReceiptTarget.maKhs.map((k, idx) => (
+                        <span key={`${k}_${idx}`} className="px-1.5 py-0.5 bg-white border border-rose-200 rounded text-rose-900 font-bold">
                           {k}
                         </span>
                       ))}
