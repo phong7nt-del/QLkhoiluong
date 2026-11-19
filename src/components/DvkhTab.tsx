@@ -8,7 +8,7 @@ import {
   Download, Sparkles, Shield, AlertCircle, Eye, EyeOff, Layers, Headphones,
   Upload, FileSpreadsheet, HelpCircle, Camera, Image as ImageIcon, ExternalLink, Maximize2,
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Trash2, UploadCloud,
-  BarChart3, PieChart, Phone, RotateCcw, FilterX
+  BarChart3, PieChart, Phone, RotateCcw, FilterX, MapPin
 } from 'lucide-react';
 import { DataStore, SheetMember, DvkhEntry, normalizeDvkhStatus } from '../store/DataStore';
 import { PermissionStore, normalizeRoleStr } from '../store/PermissionStore';
@@ -93,6 +93,10 @@ export const filterRecordByAreaAndWard = (
   selectedWardId: string = 'ALL'
 ): boolean => {
   if (!selectedAreaId || selectedAreaId === 'ALL') return true;
+
+  if (selectedAreaId === 'khac') {
+    return !DVKH_AREAS.some(a => filterRecordByAreaAndWard(address, a.id, 'ALL'));
+  }
 
   const area = DVKH_AREAS.find(a => a.id === selectedAreaId);
   if (!area) return true;
@@ -327,8 +331,39 @@ interface DvkhTabProps {
 export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps) {
   const [dvkhList, setDvkhList] = useState<DvkhEntry[]>(() => DataStore.getDvkhEntries());
   const [activeSubTab, setActiveSubTab] = useState<'tab1' | 'tab2' | 'tab3' | 'report'>('tab1');
+  const [selectedAreaId, setSelectedAreaId] = useState<string>('ALL');
+  const [selectedWardId, setSelectedWardId] = useState<string>('ALL');
   const [isLoading, setIsLoading] = useState(false);
   const [syncStatusMsg, setSyncStatusMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+
+  // Thống kê nhanh số hồ sơ theo từng khu vực (trên toàn bộ dvkhList)
+  const areaRecordCounts = useMemo(() => {
+    const counts: Record<string, number> = { ALL: dvkhList.length, khac: 0 };
+    DVKH_AREAS.forEach(a => {
+      counts[a.id] = 0;
+    });
+    dvkhList.forEach(item => {
+      const area = getDvkhItemArea(item.diaChi);
+      counts[area.id] = (counts[area.id] || 0) + 1;
+    });
+    return counts;
+  }, [dvkhList]);
+
+  const activeAreaObj = useMemo(
+    () => DVKH_AREAS.find(a => a.id === selectedAreaId) || null,
+    [selectedAreaId]
+  );
+
+  // Danh sách hồ sơ sau khi áp dụng bộ lọc Khu vực & Phường/Xã (dùng chung cho cả 4 tab)
+  const areaFilteredDvkhList = useMemo(() => {
+    if (!selectedAreaId || selectedAreaId === 'ALL') return dvkhList;
+    return dvkhList.filter(item => filterRecordByAreaAndWard(item.diaChi, selectedAreaId, selectedWardId));
+  }, [dvkhList, selectedAreaId, selectedWardId]);
+
+  const handleSelectArea = (areaId: string) => {
+    setSelectedAreaId(areaId);
+    setSelectedWardId('ALL');
+  };
 
   // System config for NgayHoanTat
   const [allowCustomNgayHoanTat, setAllowCustomNgayHoanTat] = useState(() => DataStore.getAllowCustomNgayHoanTatDvkh());
@@ -579,8 +614,8 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
 
   // Tab 1 records waiting to be delivered (state 'Chưa giao')
   const tab1PendingRecords = useMemo(() => {
-    return dvkhList.filter(e => getNormalizedStatus(e) === 'Chưa giao');
-  }, [dvkhList]);
+    return areaFilteredDvkhList.filter(e => getNormalizedStatus(e) === 'Chưa giao');
+  }, [areaFilteredDvkhList]);
 
   const tab1PendingExtractors = useMemo<ColumnValueExtractors<DvkhEntry>>(() => ({
     stt: (item) => item.stt ?? '',
@@ -606,16 +641,16 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
 
   // Sub-tab 2 badge count: hồ sơ tồn chưa giao cho đi thực hiện (đã nhận nhưng chưa giao thi công: 'Đã Nhận')
   const countTab2Pending = useMemo(() => {
-    return dvkhList.filter(e => getNormalizedStatus(e) === 'Đã Nhận').length;
-  }, [dvkhList]);
+    return areaFilteredDvkhList.filter(e => getNormalizedStatus(e) === 'Đã Nhận').length;
+  }, [areaFilteredDvkhList]);
 
   // Header KPI count: Tổng hồ sơ đang thi công toàn đội ('Đã Giao thi công' + 'Trở ngại')
   const countDangThiCongTotal = useMemo(() => {
-    return dvkhList.filter(e => {
+    return areaFilteredDvkhList.filter(e => {
       const st = getNormalizedStatus(e);
       return st === 'Đã Giao thi công' || st === 'Trở ngại';
     }).length;
-  }, [dvkhList]);
+  }, [areaFilteredDvkhList]);
 
   // Sub-tab 3 badge count: hồ sơ đã giao chưa hoàn tất ('Đã Giao thi công' hoặc 'Trở ngại')
   const countTab3Pending = useMemo(() => {
@@ -623,17 +658,17 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
       return countDangThiCongTotal;
     }
     const myName = (sessionUser?.name || '').trim().toLowerCase();
-    return dvkhList.filter(e => {
+    return areaFilteredDvkhList.filter(e => {
       const st = getNormalizedStatus(e);
       const assignedName = (e.nguoiThucHien || e.nguoiNhan || '').trim().toLowerCase();
       return assignedName === myName && (st === 'Đã Giao thi công' || st === 'Trở ngại');
     }).length;
-  }, [dvkhList, countDangThiCongTotal, isDvkhUser, isDoiLeader, isToLeader, sessionUser?.name]);
+  }, [areaFilteredDvkhList, countDangThiCongTotal, isDvkhUser, isDoiLeader, isToLeader, sessionUser?.name]);
 
   // Tab 1 records waiting for QLHTĐĐ confirmation ('Chờ nhận')
   const tab1DeliveredWaitingConfirm = useMemo(() => {
-    return dvkhList.filter(e => getNormalizedStatus(e) === 'Chờ nhận');
-  }, [dvkhList]);
+    return areaFilteredDvkhList.filter(e => getNormalizedStatus(e) === 'Chờ nhận');
+  }, [areaFilteredDvkhList]);
 
   const tab1ReceiptExtractors = useMemo<ColumnValueExtractors<DvkhEntry>>(() => ({
     stt: (item) => item.stt ?? '',
@@ -1283,8 +1318,8 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
   const [tab2Sort, setTab2Sort] = useState<TableSortState | null>(null);
 
   const tab2Records = useMemo(() => {
-    return dvkhList.filter(e => getNormalizedStatus(e) === 'Đã Nhận');
-  }, [dvkhList]);
+    return areaFilteredDvkhList.filter(e => getNormalizedStatus(e) === 'Đã Nhận');
+  }, [areaFilteredDvkhList]);
 
   const tab2Extractors = useMemo<ColumnValueExtractors<DvkhEntry>>(() => ({
     stt: (item) => item.stt ?? '',
@@ -1475,7 +1510,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
   // Tab 3 visible records:
   // Requirement 4: "Chỉ nhân viên được giao thực hiện mới thấy được hồ sơ đã giao, và gắn rồi cập nhật kết quả."
   const tab3Records = useMemo(() => {
-    const incompleteRecords = dvkhList.filter(e => {
+    const incompleteRecords = areaFilteredDvkhList.filter(e => {
       const st = getNormalizedStatus(e);
       return st === 'Đã Giao thi công' || st === 'Trở ngại';
     });
@@ -1496,7 +1531,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
       const assigned = (e.nguoiThucHien || e.nguoiNhan || '').trim().toLowerCase();
       return assigned === myName;
     });
-  }, [dvkhList, isDvkhUser, isDoiLeader, isToLeader, managerViewAllTab3, sessionUser?.name]);
+  }, [areaFilteredDvkhList, isDvkhUser, isDoiLeader, isToLeader, managerViewAllTab3, sessionUser?.name]);
 
   const tab3Extractors = useMemo<ColumnValueExtractors<DvkhEntry>>(() => ({
     stt: (item) => item.stt ?? '',
@@ -1718,10 +1753,10 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
   const [bottomFilters, setBottomFilters] = useState<TableFilterState>({});
   const [bottomSort, setBottomSort] = useState<TableSortState | null>(null);
 
-  // Tổng số hồ sơ hoàn tất trong hệ thống (hiển thị KPI header)
+  // Tổng số hồ sơ hoàn tất trong phạm vi khu vực đang chọn (hiển thị KPI header)
   const countCompletedRecords = useMemo(() => {
-    return dvkhList.filter(e => getNormalizedStatus(e) === 'Xong').length;
-  }, [dvkhList]);
+    return areaFilteredDvkhList.filter(e => getNormalizedStatus(e) === 'Xong').length;
+  }, [areaFilteredDvkhList]);
 
   // Phân trang danh sách toàn bộ hồ sơ: 10 khách hàng trên trang theo yêu cầu
   const BOTTOM_PAGE_SIZE = 10;
@@ -1742,8 +1777,8 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
   }), []);
 
   const bottomFilteredList = useMemo(() => {
-    return applyColumnFiltersAndSort(dvkhList, bottomExtractors, bottomFilters, bottomSort);
-  }, [dvkhList, bottomExtractors, bottomFilters, bottomSort]);
+    return applyColumnFiltersAndSort(areaFilteredDvkhList, bottomExtractors, bottomFilters, bottomSort);
+  }, [areaFilteredDvkhList, bottomExtractors, bottomFilters, bottomSort]);
 
   // Tự động chuyển về trang 1 khi thay đổi điều kiện lọc
   useEffect(() => {
@@ -1840,21 +1875,30 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
       };
     };
 
-    const areaRows: AreaReportRow[] = DVKH_AREAS.map((area, idx) => {
-      const areaItems = dvkhList.filter(item => filterRecordByAreaAndWard(item.diaChi, area.id, 'ALL'));
+    const targetAreas = selectedAreaId === 'ALL'
+      ? DVKH_AREAS
+      : DVKH_AREAS.filter(a => a.id === selectedAreaId);
+
+    const areaRows: AreaReportRow[] = targetAreas.map((area, idx) => {
+      const areaItems = areaFilteredDvkhList.filter(item => filterRecordByAreaAndWard(item.diaChi, area.id, 'ALL'));
       return calcRow(idx + 1, area.id, area.name, areaItems);
     });
 
-    const otherItems = dvkhList.filter(item => {
-      return !DVKH_AREAS.some(a => filterRecordByAreaAndWard(item.diaChi, a.id, 'ALL'));
-    });
-    if (otherItems.length > 0) {
-      areaRows.push(calcRow(areaRows.length + 1, 'khac', 'Khu vực khác', otherItems));
+    if (selectedAreaId === 'ALL' || selectedAreaId === 'khac') {
+      const otherItems = areaFilteredDvkhList.filter(item => {
+        return !DVKH_AREAS.some(a => filterRecordByAreaAndWard(item.diaChi, a.id, 'ALL'));
+      });
+      if (otherItems.length > 0 || selectedAreaId === 'khac') {
+        areaRows.push(calcRow(areaRows.length + 1, 'khac', 'Khu vực khác', otherItems));
+      }
     }
 
-    const totalRow = calcRow(0, 'ALL', 'CẢ ĐỘI (TỔNG CỘNG)', dvkhList);
+    const totalAreaLabel = selectedAreaId === 'ALL'
+      ? 'CẢ ĐỘI (TỔNG CỘNG)'
+      : `TỔNG (${selectedAreaId === 'khac' ? 'KHU VỰC KHÁC' : (activeAreaObj?.name || '').toUpperCase()})`;
+    const totalRow = calcRow(0, selectedAreaId === 'ALL' ? 'ALL' : selectedAreaId, totalAreaLabel, areaFilteredDvkhList);
     return { areaRows, totalRow };
-  }, [dvkhList]);
+  }, [areaFilteredDvkhList, selectedAreaId, activeAreaObj]);
 
   const reportMatrixExtractors = useMemo<ColumnValueExtractors<AreaReportRow>>(() => ({
     stt: (row) => row.stt,
@@ -1913,9 +1957,42 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
     };
   }, [filteredReportAreaRows, reportMatrix.areaRows.length, reportMatrix.totalRow, reportMatrixFilters]);
 
+  // Đồng bộ reset trang, vùng chọn và reportSelection khi đổi bộ lọc Khu vực / Phường-Xã
+  useEffect(() => {
+    setTab1PendingPage(1);
+    setTab1ReceiptPage(1);
+    setTab2Page(1);
+    setTab3Page(1);
+    setReportDetailPage(1);
+    setBottomPage(1);
+    setTab1SelectedMaKhs([]);
+    setTab1SelectedReceiptMaKhs([]);
+    setTab2SelectedMaKhs([]);
+
+    if (selectedAreaId === 'ALL') {
+      setReportSelection({
+        areaId: 'ALL',
+        areaName: 'Cả Đội',
+        metric: 'all',
+        metricLabel: 'Tất cả hồ sơ'
+      });
+    } else {
+      const areaName = selectedAreaId === 'khac' ? 'Khu vực khác' : (activeAreaObj?.name || 'Cả Đội');
+      const wardName = selectedWardId !== 'ALL'
+        ? activeAreaObj?.wards.find(w => w.id === selectedWardId)?.name
+        : '';
+      setReportSelection({
+        areaId: selectedAreaId,
+        areaName: wardName ? `${areaName} - ${wardName}` : areaName,
+        metric: 'all',
+        metricLabel: 'Tất cả hồ sơ'
+      });
+    }
+  }, [selectedAreaId, selectedWardId, activeAreaObj]);
+
   // Danh sách hồ sơ gốc tương ứng với ô thống kê được chọn trong Tab 4
   const reportDetailBaseList = useMemo(() => {
-    return dvkhList.filter(item => {
+    return areaFilteredDvkhList.filter(item => {
       if (reportSelection.areaId !== 'ALL') {
         if (reportSelection.areaId === 'khac') {
           const isKnownArea = DVKH_AREAS.some(a => filterRecordByAreaAndWard(item.diaChi, a.id, 'ALL'));
@@ -1935,7 +2012,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
       if (reportSelection.metric === 'chua_hoan_tat') return st === 'Đã Nhận' || st === 'Đã Giao thi công';
       return true;
     });
-  }, [dvkhList, reportSelection]);
+  }, [areaFilteredDvkhList, reportSelection]);
 
   const reportDetailExtractors = useMemo<ColumnValueExtractors<DvkhEntry>>(() => ({
     stt: (item) => item.stt ?? '',
@@ -2617,7 +2694,12 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 divide-y sm:divide-y-0 sm:divide-x divide-slate-100 bg-slate-50/70 text-xs">
           <div className="px-3.5 py-1.5 flex items-center justify-between">
             <span className="text-slate-500 font-medium text-[11px]">Tổng hồ sơ</span>
-            <span className="font-bold text-slate-800 text-xs sm:text-sm">{dvkhList.length}</span>
+            <span className="font-bold text-slate-800 text-xs sm:text-sm">
+              {areaFilteredDvkhList.length}
+              {selectedAreaId !== 'ALL' && (
+                <span className="text-[10px] font-normal text-slate-400 ml-1">/ {dvkhList.length}</span>
+              )}
+            </span>
           </div>
           <div className="px-3.5 py-1.5 flex items-center justify-between">
             <span className="text-amber-700 font-medium text-[11px]">Chưa giao</span>
@@ -2741,9 +2823,96 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
           <span className={`shrink-0 px-1.5 sm:px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-black ${
             activeSubTab === 'report' ? 'bg-purple-300 text-purple-950' : 'bg-purple-100 text-purple-800 border border-purple-300'
           }`}>
-            {dvkhList.length}
+            {areaFilteredDvkhList.length}
           </span>
         </button>
+      </div>
+
+      {/* BỘ LỌC THEO KHU VỰC & PHƯỜNG/XÃ (ÁP DỤNG CHO CẢ 4 TAB TRONG DVKH) */}
+      <div className="bg-white rounded-2xl border border-slate-200/90 px-4 py-2.5 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700 mr-1">
+            <MapPin className="w-4 h-4 text-purple-600 shrink-0" />
+            <span>Khu vực:</span>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => handleSelectArea('ALL')}
+            className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+              selectedAreaId === 'ALL'
+                ? 'bg-purple-700 text-white border-purple-700 shadow-xs'
+                : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+            }`}
+          >
+            Tất cả <span className="opacity-80 font-mono text-[11px]">({areaRecordCounts.ALL || 0})</span>
+          </button>
+
+          {DVKH_AREAS.map(area => {
+            const isActive = selectedAreaId === area.id;
+            const count = areaRecordCounts[area.id] || 0;
+            return (
+              <button
+                key={area.id}
+                type="button"
+                onClick={() => handleSelectArea(isActive ? 'ALL' : area.id)}
+                className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                  isActive
+                    ? 'bg-purple-700 text-white border-purple-700 shadow-xs'
+                    : 'bg-slate-50 hover:bg-purple-50 hover:border-purple-200 hover:text-purple-800 text-slate-700 border-slate-200'
+                }`}
+              >
+                {area.name} <span className="opacity-80 font-mono text-[11px]">({count})</span>
+              </button>
+            );
+          })}
+
+          {(areaRecordCounts.khac || 0) > 0 && (
+            <button
+              type="button"
+              onClick={() => handleSelectArea(selectedAreaId === 'khac' ? 'ALL' : 'khac')}
+              className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                selectedAreaId === 'khac'
+                  ? 'bg-purple-700 text-white border-purple-700 shadow-xs'
+                  : 'bg-slate-50 hover:bg-purple-50 hover:border-purple-200 hover:text-purple-800 text-slate-700 border-slate-200'
+              }`}
+            >
+              Khác <span className="opacity-80 font-mono text-[11px]">({areaRecordCounts.khac})</span>
+            </button>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {activeAreaObj && activeAreaObj.wards.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-semibold text-slate-500">Phường/Xã:</span>
+              <select
+                value={selectedWardId}
+                onChange={(e) => setSelectedWardId(e.target.value)}
+                className="px-2.5 py-1 text-xs font-semibold border border-slate-300 rounded-xl bg-white text-slate-700 focus:ring-2 focus:ring-purple-500 outline-none cursor-pointer"
+              >
+                <option value="ALL">Tất cả ({activeAreaObj.wards.length} địa bàn)</option>
+                {activeAreaObj.wards.map(w => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {selectedAreaId !== 'ALL' && (
+            <button
+              type="button"
+              onClick={() => handleSelectArea('ALL')}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold transition-colors cursor-pointer"
+              title="Xóa bộ lọc khu vực đang chọn"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>Bỏ lọc KV</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* ========================================================= */}
@@ -4945,7 +5114,7 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
             </span>
             <div>
               <h3 className="text-sm font-bold text-slate-800 uppercase">
-                Danh Sách Toàn Bộ Hồ Sơ DVKH ({bottomFilteredList.length} / {dvkhList.length})
+                Danh Sách Toàn Bộ Hồ Sơ DVKH ({bottomFilteredList.length} / {areaFilteredDvkhList.length}{selectedAreaId !== 'ALL' ? ` • Tổng ${dvkhList.length}` : ''})
               </h3>
               <p className="text-[11px] text-slate-500">
                 Hiển thị tối đa 10 hồ sơ trên mỗi trang. Bấm biểu tượng phễu tại tiêu đề từng cột để lọc và sắp xếp.
@@ -5007,37 +5176,37 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                   <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px]">
                     <tr>
                       <th className="px-3 py-2.5 border-b border-slate-200 w-16 text-center">
-                        <ColumnFilterHeader label="STT" columnKey="stt" allRows={dvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} align="center" />
+                        <ColumnFilterHeader label="STT" columnKey="stt" allRows={areaFilteredDvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} align="center" />
                       </th>
                       <th className="px-3 py-2.5 border-b border-slate-200">
-                        <ColumnFilterHeader label="Mã KH" columnKey="maKh" allRows={dvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} />
+                        <ColumnFilterHeader label="Mã KH" columnKey="maKh" allRows={areaFilteredDvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} />
                       </th>
                       <th className="px-3 py-2.5 border-b border-slate-200">
-                        <ColumnFilterHeader label="Tên Khách Hàng" columnKey="tenKh" allRows={dvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} />
+                        <ColumnFilterHeader label="Tên Khách Hàng" columnKey="tenKh" allRows={areaFilteredDvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} />
                       </th>
                       <th className="px-3 py-2.5 border-b border-slate-200">
-                        <ColumnFilterHeader label="Địa Chỉ" columnKey="diaChi" allRows={dvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} />
+                        <ColumnFilterHeader label="Địa Chỉ" columnKey="diaChi" allRows={areaFilteredDvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} />
                       </th>
                       <th className="px-3 py-2.5 border-b border-slate-200">
-                        <ColumnFilterHeader label="Loại" columnKey="loaiYeuCau" allRows={dvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} />
+                        <ColumnFilterHeader label="Loại" columnKey="loaiYeuCau" allRows={areaFilteredDvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} />
                       </th>
                       <th className="px-3 py-2.5 border-b border-slate-200">
-                        <ColumnFilterHeader label="Ngày Nhận" columnKey="ngayNhan" allRows={dvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} />
+                        <ColumnFilterHeader label="Ngày Nhận" columnKey="ngayNhan" allRows={areaFilteredDvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} />
                       </th>
                       <th className="px-3 py-2.5 border-b border-slate-200">
-                        <ColumnFilterHeader label="Ngày Hoàn Tất" columnKey="ngayHoanTat" allRows={dvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} />
+                        <ColumnFilterHeader label="Ngày Hoàn Tất" columnKey="ngayHoanTat" allRows={areaFilteredDvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} />
                       </th>
                       <th className="px-3 py-2.5 border-b border-slate-200">
-                        <ColumnFilterHeader label="Ghi Chú" columnKey="ghiChu" allRows={dvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} />
+                        <ColumnFilterHeader label="Ghi Chú" columnKey="ghiChu" allRows={areaFilteredDvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} />
                       </th>
                       <th className="px-3 py-2.5 border-b border-slate-200 text-center">
-                        <ColumnFilterHeader label="Ảnh" columnKey="pic" allRows={dvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} align="center" />
+                        <ColumnFilterHeader label="Ảnh" columnKey="pic" allRows={areaFilteredDvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} align="center" />
                       </th>
                       <th className="px-3 py-2.5 border-b border-slate-200 text-center">
-                        <ColumnFilterHeader label="Trạng Thái HS" columnKey="trangThai" allRows={dvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} align="center" />
+                        <ColumnFilterHeader label="Trạng Thái HS" columnKey="trangThai" allRows={areaFilteredDvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} align="center" />
                       </th>
                       <th className="px-3 py-2.5 border-b border-slate-200">
-                        <ColumnFilterHeader label="Người Thực Hiện" columnKey="nguoiThucHien" allRows={dvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} />
+                        <ColumnFilterHeader label="Người Thực Hiện" columnKey="nguoiThucHien" allRows={areaFilteredDvkhList} extractors={bottomExtractors} filters={bottomFilters} onChangeFilters={setBottomFilters} sortState={bottomSort} onChangeSort={setBottomSort} />
                       </th>
                       {canDeletePendingRecord && (
                         <th className="px-3 py-2.5 border-b border-slate-200 text-center w-14">Xóa</th>
@@ -5048,10 +5217,14 @@ export default function DvkhTab({ sessionUser, refreshToggle = 0 }: DvkhTabProps
                     {bottomFilteredList.length === 0 ? (
                       <tr>
                         <td colSpan={canDeletePendingRecord ? 12 : 11} className="py-10 text-center text-slate-400 text-xs italic">
-                          Không tìm thấy hồ sơ nào phù hợp với phễu lọc cột hiện tại.{' '}
+                          Không tìm thấy hồ sơ nào phù hợp với bộ lọc hiện tại.{' '}
                           <button
                             type="button"
-                            onClick={() => { setBottomFilters({}); setBottomSort(null); }}
+                            onClick={() => {
+                              setBottomFilters({});
+                              setBottomSort(null);
+                              if (selectedAreaId !== 'ALL') handleSelectArea('ALL');
+                            }}
                             className="text-purple-700 font-semibold underline hover:text-purple-900 cursor-pointer ml-1"
                           >
                             Bỏ lọc
