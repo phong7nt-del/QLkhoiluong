@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { DataStore, SheetMember, getTeamPrefix } from '../store/DataStore';
 import { PermissionStore } from '../store/PermissionStore';
-import { PlusCircle, Search, CheckSquare, Square, Mic, ClipboardList, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { PlusCircle, Search, CheckSquare, Square, Mic, ClipboardList, AlertCircle, CheckCircle2, ArrowDownAZ, ArrowUpZA, X } from 'lucide-react';
 import { format } from 'date-fns';
 
 export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: { onSaved: () => void, refreshToggle: number, isManagement?: boolean }) {
@@ -35,6 +35,33 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
   
   const [selectedTasks, setSelectedTasks] = useState<Record<string, {selected: boolean, quantity: number | string}>>({});
   const [taskSearch, setTaskSearch] = useState('');
+  const [taskSortOrder, setTaskSortOrder] = useState<'asc' | 'desc'>('asc');
+
+  const displayedTasks = useMemo(() => {
+    const normalizeVi = (s: string) =>
+      (s || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/đ/g, 'd')
+        .replace(/Đ/g, 'D')
+        .toLowerCase()
+        .trim();
+
+    const qRaw = taskSearch.trim().toLowerCase();
+    const qNorm = normalizeVi(taskSearch);
+
+    const filtered = dinhMucList.filter(dm => {
+      if (!qRaw) return true;
+      const nameLower = dm.name.toLowerCase();
+      if (nameLower.includes(qRaw)) return true;
+      return normalizeVi(dm.name).includes(qNorm);
+    });
+
+    return [...filtered].sort((a, b) => {
+      const cmp = a.name.localeCompare(b.name, 'vi', { sensitivity: 'base', numeric: true });
+      return taskSortOrder === 'asc' ? cmp : -cmp;
+    });
+  }, [dinhMucList, taskSearch, taskSortOrder]);
   
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
 
@@ -861,24 +888,68 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
         </div>
 
         <div>
-           <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-3">Các Nội Dung Công Việc</label>
+           <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+             <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+               Các Nội Dung Công Việc ({displayedTasks.length}{displayedTasks.length !== dinhMucList.length ? ` / ${dinhMucList.length}` : ''})
+             </label>
+             <div className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-100/80 p-0.5 gap-0.5">
+               <button
+                 type="button"
+                 onClick={() => setTaskSortOrder('asc')}
+                 className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                   taskSortOrder === 'asc'
+                     ? 'bg-white text-blue-700 shadow-xs border border-blue-200'
+                     : 'text-slate-600 hover:text-slate-900'
+                 }`}
+                 title="Sắp xếp theo tên công việc từ A đến Z"
+               >
+                 <ArrowDownAZ className="w-3.5 h-3.5" />
+                 <span>A → Z</span>
+               </button>
+               <button
+                 type="button"
+                 onClick={() => setTaskSortOrder('desc')}
+                 className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                   taskSortOrder === 'desc'
+                     ? 'bg-white text-blue-700 shadow-xs border border-blue-200'
+                     : 'text-slate-600 hover:text-slate-900'
+                 }`}
+                 title="Sắp xếp theo tên công việc từ Z về A"
+               >
+                 <ArrowUpZA className="w-3.5 h-3.5" />
+                 <span>Z → A</span>
+               </button>
+             </div>
+           </div>
            <div className="mb-3 relative">
+               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                <input 
                  type="text" 
                  value={taskSearch} 
                  onChange={e => setTaskSearch(e.target.value)}
                  placeholder="Tìm nhanh nội dung công việc..."
-                 className="w-full bg-[#E4E3E0]/50 border border-[#141414]/20 p-2 text-sm focus:outline-none focus:border-[#141414]"
+                 className="w-full bg-[#E4E3E0]/50 border border-[#141414]/20 pl-9 pr-8 py-2 text-sm focus:outline-none focus:border-[#141414]"
                />
+               {taskSearch && (
+                 <button
+                   type="button"
+                   onClick={() => setTaskSearch('')}
+                   className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer"
+                   title="Xóa tìm kiếm"
+                 >
+                   <X className="w-4 h-4" />
+                 </button>
+               )}
            </div>
            <div className="space-y-1.5 bg-slate-50/50 rounded-xl p-3 border border-slate-200 max-h-[28rem] overflow-y-auto">
              {dinhMucList.length > 0 ? (
-               dinhMucList.filter(dm => dm.name.toLowerCase().includes(taskSearch.toLowerCase())).map(dm => {
+               displayedTasks.length > 0 ? (
+                 displayedTasks.map((dm, idx) => {
                  const isChecked = selectedTasks[dm.name]?.selected || false;
                  const qty = selectedTasks[dm.name]?.quantity ?? '';
                  
                  return (
-                   <div key={dm.name} className={`flex items-center justify-between py-1.5 px-3 border ${isChecked ? 'bg-white border-[#141414] shadow-[2px_2px_0_#141414]' : 'bg-transparent border-[#141414]/20 hover:border-[#141414]/50 hover:bg-[#E4E3E0]/30'} transition-all`}>
+                   <div key={`${dm.name}_${idx}`} className={`flex items-center justify-between py-1.5 px-3 border ${isChecked ? 'bg-white border-[#141414] shadow-[2px_2px_0_#141414]' : 'bg-transparent border-[#141414]/20 hover:border-[#141414]/50 hover:bg-[#E4E3E0]/30'} transition-all`}>
                       <div 
                          className="flex items-center gap-3 cursor-pointer flex-1"
                          onClick={() => toggleTask(dm.name)}
@@ -913,6 +984,9 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
                    </div>
                  );
                })
+               ) : (
+                 <div className="text-center italic opacity-60 text-sm py-4">Không tìm thấy nội dung công việc phù hợp với "{taskSearch}".</div>
+               )
              ) : (
                <div className="text-center italic opacity-50 text-sm py-4">Chưa có Nội dung định mức (Vào Cấu hình tải)</div>
              )}
