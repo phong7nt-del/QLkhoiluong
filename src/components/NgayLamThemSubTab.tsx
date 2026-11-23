@@ -103,20 +103,20 @@ export default function NgayLamThemSubTab({ refreshToggle, sessionUser, onRefres
     return r;
   }, [sessionUser]);
 
+  const [permTick, setPermTick] = useState(0);
+  React.useEffect(() => {
+    const onPerm = () => setPermTick(v => v + 1);
+    window.addEventListener('permissions_updated', onPerm);
+    return () => window.removeEventListener('permissions_updated', onPerm);
+  }, []);
+
   const canManageNghiBu = useMemo(() => {
-    const norm = normalizeRoleStr(userRoleStr);
     const uName = normalizeRoleStr(sessionUser?.name || '');
     if (uName.includes('nguyen thanh phong') || uName.includes('thanh phong') || (sessionUser as any)?.email?.includes('phong7nt')) {
       return true;
     }
-    return (
-      norm.includes('doi truong') ||
-      norm.includes('giam doc') ||
-      norm.includes('doi pho') ||
-      norm.includes('to truong') ||
-      PermissionStore.hasActionAccess('update_nghibu', userRoleStr, sessionUser)
-    );
-  }, [userRoleStr, sessionUser]);
+    return PermissionStore.hasActionAccess('update_nghibu', userRoleStr, sessionUser);
+  }, [userRoleStr, sessionUser, permTick]);
 
   // Available years from entries
   const availableYears = useMemo(() => {

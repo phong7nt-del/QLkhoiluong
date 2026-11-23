@@ -261,10 +261,17 @@ export default function Tab963DienKe({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  const [permTick, setPermTick] = useState(0);
+  useEffect(() => {
+    const onPerm = () => setPermTick(v => v + 1);
+    window.addEventListener('permissions_updated', onPerm);
+    return () => window.removeEventListener('permissions_updated', onPerm);
+  }, []);
+
   // Quyền truy cập: Chỉ cho phép từ Tổ phó, Tổ trưởng trở lên (cấu hình trong tab Hệ thống)
   const canAccess = useMemo(() => {
     return PermissionStore.hasActionAccess('tab963_dien_ke', sessionUser?.role || '', sessionUser);
-  }, [sessionUser]);
+  }, [sessionUser, permTick]);
 
   // Form state nhập mới (hỗ trợ 5 chủng loại)
   const [formNgay, setFormNgay] = useState<string>(getTodayFormatted());

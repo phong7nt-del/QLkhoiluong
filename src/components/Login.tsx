@@ -36,6 +36,9 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   const syncPromiseRef = useRef<Promise<SheetMember[]> | null>(null);
 
   useEffect(() => {
+    // Đồng bộ cấu hình hệ thống mới nhất từ máy chủ ngay khi mở màn hình đăng nhập
+    DataStore.syncCentralConfig().catch(() => {});
+
     // Tải siêu tốc danh sách nhân viên trong nền để không bao giờ làm gián đoạn hoặc bắt người dùng chờ
     syncPromiseRef.current = DataStore.syncLoginMembers();
     syncPromiseRef.current

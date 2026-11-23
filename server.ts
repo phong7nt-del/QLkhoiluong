@@ -70,10 +70,29 @@ async function startServer() {
     return KNOWN_GIDS[cleanName] || null;
   }
 
-  // Shared server configuration (synchronizes Apps Script URL and Spreadsheet ID across all devices)
+  // Shared server configuration (synchronizes Apps Script URL, Spreadsheet ID, RBAC, and all SystemTab settings across all devices)
   const sharedConfigPath = path.join(process.cwd(), 'shared_config.json');
 
+  interface SharedSystemSettings {
+    rbac?: any;
+    productivity?: any;
+    congDoan?: any;
+    externalReportLinks?: any[];
+    kthtddAreaPolicy?: any;
+    dvkhConfig?: any;
+    updatedAt?: string;
+    sectionVersions?: Record<string, number>;
+  }
+
+  let sharedConfigCache: any = null;
+  let sheetHydrationPromise: Promise<void> | null = null;
+  let sheetHydratedOnce = false;
+  let sheetBackupTimer: NodeJS.Timeout | null = null;
+
   const getSharedConfig = () => {
+    if (sharedConfigCache) {
+      return sharedConfigCache;
+    }
     try {
       if (fs.existsSync(sharedConfigPath)) {
         const parsed = JSON.parse(fs.readFileSync(sharedConfigPath, 'utf8'));
@@ -84,17 +103,164 @@ async function startServer() {
         }
         parsed.canonicalAppScriptUrl = CANONICAL_APP_SCRIPT_URL;
         parsed.canonicalSpreadsheetId = CANONICAL_SPREADSHEET_ID;
+        sharedConfigCache = parsed;
         return parsed;
       }
     } catch (e) {}
-    return {
+    const def = {
       spreadsheetId: CANONICAL_SPREADSHEET_ID,
       appScriptUrl: CANONICAL_APP_SCRIPT_URL,
       canonicalAppScriptUrl: CANONICAL_APP_SCRIPT_URL,
       canonicalSpreadsheetId: CANONICAL_SPREADSHEET_ID,
-      isCustom: false
+      isCustom: false,
+      systemSettings: {} as SharedSystemSettings
     };
+    sharedConfigCache = def;
+    return def;
   };
+
+  const persistSharedConfigFile = (cfg: any) => {
+    sharedConfigCache = cfg;
+    try {
+      fs.writeFileSync(sharedConfigPath, JSON.stringify(cfg, null, 2), 'utf8');
+    } catch (e) {
+      console.warn('Could not write shared_config.json:', e);
+    }
+  };
+
+  const SYSTEM_SECTION_KEYS = ['rbac', 'productivity', 'congDoan', 'externalReportLinks', 'kthtddAreaPolicy', 'dvkhConfig'] as const;
+
+  const backupSystemSettingsToSheet = async (cfg: any) => {
+    try {
+      const targetUrl = cfg?.appScriptUrl || CANONICAL_APP_SCRIPT_URL;
+      if (!targetUrl || !targetUrl.startsWith('http')) return;
+      const sys = cfg?.systemSettings || {};
+      const nowIso = new Date().toISOString();
+      const rows: string[][] = [
+        ['__schema__', 'qlhtdd_system_config_v1', nowIso],
+        ['__versions__', JSON.stringify(sys.sectionVersions || {}), nowIso]
+      ];
+      for (const k of SYSTEM_SECTION_KEYS) {
+        if (sys[k] !== undefined) {
+          rows.push([k, JSON.stringify(sys[k]), nowIso]);
+        }
+      }
+      await fetch(targetUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'overwrite_sheet',
+          sheetName: 'CauHinhHeThong',
+          chunkIndex: 0,
+          totalChunks: 1,
+          headers: ['Key', 'Value', 'UpdatedAt'],
+          rows
+        })
+      });
+    } catch (e) {
+      console.warn('Background backup CauHinhHeThong warning:', (e as any)?.message || e);
+    }
+  };
+
+  const scheduleBackupSystemSettings = (cfg: any) => {
+    if (sheetBackupTimer) clearTimeout(sheetBackupTimer);
+    sheetBackupTimer = setTimeout(() => {
+      backupSystemSettingsToSheet(cfg).catch(() => {});
+    }, 600);
+  };
+
+  const hydrateSystemSettingsFromSheet = async (): Promise<void> => {
+    if (sheetHydratedOnce) return;
+    if (sheetHydrationPromise) return sheetHydrationPromise;
+
+    sheetHydrationPromise = (async () => {
+      try {
+        const cur = getSharedConfig();
+        // If local shared_config.json already has saved sections, no need to overwrite from sheet
+        const existingSys = cur.systemSettings || {};
+        const hasAnyLocalSection = SYSTEM_SECTION_KEYS.some(k => existingSys[k] !== undefined);
+        if (hasAnyLocalSection) {
+          sheetHydratedOnce = true;
+          return;
+        }
+
+        const sheetId = cur.spreadsheetId || CANONICAL_SPREADSHEET_ID;
+        const gid = await getGidForSheet(sheetId, 'CauHinhHeThong');
+        if (!gid) {
+          sheetHydratedOnce = true;
+          return;
+        }
+
+        const exportUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}&_t=${Date.now()}`;
+        const res = await fetch(exportUrl, {
+          headers: { 'User-Agent': 'Mozilla/5.0', 'Cache-Control': 'no-cache' }
+        });
+        if (!res.ok) {
+          sheetHydratedOnce = true;
+          return;
+        }
+        const csvText = await res.text();
+        if (!csvText || csvText.includes('<html')) {
+          sheetHydratedOnce = true;
+          return;
+        }
+
+        const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+        const rows = Array.isArray(parsed.data) ? parsed.data : [];
+        const rowMap = new Map<string, string>();
+        for (const r of rows as any[]) {
+          const k = String(r.Key ?? r.key ?? '').trim();
+          const v = String(r.Value ?? r.value ?? '').trim();
+          if (k) rowMap.set(k, v);
+        }
+
+        if (rowMap.get('__schema__') !== 'qlhtdd_system_config_v1') {
+          sheetHydratedOnce = true;
+          return;
+        }
+
+        const restored: SharedSystemSettings = {
+          updatedAt: new Date().toISOString(),
+          sectionVersions: {}
+        };
+        const rawVers = rowMap.get('__versions__');
+        if (rawVers) {
+          try { restored.sectionVersions = JSON.parse(rawVers); } catch {}
+        }
+
+        for (const k of SYSTEM_SECTION_KEYS) {
+          const rawVal = rowMap.get(k);
+          if (rawVal) {
+            try {
+              (restored as any)[k] = JSON.parse(rawVal);
+            } catch {}
+          }
+        }
+
+        const latest = getSharedConfig();
+        const mergedCfg = {
+          ...latest,
+          systemSettings: {
+            ...restored,
+            ...(latest.systemSettings || {}),
+            sectionVersions: {
+              ...(restored.sectionVersions || {}),
+              ...((latest.systemSettings && latest.systemSettings.sectionVersions) || {})
+            }
+          }
+        };
+        persistSharedConfigFile(mergedCfg);
+        sheetHydratedOnce = true;
+      } catch (e) {
+        sheetHydratedOnce = true;
+      }
+    })();
+
+    return sheetHydrationPromise;
+  };
+
+  // Pre-warm system settings hydration in background at server boot
+  hydrateSystemSettingsFromSheet().catch(() => {});
 
   // API route for version info (always no-cache to ensure clients detect new releases immediately)
   const getVersionData = () => {
@@ -129,19 +295,44 @@ async function startServer() {
     res.json(getVersionData());
   });
 
-  const saveSharedConfig = (data: Partial<{ spreadsheetId: string; appScriptUrl: string; isCustom?: boolean }>) => {
+  const saveSharedConfig = (data: Partial<{ spreadsheetId: string; appScriptUrl: string; isCustom?: boolean; systemSettings?: Partial<SharedSystemSettings> }>) => {
     try {
       const cur = getSharedConfig();
+      const nowMs = Date.now();
+      const nowIso = new Date(nowMs).toISOString();
+      let nextSystemSettings: SharedSystemSettings = {
+        ...(cur.systemSettings || {}),
+        sectionVersions: { ...((cur.systemSettings && cur.systemSettings.sectionVersions) || {}) }
+      };
+
+      let hasSystemSettingsChange = false;
+      if (data.systemSettings && typeof data.systemSettings === 'object') {
+        for (const k of SYSTEM_SECTION_KEYS) {
+          if ((data.systemSettings as any)[k] !== undefined) {
+            (nextSystemSettings as any)[k] = (data.systemSettings as any)[k];
+            nextSystemSettings.sectionVersions![k] = nowMs;
+            hasSystemSettingsChange = true;
+          }
+        }
+        if (hasSystemSettingsChange) {
+          nextSystemSettings.updatedAt = nowIso;
+        }
+      }
+
       const updated = {
         ...cur,
         ...(data.spreadsheetId ? { spreadsheetId: data.spreadsheetId } : {}),
         ...(data.appScriptUrl ? { appScriptUrl: data.appScriptUrl } : {}),
         ...(data.isCustom !== undefined ? { isCustom: data.isCustom } : {}),
+        systemSettings: nextSystemSettings,
         canonicalAppScriptUrl: CANONICAL_APP_SCRIPT_URL,
         canonicalSpreadsheetId: CANONICAL_SPREADSHEET_ID,
-        updatedAt: new Date().toISOString()
+        updatedAt: nowIso
       };
-      fs.writeFileSync(sharedConfigPath, JSON.stringify(updated, null, 2), 'utf8');
+      persistSharedConfigFile(updated);
+      if (hasSystemSettingsChange) {
+        scheduleBackupSystemSettings(updated);
+      }
       return updated;
     } catch (e) {
       console.warn('Could not save shared config:', e);
@@ -149,14 +340,20 @@ async function startServer() {
     }
   };
 
-  app.get("/api/config", (req, res) => {
+  app.get("/api/config", async (req, res) => {
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    if (!sheetHydratedOnce) {
+      await Promise.race([
+        hydrateSystemSettingsFromSheet(),
+        new Promise(resolve => setTimeout(resolve, 2500))
+      ]);
+    }
     res.json(getSharedConfig());
   });
 
   app.post("/api/config", (req, res) => {
-    const { spreadsheetId, appScriptUrl, isCustom } = req.body || {};
-    const updated = saveSharedConfig({ spreadsheetId, appScriptUrl, isCustom });
+    const { spreadsheetId, appScriptUrl, isCustom, systemSettings } = req.body || {};
+    const updated = saveSharedConfig({ spreadsheetId, appScriptUrl, isCustom, systemSettings });
     res.json({ success: !!updated, config: updated });
   });
 

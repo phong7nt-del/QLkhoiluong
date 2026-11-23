@@ -272,8 +272,34 @@ export default function SystemTab({ sessionUser }: { sessionUser?: SheetMember |
             setDataUrl(DataStore.getAppScriptUrl());
             setSheetInput(DataStore.getSpreadsheetId());
         };
+        const handleSystemConfigSync = () => {
+            setConfig(PermissionStore.getConfig());
+            setExcludeSat(DataStore.getExcludeSaturday());
+            setExcludeSun(DataStore.getExcludeSunday());
+            setExcludeNghi(DataStore.getExcludeNghi());
+            setExcludeHolidays(DataStore.getExcludeHolidays());
+            setHolidays(DataStore.getHolidays());
+            setAllowAllLock(DataStore.getAllowAllLockPlan());
+            setCongDoanLeaders(DataStore.getCongDoanLeaderNames());
+            setExclusions(DataStore.getTuyenDuongExclusions());
+            setReportLinks(DataStore.getExternalReportLinks());
+            setKthtddPolicy(DataStore.getKthtddAreaPolicy());
+            setAllowCustomNgayHoanTatDvkh(DataStore.getAllowCustomNgayHoanTatDvkh());
+        };
         window.addEventListener('app_script_url_updated', handleUrlChange);
-        return () => window.removeEventListener('app_script_url_updated', handleUrlChange);
+        window.addEventListener('system_config_updated', handleSystemConfigSync);
+        window.addEventListener('permissions_updated', handleSystemConfigSync);
+        window.addEventListener('kthtdd_policy_updated', handleSystemConfigSync);
+        window.addEventListener('external_report_links_changed', handleSystemConfigSync);
+        window.addEventListener('dvkh_config_updated', handleSystemConfigSync);
+        return () => {
+            window.removeEventListener('app_script_url_updated', handleUrlChange);
+            window.removeEventListener('system_config_updated', handleSystemConfigSync);
+            window.removeEventListener('permissions_updated', handleSystemConfigSync);
+            window.removeEventListener('kthtdd_policy_updated', handleSystemConfigSync);
+            window.removeEventListener('external_report_links_changed', handleSystemConfigSync);
+            window.removeEventListener('dvkh_config_updated', handleSystemConfigSync);
+        };
     }, []);
 
     const handleSaveDataUrl = async () => {
@@ -1074,7 +1100,11 @@ export default function SystemTab({ sessionUser }: { sessionUser?: SheetMember |
     };
 
     const handleToggleTab = (tabId: string, role: AppRole) => {
-        const newConfig = { ...config };
+        const newConfig: RBACConfig = {
+            ...config,
+            tabs: { ...config.tabs },
+            actions: { ...config.actions }
+        };
         const currentRoles = newConfig.tabs[tabId] || [];
         if (currentRoles.includes(role)) {
             newConfig.tabs[tabId] = currentRoles.filter(r => r !== role);
@@ -1082,10 +1112,15 @@ export default function SystemTab({ sessionUser }: { sessionUser?: SheetMember |
             newConfig.tabs[tabId] = [...currentRoles, role];
         }
         setConfig(newConfig);
+        PermissionStore.saveConfig(newConfig);
     };
 
     const handleToggleAction = (actionId: string, role: AppRole) => {
-        const newConfig = { ...config };
+        const newConfig: RBACConfig = {
+            ...config,
+            tabs: { ...config.tabs },
+            actions: { ...config.actions }
+        };
         const currentRoles = newConfig.actions[actionId] || [];
         if (currentRoles.includes(role)) {
             newConfig.actions[actionId] = currentRoles.filter(r => r !== role);
@@ -1093,17 +1128,26 @@ export default function SystemTab({ sessionUser }: { sessionUser?: SheetMember |
             newConfig.actions[actionId] = [...currentRoles, role];
         }
         setConfig(newConfig);
+        PermissionStore.saveConfig(newConfig);
     };
 
-    const handleSave = () => {
-        PermissionStore.saveConfig(config);
-        setMessage({ type: 'success', text: 'Đã lưu cấu hình phân quyền thành công! Hãy tải lại trang để áp dụng hoàn toàn.' });
+    const handleSave = async () => {
+        const ok = await PermissionStore.saveConfigAsync(config);
+        if (ok) {
+            setMessage({ type: 'success', text: 'Đã lưu và đồng bộ cấu hình phân quyền cho tất cả thiết bị và người dùng!' });
+        } else {
+            setMessage({ type: 'success', text: 'Đã lưu cấu hình phân quyền trên máy này (không kết nối được máy chủ để đồng bộ).' });
+        }
         setTimeout(() => setMessage(null), 5000);
     };
 
-    const handleReset = () => {
-        if (confirm("Bạn có chắc chắn muốn khôi phục phân quyền về mặc định ban đầu?")) {
-            setConfig(JSON.parse(JSON.stringify(DEFAULT_RBAC)));
+    const handleReset = async () => {
+        if (confirm("Bạn có chắc chắn muốn khôi phục phân quyền về mặc định ban đầu cho toàn hệ thống?")) {
+            const def: RBACConfig = JSON.parse(JSON.stringify(DEFAULT_RBAC));
+            setConfig(def);
+            await PermissionStore.saveConfigAsync(def);
+            setMessage({ type: 'success', text: 'Đã khôi phục phân quyền mặc định và đồng bộ cho tất cả thiết bị!' });
+            setTimeout(() => setMessage(null), 5000);
         }
     };
 

@@ -31,7 +31,7 @@ export const DEFAULT_RBAC: RBACConfig = {
   actions: {
     'config_system': STANDARD_ROLES, // Nút Cài đặt (bánh răng) cho nhân sự QLHTĐĐ, không gồm DVKH
     'edit_others_workload': ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'],
-    'bao_cao_ho': ['đội trưởng', 'giám đốc'],
+    'bao_cao_ho': ['đội trưởng', 'giám đốc', 'phó giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'],
     'view_online_users': ['đội trưởng'], // xem danh sách người dùng online (mặc định Đội trưởng)
     'kthtdd_all_areas': ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'], // Kiện toàn tất cả khu vực (nếu nhân viên không có quyền này thì chỉ kiện toàn ở khu vực quản lý)
     'import_htdd_data': ['đội trưởng'], // Import dữ liệu Quá hạn / Cuối năm (HTDD) - mặc định Đội trưởng
@@ -156,29 +156,31 @@ export const PermissionStore = {
       const stored = localStorage.getItem(RBAC_STORAGE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored) as RBACConfig;
-        // Merge with default to ensure new tabs/actions are included
+        // Merge with default to ensure new tabs/actions are included (only fill when missing, preserve explicit admin arrays)
+        const parsedTabs = parsed.tabs || {};
+        const parsedActions = parsed.actions || {};
         const merged: RBACConfig = {
-           tabs: { ...DEFAULT_RBAC.tabs, ...(parsed.tabs || {}) },
-           actions: { ...DEFAULT_RBAC.actions, ...(parsed.actions || {}) }
+           tabs: { ...DEFAULT_RBAC.tabs, ...parsedTabs },
+           actions: { ...DEFAULT_RBAC.actions, ...parsedActions }
         };
-        // Ensure new action view_online_users defaults to Đội trưởng if not explicitly configured
-        if (!merged.actions['view_online_users'] || !Array.isArray(merged.actions['view_online_users']) || merged.actions['view_online_users'].length === 0) {
+        // Ensure new action view_online_users defaults to Đội trưởng if missing
+        if (!Array.isArray(parsedActions['view_online_users'])) {
            merged.actions['view_online_users'] = DEFAULT_RBAC.actions['view_online_users'] || ['đội trưởng'];
         }
-        // Ensure new action kthtdd_all_areas defaults to management roles if not explicitly configured
-        if (!merged.actions['kthtdd_all_areas'] || !Array.isArray(merged.actions['kthtdd_all_areas']) || merged.actions['kthtdd_all_areas'].length === 0) {
+        // Ensure new action kthtdd_all_areas defaults to management roles if missing
+        if (!Array.isArray(parsedActions['kthtdd_all_areas'])) {
            merged.actions['kthtdd_all_areas'] = DEFAULT_RBAC.actions['kthtdd_all_areas'] || ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'];
         }
-        // Ensure new action tab963_bao_cao_ngay defaults to management roles (Tổ phó, Tổ trưởng trở lên) if not explicitly configured
-        if (!merged.actions['tab963_bao_cao_ngay'] || !Array.isArray(merged.actions['tab963_bao_cao_ngay']) || merged.actions['tab963_bao_cao_ngay'].length === 0) {
+        // Ensure new action tab963_bao_cao_ngay defaults to management roles if missing
+        if (!Array.isArray(parsedActions['tab963_bao_cao_ngay'])) {
            merged.actions['tab963_bao_cao_ngay'] = DEFAULT_RBAC.actions['tab963_bao_cao_ngay'] || ['đội trưởng', 'giám đốc', 'phó giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'];
         }
-        // Ensure new action tab963_dien_ke defaults to management roles (Tổ phó, Tổ trưởng trở lên) if not explicitly configured
-        if (!merged.actions['tab963_dien_ke'] || !Array.isArray(merged.actions['tab963_dien_ke']) || merged.actions['tab963_dien_ke'].length === 0) {
+        // Ensure new action tab963_dien_ke defaults to management roles if missing
+        if (!Array.isArray(parsedActions['tab963_dien_ke'])) {
            merged.actions['tab963_dien_ke'] = DEFAULT_RBAC.actions['tab963_dien_ke'] || ['đội trưởng', 'giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'];
         }
         // Ensure tab dvkh includes DVKH role
-        if (!merged.tabs['dvkh'] || !Array.isArray(merged.tabs['dvkh']) || merged.tabs['dvkh'].length === 0) {
+        if (!Array.isArray(merged.tabs['dvkh']) || merged.tabs['dvkh'].length === 0) {
            merged.tabs['dvkh'] = DEFAULT_RBAC.tabs['dvkh'] || ALL_ROLES;
         } else if (!merged.tabs['dvkh'].includes('DVKH')) {
            merged.tabs['dvkh'].push('DVKH');
@@ -200,17 +202,83 @@ export const PermissionStore = {
             localStorage.setItem(dvkhFixKey, '1');
           } catch {}
         }
+        // One-time migration: ensure bao_cao_ho defaults to từ Tổ phó trở lên
+        const baoCaoHoFixKey = 'app_rbac_bao_cao_ho_topho_v1';
+        if (!localStorage.getItem(baoCaoHoFixKey)) {
+          const defaultBaoCaoHoRoles: AppRole[] = ['đội trưởng', 'giám đốc', 'phó giám đốc', 'đội phó', 'tổ trưởng', 'tổ phó'];
+          const existingRoles = Array.isArray(merged.actions['bao_cao_ho']) ? merged.actions['bao_cao_ho'] : [];
+          merged.actions['bao_cao_ho'] = Array.from(new Set<AppRole>([...existingRoles, ...defaultBaoCaoHoRoles]));
+          try {
+            localStorage.setItem(RBAC_STORAGE_KEY, JSON.stringify(merged));
+            localStorage.setItem(baoCaoHoFixKey, '1');
+          } catch {}
+        }
         return merged;
       }
     } catch (e) {}
     return DEFAULT_RBAC;
   },
 
-  saveConfig: (config: RBACConfig) => {
+  applyRemoteConfig: (remoteConfig: RBACConfig): boolean => {
+    try {
+      if (!remoteConfig || typeof remoteConfig !== 'object') return false;
+      const merged: RBACConfig = {
+        tabs: { ...DEFAULT_RBAC.tabs, ...(remoteConfig.tabs || {}) },
+        actions: { ...DEFAULT_RBAC.actions, ...(remoteConfig.actions || {}) }
+      };
+      if (!Array.isArray(merged.tabs['dvkh']) || merged.tabs['dvkh'].length === 0) {
+        merged.tabs['dvkh'] = DEFAULT_RBAC.tabs['dvkh'] || ALL_ROLES;
+      } else if (!merged.tabs['dvkh'].includes('DVKH')) {
+        merged.tabs['dvkh'].push('DVKH');
+      }
+
+      const nextStr = JSON.stringify(merged);
+      const prevStr = typeof window !== 'undefined' ? localStorage.getItem(RBAC_STORAGE_KEY) : null;
+      if (prevStr === nextStr) return false;
+
+      localStorage.setItem(RBAC_STORAGE_KEY, nextStr);
+      localStorage.setItem('app_rbac_dvkh_only_tab_v1', '1');
+      localStorage.setItem('app_rbac_bao_cao_ho_topho_v1', '1');
+      window.dispatchEvent(new CustomEvent('permissions_updated'));
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
+  saveConfig: (config: RBACConfig, syncToServer: boolean = true) => {
     try {
       localStorage.setItem(RBAC_STORAGE_KEY, JSON.stringify(config));
+      localStorage.setItem('app_rbac_dvkh_only_tab_v1', '1');
+      localStorage.setItem('app_rbac_bao_cao_ho_topho_v1', '1');
       window.dispatchEvent(new CustomEvent('permissions_updated'));
+      if (syncToServer && typeof fetch === 'function') {
+        fetch('/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ systemSettings: { rbac: config } })
+        }).catch(() => {});
+      }
     } catch (e) {}
+  },
+
+  saveConfigAsync: async (config: RBACConfig): Promise<boolean> => {
+    try {
+      localStorage.setItem(RBAC_STORAGE_KEY, JSON.stringify(config));
+      localStorage.setItem('app_rbac_dvkh_only_tab_v1', '1');
+      localStorage.setItem('app_rbac_bao_cao_ho_topho_v1', '1');
+      window.dispatchEvent(new CustomEvent('permissions_updated'));
+      const res = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ systemSettings: { rbac: config } })
+      });
+      if (!res.ok) return false;
+      const json = await res.json();
+      return !!json?.success;
+    } catch {
+      return false;
+    }
   },
 
   getUserRoles: (roleString: string, userObj?: any): AppRole[] => {
@@ -307,7 +375,7 @@ export const PermissionStore = {
 
     const config = PermissionStore.getConfig();
     let allowedRoles = config.actions[actionId];
-    if (!allowedRoles || !Array.isArray(allowedRoles) || allowedRoles.length === 0) {
+    if (!Array.isArray(allowedRoles)) {
       allowedRoles = DEFAULT_RBAC.actions[actionId] || [];
     }
     return userRoles.some(r => allowedRoles.includes(r));

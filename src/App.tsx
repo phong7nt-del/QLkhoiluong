@@ -363,9 +363,18 @@ export default function App() {
   useEffect(() => {
     const handlePermissionsUpdated = () => {
       setPermissionsVersion(v => v + 1);
+      setRefreshToggle(v => v + 1);
+    };
+    const handleSystemConfigUpdated = () => {
+      setPermissionsVersion(v => v + 1);
+      setRefreshToggle(v => v + 1);
     };
     window.addEventListener('permissions_updated', handlePermissionsUpdated);
-    return () => window.removeEventListener('permissions_updated', handlePermissionsUpdated);
+    window.addEventListener('system_config_updated', handleSystemConfigUpdated);
+    return () => {
+      window.removeEventListener('permissions_updated', handlePermissionsUpdated);
+      window.removeEventListener('system_config_updated', handleSystemConfigUpdated);
+    };
   }, []);
 
   const roleStr = useMemo(() => {
@@ -486,6 +495,7 @@ export default function App() {
   }, [refreshToggle, isManagement]);
 
   const syncData = async () => {
+    await DataStore.syncCentralConfig();
     await DataStore.syncMasterData();
     setRefreshToggle(prev => prev + 1);
   };

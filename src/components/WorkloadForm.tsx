@@ -68,20 +68,30 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
   const [filteredMembers, setFilteredMembers] = useState<string[]>([]);
   const [message, setMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
   const [sessionUser, setSessionUser] = useState<SheetMember | null>(null);
-  
+  const [permissionsVersion, setPermissionsVersion] = useState(0);
+  const [isMemberDropdownOpen, setIsMemberDropdownOpen] = useState(false);
+
   useEffect(() => {
     const stored = sessionStorage.getItem('workload_user_session');
     if (stored) {
        try { setSessionUser(JSON.parse(stored)); } catch(e){}
     }
+    const handlePermUpdate = () => setPermissionsVersion(v => v + 1);
+    window.addEventListener('permissions_updated', handlePermUpdate);
+    return () => window.removeEventListener('permissions_updated', handlePermUpdate);
   }, []);
-  
+
+  const canBaoCaoHo = useMemo(() => {
+    if (!sessionUser) return false;
+    return PermissionStore.hasActionAccess('bao_cao_ho', sessionUser.role || '', sessionUser);
+  }, [sessionUser, permissionsVersion]);
+
   const isDeleteAllowed = () => {
       if (!sessionUser) return false;
       const roleStr = sessionUser.role ? sessionUser.role.toLowerCase() : '';
       // isManagement logic replaced with PermissionStore check
-      const canEditOthers = PermissionStore.hasActionAccess('edit_others_workload', roleStr);
-            
+      const canEditOthers = PermissionStore.hasActionAccess('edit_others_workload', roleStr, sessionUser);
+
       if (canEditOthers) return true;
       return false;
   };
@@ -356,7 +366,16 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
       return;
     }
     
-    if (sessionUser && sessionUser.name && !members.includes(sessionUser.name)) {
+    const canReportForOthers = sessionUser
+      ? PermissionStore.hasActionAccess('bao_cao_ho', sessionUser.role || '', sessionUser)
+      : false;
+    const isSelfIncluded =
+      !!sessionUser?.name &&
+      members.some(
+        m => DataStore.normalizeUserKey(m) === DataStore.normalizeUserKey(sessionUser.name)
+      );
+
+    if (sessionUser && sessionUser.name && !isSelfIncluded && !canReportForOthers) {
       setMessage({ type: 'error', text: "Bạn chỉ được phép nhập báo cáo cho chính mình hoặc nhóm mà bạn là thành viên." });
       setTimeout(() => setMessage(null), 5000);
       return;
@@ -820,7 +839,14 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
 
         <div className="relative group">
           <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Họ và Tên (Nhóm Công Tác)</label>
-          <p className="text-xs text-orange-600 mb-2 italic">Lưu ý: Nhập 1 người nếu công tác 1 mình; nhập 1 lượt tất cả các thành viên nhóm nếu công tác chung nhóm của ngày đó.</p>
+          <p className="text-xs text-orange-600 mb-2 italic">
+            Lưu ý: Nhập 1 người nếu công tác 1 mình; nhập 1 lượt tất cả các thành viên nhóm nếu công tác chung nhóm của ngày đó.
+            {canBaoCaoHo && (
+              <span className="ml-1 text-emerald-700 font-semibold not-italic">
+                (Tài khoản của bạn được phép cập nhật báo cáo hộ nhân sự khác)
+              </span>
+            )}
+          </p>
           <div className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 flex flex-wrap gap-2 min-h-[50px] items-center text-sm font-medium focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-500/50 focus-within:border-blue-500 transition-all">
              {members.map((m, idx) => (
                <div key={`${m}_${idx}`} className="bg-blue-100 text-blue-700 px-3 py-1.5 rounded-md flex items-center gap-1.5 text-xs font-bold shadow-sm border border-blue-200">
@@ -831,7 +857,12 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
              <input
                type="text"
                value={memberInput}
-               onChange={e => setMemberInput(e.target.value)}
+               onFocus={() => setIsMemberDropdownOpen(true)}
+               onBlur={() => setTimeout(() => setIsMemberDropdownOpen(false), 180)}
+               onChange={e => {
+                 setMemberInput(e.target.value);
+                 setIsMemberDropdownOpen(true);
+               }}
                onKeyDown={e => {
                   if (e.key === 'Enter') {
                      e.preventDefault();
@@ -863,11 +894,12 @@ export default function WorkloadForm({ onSaved, refreshToggle, isManagement }: {
              />
           </div>
           
-          {memberInput && filteredMembers.length > 0 && (
+          {(memberInput || isMemberDropdownOpen) && filteredMembers.length > 0 && (
             <div className="absolute z-10 left-0 right-0 top-full mt-2 bg-white border border-slate-200 rounded-xl shadow-xl max-h-56 overflow-y-auto">
               {filteredMembers.map((suggestion, idx) => (
                 <div 
-                  key={idx}
+                  key={`${suggestion}_${idx}`}
+                  onMouseDown={e => e.preventDefault()}
                   className="p-3 text-sm border-b border-slate-100 hover:bg-blue-50 hover:text-blue-700 cursor-pointer font-semibold transition-colors"
                   onClick={() => {
                     if (!members.includes(suggestion)) {

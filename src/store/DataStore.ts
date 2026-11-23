@@ -1045,7 +1045,22 @@ export const DEFAULT_SAMPLE_DVKH: DvkhEntry[] = [];
 export const DataStore = {
 
   initDB: initDB,
+  pushSystemSettings: async (partialSettings: Record<string, any>): Promise<boolean> => {
+    try {
+      if (typeof fetch !== 'function') return false;
+      const res = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ systemSettings: partialSettings })
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  },
   syncCentralConfig: async (): Promise<boolean> => {
+    let dataSourceChanged = false;
+    let systemSettingsChanged = false;
     try {
       const cfgRes = await fetch('/api/config?_t=' + Date.now(), { 
         cache: 'no-store',
@@ -1060,12 +1075,132 @@ export const DataStore = {
             safeSetItem(SCRIPT_URL_KEY, serverUrl);
             window.dispatchEvent(new CustomEvent('app_script_url_updated', { detail: serverUrl }));
             window.dispatchEvent(new CustomEvent('workload_updated'));
-            return true;
+            dataSourceChanged = true;
           }
+        }
+
+        const serverSheetId = sCfg.spreadsheetId || sCfg.canonicalSpreadsheetId || DEFAULT_SPREADSHEET_ID;
+        if (serverSheetId && String(serverSheetId).trim()) {
+          const curSheet = safeGetItem(SPREADSHEET_ID_KEY);
+          if (curSheet !== String(serverSheetId).trim()) {
+            safeSetItem(SPREADSHEET_ID_KEY, String(serverSheetId).trim());
+            window.dispatchEvent(new CustomEvent('app_script_url_updated'));
+            window.dispatchEvent(new CustomEvent('workload_updated'));
+            dataSourceChanged = true;
+          }
+        }
+
+        const sys = sCfg.systemSettings;
+        if (sys && typeof sys === 'object') {
+          // 1. RBAC permissions
+          if (sys.rbac && typeof sys.rbac === 'object') {
+            if (PermissionStore.applyRemoteConfig(sys.rbac)) {
+              systemSettingsChanged = true;
+            }
+          }
+
+          // 2. Productivity & Holidays
+          if (sys.productivity && typeof sys.productivity === 'object') {
+            const p = sys.productivity;
+            let prodChanged = false;
+            if (typeof p.excludeSaturday === 'boolean' && DataStore.getExcludeSaturday() !== p.excludeSaturday) {
+              safeSetItem('config_exclude_saturday', p.excludeSaturday ? 'true' : 'false');
+              prodChanged = true;
+            }
+            if (typeof p.excludeSunday === 'boolean' && DataStore.getExcludeSunday() !== p.excludeSunday) {
+              safeSetItem('config_exclude_sunday', p.excludeSunday ? 'true' : 'false');
+              prodChanged = true;
+            }
+            if (typeof p.excludeNghi === 'boolean' && DataStore.getExcludeNghi() !== p.excludeNghi) {
+              safeSetItem('config_exclude_nghi', p.excludeNghi ? 'true' : 'false');
+              prodChanged = true;
+            }
+            if (typeof p.excludeHolidays === 'boolean' && DataStore.getExcludeHolidays() !== p.excludeHolidays) {
+              safeSetItem('config_exclude_holidays', p.excludeHolidays ? 'true' : 'false');
+              prodChanged = true;
+            }
+            if (typeof p.allowAllLockPlan === 'boolean' && DataStore.getAllowAllLockPlan() !== p.allowAllLockPlan) {
+              safeSetItem('config_allow_all_lock_plan', p.allowAllLockPlan ? 'true' : 'false');
+              prodChanged = true;
+            }
+            if (Array.isArray(p.holidays)) {
+              const nextHolStr = JSON.stringify(p.holidays);
+              const curHolStr = safeGetItem('config_holidays_v1');
+              if (curHolStr !== nextHolStr) {
+                safeSetItem('config_holidays_v1', nextHolStr);
+                prodChanged = true;
+              }
+            }
+            if (prodChanged) {
+              systemSettingsChanged = true;
+              window.dispatchEvent(new CustomEvent('workload_updated'));
+            }
+          }
+
+          // 3. Công đoàn & Tuyên dương
+          if (sys.congDoan && typeof sys.congDoan === 'object') {
+            let cdChanged = false;
+            if (Array.isArray(sys.congDoan.leaderNames)) {
+              const nextLeaders = JSON.stringify(sys.congDoan.leaderNames);
+              if (safeGetItem('config_cong_doan_leaders') !== nextLeaders) {
+                safeSetItem('config_cong_doan_leaders', nextLeaders);
+                cdChanged = true;
+              }
+            }
+            if (Array.isArray(sys.congDoan.tuyenDuongExclusions)) {
+              const nextExcl = JSON.stringify(sys.congDoan.tuyenDuongExclusions);
+              if (safeGetItem('config_tuyen_duong_exclusions_v1') !== nextExcl) {
+                safeSetItem('config_tuyen_duong_exclusions_v1', nextExcl);
+                cdChanged = true;
+              }
+            }
+            if (cdChanged) {
+              systemSettingsChanged = true;
+              window.dispatchEvent(new CustomEvent('workload_updated'));
+            }
+          }
+
+          // 4. External report links
+          if (Array.isArray(sys.externalReportLinks)) {
+            const nextLinks = JSON.stringify(sys.externalReportLinks);
+            if (safeGetItem('config_external_report_links_v1') !== nextLinks) {
+              safeSetItem('config_external_report_links_v1', nextLinks);
+              systemSettingsChanged = true;
+              window.dispatchEvent(new CustomEvent('external_report_links_changed', { detail: sys.externalReportLinks }));
+            }
+          }
+
+          // 5. KTHTDD Area Policy
+          if (sys.kthtddAreaPolicy && typeof sys.kthtddAreaPolicy === 'object') {
+            const normalizedPolicy = {
+              defaultEmployeeScope: sys.kthtddAreaPolicy.defaultEmployeeScope || 'managed',
+              memberOverrides: sys.kthtddAreaPolicy.memberOverrides || {}
+            };
+            const nextPol = JSON.stringify(normalizedPolicy);
+            if (safeGetItem('config_kthtdd_area_policy_v1') !== nextPol) {
+              safeSetItem('config_kthtdd_area_policy_v1', nextPol);
+              systemSettingsChanged = true;
+              window.dispatchEvent(new CustomEvent('kthtdd_policy_updated', { detail: normalizedPolicy }));
+            }
+          }
+
+          // 6. DVKH Config
+          if (sys.dvkhConfig && typeof sys.dvkhConfig === 'object' && typeof sys.dvkhConfig.allowCustomNgayHoanTat === 'boolean') {
+            const nextVal = String(sys.dvkhConfig.allowCustomNgayHoanTat);
+            if (safeGetItem(ALLOW_CUSTOM_NGAY_HOAN_TAT_DVKH_KEY) !== nextVal) {
+              safeSetItem(ALLOW_CUSTOM_NGAY_HOAN_TAT_DVKH_KEY, nextVal);
+              systemSettingsChanged = true;
+              window.dispatchEvent(new CustomEvent('dvkh_config_updated'));
+            }
+          }
+        }
+
+        if (systemSettingsChanged) {
+          window.dispatchEvent(new CustomEvent('system_config_updated'));
         }
       }
     } catch (e) {}
-    return false;
+    return dataSourceChanged;
   },
   getLocalNghiBuMap: (): Record<string, number> => {
     try {
@@ -1284,33 +1419,60 @@ export const DataStore = {
       return null;
   },
 
+  pushProductivitySettings: () => {
+      DataStore.pushSystemSettings({
+        productivity: {
+          excludeSaturday: DataStore.getExcludeSaturday(),
+          excludeSunday: DataStore.getExcludeSunday(),
+          excludeNghi: DataStore.getExcludeNghi(),
+          excludeHolidays: DataStore.getExcludeHolidays(),
+          allowAllLockPlan: DataStore.getAllowAllLockPlan(),
+          holidays: DataStore.getHolidays(),
+        }
+      });
+  },
   getExcludeSaturday: () => {
       const val = safeGetItem('config_exclude_saturday');
       return val === 'true'; // Default is false
   },
-  setExcludeSaturday: (val: boolean) => safeSetItem('config_exclude_saturday', val ? 'true' : 'false'),
+  setExcludeSaturday: (val: boolean) => {
+      safeSetItem('config_exclude_saturday', val ? 'true' : 'false');
+      DataStore.pushProductivitySettings();
+  },
   getExcludeSunday: () => {
       const val = safeGetItem('config_exclude_sunday');
       return val === 'true'; // Default is false
   },
-  setExcludeSunday: (val: boolean) => safeSetItem('config_exclude_sunday', val ? 'true' : 'false'),
+  setExcludeSunday: (val: boolean) => {
+      safeSetItem('config_exclude_sunday', val ? 'true' : 'false');
+      DataStore.pushProductivitySettings();
+  },
   getAllowAllLockPlan: () => {
       const val = safeGetItem('config_allow_all_lock_plan');
       return val === 'true'; // Default is false
   },
-  setAllowAllLockPlan: (val: boolean) => safeSetItem('config_allow_all_lock_plan', val ? 'true' : 'false'),
+  setAllowAllLockPlan: (val: boolean) => {
+      safeSetItem('config_allow_all_lock_plan', val ? 'true' : 'false');
+      DataStore.pushProductivitySettings();
+  },
   
   getExcludeNghi: () => {
       const val = safeGetItem('config_exclude_nghi');
       return val !== 'false'; // Default is true (không tính)
   },
-  setExcludeNghi: (val: boolean) => safeSetItem('config_exclude_nghi', val ? 'true' : 'false'),
+  setExcludeNghi: (val: boolean) => {
+      safeSetItem('config_exclude_nghi', val ? 'true' : 'false');
+      DataStore.pushProductivitySettings();
+  },
 
   getExcludeHolidays: () => {
       const val = safeGetItem('config_exclude_holidays');
       return val !== 'false'; // Default is true (loại trừ ngày nghỉ lễ)
   },
-  setExcludeHolidays: (val: boolean) => safeSetItem('config_exclude_holidays', val ? 'true' : 'false'),
+  setExcludeHolidays: (val: boolean) => {
+      safeSetItem('config_exclude_holidays', val ? 'true' : 'false');
+      DataStore.pushProductivitySettings();
+  },
 
   normalizeDateStr: (dateStr: string): string => {
     if (!dateStr) return '';
@@ -1344,6 +1506,7 @@ export const DataStore = {
 
   setHolidays: (holidays: Holiday[]) => {
     safeSetItem('config_holidays_v1', JSON.stringify(holidays));
+    DataStore.pushProductivitySettings();
   },
 
   addHoliday: (date: string, name: string): boolean => {
@@ -1416,6 +1579,12 @@ export const DataStore = {
   },
   setCongDoanLeaderNames: (names: string[]) => {
     safeSetItem('config_cong_doan_leaders', JSON.stringify(names));
+    DataStore.pushSystemSettings({
+      congDoan: {
+        leaderNames: names,
+        tuyenDuongExclusions: DataStore.getTuyenDuongExclusions(),
+      }
+    });
   },
   getTuyenDuongExclusions: (): TuyenDuongExclusion[] => {
     try {
@@ -1427,6 +1596,12 @@ export const DataStore = {
   },
   setTuyenDuongExclusions: (list: TuyenDuongExclusion[]) => {
     safeSetItem('config_tuyen_duong_exclusions_v1', JSON.stringify(list));
+    DataStore.pushSystemSettings({
+      congDoan: {
+        leaderNames: DataStore.getCongDoanLeaderNames(),
+        tuyenDuongExclusions: list,
+      }
+    });
   },
   addTuyenDuongExclusion: (item: Omit<TuyenDuongExclusion, 'id' | 'createdAt'>): TuyenDuongExclusion => {
     const list = DataStore.getTuyenDuongExclusions();
@@ -1490,6 +1665,7 @@ export const DataStore = {
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('external_report_links_changed', { detail: links }));
     }
+    DataStore.pushSystemSettings({ externalReportLinks: links });
   },
   addExternalReportLink: (link: Omit<ExternalReportLink, 'id'>): ExternalReportLink => {
     const list = [...DataStore.getExternalReportLinks()];
@@ -1538,6 +1714,7 @@ export const DataStore = {
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('kthtdd_policy_updated', { detail: policy }));
     }
+    DataStore.pushSystemSettings({ kthtddAreaPolicy: policy });
   },
 
   getKthtddKnownAreas: (): string[] => {
@@ -7369,6 +7546,7 @@ export const DataStore = {
   setAllowCustomNgayHoanTatDvkh: (val: boolean) => {
     safeSetItem(ALLOW_CUSTOM_NGAY_HOAN_TAT_DVKH_KEY, String(val));
     window.dispatchEvent(new CustomEvent('dvkh_config_updated'));
+    DataStore.pushSystemSettings({ dvkhConfig: { allowCustomNgayHoanTat: val } });
   },
 
   // ======== ĐỒNG BỘ CỨU HỘ TOÀN BỘ CÔNG VIỆC DVKH ĐÃ LÀM TỪ MÁY NÀY LÊN CLOUD ========
